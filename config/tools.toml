@@ -1,0 +1,14 @@
+[hive]
+hms_host = "hive-metastore.service.us-west-2b.consul"
+hms_port = 9083
+
+[trino]
+host = "presto.s.tahoe.wish.site"
+port = 8443
+user = "tahoepilot"
+catalog = "hive"
+schema_name = "default"
+http_scheme = "https"
+
+[spark]
+master = "local[*]"

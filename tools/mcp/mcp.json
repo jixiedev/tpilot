@@ -1,0 +1,53 @@
+{
+  "airflow_tahoe": {
+    "transport": "stdio",
+    "command": "/Users/jixie/.local/bin/uv",
+    "args": [
+      "run",
+      "--directory",
+      "/Users/jixie/sbox/airflow-mcp-server",
+      "airflow-mcp-server",
+      "--safe",
+      "--static-tools",
+      "--base-url",
+      "https://airflow.s.tahoe.wish.site/api/v1",
+      "--auth-token",
+      "${AIRFLOW_MCP_AUTH_TOKEN}"
+    ]
+  },
+  "airflow_legacy": {
+    "transport": "stdio",
+    "command": "/Users/jixie/.local/bin/uv",
+    "args": [
+      "run",
+      "--directory",
+      "/Users/jixie/sbox/airflow-mcp-server",
+      "airflow-mcp-server",
+      "--safe",
+      "--static-tools",
+      "--base-url",
+      "https://airflow.s.legacy.wish.site/api/v1",
+      "--auth-token",
+      "${AIRFLOW_LEGACY_MCP_AUTH_TOKEN}"
+    ]
+  },
+  "tahoe_superset": {
+    "transport": "stdio",
+    "command": "uv",
+    "args": [
+      "run",
+      "--directory",
+      "/Users/jixie/wbox/superset-mcp",
+      "main.py"
+    ]
+  },
+  "datahub": {
+    "transport": "stdio",
+    "command": "/Users/jixie/.local/bin/uvx",
+    "args": ["mcp-server-datahub"],
+    "env": {
+      "DATAHUB_GMS_URL": "https://datahub.s.tahoe.wish.site:8080",
+      "DATAHUB_GMS_TOKEN": "${DATAHUB_GMS_TOKEN}"
+    }
+  }
+}
