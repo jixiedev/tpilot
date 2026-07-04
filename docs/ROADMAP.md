@@ -22,17 +22,21 @@
 
 ## Features
 
-| ID | Feature | 描述 | 状态 |
-|----|---------|------|------|
-| F1 | Memory | 会话持久化、上下文管理；跨 Session 的用户偏好与常用表 | 未开始 |
-| F2 | Multi-Agent | Router 分发、Supervisor 编排、Handoff | 未开始 |
-| F3 | Human-in-the-Loop | 高风险操作需用户确认 | 未开始 |
-| F4 | Data Diagnosis | 质量检查、根因推理、诊断报告 | 未开始 |
-| F5 | Lineage Awareness | 表血缘 / 上游 Pipeline 辅助定位 | 未开始 |
-| F6 | Code Generation & Review | SQL / Pipeline 生成与审查 | 未开始 |
-| F7 | Data Analysis | 趋势分析、可视化建议、Notebook 导出 | 未开始 |
-| F8 | Web UI & API | 浏览器 Chat、REST/SSE API | 未开始 |
-| F9 | Auth & RBAC | 用户认证、catalog/schema 级权限 | 未开始 |
+| ID | Feature | 描述 | 优先级 | 状态 |
+|----|---------|------|--------|------|
+| F1 | Context Engineering | 动态组装 system prompt、上下文片段、工具描述 | P0 | 未开始 |
+| F2 | Structured Output | 结构化输出约束（typed response、JSON schema） | P0 | 未开始 |
+| F3 | Memory | 跨 Session 状态持久化；用户偏好与历史上下文召回 | P0 | 未开始 |
+| F4 | Memory Compression | 长对话自动压缩/摘要，保留关键事实，控制 context 窗口 | P0 | 未开始 |
+| F5 | Planning | 任务规划与分解，Plan-and-Execute | P1 | 未开始 |
+| F6 | Human-in-the-Loop | 关键节点 interrupt，等待用户确认或补充 | P1 | 未开始 |
+| F7 | Reflective Reasoning | 输出前自我审查与修正（一致性检查、retry） | P1 | 未开始 |
+| F8 | Parallel Tool Use | 并行工具调用与结果聚合 | P1 | 未开始 |
+| F9 | Eval Loop | 评测集回归、Prompt/Agent 行为持续迭代 | P2 | 未开始 |
+| F10 | Monitoring | Token 用量、Cache 命中率、工具调用延迟与错误率 | P2 | 未开始 |
+| F11 | Semantic Cache | 语义相似的请求命中缓存，避免重复推理 | P2 | 未开始 |
+| F12 | Model Routing | 按任务复杂度/成本动态选择模型 | P2 | 未开始 |
+| F13 | Procedural Memory | 从成功交互中提炼可复用的工具调用序列与工作流 | P3 | 未开始 |
 
 ---
 

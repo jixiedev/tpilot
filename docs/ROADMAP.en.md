@@ -22,17 +22,21 @@ An AI Agent platform for data teams: chatbot, intelligent data retrieval, data d
 
 ## Features
 
-| ID | Feature | Description | Status |
-|----|---------|-------------|--------|
-| F1 | Memory | Session persistence, context management; user preferences and frequent tables across sessions | Not started |
-| F2 | Multi-Agent | Router dispatch, Supervisor orchestration, Handoff | Not started |
-| F3 | Human-in-the-Loop | User confirmation for high-risk operations | Not started |
-| F4 | Data Diagnosis | Quality checks, root-cause reasoning, diagnostic reports | Not started |
-| F5 | Lineage Awareness | Table lineage / upstream pipeline for investigation | Not started |
-| F6 | Code Generation & Review | SQL / pipeline generation and review | Not started |
-| F7 | Data Analysis | Trend analysis, visualization suggestions, notebook export | Not started |
-| F8 | Web UI & API | Browser chat, REST/SSE API | Not started |
-| F9 | Auth & RBAC | Authentication, catalog/schema-level permissions | Not started |
+| ID | Feature | Description | Priority | Status |
+|----|---------|-------------|----------|--------|
+| F1 | Context Engineering | Dynamic assembly of system prompt, context snippets, and tool descriptions | P0 | Not started |
+| F2 | Structured Output | Structured output constraints (typed response, JSON schema) | P0 | Not started |
+| F3 | Memory | Cross-session state persistence; user preferences and historical context retrieval | P0 | Not started |
+| F4 | Memory Compression | Auto-compress/summarize long conversations; retain key facts within context window | P0 | Not started |
+| F5 | Planning | Task planning and decomposition; Plan-and-Execute | P1 | Not started |
+| F6 | Human-in-the-Loop | Interrupt at key nodes; wait for user confirmation or input | P1 | Not started |
+| F7 | Reflective Reasoning | Self-review and correction before delivery (consistency checks, retry) | P1 | Not started |
+| F8 | Parallel Tool Use | Parallel tool invocation and result aggregation | P1 | Not started |
+| F9 | Eval Loop | Eval set regression; continuous iteration on prompts and agent behavior | P2 | Not started |
+| F10 | Monitoring | Token usage, cache hit rate, tool call latency and error rate | P2 | Not started |
+| F11 | Semantic Cache | Semantically similar requests hit cache; avoid redundant reasoning | P2 | Not started |
+| F12 | Model Routing | Dynamic model selection by task complexity and cost | P2 | Not started |
+| F13 | Procedural Memory | Distill reusable tool-call sequences and workflows from successful interactions | P3 | Not started |
 
 ---
 
