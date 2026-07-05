@@ -4,6 +4,52 @@ Iterative optimization notes for the conversational CLI agent. Each round adds a
 
 ---
 
+## 2026-07-05 — Idle nudge toward chat_completion
+
+**Goal**: When the model returns plain text, remind it to call `chat_completion`; cap idle retries at 3.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| Idle handling | Loop back to `step_llm` silently until idle limit | On idle, inject ephemeral system nudge to call `chat_completion` or data tools |
+| Idle limit | 5 plain-text retries before forced END | 3 plain-text retries before forced END |
+
+---
+
+## 2026-07-05 — chat_completion turn finalization
+
+**Goal**: In the chatbot graph, force the model to end each turn via `chat_completion(reply=...)` instead of plain text.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| Turn ending | Graph ended when the model returned text without tool calls | Plain text loops back to `step_llm`; turn ends only after `chat_completion` runs in the tool node |
+| User reply | Taken from the last AI message content | Taken from the `reply` argument via `chat_completion` ToolMessage |
+| Tool scope | N/A | `chat_completion` is registered only in the chatbot graph, not in standalone data tool sets |
+
+---
+
+## 2026-07-05 — Session history boundaries in prompts
+
+**Goal**: Tell the LLM which messages are prior session state vs the current turn request.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| Turn framing | Full message list with no structural hint | `PromptLayout` inserts a turn boundary before each new user message when history exists |
+| Prompt guidance | LLM inferred context from flat history | System and step prompts describe session layout and boundary semantics |
+
+---
+
+## 2026-07-05 — Dual prompts and session-scoped history
+
+**Goal**: Separate session-level system prompt from per-step tool guidance; isolate conversation history by session id.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| Prompt roles | Single system prompt covered both role definition and tool-step guidance | `system_prompt` node injects session rules once; `step_llm` receives ephemeral `NEXT_STEP_PROMPT` on each LLM call without polluting history |
+| Agent graph | Single `agent` node handled everything | `system_prompt` → `step_llm` ↔ `tools`; step node owns bind_tools and tool-direction turns |
+| Session state | REPL held one in-memory state; no lookup by user | `StateStore` + `StateProcessor` load/save history per `--session`; different ids keep separate conversations in-process |
+
+---
+
 ## 2026-07-05 — CLI multi-turn chat and tool calling
 
 **Goal**: Multi-turn CLI chat with Hive / Trino / MCP tool calls and natural-language replies.

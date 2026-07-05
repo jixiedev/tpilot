@@ -11,10 +11,13 @@ from typing import Any
 
 from langchain_core.messages import AIMessage, ToolMessage
 
-from agent.prompt import SYSTEM_PROMPT
+from agent.prompt import IDLE_CHAT_COMPLETION_PROMPT, NEXT_STEP_PROMPT, SYSTEM_PROMPT
 from graph.builder import build_chat_graph, load_all_tools
 from models.models import default_model, default_model_name
-from state.agent_state import AgentState, append_user_turn, last_ai_message, new_chat_state
+from state.StateStore import StateStore
+from state.agent_state import AgentState, last_ai_message, last_chat_reply
+from state.prompt import PromptLayout
+from state.state import StateProcessor
 
 logger = logging.getLogger(__name__)
 
@@ -56,37 +59,48 @@ def _print_turn_trace(state: AgentState, *, verbose: bool) -> None:
 
 
 def _print_assistant_reply(state: AgentState) -> None:
-    reply = last_ai_message(state)
+    reply = last_chat_reply(state)
     if reply is None:
-        print("Assistant> (no text response; try -v to inspect tool trace)")
+        fallback = last_ai_message(state)
+        if fallback is not None:
+            content = fallback.content
+            if isinstance(content, list):
+                text_parts = [
+                    part.get("text", "")
+                    for part in content
+                    if isinstance(part, dict) and part.get("type") == "text"
+                ]
+                content = "".join(text_parts)
+            print(f"Assistant> {content}")
+            return
+        print("Assistant> (no reply; expected chat_completion — try -v)")
         return
-    content = reply.content
-    if isinstance(content, list):
-        text_parts = [
-            part.get("text", "")
-            for part in content
-            if isinstance(part, dict) and part.get("type") == "text"
-        ]
-        content = "".join(text_parts)
-    print(f"Assistant> {content}")
+    print(f"Assistant> {reply}")
 
 
-async def _startup_banner(*, verbose: bool) -> None:
+async def _startup_banner(*, session: str, verbose: bool) -> None:
     tools = await load_all_tools()
     tool_names = ", ".join(tool.name for tool in tools) or "(none)"
     print("TahoePilot — type 'quit' to exit")
+    print(f"Session: {session}")
     print(f"Model: {default_model_name}")
     print(f"Tools ({len(tools)}): {tool_names}")
     if verbose:
         print("Verbose tool tracing enabled (-v)")
 
 
-async def run_repl(*, verbose: bool = False) -> None:
+async def run_repl(*, session: str, verbose: bool = False) -> None:
     _configure_logging(verbose)
-    await _startup_banner(verbose=verbose)
+    await _startup_banner(session=session, verbose=verbose)
 
-    graph = await build_chat_graph(default_model)
-    state: AgentState = new_chat_state(SYSTEM_PROMPT)
+    graph = await build_chat_graph(
+        default_model,
+        system_prompt=SYSTEM_PROMPT,
+        next_step_prompt=NEXT_STEP_PROMPT,
+        idle_nudge_prompt=IDLE_CHAT_COMPLETION_PROMPT,
+    )
+    state_store = StateStore()
+    state_processor = StateProcessor(state_store, PromptLayout())
 
     while True:
         try:
@@ -101,7 +115,7 @@ async def run_repl(*, verbose: bool = False) -> None:
             print("Bye.")
             break
 
-        append_user_turn(state, user_input)
+        state = state_processor.begin_turn(session, user_input)
 
         try:
             state = graph.invoke(state)
@@ -110,6 +124,8 @@ async def run_repl(*, verbose: bool = False) -> None:
             print("Assistant> Request failed; see logs for details.", file=sys.stderr)
             continue
 
+        state_processor.finish_turn(session, state)
+
         if verbose:
             _print_turn_trace(state, verbose=True)
         _print_assistant_reply(state)
@@ -117,6 +133,12 @@ async def run_repl(*, verbose: bool = False) -> None:
 
 def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="TahoePilot CLI chat")
+    parser.add_argument(
+        "-s",
+        "--session",
+        default="default",
+        help="Session id for conversation history (e.g. per user)",
+    )
     parser.add_argument(
         "-v",
         "--verbose",
@@ -128,7 +150,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> None:
     args = build_arg_parser().parse_args(argv)
-    asyncio.run(run_repl(verbose=args.verbose))
+    asyncio.run(run_repl(session=args.session, verbose=args.verbose))
 
 
 if __name__ == "__main__":

@@ -6,8 +6,9 @@ An AI agent for data teams: multi-turn CLI chat with Hive, Trino, and optional M
 
 ## Features
 
-- **Multi-turn CLI** — REPL with in-process conversation history
-- **ReAct agent** — LangGraph loop: LLM reasoning ↔ tool execution (up to 10 tool steps per turn)
+- **Multi-turn CLI** — REPL with session-scoped conversation history (`--session`)
+- **Dual prompts** — session system rules injected once; per-step tool guidance on each LLM call in the tool loop
+- **ReAct agent** — LangGraph loop: `step_llm` ↔ tool execution (up to 10 tool steps per turn)
 - **Hive HMS** — `hive_list_tables`, `hive_desc_table` via Hive Metastore
 - **Trino** — catalog/schema exploration and read-only SQL (`trino_run_query`, row limit 100 by default)
 - **MCP** — optional tools from configured MCP servers; startup degrades gracefully if MCP is unavailable
@@ -57,6 +58,9 @@ python main.py
 # or
 tahoepilot
 
+# separate history per user / tenant
+python main.py -s alice
+
 # show tool call trace
 python main.py -v
 ```
@@ -83,20 +87,23 @@ If `mcp.json` is missing or servers fail to connect, TahoePilot starts with Hive
 ## Architecture
 
 ```
-main.py → agent/cli.py (REPL)
+main.py → agent/cli.py (REPL, --session)
               ↓
-         graph/builder.py (LangGraph ReAct)
+         graph/builder.py
               ↓
-    ┌─────────┼─────────┐
-    ↓         ↓         ↓
-  LLM      Hive      Trino      MCP (optional)
- (bind_tools)
+    system_prompt → step_llm ↔ tools
+              ↓
+    StateStore (per-session history)
+              ↓
+    Hive / Trino / MCP (optional)
 ```
 
 | Path | Role |
 |------|------|
-| `agent/cli.py` | Interactive loop, I/O |
-| `graph/builder.py` | Compiles the agent ↔ tools graph |
+| `agent/cli.py` | Interactive loop, session id, I/O |
+| `graph/builder.py` | Compiles system_prompt → step_llm ↔ tools graph |
+| `state/StateStore.py` | In-memory session history keyed by id |
+| `state/state.py` | `StateProcessor` — begin/finish turn load and save |
 | `graph/edge.py` | Routes to tools or end of turn |
 | `graph/node.py` | Tool execution with per-turn call counter |
 | `state/agent_state.py` | Message history and tool-call budget |

@@ -53,7 +53,7 @@ class StateStore:
         return self.initiate_session(session)
 
     def initiate_session(self, session: str) -> AgentState:
-        state: AgentState = {"messages": [], "tool_call_count": 0}
+        state: AgentState = {"messages": [], "tool_call_count": 0, "idle_rounds": 0}
         self.session_states[session] = state
         return state
 
