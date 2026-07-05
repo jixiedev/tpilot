@@ -13,7 +13,7 @@
 
 | ID | Milestone | 描述 | 状态 |
 |----|-----------|------|------|
-| M0 | 可对话 | CLI 里与 Agent 多轮对话，调用 Hive/Trino/MCP 工具拿到结果 | 进行中：Hive/Trino/MCP 工具已就绪，Graph 骨架在列，LLM 与 CLI 待接入 |
+| M0 | 可对话 | CLI 里与 Agent 多轮对话，调用 Hive/Trino/MCP 工具拿到结果 | 已完成：ReAct Graph + CLI REPL；详见 [CHAT_OPTIMIZATION.md](CHAT_OPTIMIZATION.md) |
 | M1 | 可恢复 | 对话状态持久化，关掉再开能接着聊；长对话有上下文管理 | 未开始 |
 | M2 | 能取数 | 用自然语言描述数据需求，Agent 找表、写 SQL、返回查询结果 | 未开始 |
 | M3 | 能协作 | 复杂任务拆给多个专精 Agent，彼此传递中间结果 | 未开始 |
@@ -40,4 +40,4 @@
 
 ---
 
-*最后更新：2026-07-04*
+*最后更新：2026-07-05*

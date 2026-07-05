@@ -1,7 +1,11 @@
 [basic]
-default_model_name = ""
+default_model_name = "glm-4.7-flash"
 
 [model.glm-4.7-flash]
 base_url = "https://open.bigmodel.cn/api/paas/v4/"
-api_key = ""
-provider = ""
+api_key_env = "GLM_API_KEY"
+provider = "openai"
+temperature = 0.3
+max_tokens = 8192
+timeout_seconds = 120
+max_retries = 3

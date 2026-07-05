@@ -1,4 +1,7 @@
+from __future__ import annotations
+
 import json
+import logging
 import os
 import re
 from pathlib import Path
@@ -9,6 +12,7 @@ from langchain_mcp_adapters.tools import load_mcp_tools
 
 _CONFIG_PATH = Path(__file__).resolve().parent / "mcp.json"
 _ENV_VAR_RE = re.compile(r"\$\{([^}]+)\}")
+_logger = logging.getLogger(__name__)
 
 _client: MultiServerMCPClient | None = None
 
@@ -27,14 +31,12 @@ def _expand_config(value):
     return value
 
 
+def mcp_config_path() -> Path:
+    return _CONFIG_PATH
+
+
 def load_mcp_config() -> dict:
-    if not _CONFIG_PATH.exists():
-        example = _CONFIG_PATH.with_suffix(".json.example")
-        raise FileNotFoundError(
-            f"MCP config not found: {_CONFIG_PATH}. "
-            f"Copy {example.name} to mcp.json and configure your servers."
-        )
-    with open(_CONFIG_PATH) as f:
+    with mcp_config_path().open(encoding="utf-8") as f:
         return _expand_config(json.load(f))
 
 
@@ -46,8 +48,16 @@ def get_client() -> MultiServerMCPClient:
 
 
 async def get_mcp_tools() -> list[BaseTool]:
-    """Load tools from all configured MCP servers (stateless, one session per call)."""
-    return await get_client().get_tools()
+    """Load MCP tools; return an empty list when config is missing or unreachable."""
+    if not mcp_config_path().is_file():
+        _logger.info("MCP config not found at %s; skipping MCP tools", _CONFIG_PATH)
+        return []
+
+    try:
+        return await get_client().get_tools()
+    except Exception:
+        _logger.exception("Failed to load MCP tools; continuing with Hive/Trino only")
+        return []
 
 
 async def get_tools_for_server(server_name: str) -> list[BaseTool]:

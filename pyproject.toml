@@ -1,7 +1,7 @@
 [project]
 name = "tahoepilot"
 version = "0.1.0"
-description = "Add your description here"
+description = "AI agent CLI for data teams — multi-turn chat with Hive, Trino, and MCP tools"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
@@ -13,3 +13,6 @@ dependencies = [
     "openai>=2.44.0",
     "trino>=0.338.0",
 ]
+
+[project.scripts]
+tahoepilot = "agent.cli:main"

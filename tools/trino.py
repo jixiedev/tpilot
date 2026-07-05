@@ -1,4 +1,7 @@
+from __future__ import annotations
+
 from threading import local
+from typing import Any
 
 from langchain.tools import tool
 from trino.dbapi import connect
@@ -25,13 +28,13 @@ def get_connection():
     return conn
 
 
-def _serialize_value(value):
+def _serialize_value(value: Any) -> Any:
     if value is None or isinstance(value, (str, int, float, bool)):
         return value
     return str(value)
 
 
-def _rows_to_dicts(cursor, rows):
+def _rows_to_dicts(cursor, rows: list[tuple]) -> list[dict[str, Any]]:
     columns = [desc[0] for desc in cursor.description]
     return [
         {col: _serialize_value(val) for col, val in zip(columns, row)}
@@ -39,7 +42,7 @@ def _rows_to_dicts(cursor, rows):
     ]
 
 
-def _execute_query(sql: str, limit: int = DEFAULT_ROW_LIMIT):
+def _execute_query(sql: str, limit: int = DEFAULT_ROW_LIMIT) -> dict[str, Any]:
     conn = get_connection()
     cursor = conn.cursor()
     cursor.execute(sql)
@@ -58,32 +61,39 @@ def _execute_query(sql: str, limit: int = DEFAULT_ROW_LIMIT):
 
 
 @tool
-def run_query(sql: str, limit: int = DEFAULT_ROW_LIMIT):
-    """Execute a Trino SQL query and return the result rows."""
+def trino_run_query(sql: str, limit: int = DEFAULT_ROW_LIMIT) -> dict[str, Any]:
+    """Execute a read-only Trino SQL query and return rows (may truncate)."""
     return _execute_query(sql, limit)
 
 
 @tool
-def list_catalogs():
+def trino_list_catalogs() -> list[dict[str, Any]]:
     """List all Trino catalogs."""
     return _execute_query("SHOW CATALOGS")["rows"]
 
 
 @tool
-def list_schemas(catalog: str):
+def trino_list_schemas(catalog: str) -> list[dict[str, Any]]:
     """List schemas in a Trino catalog."""
     return _execute_query(f"SHOW SCHEMAS FROM {catalog}")["rows"]
 
 
 @tool
-def list_tables(catalog: str, schema_name: str):
+def trino_list_tables(catalog: str, schema_name: str) -> list[dict[str, Any]]:
     """List tables in a Trino catalog and schema."""
     return _execute_query(f"SHOW TABLES FROM {catalog}.{schema_name}")["rows"]
 
 
 @tool
-def desc_table(catalog: str, schema_name: str, table: str):
+def trino_desc_table(catalog: str, schema_name: str, table: str) -> list[dict[str, Any]]:
     """Describe columns of a Trino table."""
     return _execute_query(f"DESCRIBE {catalog}.{schema_name}.{table}")["rows"]
 
-TOOLS = [run_query, list_catalogs, list_schemas, list_tables, desc_table]
+
+TOOLS = [
+    trino_run_query,
+    trino_list_catalogs,
+    trino_list_schemas,
+    trino_list_tables,
+    trino_desc_table,
+]
