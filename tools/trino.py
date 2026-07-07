@@ -4,9 +4,10 @@ from threading import local
 from typing import Any
 
 from langchain.tools import tool
+from trino.auth import BasicAuthentication
 from trino.dbapi import connect
 
-from config.tool_config import tool_config
+from config.tool_config import tool_config, trino_password
 
 _thread_local = local()
 DEFAULT_ROW_LIMIT = 100
@@ -20,6 +21,7 @@ def get_connection():
             host=cfg.host,
             port=cfg.port,
             user=cfg.user,
+            auth=BasicAuthentication(cfg.user, trino_password(cfg)),
             catalog=cfg.catalog,
             schema=cfg.schema_name,
             http_scheme=cfg.http_scheme,

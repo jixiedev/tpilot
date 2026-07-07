@@ -4,24 +4,38 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import json
 import logging
 import sys
-from typing import Any
+import uuid
+from pathlib import Path
 
-from langchain_core.messages import AIMessage, ToolMessage
+from dotenv import load_dotenv
 
-from agent.prompt import IDLE_CHAT_COMPLETION_PROMPT, NEXT_STEP_PROMPT, SYSTEM_PROMPT
-from graph.builder import build_chat_graph, load_all_tools
+load_dotenv(Path(__file__).resolve().parent.parent / ".env")
+
+from agent.registry import AGENTS, DEFAULT_AGENT, get_agent
 from models.models import default_model, default_model_name
-from state.StateStore import StateStore
-from state.agent_state import AgentState, last_ai_message, last_chat_reply
-from state.prompt import PromptLayout
-from state.state import StateProcessor
+from state.state import StateProcessor, StateStore
 
 logger = logging.getLogger(__name__)
 
 _EXIT_COMMANDS = frozenset({"quit", "exit", "q", ":q"})
+
+_NOISY_LOGGERS = (
+    "httpx",
+    "httpcore",
+    "openai",
+    "langchain",
+    "langchain_core",
+    "langchain_mcp_adapters",
+    "langgraph",
+    "mcp",
+    "mcp_server_datahub",
+    "fastmcp",
+    "datahub",
+    "tools.mcp",
+    "agent.chatbot.routes",
+)
 
 
 def _configure_logging(verbose: bool) -> None:
@@ -29,78 +43,25 @@ def _configure_logging(verbose: bool) -> None:
     logging.basicConfig(
         level=level,
         format="%(levelname)s %(name)s: %(message)s",
+        force=True,
     )
-
-
-def _format_tool_calls(message: AIMessage) -> str:
-    lines: list[str] = []
-    for call in message.tool_calls or []:
-        args = call.get("args", {})
-        rendered_args = json.dumps(args, ensure_ascii=False, sort_keys=True)
-        lines.append(f"  • {call.get('name')}({rendered_args})")
-    return "\n".join(lines)
-
-
-def _print_turn_trace(state: AgentState, *, verbose: bool) -> None:
     if not verbose:
-        return
-
-    pending_tool_names: list[str] = []
-    for message in state["messages"]:
-        if isinstance(message, AIMessage) and message.tool_calls:
-            pending_tool_names = [call.get("name", "?") for call in message.tool_calls]
-            print(_format_tool_calls(message))
-        elif isinstance(message, ToolMessage) and pending_tool_names:
-            name = pending_tool_names.pop(0)
-            preview = message.content
-            if isinstance(preview, str) and len(preview) > 240:
-                preview = preview[:240] + "…"
-            print(f"    ↳ {name}: {preview}")
+        for name in _NOISY_LOGGERS:
+            logging.getLogger(name).setLevel(logging.WARNING)
 
 
-def _print_assistant_reply(state: AgentState) -> None:
-    reply = last_chat_reply(state)
-    if reply is None:
-        fallback = last_ai_message(state)
-        if fallback is not None:
-            content = fallback.content
-            if isinstance(content, list):
-                text_parts = [
-                    part.get("text", "")
-                    for part in content
-                    if isinstance(part, dict) and part.get("type") == "text"
-                ]
-                content = "".join(text_parts)
-            print(f"Assistant> {content}")
-            return
-        print("Assistant> (no reply; expected chat_completion — try -v)")
-        return
-    print(f"Assistant> {reply}")
-
-
-async def _startup_banner(*, session: str, verbose: bool) -> None:
-    tools = await load_all_tools()
-    tool_names = ", ".join(tool.name for tool in tools) or "(none)"
-    print("TahoePilot — type 'quit' to exit")
-    print(f"Session: {session}")
-    print(f"Model: {default_model_name}")
-    print(f"Tools ({len(tools)}): {tool_names}")
-    if verbose:
-        print("Verbose tool tracing enabled (-v)")
-
-
-async def run_repl(*, session: str, verbose: bool = False) -> None:
+async def run_repl(*, agent_name: str, session: str, verbose: bool = False) -> None:
     _configure_logging(verbose)
-    await _startup_banner(session=session, verbose=verbose)
+    agent = get_agent(agent_name)
+    print("TahoePilot — type 'quit' to exit")
+    print(f"Agent: {agent.name}")
+    print(f"Session: {session}")
+    if verbose:
+        print(f"Model: {default_model_name}")
 
-    graph = await build_chat_graph(
-        default_model,
-        system_prompt=SYSTEM_PROMPT,
-        next_step_prompt=NEXT_STEP_PROMPT,
-        idle_nudge_prompt=IDLE_CHAT_COMPLETION_PROMPT,
-    )
+    graph = await agent.build_graph(default_model, max_tool_calls=30)
     state_store = StateStore()
-    state_processor = StateProcessor(state_store, PromptLayout())
+    state_processor = StateProcessor(state_store)
 
     while True:
         try:
@@ -115,42 +76,48 @@ async def run_repl(*, session: str, verbose: bool = False) -> None:
             print("Bye.")
             break
 
-        state = state_processor.begin_turn(session, user_input)
+        state = agent.begin_turn(state_processor, session, user_input)
+        turn_start = len(state["messages"])
 
         try:
-            state = graph.invoke(state)
+            state = await graph.ainvoke(state)
         except Exception:
             logger.exception("Graph invocation failed")
             print("Assistant> Request failed; see logs for details.", file=sys.stderr)
             continue
 
         state_processor.finish_turn(session, state)
-
-        if verbose:
-            _print_turn_trace(state, verbose=True)
-        _print_assistant_reply(state)
+        agent.print_turn_output(state, start_index=turn_start, verbose=verbose)
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="TahoePilot CLI chat")
     parser.add_argument(
+        "-a",
+        "--agent",
+        default=DEFAULT_AGENT,
+        choices=sorted(AGENTS),
+        help=f"Agent application to run (default: {DEFAULT_AGENT})",
+    )
+    parser.add_argument(
         "-s",
         "--session",
-        default="default",
-        help="Session id for conversation history (e.g. per user)",
+        default=None,
+        help="Session id for conversation history (default: random UUID)",
     )
     parser.add_argument(
         "-v",
         "--verbose",
         action="store_true",
-        help="Print tool call trace for each turn",
+        help="Show tool result previews and more logging",
     )
     return parser
 
 
 def main(argv: list[str] | None = None) -> None:
     args = build_arg_parser().parse_args(argv)
-    asyncio.run(run_repl(session=args.session, verbose=args.verbose))
+    session = args.session or str(uuid.uuid4())
+    asyncio.run(run_repl(agent_name=args.agent, session=session, verbose=args.verbose))
 
 
 if __name__ == "__main__":

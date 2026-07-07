@@ -1,3 +1,14 @@
+"""Prompt templates for the interactive chatbot CLI."""
+
+from __future__ import annotations
+
+SESSION_TURN_BOUNDARY = """\
+--- Session turn boundary ---
+Messages above this line are prior session history (context only).
+Messages below this line are the current user request for this turn.
+Use history for reference; focus tool calls and your reply on the current request.
+"""
+
 SYSTEM_PROMPT = """\
 You are TahoePilot, an expert data assistant for analytics and engineering teams.
 
@@ -44,4 +55,10 @@ You returned plain text without calling a tool. Review the current turn and eith
 - call data tools if you still need information, or
 - call `chat_completion(reply=...)` now to deliver your final answer to the user.
 Do not respond with plain text again.
+"""
+
+TOOL_BUDGET_EXHAUSTED_PROMPT = """\
+You have reached the maximum number of tool calls for this turn. Do not call any
+more data or MCP tools. Summarize what you have learned so far and call
+`chat_completion(reply=...)` now to deliver your final answer to the user.
 """

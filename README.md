@@ -1,14 +1,15 @@
 # TahoePilot
 
-An AI agent for data teams: multi-turn CLI chat with Hive, Trino, and optional MCP tools. Built on LangGraph and LangChain.
+An AI agent platform for data teams: multi-turn CLI chat with Hive, Trino, and optional MCP tools. Built on LangGraph and LangChain.
 
 **Version:** 0.1.0 · **Python:** 3.11+
 
 ## Features
 
 - **Multi-turn CLI** — REPL with session-scoped conversation history (`--session`)
+- **Pluggable agents** — select an agent application with `--agent` (default: `chatbot`)
 - **Dual prompts** — session system rules injected once; per-step tool guidance on each LLM call in the tool loop
-- **ReAct agent** — LangGraph loop: `step_llm` ↔ tool execution (up to 10 tool steps per turn)
+- **ReAct agent** — LangGraph loop: `step_llm` ↔ tool execution (configurable tool-step budget per turn)
 - **Hive HMS** — `hive_list_tables`, `hive_desc_table` via Hive Metastore
 - **Trino** — catalog/schema exploration and read-only SQL (`trino_run_query`, row limit 100 by default)
 - **MCP** — optional tools from configured MCP servers; startup degrades gracefully if MCP is unavailable
@@ -58,6 +59,9 @@ python main.py
 # or
 tahoepilot
 
+# select agent application (default: chatbot)
+python main.py --agent chatbot
+
 # separate history per user / tenant
 python main.py -s alice
 
@@ -87,40 +91,62 @@ If `mcp.json` is missing or servers fail to connect, TahoePilot starts with Hive
 ## Architecture
 
 ```
-main.py → agent/cli.py (REPL, --session)
+main.py → agent/cli.py (REPL, --agent, --session)
               ↓
-         graph/builder.py
+         agent/registry.py  →  AgentSpec (build_graph, begin_turn, display)
+              ↓
+         agent/chatbot/     →  prompts, routes, tools, graph assembly
+              ↓
+         graph/builder.py   →  generic build_react_graph
               ↓
     system_prompt → step_llm ↔ tools
               ↓
-    StateStore (per-session history)
+    state/StateStore (per-session history)
               ↓
-    Hive / Trino / MCP (optional)
+    tools/loader.py → Hive / Trino / MCP (optional)
 ```
 
 | Path | Role |
 |------|------|
-| `agent/cli.py` | Interactive loop, session id, I/O |
-| `graph/builder.py` | Compiles system_prompt → step_llm ↔ tools graph |
-| `state/StateStore.py` | In-memory session history keyed by id |
-| `state/state.py` | `StateProcessor` — begin/finish turn load and save |
-| `graph/edge.py` | Routes to tools or end of turn |
-| `graph/node.py` | Tool execution with per-turn call counter |
-| `state/agent_state.py` | Message history and tool-call budget |
+| `agent/cli.py` | Interactive loop; dispatches to registered agents |
+| `agent/registry.py` | `AgentSpec` registry and `--agent` lookup |
+| `agent/chatbot/` | Chatbot app: prompts, `chat_completion`, routes, graph, display |
+| `graph/builder.py` | Generic `build_react_graph` (tools and routes injected) |
+| `graph/node.py` | Step LLM node and tool execution with per-turn counter |
+| `graph/edge.py` | Shared routing helpers (`tool_call_count`, `limited_tools_condition`) |
+| `state/state.py` | `AgentState`, `StateStore`, `StateProcessor` |
+| `tools/loader.py` | Load shared data tools (Hive, Trino, MCP) |
 | `tools/hive.py` | Hive HMS metadata tools |
 | `tools/trino.py` | Trino query and metadata tools |
 | `tools/mcp/mcp.py` | MCP client and tool loader |
 | `models/models.py` | LLM factory from TOML config |
 | `config/tools.toml` | Hive / Trino connection settings |
 
+### Adding a new agent
+
+1. Create `agent/<name>/` with app-specific prompts, routes, tools, and `build_<name>_graph`.
+2. Register an `AgentSpec` in `agent/registry.py`.
+3. Run with `python main.py --agent <name>`.
+
+Shared infrastructure (`graph/`, `state/`, `tools/loader.py`, `models/`, `config/`) stays agent-agnostic.
+
 ## Project layout
 
 ```
 tahoepilot/
 ├── main.py              # Entry point
-├── agent/               # CLI and system prompt
-├── graph/               # LangGraph builder, nodes, edges
-├── state/               # Agent state helpers and session store
+├── agent/
+│   ├── cli.py           # Generic REPL
+│   ├── registry.py      # Agent registry
+│   └── chatbot/         # Chatbot agent application
+│       ├── prompt.py
+│       ├── tools.py     # chat_completion
+│       ├── routes.py
+│       ├── graph.py
+│       ├── session.py
+│       └── display.py
+├── graph/               # Generic LangGraph builder, nodes, edges
+├── state/               # Agent state and session store
 ├── tools/               # Hive, Trino, MCP integrations
 ├── models/              # LLM configuration
 ├── config/              # Tool connection settings

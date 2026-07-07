@@ -1,7 +1,7 @@
 [basic]
 default_model_name = "glm-4.7-flash"
 
-[model.glm-4.7-flash]
+[model."glm-4.7-flash"]
 base_url = "https://open.bigmodel.cn/api/paas/v4/"
 api_key_env = "GLM_API_KEY"
 provider = "openai"

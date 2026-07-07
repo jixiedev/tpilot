@@ -1,4 +1,4 @@
-"""LangGraph ReAct builder for conversational chat."""
+"""Generic LangGraph ReAct builder."""
 
 from __future__ import annotations
 
@@ -8,22 +8,11 @@ from typing import Any
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import SystemMessage
 from langchain_core.tools import BaseTool
-from langgraph.graph import END, START, StateGraph
+from langgraph.graph import START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 
-from graph.edge import (
-    DEFAULT_MAX_IDLE_ROUNDS,
-    chatbot_route_after_step,
-    chatbot_route_after_tools,
-)
 from graph.node import CounterToolNode, make_step_agent_node
-from state.agent_state import AgentState
-from tools.chat import TOOLS as chatbot_tools
-from tools.hive import TOOLS as hive_tools
-from tools.mcp.mcp import get_mcp_tools
-from tools.trino import TOOLS as trino_tools
-
-DEFAULT_MAX_TOOL_CALLS = 10
+from state.state import AgentState
 
 
 def _has_system_prompt(messages, system_prompt: str) -> bool:
@@ -46,31 +35,20 @@ def make_system_prompt_node(system_prompt: str) -> Callable[[AgentState], dict[s
     return system_prompt_node
 
 
-async def load_data_tools() -> list[BaseTool]:
-    mcp_tools = await get_mcp_tools()
-    return [*mcp_tools, *hive_tools, *trino_tools]
-
-
-async def load_all_tools() -> list[BaseTool]:
-    return [*await load_data_tools(), *chatbot_tools]
-
-
-async def build_chat_graph(
+def build_react_graph(
     model: BaseChatModel,
+    tools: list[BaseTool],
     *,
     system_prompt: str,
     next_step_prompt: str,
+    route_after_step: Callable[[AgentState], str],
+    route_after_tools: Callable[[AgentState], str],
     idle_nudge_prompt: str = "",
-    max_tool_calls: int = DEFAULT_MAX_TOOL_CALLS,
-    max_idle_rounds: int = DEFAULT_MAX_IDLE_ROUNDS,
+    tool_budget_exhausted_prompt: str = "",
+    max_tool_calls: int = 10,
 ) -> CompiledStateGraph:
-    tools = await load_all_tools()
+    """Compile a system_prompt → step_llm ↔ tools ReAct loop."""
     bound_model = model.bind_tools(tools)
-    route_after_step = chatbot_route_after_step(
-        max_tool_calls,
-        max_idle_rounds=max_idle_rounds,
-    )
-    route_after_tools = chatbot_route_after_tools()
 
     graph = StateGraph(AgentState)
     graph.add_node("system_prompt", make_system_prompt_node(system_prompt))
@@ -80,6 +58,8 @@ async def build_chat_graph(
             bound_model,
             next_step_prompt,
             idle_nudge_prompt=idle_nudge_prompt,
+            tool_budget_exhausted_prompt=tool_budget_exhausted_prompt,
+            max_tool_calls=max_tool_calls,
         ),
     )
     graph.add_node("tools", CounterToolNode(tools))
