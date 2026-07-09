@@ -11,9 +11,10 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-load_dotenv(Path(__file__).resolve().parent.parent / ".env")
+load_dotenv(Path(__file__).resolve().parent / ".env")
 
 from agent.registry import AGENTS, DEFAULT_AGENT, get_agent
+from config.logging_config import configure_logging
 from models.models import default_model, default_model_name
 from state.state import StateProcessor, StateStore
 
@@ -21,37 +22,8 @@ logger = logging.getLogger(__name__)
 
 _EXIT_COMMANDS = frozenset({"quit", "exit", "q", ":q"})
 
-_NOISY_LOGGERS = (
-    "httpx",
-    "httpcore",
-    "openai",
-    "langchain",
-    "langchain_core",
-    "langchain_mcp_adapters",
-    "langgraph",
-    "mcp",
-    "mcp_server_datahub",
-    "fastmcp",
-    "datahub",
-    "tools.mcp",
-    "agent.chatbot.routes",
-)
-
-
-def _configure_logging(verbose: bool) -> None:
-    level = logging.DEBUG if verbose else logging.INFO
-    logging.basicConfig(
-        level=level,
-        format="%(levelname)s %(name)s: %(message)s",
-        force=True,
-    )
-    if not verbose:
-        for name in _NOISY_LOGGERS:
-            logging.getLogger(name).setLevel(logging.WARNING)
-
 
 async def run_repl(*, agent_name: str, session: str, verbose: bool = False) -> None:
-    _configure_logging(verbose)
     agent = get_agent(agent_name)
     print("TahoePilot — type 'quit' to exit")
     print(f"Agent: {agent.name}")
@@ -77,7 +49,6 @@ async def run_repl(*, agent_name: str, session: str, verbose: bool = False) -> N
             break
 
         state = agent.begin_turn(state_processor, session, user_input)
-        turn_start = len(state["messages"])
 
         try:
             state = await graph.ainvoke(state)
@@ -87,7 +58,7 @@ async def run_repl(*, agent_name: str, session: str, verbose: bool = False) -> N
             continue
 
         state_processor.finish_turn(session, state)
-        agent.print_turn_output(state, start_index=turn_start, verbose=verbose)
+        agent.print_turn_output(state)
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
@@ -109,13 +80,14 @@ def build_arg_parser() -> argparse.ArgumentParser:
         "-v",
         "--verbose",
         action="store_true",
-        help="Show tool result previews and more logging",
+        help="Show model name at startup",
     )
     return parser
 
 
 def main(argv: list[str] | None = None) -> None:
     args = build_arg_parser().parse_args(argv)
+    configure_logging(verbose=args.verbose)
     session = args.session or str(uuid.uuid4())
     asyncio.run(run_repl(agent_name=args.agent, session=session, verbose=args.verbose))
 

@@ -26,7 +26,7 @@ def idle_rounds(state: Union[list[AnyMessage], dict[str, Any], BaseModel]) -> in
     return getattr(state, "idle_rounds", 0)
 
 
-def last_ai_message(
+def latest_message(
     state: Union[list[AnyMessage], dict[str, Any], BaseModel],
     messages_key: str = "messages",
 ) -> AnyMessage:
@@ -43,13 +43,14 @@ def limited_tools_condition(
     max_steps: int = 10,
     default_outlet: str = "__end__",
     no_tool_outlet: str = "__end__",
+    tools_outlet: str = "step_tools",
 ) -> Callable[[Union[list[AnyMessage], dict[str, Any], BaseModel]], str]:
     """Route to tools while under budget; otherwise end the graph turn."""
 
     def tool_condition(
         state: Union[list[AnyMessage], dict[str, Any], BaseModel],
     ) -> str:
-        ai_message = last_ai_message(state)
+        ai_message = latest_message(state)
         tool_calls = getattr(ai_message, "tool_calls", None) or []
 
         if not tool_calls:
@@ -63,6 +64,6 @@ def limited_tools_condition(
             )
             return default_outlet
 
-        return "tools"
+        return tools_outlet
 
     return tool_condition

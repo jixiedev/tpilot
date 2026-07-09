@@ -16,7 +16,7 @@ dependencies = [
 ]
 
 [project.scripts]
-tahoepilot = "agent.cli:main"
+tahoepilot = "main:main"
 
 [project.optional-dependencies]
 dev = [

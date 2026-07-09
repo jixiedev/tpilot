@@ -76,7 +76,7 @@ Iterative optimization notes for the conversational CLI agent. Each round adds a
 | Graph builder | `build_chat_graph` hardcoded Hive/Trino/MCP + chatbot routes and tools | Generic `build_react_graph` accepts tools and route functions; chatbot assembles in `agent/chatbot/graph.py` |
 | Routing | Chatbot `chat_completion` rules lived in `graph/edge.py` | Chatbot routes in `agent/chatbot/routes.py`; `graph/edge.py` keeps shared helpers only |
 | Prompts & turn tools | `prompt/` at repo root; `chat_completion` in `tools/chat.py` | Per-agent directory `agent/chatbot/` owns prompts, session boundary, and `chat_completion` |
-| CLI entry | REPL wired directly to chatbot prompts and graph | `agent/registry.py` + `--agent`; CLI delegates build, session, and display to `AgentSpec` |
+| CLI entry | REPL wired directly to chatbot prompts and graph | `cli.py` at project root; `agent/registry.py` + `--agent`; CLI delegates to `AgentSpec` |
 | Session state | `state/` imported chatbot prompt constants | `StateProcessor.begin_turn` accepts optional `turn_boundary` from the agent |
 
 ---

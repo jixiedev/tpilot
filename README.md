@@ -91,7 +91,7 @@ If `mcp.json` is missing or servers fail to connect, TahoePilot starts with Hive
 ## Architecture
 
 ```
-main.py → agent/cli.py (REPL, --agent, --session)
+main.py → cli.py (REPL, --agent, --session)
               ↓
          agent/registry.py  →  AgentSpec (build_graph, begin_turn, display)
               ↓
@@ -99,7 +99,7 @@ main.py → agent/cli.py (REPL, --agent, --session)
               ↓
          graph/builder.py   →  generic build_react_graph
               ↓
-    system_prompt → step_llm ↔ tools
+    inject_system_prompt → step_llm ↔ step_tools
               ↓
     state/StateStore (per-session history)
               ↓
@@ -108,13 +108,13 @@ main.py → agent/cli.py (REPL, --agent, --session)
 
 | Path | Role |
 |------|------|
-| `agent/cli.py` | Interactive loop; dispatches to registered agents |
+| `cli.py` | Interactive loop; dispatches to registered agents |
 | `agent/registry.py` | `AgentSpec` registry and `--agent` lookup |
 | `agent/chatbot/` | Chatbot app: prompts, `chat_completion`, routes, graph, display |
 | `graph/builder.py` | Generic `build_react_graph` (tools and routes injected) |
 | `graph/node.py` | Step LLM node and tool execution with per-turn counter |
 | `graph/edge.py` | Shared routing helpers (`tool_call_count`, `limited_tools_condition`) |
-| `state/state.py` | `AgentState`, `StateStore`, `StateProcessor` |
+| `state/state.py` | `SessionAgentState`, `StateStore`, `StateProcessor` |
 | `tools/loader.py` | Load shared data tools (Hive, Trino, MCP) |
 | `tools/hive.py` | Hive HMS metadata tools |
 | `tools/trino.py` | Trino query and metadata tools |
@@ -134,9 +134,9 @@ Shared infrastructure (`graph/`, `state/`, `tools/loader.py`, `models/`, `config
 
 ```
 tahoepilot/
-├── main.py              # Entry point
+├── main.py              # Entry point (loads .env, delegates to cli)
+├── cli.py               # REPL and argument parsing
 ├── agent/
-│   ├── cli.py           # Generic REPL
 │   ├── registry.py      # Agent registry
 │   └── chatbot/         # Chatbot agent application
 │       ├── prompt.py

@@ -11,6 +11,7 @@ from agent.chatbot.prompt import (
     SYSTEM_PROMPT,
     TOOL_BUDGET_EXHAUSTED_PROMPT,
 )
+from agent.chatbot.display import print_tool_call
 from agent.chatbot.routes import DEFAULT_MAX_IDLE_ROUNDS, chatbot_route_after_step, chatbot_route_after_tools
 from agent.chatbot.tools import TOOLS as chatbot_tools
 from graph.builder import build_react_graph
@@ -43,4 +44,5 @@ async def build_chat_graph(
         idle_nudge_prompt=idle_nudge_prompt,
         tool_budget_exhausted_prompt=tool_budget_exhausted_prompt,
         max_tool_calls=max_tool_calls,
+        on_tool_call=print_tool_call,
     )

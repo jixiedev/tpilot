@@ -8,7 +8,7 @@ from langgraph.graph.state import CompiledStateGraph
 from agent.chatbot.display import print_turn_output
 from agent.chatbot.graph import build_chat_graph
 from agent.chatbot.session import begin_turn
-from state.state import AgentState, StateProcessor
+from state.state import SessionAgentState, StateProcessor
 
 
 @dataclass(frozen=True)
@@ -16,7 +16,7 @@ class AgentSpec:
     name: str
     description: str
     build_graph: Callable[..., Awaitable[CompiledStateGraph]]
-    begin_turn: Callable[[StateProcessor, str, str], AgentState]
+    begin_turn: Callable[[StateProcessor, str, str], SessionAgentState]
     print_turn_output: Callable[..., None]
 
 

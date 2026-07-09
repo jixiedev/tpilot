@@ -42,7 +42,7 @@ def test_budget_exhausted_with_chat_completion_routes_to_tools() -> None:
         ],
     )
 
-    assert route(state) == "tools"
+    assert route(state) == "step_tools"
 
 
 def test_budget_exhausted_without_tools_routes_to_step_llm() -> None:
@@ -59,7 +59,7 @@ def test_under_budget_with_tools_routes_to_tools() -> None:
         tool_calls=[{"name": "hive_list_tables", "args": {"database": "default"}, "id": "1"}],
     )
 
-    assert route(state) == "tools"
+    assert route(state) == "step_tools"
 
 
 def test_idle_limit_without_budget_routes_to_end() -> None:

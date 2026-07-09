@@ -8,7 +8,7 @@ from langchain_core.messages import AnyMessage, ToolMessage
 from pydantic import BaseModel
 
 from agent.chatbot.tools import CHAT_COMPLETION_TOOL_NAME
-from graph.edge import idle_rounds, last_ai_message, tool_call_count
+from graph.edge import idle_rounds, latest_message, tool_call_count
 
 logger = logging.getLogger(__name__)
 
@@ -48,13 +48,13 @@ def chatbot_route_after_step(
     max_idle_rounds: int = DEFAULT_MAX_IDLE_ROUNDS,
     *,
     idle_outlet: str = "step_llm",
-    tools_outlet: str = "tools",
+    tools_outlet: str = "step_tools",
     end_outlet: str = "__end__",
 ) -> Callable[[StateLike], str]:
     """Chatbot routing: plain text cannot end a turn; chat_completion ends after tools."""
 
     def route(state: StateLike) -> str:
-        ai_message = last_ai_message(state)
+        ai_message = latest_message(state)
         tool_calls = getattr(ai_message, "tool_calls", None) or []
         budget_exhausted = _tool_budget_exhausted(state, max_tool_steps)
 
