@@ -1,19 +1,12 @@
-from langgraph.graph import StateGraph, MessagesState, START, END
+from __future__ import annotations
 
-def mock_llm(state: MessagesState):
-    print("function call")
-    return {"message": [{"role": "ai", "content": "hello world"}]}
+from pathlib import Path
 
+from dotenv import load_dotenv
 
-def main():
-    graph = StateGraph(MessagesState)
-    graph.add_node(mock_llm)
-    graph.add_edge(START, "mock_llm")
-    graph.add_edge("mock_llm", END)
-    graph = graph.compile()
-    s = graph.invoke({"messages": [{"role": "user", "content": "hi!"}]})
-    print(s)
+load_dotenv(Path(__file__).resolve().parent / ".env")
 
+from cli import main
 
 if __name__ == "__main__":
     main()

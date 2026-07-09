@@ -9,5 +9,11 @@ wheels/
 # Virtual environments
 .venv
 
+# Local secrets
+.env
+
 # Local MCP server config (may contain secrets)
 tools/mcp/mcp.json
+
+# Chat transcripts
+logs/

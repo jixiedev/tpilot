@@ -1,0 +1,41 @@
+---
+description: TahoePilot project conventions (code, docs, optimization log)
+alwaysApply: true
+---
+
+# TahoePilot Project Conventions
+
+## Documentation
+
+- Project docs under `docs/` are written in **English**, except the roadmap: `ROADMAP.md` (Chinese) and `ROADMAP.en.md` (English), kept in sync with cross-links at the top.
+- Do not add other parallel locale files beyond this roadmap pair.
+
+## Code
+
+- Python at a strong professional bar: clear typing, single-purpose modules, reuse existing abstractions; avoid over-engineering.
+- Comments, docstrings, CLI output, and error messages describe **behavior and usage only** — not iteration labels, roadmap items, optimization narratives, or AI conversation context.
+- Keep changes scoped to the task; no drive-by refactors.
+
+## Optimization log (`docs/CHAT_OPTIMIZATION.md`)
+
+After a meaningful optimization, append a section **above** `<!-- Append the next optimization section above this line -->`. Do not create separate long-form write-ups.
+
+Section shape:
+
+1. Heading: `## YYYY-MM-DD — short title`
+2. One-line **Goal**
+3. Table of **important optimization points** (not files changed or code details)
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+
+Writing rules:
+
+- Stay concise; the file grows over many rounds — keep each section short.
+- Before / After: about one line each — enough to convey problem and outcome.
+- Product/architecture level only — no file lists, phases, or diffs.
+- No AI meta-talk or project-management labels; describe what changed and why in plain terms.
+
+## Roadmap
+
+Planning and milestone tracking live in `docs/ROADMAP.md` and `docs/ROADMAP.en.md`; optimization detail lives in `CHAT_OPTIMIZATION.md`. Neither belongs in code.

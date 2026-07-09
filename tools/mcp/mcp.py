@@ -1,16 +1,47 @@
+from __future__ import annotations
+
 import json
+import logging
 import os
 import re
+import sys
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from langchain_core.tools import BaseTool
 from langchain_mcp_adapters.client import MultiServerMCPClient
 from langchain_mcp_adapters.tools import load_mcp_tools
 
+from config.logging_config import DEFAULT_LOG_FILE
+
 _CONFIG_PATH = Path(__file__).resolve().parent / "mcp.json"
 _ENV_VAR_RE = re.compile(r"\$\{([^}]+)\}")
+_logger = logging.getLogger(__name__)
 
 _client: MultiServerMCPClient | None = None
+_stdio_stderr_redirected = False
+
+
+def _redirect_stdio_server_stderr(log_file: Path = DEFAULT_LOG_FILE) -> None:
+    """Send MCP stdio subprocess stderr to the log file instead of the terminal."""
+    global _stdio_stderr_redirected
+    if _stdio_stderr_redirected:
+        return
+
+    import mcp.client.stdio as mcp_stdio
+
+    log_file.parent.mkdir(parents=True, exist_ok=True)
+    stderr_sink = log_file.open("a", encoding="utf-8")
+    original = mcp_stdio.stdio_client
+
+    @asynccontextmanager
+    async def stdio_client(server, errlog=sys.stderr):
+        target = stderr_sink if errlog is sys.stderr else errlog
+        async with original(server, errlog=target) as streams:
+            yield streams
+
+    mcp_stdio.stdio_client = stdio_client
+    _stdio_stderr_redirected = True
 
 
 def _expand_env_vars(value: str) -> str:
@@ -27,27 +58,51 @@ def _expand_config(value):
     return value
 
 
+def mcp_config_path() -> Path:
+    return _CONFIG_PATH
+
+
 def load_mcp_config() -> dict:
-    if not _CONFIG_PATH.exists():
-        example = _CONFIG_PATH.with_suffix(".json.example")
-        raise FileNotFoundError(
-            f"MCP config not found: {_CONFIG_PATH}. "
-            f"Copy {example.name} to mcp.json and configure your servers."
-        )
-    with open(_CONFIG_PATH) as f:
-        return _expand_config(json.load(f))
+    with mcp_config_path().open(encoding="utf-8") as f:
+        config = _expand_config(json.load(f))
+    return _quiet_stdio_servers(config)
+
+
+def _quiet_stdio_servers(config: dict) -> dict:
+    """Reduce uv/MCP subprocess noise on the terminal."""
+    servers = config.get("mcpServers")
+    if not isinstance(servers, dict):
+        return config
+    for server in servers.values():
+        if not isinstance(server, dict) or server.get("transport") != "stdio":
+            continue
+        env = server.get("env")
+        if env is None:
+            server["env"] = {"UV_NO_PROGRESS": "1"}
+        elif isinstance(env, dict):
+            env.setdefault("UV_NO_PROGRESS", "1")
+    return config
 
 
 def get_client() -> MultiServerMCPClient:
     global _client
     if _client is None:
+        _redirect_stdio_server_stderr()
         _client = MultiServerMCPClient(load_mcp_config())
     return _client
 
 
 async def get_mcp_tools() -> list[BaseTool]:
-    """Load tools from all configured MCP servers (stateless, one session per call)."""
-    return await get_client().get_tools()
+    """Load MCP tools; return an empty list when config is missing or unreachable."""
+    if not mcp_config_path().is_file():
+        _logger.info("MCP config not found at %s; skipping MCP tools", _CONFIG_PATH)
+        return []
+
+    try:
+        return await get_client().get_tools()
+    except Exception:
+        _logger.exception("Failed to load MCP tools; continuing with Hive/Trino only")
+        return []
 
 
 async def get_tools_for_server(server_name: str) -> list[BaseTool]:

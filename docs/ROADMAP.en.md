@@ -13,7 +13,7 @@ An AI Agent platform for data teams: chatbot, intelligent data retrieval, data d
 
 | ID | Milestone | Description | Status |
 |----|-----------|-------------|--------|
-| M0 | Conversational | Multi-turn chat in the CLI; call Hive/Trino/MCP tools to get results | In progress: Hive/Trino/MCP tools ready, graph skeleton in place, LLM and CLI pending |
+| M0 | Conversational | Multi-turn chat in the CLI; call Hive/Trino/MCP tools to get results | Done — generic ReAct graph + pluggable `--agent` (default `chatbot`); see [CHAT_OPTIMIZATION.md](CHAT_OPTIMIZATION.md) |
 | M1 | Resumable | Conversation state persists; pick up where you left off; long-context management | Not started |
 | M2 | Data retrieval | Describe data needs in natural language; Agent finds tables, writes SQL, returns results | Not started |
 | M3 | Collaborative | Complex tasks split across specialized agents that pass intermediate results | Not started |
@@ -37,7 +37,8 @@ An AI Agent platform for data teams: chatbot, intelligent data retrieval, data d
 | F11 | Semantic Cache | Semantically similar requests hit cache; avoid redundant reasoning | P2 | Not started |
 | F12 | Model Routing | Dynamic model selection by task complexity and cost | P2 | Not started |
 | F13 | Procedural Memory | Distill reusable tool-call sequences and workflows from successful interactions | P3 | Not started |
+| F14 | Error Handling | Classify, retry, and degrade on LLM/tool failures; user-friendly errors at graph and CLI layers; recoverable interrupts instead of silent turn failure | P1 | Not started |
 
 ---
 
-*Last updated: 2026-07-04*
+*Last updated: 2026-07-08*

@@ -13,7 +13,7 @@
 
 | ID | Milestone | 描述 | 状态 |
 |----|-----------|------|------|
-| M0 | 可对话 | CLI 里与 Agent 多轮对话，调用 Hive/Trino/MCP 工具拿到结果 | 进行中：Hive/Trino/MCP 工具已就绪，Graph 骨架在列，LLM 与 CLI 待接入 |
+| M0 | 可对话 | CLI 里与 Agent 多轮对话，调用 Hive/Trino/MCP 工具拿到结果 | 已完成：通用 ReAct Graph + `--agent` 插件化；默认 `chatbot`；详见 [CHAT_OPTIMIZATION.md](CHAT_OPTIMIZATION.md) |
 | M1 | 可恢复 | 对话状态持久化，关掉再开能接着聊；长对话有上下文管理 | 未开始 |
 | M2 | 能取数 | 用自然语言描述数据需求，Agent 找表、写 SQL、返回查询结果 | 未开始 |
 | M3 | 能协作 | 复杂任务拆给多个专精 Agent，彼此传递中间结果 | 未开始 |
@@ -37,7 +37,8 @@
 | F11 | Semantic Cache | 语义相似的请求命中缓存，避免重复推理 | P2 | 未开始 |
 | F12 | Model Routing | 按任务复杂度/成本动态选择模型 | P2 | 未开始 |
 | F13 | Procedural Memory | 从成功交互中提炼可复用的工具调用序列与工作流 | P3 | 未开始 |
+| F14 | Error Handling | LLM/工具调用失败分类、重试与降级；Graph 与 CLI 层友好报错；可恢复中断，避免整轮静默失败 | P1 | 未开始 |
 
 ---
 
-*最后更新：2026-07-04*
+*最后更新：2026-07-08*
