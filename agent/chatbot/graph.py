@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 from langchain_core.language_models import BaseChatModel
+from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph.state import CompiledStateGraph
-
 from agent.chatbot.prompt import (
     IDLE_CHAT_COMPLETION_PROMPT,
     NEXT_STEP_PROMPT,
@@ -29,11 +29,13 @@ async def build_chat_graph(
     tool_budget_exhausted_prompt: str = TOOL_BUDGET_EXHAUSTED_PROMPT,
     max_tool_calls: int = DEFAULT_MAX_TOOL_CALLS,
     max_idle_rounds: int = DEFAULT_MAX_IDLE_ROUNDS,
+    checkpointer: BaseCheckpointSaver,
 ) -> CompiledStateGraph:
     tools = [*await load_data_tools(), *chatbot_tools]
     return build_react_graph(
         model,
         tools,
+        checkpointer=checkpointer,
         system_prompt=system_prompt,
         next_step_prompt=next_step_prompt,
         route_after_step=chatbot_route_after_step(

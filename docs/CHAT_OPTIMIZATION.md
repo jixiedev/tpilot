@@ -81,4 +81,28 @@ Iterative optimization notes for the conversational CLI agent. Each round adds a
 
 ---
 
+## 2026-07-06 — LangGraph checkpointer replaces StateStore
+
+**Goal**: Persist multi-turn conversation state via LangGraph checkpointer instead of a custom in-process store.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| Session persistence | `StateStore` + `StateProcessor` loaded/saved history per `--session` in CLI | LangGraph `checkpointer` with `thread_id`; graph state survives across turns automatically |
+| Turn input | `begin_turn` / `finish_turn` merged state through processor | `prepare_turn_input` reads checkpoint for turn boundaries, then `ainvoke` with partial input |
+| State module | `SessionAgentState` plus store/processor classes | `SessionAgentState` schema and helpers only |
+
+---
+
+## 2026-07-06 — SQLite checkpointer
+
+**Goal**: Persist conversation checkpoints to disk so sessions survive process restarts.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| Checkpointer backend | In-memory `InMemorySaver` (lost on exit) | `AsyncSqliteSaver` writing to `checkpoints.sqlite` |
+| Resume across runs | Same `--session` only worked within one process | Same `-s` + SQLite file resumes history after restart |
+| Configuration | Hardcoded on `AgentSpec` | CLI `--checkpoint-db` / `TAHOEPILOT_CHECKPOINT_DB` |
+
+---
+
 <!-- Append the next optimization section above this line -->
