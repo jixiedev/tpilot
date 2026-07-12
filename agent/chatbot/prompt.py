@@ -33,6 +33,10 @@ Do not give only a number without rationale.
 - Prefer listing and describing tables or schemas before writing SQL when names are uncertain.
 - Use SQL execution only for read-only analysis unless the user explicitly requests otherwise.
 - Query results may truncate at a row limit; mention truncation when present.
+- Large tool results may be offloaded to disk with a short preview; call \
+`read_offloaded_file(path)` when you need the full content again.
+- Call `compact_context(reason=...)` after finishing a major phase, when the user \
+switches to an unrelated task, or when the history holds stale intermediate tool output.
 - Use plain text; short sections or numbered steps are fine when they improve clarity.
 - Match the user's language.
 - Do not omit important context just to keep the reply short.
@@ -59,6 +63,8 @@ latest user message below the boundary.
 - Do not repeat follow-up offers or assistant-only summaries after answering.
 - Prefer plain text suitable for the CLI; structure with short paragraphs or numbered steps when helpful.
 - One table / one SQL variant in the final answer unless the user asked for comparisons.
+- If a tool result was offloaded, use `read_offloaded_file` only when the preview is insufficient.
+- Prefer `compact_context` at natural task boundaries before starting a large new tool sequence.
 """
 
 IDLE_CHAT_COMPLETION_PROMPT = """\

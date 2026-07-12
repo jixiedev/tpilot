@@ -21,3 +21,6 @@ logs/
 # LangGraph SQLite checkpoints
 checkpoints.sqlite
 checkpoints.sqlite-*
+
+# Context compression offload store
+offload_store/

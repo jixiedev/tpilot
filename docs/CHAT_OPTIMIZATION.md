@@ -105,4 +105,17 @@ Iterative optimization notes for the conversational CLI agent. Each round adds a
 
 ---
 
+## 2026-07-12 — Three-layer context compression
+
+**Goal**: Keep long-running chatbot sessions coherent by offloading and summarizing stale context without discarding recoverable knowledge.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| Large tool results | Full payloads stayed in message history every turn | Oversized tool results offload to disk with preview + `read_offloaded_file` recovery |
+| Write-tool arguments | Large ingest/write args remained in `AIMessage.tool_calls` | At high fill (or forced compact), args replace with offload pointers |
+| Long history | Unbounded growth until the model window failed | Structured LLM summary of the head; recent tail kept; full archive on disk |
+| Compression timing | None | Runs at turn start and after each tool batch; agent can force via `compact_context` |
+
+---
+
 <!-- Append the next optimization section above this line -->

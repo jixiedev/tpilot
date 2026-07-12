@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-from langchain_core.messages import AnyMessage, BaseMessage, HumanMessage, SystemMessage
+from langchain_core.messages import AnyMessage, BaseMessage
 from langgraph.graph import MessagesState
-from memory.compress import MemoryRecord
 
 
 class SessionAgentState(MessagesState):
@@ -11,8 +10,7 @@ class SessionAgentState(MessagesState):
     session_name: str
     tool_call_count: int
     idle_rounds: int
-    memories: list["MemoryRecord"]
-
+    autonomous_compact_requested: bool
 
     @staticmethod
     def reset_turn(state: SessionAgentState) -> None:

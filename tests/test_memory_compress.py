@@ -1,0 +1,162 @@
+"""Unit tests for the three-layer context compression pipeline."""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
+
+from memory.compress import ContextCompressor
+from memory.config import CompressionConfig
+from memory.offload import OffloadStore
+from memory.tools import AUTONOMOUS_COMPACT_MARKER, configure_offload_tools, read_offloaded_file
+from memory.tokens import count_tokens
+
+
+class _FakeSummarizer:
+    def invoke(self, messages):
+        return AIMessage(
+            content=json.dumps(
+                {
+                    "session_intent": "Explore warehouse tables",
+                    "progress_so_far": "Listed schemas",
+                    "key_facts": "catalog=hive",
+                    "artifacts_created": "none",
+                    "next_steps": "Describe target table",
+                    "open_questions": "Which table?",
+                }
+            )
+        )
+
+
+def _config(tmp_path: Path, **overrides) -> CompressionConfig:
+    values = {
+        "context_window": 1_000,
+        "tool_result_offload_threshold": 50,
+        "tool_input_offload_threshold": 20,
+        "fill_trigger": 0.5,
+        "recent_messages_keep": 0.2,
+        "offload_dir": tmp_path / "offload",
+    }
+    values.update(overrides)
+    return CompressionConfig(**values)
+
+
+def test_layer1_offloads_large_tool_result(tmp_path: Path) -> None:
+    cfg = _config(tmp_path)
+    compressor = ContextCompressor(config=cfg, store=OffloadStore(cfg.offload_dir))
+    big = "x" * 400
+    messages = [
+        AIMessage(content="", id="ai-1", tool_calls=[{"name": "trino_run_query", "args": {}, "id": "c1"}]),
+        ToolMessage(content=big, tool_call_id="c1", name="trino_run_query", id="tm-1"),
+    ]
+
+    updates = compressor.layer1_offload_tool_results(messages)
+
+    assert len(updates) == 1
+    assert updates[0].id == "tm-1"
+    assert "OFFLOADED" in updates[0].content
+    assert "read_offloaded_file" in updates[0].content
+    stored = list((tmp_path / "offload").glob("tool_trino_run_query_*.txt"))
+    assert len(stored) == 1
+    assert stored[0].read_text(encoding="utf-8") == big
+
+
+def test_layer1_skips_chat_completion(tmp_path: Path) -> None:
+    cfg = _config(tmp_path)
+    compressor = ContextCompressor(config=cfg, store=OffloadStore(cfg.offload_dir))
+    big = "y" * 400
+    messages = [
+        ToolMessage(content=big, tool_call_id="c1", name="chat_completion", id="tm-1"),
+    ]
+
+    assert compressor.layer1_offload_tool_results(messages) == []
+
+
+def test_layer2_evicts_write_tool_args(tmp_path: Path) -> None:
+    cfg = _config(tmp_path)
+    compressor = ContextCompressor(config=cfg, store=OffloadStore(cfg.offload_dir))
+    payload = {"content": "z" * 200}
+    messages = [
+        AIMessage(
+            content="",
+            id="ai-1",
+            tool_calls=[{"name": "ingest_document", "args": payload, "id": "c1"}],
+        )
+    ]
+
+    updates = compressor.layer2_offload_tool_inputs(messages)
+
+    assert len(updates) == 1
+    assert updates[0].tool_calls[0]["args"]["__offloaded__"]
+    path = Path(updates[0].tool_calls[0]["args"]["__offloaded__"])
+    assert json.loads(path.read_text(encoding="utf-8")) == payload
+
+
+def test_layer3_summarizes_and_orders_summary_before_tail(tmp_path: Path) -> None:
+    cfg = _config(tmp_path, context_window=80, recent_messages_keep=0.15)
+    compressor = ContextCompressor(
+        config=cfg,
+        llm=_FakeSummarizer(),
+        store=OffloadStore(cfg.offload_dir),
+    )
+    messages = [
+        SystemMessage(content="You are TahoePilot.", id="sys-1"),
+        HumanMessage(content="List tables " + ("a" * 200), id="h-1"),
+        AIMessage(content="Working " + ("b" * 200), id="ai-1"),
+        ToolMessage(content="result " + ("c" * 200), tool_call_id="c1", name="trino_run_query", id="tm-1"),
+        HumanMessage(content="Now describe sales", id="h-2"),
+    ]
+
+    updates = compressor.layer3_summarize(messages)
+
+    from langchain_core.messages import RemoveMessage
+
+    remove_ids = [u.id for u in updates if isinstance(u, RemoveMessage)]
+    assert "h-1" in remove_ids or "ai-1" in remove_ids or "tm-1" in remove_ids
+    summary = next(u for u in updates if isinstance(u, SystemMessage) and "CONTEXT COMPRESSED" in u.content)
+    assert "Explore warehouse tables" in summary.content
+    assert "Archive:" in summary.content
+    summary_index = updates.index(summary)
+    assert any(isinstance(u, HumanMessage) for u in updates[summary_index + 1 :])
+
+
+def test_force_runs_layer2_below_fill_trigger(tmp_path: Path) -> None:
+    cfg = _config(tmp_path, fill_trigger=0.99, context_window=100_000)
+    compressor = ContextCompressor(config=cfg, store=OffloadStore(cfg.offload_dir))
+    payload = {"content": "z" * 200}
+    messages = [
+        AIMessage(
+            content="",
+            id="ai-1",
+            tool_calls=[{"name": "write_file", "args": payload, "id": "c1"}],
+        ),
+        ToolMessage(
+            content=f"[{AUTONOMOUS_COMPACT_MARKER} at now] Reason: phase done",
+            tool_call_id="c2",
+            name="compact_context",
+            id="tm-1",
+        ),
+    ]
+
+    updates = compressor.run(messages, force=True)
+
+    assert any(
+        isinstance(u, AIMessage) and u.tool_calls and u.tool_calls[0]["args"].get("__offloaded__")
+        for u in updates
+    )
+
+
+def test_read_offloaded_file_tool(tmp_path: Path) -> None:
+    store = OffloadStore(tmp_path / "offload")
+    configure_offload_tools(store)
+    path = store.write("hello-offload", label="tool_demo")
+
+    result = read_offloaded_file.invoke({"path": str(path)})
+
+    assert result == "hello-offload"
+
+
+def test_count_tokens_positive() -> None:
+    assert count_tokens("hello world") > 0
