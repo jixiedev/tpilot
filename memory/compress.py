@@ -295,6 +295,44 @@ class ContextCompressor:
         return updates
 
     def layer3_summarize(self, messages: list[BaseMessage]) -> list[BaseMessage]:
+        """Summarize older history via LLM; keep the role prompt and a recent tail.
+
+        Splitting is token-based, not turn-based. Turn-boundary SystemMessages and
+        prior compression summaries are treated like any other message.
+
+        Input (example: three CLI turns, fill already high)::
+
+            messages[0]  preserved ─┐
+            messages[1..k] head     │  one flat list
+            messages[k+1..] tail  ──┘
+
+            ┌──────────────── preserved (messages[0] only) ────────────────┐
+            │ [0] SystemMessage  "You are TahoePilot..."                   │
+            ├──────────────── head (LLM input, then deleted) ──────────────┤
+            │ [1] HumanMessage   turn-1 question                           │
+            │ [2] AIMessage + ToolMessages   turn-1 tool loop                │
+            │ [3] SystemMessage  "--- Session turn boundary ---"            │
+            │ [4] HumanMessage   turn-2 question                             │
+            │ ...                earlier turns / old compression summaries   │
+            ├──────────────── tail (~recent_messages_keep × context_window) ─┤
+            │ [k] SystemMessage  turn boundary (if still within budget)      │
+            │ [k+1] HumanMessage current-turn question                       │
+            │ ...                latest ai / tool messages                   │
+            └────────────────────────────────────────────────────────────────┘
+
+        Steps::
+
+            preserved + head + tail  ──write──►  conversation_archive (disk)
+            head  ──LLM summarize──►  summary SystemMessage
+            head + tail  ──RemoveMessage──►  deleted from state
+            summary + tail  ──append──►  LangGraph updates
+
+        Resulting order after ``add_messages`` merges updates::
+
+            [preserved role prompt?, summary SystemMessage, ...tail unchanged]
+
+        Returns RemoveMessage entries plus the new summary and re-appended tail.
+        """
         if self.llm is None or len(messages) < 2:
             return []
 

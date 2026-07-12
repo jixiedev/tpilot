@@ -14,8 +14,7 @@
 | ID | Milestone | 描述 | 状态 |
 |----|-----------|------|------|
 | M0 | 可对话 | CLI 里与 Agent 多轮对话，调用 Hive/Trino/MCP 工具拿到结果 | 已完成：通用 ReAct Graph + `--agent` 插件化；默认 `chatbot`；详见 [CHAT_OPTIMIZATION.md](CHAT_OPTIMIZATION.md) |
-| M1 | 可恢复 | 对话状态持久化，关掉再开能接着聊；长对话有上下文管理 | 进行中：LangGraph `AsyncSqliteSaver` + `--session` 可跨进程恢复；三层上下文压缩（F4）已接入 chatbot graph |
-
+| M1 | 可恢复 | 对话状态持久化，关掉再开能接着聊；长对话有上下文管理 | 已完成：`AsyncSqliteSaver` + `--session` 跨进程恢复；三层上下文压缩（F4）已接入 chatbot graph |
 | M2 | 能取数 | 用自然语言描述数据需求，Agent 找表、写 SQL、返回查询结果 | 未开始 |
 | M3 | 能协作 | 复杂任务拆给多个专精 Agent，彼此传递中间结果 | 未开始 |
 | M4 | 能诊断 | 描述数据异常，Agent 跑质量检查、推根因、出报告 | 未开始 |
@@ -28,8 +27,7 @@
 | F1 | Context Engineering | 动态组装 system prompt、上下文片段、工具描述 | P0 | 未开始 |
 | F2 | Structured Output | 结构化输出约束（typed response、JSON schema） | P0 | 未开始 |
 | F3 | Memory | 跨 Session 状态持久化；用户偏好与历史上下文召回 | P0 | 进行中：`--session` + SQLite checkpointer 已持久化对话；偏好/跨会话召回未做 |
-| F4 | Memory Compression | 长对话自动压缩/摘要，保留关键事实，控制 context 窗口 | P0 | 进行中：三层流水线（工具结果卸载 / 写入参数驱逐 / LLM 摘要）+ `compact_context`；跨会话偏好召回仍属 F3 |
-
+| F4 | Memory Compression | 长对话自动压缩/摘要，保留关键事实，控制 context 窗口 | P0 | 已完成：三层流水线（工具结果卸载 / 写入参数驱逐 / LLM 摘要）+ `compact_context`；已接入 chatbot graph |
 | F5 | Planning | 任务规划与分解，Plan-and-Execute | P1 | 未开始 |
 | F6 | Human-in-the-Loop | 关键节点 interrupt，等待用户确认或补充 | P1 | 未开始 |
 | F7 | Reflective Reasoning | 输出前自我审查与修正（一致性检查、retry） | P1 | 未开始 |

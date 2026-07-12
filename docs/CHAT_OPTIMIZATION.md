@@ -118,4 +118,18 @@ Iterative optimization notes for the conversational CLI agent. Each round adds a
 
 ---
 
+## 2026-07-12 — Prompt cache vs compression (deferred)
+
+**Goal**: Record how the compression pipeline interacts with provider prefix caching; revisit when prompt cache is enabled or F10 monitoring lands.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| Prompt cache | Not configured — `step_llm` sends raw messages with no cache breakpoints | Deferred; no code change yet |
+| Layer 1 impact | Runs after every tool batch; replaces large tool-result content in-place | Within-turn prefix changes on each compress; prefix cache would miss if enabled |
+| Layer 3 impact | Removes head, inserts summary, re-appends tail | Major prefix rewrite across turns; only `messages[0]` role prompt stays stable |
+| Ephemeral step prompts | `NEXT_STEP_PROMPT` appended at tail each LLM call | Does not alter prefix; compress changes to history are the main invalidation source |
+| Future options | — | Cache breakpoints on static system/tool schema; defer Layer 1 to turn end; append-only summaries; measure hit rate under F10 |
+
+---
+
 <!-- Append the next optimization section above this line -->
