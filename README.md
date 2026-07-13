@@ -62,14 +62,19 @@ tahoepilot
 # select agent application (default: chatbot)
 python main.py --agent chatbot
 
-# separate history per user / tenant
+# separate history per user / tenant (persisted in SQLite)
 python main.py -s alice
+
+# custom checkpoint database path
+python main.py -s alice --checkpoint-db ./data/alice.sqlite
 
 # show tool call trace
 python main.py -v
 ```
 
 At the `You>` prompt, ask questions in natural language. Type `quit`, `exit`, `q`, or `:q` to leave.
+
+Conversation state is stored in SQLite (`./checkpoints.sqlite` by default, or `TAHOEPILOT_CHECKPOINT_DB` / `--checkpoint-db`). The same `-s` session id resumes history across process restarts.
 
 **Example prompts**
 
@@ -93,7 +98,7 @@ If `mcp.json` is missing or servers fail to connect, TahoePilot starts with Hive
 ```
 main.py → cli.py (REPL, --agent, --session)
               ↓
-         agent/registry.py  →  AgentSpec (build_graph, begin_turn, display)
+         agent/registry.py  →  AgentSpec (build_graph, prepare_turn_input, display)
               ↓
          agent/chatbot/     →  prompts, routes, tools, graph assembly
               ↓
@@ -101,7 +106,7 @@ main.py → cli.py (REPL, --agent, --session)
               ↓
     inject_system_prompt → step_llm ↔ step_tools
               ↓
-    state/StateStore (per-session history)
+    LangGraph AsyncSqliteSaver (thread_id = --session)
               ↓
     tools/loader.py → Hive / Trino / MCP (optional)
 ```
@@ -114,7 +119,7 @@ main.py → cli.py (REPL, --agent, --session)
 | `graph/builder.py` | Generic `build_react_graph` (tools and routes injected) |
 | `graph/node.py` | Step LLM node and tool execution with per-turn counter |
 | `graph/edge.py` | Shared routing helpers (`tool_call_count`, `limited_tools_condition`) |
-| `state/state.py` | `SessionAgentState`, `StateStore`, `StateProcessor` |
+| `state/state.py` | `SessionAgentState` schema and helpers |
 | `tools/loader.py` | Load shared data tools (Hive, Trino, MCP) |
 | `tools/hive.py` | Hive HMS metadata tools |
 | `tools/trino.py` | Trino query and metadata tools |
@@ -146,7 +151,7 @@ tahoepilot/
 │       ├── session.py
 │       └── display.py
 ├── graph/               # Generic LangGraph builder, nodes, edges
-├── state/               # Agent state and session store
+├── state/               # SessionAgentState schema
 ├── tools/               # Hive, Trino, MCP integrations
 ├── models/              # LLM configuration
 ├── config/              # Tool connection settings

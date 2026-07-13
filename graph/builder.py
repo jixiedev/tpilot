@@ -8,6 +8,7 @@ from typing import Any
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import SystemMessage
 from langchain_core.tools import BaseTool
+from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph import START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 
@@ -39,19 +40,28 @@ def build_react_graph(
     model: BaseChatModel,
     tools: list[BaseTool],
     *,
+    checkpointer: BaseCheckpointSaver,
     system_prompt: str,
     next_step_prompt: str,
     route_after_step: Callable[[SessionAgentState], str],
     route_after_tools: Callable[[SessionAgentState], str],
+    compressor: Callable[[SessionAgentState], dict[str, Any]] | None = None,
     idle_nudge_prompt: str = "",
     tool_budget_exhausted_prompt: str = "",
     max_tool_calls: int = 10,
     on_tool_call: ToolCallListener | None = None,
 ) -> CompiledStateGraph:
-    """Compile an inject_system_prompt → step_llm ↔ step_tools ReAct loop."""
+    """Compile an inject_system_prompt → step_llm ↔ step_tools ReAct loop.
+
+    When ``compressor`` is set, it runs at turn start and after every tool batch
+    (Layer 1 always; Layers 2–3 when context fill is high or force-compacted).
+    """
     model_with_tools = model.bind_tools(tools)
 
     graph = StateGraph(SessionAgentState)
+    if compressor:
+        graph.add_node("compress_on_start", compressor)
+        graph.add_node("compress_after_tools", compressor)
     graph.add_node("inject_system_prompt", make_inject_system_prompt_node(system_prompt))
     graph.add_node(
         "step_llm",
@@ -64,8 +74,16 @@ def build_react_graph(
         ),
     )
     graph.add_node("step_tools", StepToolsNode(tools, on_tool_call=on_tool_call))
-    graph.add_edge(START, "inject_system_prompt")
+
+    if compressor:
+        graph.add_edge(START, "compress_on_start")
+        graph.add_edge("compress_on_start", "inject_system_prompt")
+        graph.add_edge("step_tools", "compress_after_tools")
+        graph.add_conditional_edges("compress_after_tools", route_after_tools)
+    else:
+        graph.add_edge(START, "inject_system_prompt")
+        graph.add_conditional_edges("step_tools", route_after_tools)
+
     graph.add_edge("inject_system_prompt", "step_llm")
     graph.add_conditional_edges("step_llm", route_after_step)
-    graph.add_conditional_edges("step_tools", route_after_tools)
-    return graph.compile()
+    return graph.compile(checkpointer=checkpointer)

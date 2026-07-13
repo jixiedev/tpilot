@@ -7,8 +7,8 @@ from langgraph.graph.state import CompiledStateGraph
 
 from agent.chatbot.display import print_turn_output
 from agent.chatbot.graph import build_chat_graph
-from agent.chatbot.session import begin_turn
-from state.state import SessionAgentState, StateProcessor
+from agent.chatbot.session import prepare_turn_input
+from state.state import SessionAgentState
 
 
 @dataclass(frozen=True)
@@ -16,15 +16,15 @@ class AgentSpec:
     name: str
     description: str
     build_graph: Callable[..., Awaitable[CompiledStateGraph]]
-    begin_turn: Callable[[StateProcessor, str, str], SessionAgentState]
+    prepare_turn_input: Callable[..., Awaitable[SessionAgentState]]
     print_turn_output: Callable[..., None]
 
 
 CHATBOT = AgentSpec(
     name="chatbot",
-    description="Multi-turn data assistant with Hive, Trino, MCP, and chat_completion",
+    description="Multi-turn data assistant",
     build_graph=build_chat_graph,
-    begin_turn=begin_turn,
+    prepare_turn_input=prepare_turn_input,
     print_turn_output=print_turn_output,
 )
 
