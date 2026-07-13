@@ -49,6 +49,7 @@ def build_react_graph(
     idle_nudge_prompt: str = "",
     tool_budget_exhausted_prompt: str = "",
     max_tool_calls: int = 10,
+    handle_tool_errors = True,
     on_tool_call: ToolCallListener | None = None,
 ) -> CompiledStateGraph:
     """Compile an inject_system_prompt → step_llm ↔ step_tools ReAct loop.
@@ -73,7 +74,7 @@ def build_react_graph(
             max_tool_calls=max_tool_calls,
         ),
     )
-    graph.add_node("step_tools", StepToolsNode(tools, on_tool_call=on_tool_call))
+    graph.add_node("step_tools", StepToolsNode(tools, on_tool_call=on_tool_call, handle_tool_errors=handle_tool_errors))
 
     if compressor:
         graph.add_edge(START, "compress_on_start")
