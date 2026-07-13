@@ -132,4 +132,20 @@ Iterative optimization notes for the conversational CLI agent. Each round adds a
 
 ---
 
+## 2026-07-13 — Structured tool error recovery (F14 initial)
+
+**Goal**: Classify data-tool failures, return actionable TOOL ERROR messages, and retry transient faults without aborting the turn.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| Tool error surface | Generic `repr(exc)` ToolMessage from LangGraph defaults | Structured `=== TOOL ERROR ===` payload with type, hint, optional `fallback_tool`, retryable flag |
+| Hive/Trino fallback | Forced `ToolFallbackError` / `error_type=fallback` | Decorator only registers plan B; real error type kept; LLM sees optional `fallback_tool` hint |
+| Transient failures | No automatic retry within a tool batch | `wrap_tool_call` retries connection/timeout errors before returning the error ToolMessage |
+| Node-level failures | Uncaught `step_tools` exceptions ended the CLI turn | `RetryPolicy` on `step_tools` plus `error_handler` routes back to `step_llm` with a recovery prompt |
+| Mutual fallback loops | Hive↔Trino alternatives could oscillate across tool calls | Per-turn `failed_tools` state suppresses `fallback_tool` once the peer already failed |
+| Trino SQL failures | Generic `repr(exc)` / keyword guessing | `TrinoUserError` / `TrinoExternalError` mapped to NOT_FOUND, SYNTAX, PERMISSION, CONNECTION with retry flags |
+| LLM / turn failures | Generic CLI "Request failed"; no LLM retry | `step_llm` retries transient API errors; CLI prints rate-limit / timeout / connection guidance |
+
+---
+
 <!-- Append the next optimization section above this line -->

@@ -8,6 +8,7 @@ from trino.auth import BasicAuthentication
 from trino.dbapi import connect
 
 from config.tool_config import tool_config, trino_password
+from tools.common import alternative_tool
 
 _thread_local = local()
 DEFAULT_ROW_LIMIT = 100
@@ -81,12 +82,14 @@ def trino_list_schemas(catalog: str) -> list[dict[str, Any]]:
 
 
 @tool
+@alternative_tool("hive_list_tables")
 def trino_list_tables(catalog: str, schema_name: str) -> list[dict[str, Any]]:
     """List tables in a Trino catalog and schema."""
     return _execute_query(f"SHOW TABLES FROM {catalog}.{schema_name}")["rows"]
 
 
 @tool
+@alternative_tool("hive_desc_table")
 def trino_desc_table(catalog: str, schema_name: str, table: str) -> list[dict[str, Any]]:
     """Describe columns of a Trino table."""
     return _execute_query(f"DESCRIBE {catalog}.{schema_name}.{table}")["rows"]

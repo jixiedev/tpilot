@@ -18,6 +18,7 @@ load_dotenv(Path(__file__).resolve().parent / ".env")
 from agent.chatbot.session import graph_config
 from agent.registry import AGENTS, DEFAULT_AGENT, get_agent
 from config.logging_config import configure_logging
+from graph.error_recovery import format_turn_failure
 from models.models import default_model, default_model_name
 
 logger = logging.getLogger(__name__)
@@ -67,9 +68,9 @@ async def run_repl(
 
             try:
                 state = await graph.ainvoke(turn_input, config)
-            except Exception:
+            except Exception as exc:
                 logger.exception("Graph invocation failed")
-                print("Assistant> Request failed; see logs for details.", file=sys.stderr)
+                print(f"Assistant> {format_turn_failure(exc)}", file=sys.stderr)
                 continue
 
             agent.print_turn_output(state)

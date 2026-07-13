@@ -37,7 +37,7 @@
 | F11 | Semantic Cache | 语义相似的请求命中缓存，避免重复推理 | P2 | 未开始 |
 | F12 | Model Routing | 按任务复杂度/成本动态选择模型 | P2 | 未开始 |
 | F13 | Procedural Memory | 从成功交互中提炼可复用的工具调用序列与工作流 | P3 | 未开始 |
-| F14 | Error Handling | LLM/工具调用失败分类、重试与降级；Graph 与 CLI 层友好报错；可恢复中断，避免整轮静默失败 | P1 | 未开始 |
+| F14 | Error Handling | LLM/工具调用失败分类、重试与降级；Graph 与 CLI 层友好报错；可恢复中断，避免整轮静默失败 | P1 | 进行中：结构化 TOOL ERROR、工具/LLM 瞬时重试、Hive↔Trino 防振荡、Trino SQL 分类、CLI 友好报错；集成测试与失败观测仍待做 |
 
 ---
 

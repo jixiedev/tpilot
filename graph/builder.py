@@ -11,8 +11,13 @@ from langchain_core.tools import BaseTool
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph import START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
+from langgraph.types import RetryPolicy
 
 from graph.node import StepToolsNode, ToolCallListener, make_step_llm_node
+from graph.error_recovery import (
+    default_tool_retry_policy,
+    make_step_tools_error_handler,
+)
 from state.state import SessionAgentState
 
 
@@ -49,7 +54,7 @@ def build_react_graph(
     idle_nudge_prompt: str = "",
     tool_budget_exhausted_prompt: str = "",
     max_tool_calls: int = 10,
-    handle_tool_errors = True,
+    tool_retry_policy: RetryPolicy | None = None,
     on_tool_call: ToolCallListener | None = None,
 ) -> CompiledStateGraph:
     """Compile an inject_system_prompt → step_llm ↔ step_tools ReAct loop.
@@ -74,7 +79,12 @@ def build_react_graph(
             max_tool_calls=max_tool_calls,
         ),
     )
-    graph.add_node("step_tools", StepToolsNode(tools, on_tool_call=on_tool_call, handle_tool_errors=handle_tool_errors))
+    graph.add_node(
+        "step_tools",
+        StepToolsNode(tools, on_tool_call=on_tool_call),
+        retry_policy=tool_retry_policy or default_tool_retry_policy(),
+        error_handler=make_step_tools_error_handler(),
+    )
 
     if compressor:
         graph.add_edge(START, "compress_on_start")

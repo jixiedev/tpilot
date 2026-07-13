@@ -11,11 +11,13 @@ class SessionAgentState(MessagesState):
     tool_call_count: int
     idle_rounds: int
     autonomous_compact_requested: bool
+    failed_tools: list[str]
 
     @staticmethod
     def reset_turn(state: SessionAgentState) -> None:
         state["tool_call_count"] = 0
         state["idle_rounds"] = 0
+        state["failed_tools"] = []
 
     @staticmethod
     def last_ai_message(state: SessionAgentState) -> AnyMessage | None:

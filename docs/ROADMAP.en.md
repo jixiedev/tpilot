@@ -37,7 +37,7 @@ An AI Agent platform for data teams: chatbot, intelligent data retrieval, data d
 | F11 | Semantic Cache | Semantically similar requests hit cache; avoid redundant reasoning | P2 | Not started |
 | F12 | Model Routing | Dynamic model selection by task complexity and cost | P2 | Not started |
 | F13 | Procedural Memory | Distill reusable tool-call sequences and workflows from successful interactions | P3 | Not started |
-| F14 | Error Handling | Classify, retry, and degrade on LLM/tool failures; user-friendly errors at graph and CLI layers; recoverable interrupts instead of silent turn failure | P1 | Not started |
+| F14 | Error Handling | Classify, retry, and degrade on LLM/tool failures; user-friendly errors at graph and CLI layers; recoverable interrupts instead of silent turn failure | P1 | In progress — structured TOOL ERROR, tool/LLM transient retries, Hive↔Trino anti-oscillation, Trino SQL classification, CLI-friendly turn errors; integration tests and failure metrics still open |
 
 ---
 

@@ -32,6 +32,7 @@ async def prepare_turn_input(
         "tool_call_count": 0,
         "idle_rounds": 0,
         "autonomous_compact_requested": False,
+        "failed_tools": [],
     }
 
 

@@ -64,6 +64,11 @@ latest user message below the boundary.
 - Prefer plain text suitable for the CLI; structure with short paragraphs or numbered steps when helpful.
 - One table / one SQL variant in the final answer unless the user asked for comparisons.
 - If a tool result was offloaded, use `read_offloaded_file` only when the preview is insufficient.
+- If a tool returns `=== TOOL ERROR ===` JSON, read `tool`, `hint`, and optional \
+`fallback_tool` (a plan-B suggestion only). Prefer fixing arguments when the error \
+type is syntax/not_found; consider `fallback_tool` when the primary tool is unavailable. \
+If `fallback_tool` is absent and the hint says both alternatives failed, call \
+`chat_completion` instead of retrying either tool.
 - Prefer `compact_context` at natural task boundaries before starting a large new tool sequence.
 """
 
