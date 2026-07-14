@@ -99,6 +99,8 @@ def make_step_llm_node(
     """Run the bound model; track idle rounds when the model returns no tool calls."""
 
     def step_llm(state: SessionAgentState) -> dict[str, Any]:
+        # Local copy for this invoke only. Ephemeral SystemMessages appended below
+        # are NOT returned in the state update, so they never enter checkpoint history.
         messages = list(state["messages"])
         if next_step_prompt.strip():
             messages.append(SystemMessage(content=next_step_prompt))
@@ -107,6 +109,7 @@ def make_step_llm_node(
         elif state.get("idle_rounds", 0) > 0 and idle_nudge_prompt.strip():
             messages.append(SystemMessage(content=idle_nudge_prompt))
         response = invoke_with_transient_retry(lambda: model.invoke(messages))
+        # MessagesState uses add_messages: this appends `response`, it does not replace history.
         update: dict[str, Any] = {"messages": [response]}
         if response.tool_calls:
             update["idle_rounds"] = 0

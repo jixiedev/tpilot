@@ -15,7 +15,7 @@ An AI Agent platform for data teams: chatbot, intelligent data retrieval, data d
 |----|-----------|-------------|--------|
 | M0 | Conversational | Multi-turn chat in the CLI; call Hive/Trino/MCP tools to get results | Done — generic ReAct graph + pluggable `--agent` (default `chatbot`); see [CHAT_OPTIMIZATION.md](CHAT_OPTIMIZATION.md) |
 | M1 | Resumable | Conversation state persists; pick up where you left off; long-context management | Done — `AsyncSqliteSaver` + `--session` resume across restarts; three-layer context compression (F4) wired into the chatbot graph |
-| M2 | Data retrieval | Describe data needs in natural language; Agent finds tables, writes SQL, returns results | Not started |
+| M2 | Data retrieval | Describe data needs in natural language; Agent finds tables, writes SQL, returns results | In progress — chatbot read-only retrieval contract + per-turn task classification; `DataRetrievalSystemPrompt` in place; dedicated retrieval agent / evals not done |
 | M3 | Collaborative | Complex tasks split across specialized agents that pass intermediate results | Not started |
 | M4 | Diagnostic | Describe data anomalies; Agent runs quality checks, reasons about root cause, produces reports | Not started |
 | M5 | Deployable | Move from local CLI to an outward-facing service (UI, API, auth, observability) | Not started |
@@ -24,9 +24,9 @@ An AI Agent platform for data teams: chatbot, intelligent data retrieval, data d
 
 | ID | Feature | Description | Priority | Status |
 |----|---------|-------------|----------|--------|
-| F1 | Context Engineering | Dynamic assembly of system prompt, context snippets, and tool descriptions | P0 | Not started |
-| F2 | Structured Output | Structured output constraints (typed response, JSON schema) | P0 | Not started |
-| F3 | Memory | Cross-session state persistence; user preferences and historical context retrieval | P0 | In progress — `--session` + SQLite checkpointer persist turns; preferences / cross-session recall not done |
+| F1 | Context Engineering | Dynamic assembly of system prompt, context snippets, and tool descriptions | P0 | In progress — `SystemPromptAssembler` → chatbot / data-retrieval layers; `UserProfile` injection; dynamic tool-description assembly not done |
+| F2 | Structured Output | Structured output constraints (typed response, JSON schema) | P0 | In progress — turn `TurnClassification` and profile refine use structured output; user-facing reply schemas not done |
+| F3 | Memory | Cross-session state persistence; user preferences and historical context retrieval | P0 | In progress — checkpointer persists turns; `UserProfile` in state; end-of-turn `refine_user_profile` merge; standalone profile store / semantic recall not done |
 | F4 | Memory Compression | Auto-compress/summarize long conversations; retain key facts within context window | P0 | Done — three-layer pipeline (tool-result offload / write-arg eviction / LLM summary) + `compact_context`; wired into the chatbot graph |
 | F5 | Planning | Task planning and decomposition; Plan-and-Execute | P1 | Not started |
 | F6 | Human-in-the-Loop | Interrupt at key nodes; wait for user confirmation or input | P1 | Not started |
@@ -35,10 +35,10 @@ An AI Agent platform for data teams: chatbot, intelligent data retrieval, data d
 | F9 | Eval Loop | Eval set regression; continuous iteration on prompts and agent behavior | P2 | Not started |
 | F10 | Monitoring | Token usage, cache hit rate, tool call latency and error rate | P2 | Not started |
 | F11 | Semantic Cache | Semantically similar requests hit cache; avoid redundant reasoning | P2 | Not started |
-| F12 | Model Routing | Dynamic model selection by task complexity and cost | P2 | Not started |
+| F12 | Model Routing | Dynamic model selection by task complexity and cost | P2 | Not started (`turn_task_type` classification exists; not used for model choice yet) |
 | F13 | Procedural Memory | Distill reusable tool-call sequences and workflows from successful interactions | P3 | Not started |
 | F14 | Error Handling | Classify, retry, and degrade on LLM/tool failures; user-friendly errors at graph and CLI layers; recoverable interrupts instead of silent turn failure | P1 | In progress — structured TOOL ERROR, tool/LLM transient retries, Hive↔Trino anti-oscillation, Trino SQL classification, CLI-friendly turn errors; integration tests and failure metrics still open |
 
 ---
 
-*Last updated: 2026-07-12*
+*Last updated: 2026-07-14*

@@ -148,4 +148,66 @@ Iterative optimization notes for the conversational CLI agent. Each round adds a
 
 ---
 
+## 2026-07-14 — Per-turn task classification hook
+
+**Goal**: Label each user turn before the ReAct loop so later routing can branch on task type without rewriting the graph core.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| Turn typing | No per-turn task label in state | Optional `classify_task` writes `turn_task_type` after system-prompt inject |
+| Classification API | N/A / incomplete boolean flag | Enabled by passing `classify_prompt`; structured output only, no tools |
+| History hygiene | Risk of stuffing classify chatter into `messages` | Classification exchange stays out of conversation history |
+| Ambiguity | Forced single label even when unsure | Low confidence (or missing user text) maps to `unclear` |
+
+---
+
+## 2026-07-14 — Chatbot system prompt: read-only data contract
+
+**Goal**: Make chatbot answers safely read-only and always evidence-backed for warehouse / metric work.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| Prompt structure | Flat role + mixed rules | Explicit Role, General rules, Data prohibitions / required practices / answer requirements |
+| Warehouse safety | Soft "prefer read-only unless user asks otherwise" | Hard ban on mutating SQL and state-changing tools; refuse write requests |
+| Metric grounding | Glossary cited when convenient | Must search DataHub glossary terms before answering metric/KPI questions |
+| Evidence in replies | "full evidence" encouraged | Final data answers must name tables, fields, and query time range |
+
+---
+
+## 2026-07-14 — Layered system-prompt assemblers
+
+**Goal**: Share a generic system-prompt core and let chatbot / data-retrieval agents add sections by inheritance.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| Prompt authorship | One flat `SYSTEM_PROMPT` string in chatbot | `SystemPromptAssembler` → `ChatbotSystemPrompt` → `DataRetrievalSystemPrompt` |
+| Extension model | Copy-paste / rewrite whole prompt | Subclasses append via `extension_blocks()` + content hooks |
+| Agent reuse | N/A | `DataRetrievalSystemPrompt` lives beside chatbot prompts and inherits chatbot data rules |
+
+---
+
+## 2026-07-14 — System prompt personalization via UserProfile
+
+**Goal**: Include session user identity and preferences in the system prompt without hard-coding them at import time.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| Profile in prompt | Not used when assembling system text | `SystemPromptAssembler` renders optional `User profile` section |
+| Profile schema | username / nested domain preferences | Identity, permissions, locale, long-term prefs, favorite metrics/dimensions |
+| Inject timing | Fixed `SYSTEM_PROMPT` string at graph build | Chatbot inject callback rebuilds from `state["user_profile"]` |
+
+---
+
+## 2026-07-14 — End-of-turn user profile refinement
+
+**Goal**: Learn lasting personalization from finished turns without rewriting conversation history.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| Profile updates | Static seed from process user only | Optional `refine_user_profile` after `chat_completion` |
+| Update safety | Full-history rewrite risked wiping fields | Lean turn context + merge keeps blanks/`user_id` |
+| Graph wiring | Node added but unset prompt/edges | Prompt enabled; route end → refine → END |
+
+---
+
 <!-- Append the next optimization section above this line -->
