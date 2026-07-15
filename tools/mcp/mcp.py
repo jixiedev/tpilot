@@ -6,6 +6,7 @@ import os
 import re
 import sys
 from contextlib import asynccontextmanager
+from dataclasses import dataclass
 from pathlib import Path
 
 from langchain_core.tools import BaseTool
@@ -20,6 +21,16 @@ _logger = logging.getLogger(__name__)
 
 _client: MultiServerMCPClient | None = None
 _stdio_stderr_redirected = False
+
+
+@dataclass(frozen=True)
+class McpServerStatus:
+    """Result of probing one MCP server at startup."""
+
+    name: str
+    available: bool
+    tool_count: int = 0
+    error: str = ""
 
 
 def _redirect_stdio_server_stderr(log_file: Path = DEFAULT_LOG_FILE) -> None:
@@ -110,3 +121,54 @@ async def get_tools_for_server(server_name: str) -> list[BaseTool]:
     client = get_client()
     async with client.session(server_name) as session:
         return await load_mcp_tools(session)
+
+
+def configured_mcp_server_names() -> list[str]:
+    """Return MCP server names from config, or an empty list when unset."""
+    if not mcp_config_path().is_file():
+        return []
+    config = load_mcp_config()
+    servers = config.get("mcpServers")
+    if not isinstance(servers, dict):
+        return []
+    return sorted(name for name in servers if isinstance(name, str) and name.strip())
+
+
+async def check_mcp_servers() -> list[McpServerStatus]:
+    """Probe each configured MCP server by opening a session and listing tools."""
+    names = configured_mcp_server_names()
+    if not names:
+        return []
+
+    statuses: list[McpServerStatus] = []
+    for name in names:
+        try:
+            tools = await get_tools_for_server(name)
+        except Exception as exc:
+            _logger.warning("MCP server %s unavailable: %s", name, exc)
+            statuses.append(
+                McpServerStatus(name=name, available=False, error=str(exc).strip() or type(exc).__name__)
+            )
+            continue
+        statuses.append(McpServerStatus(name=name, available=True, tool_count=len(tools)))
+    return statuses
+
+
+def format_mcp_startup_lines(statuses: list[McpServerStatus]) -> list[str]:
+    """Human-readable MCP availability summary for CLI startup."""
+    if not statuses:
+        path = mcp_config_path()
+        if not path.is_file():
+            return [f"MCP: not configured ({path})"]
+        return [f"MCP: no servers in config ({path})"]
+
+    lines = ["MCP servers:"]
+    for status in statuses:
+        if status.available:
+            lines.append(f"  {status.name}: ok ({status.tool_count} tools)")
+            continue
+        detail = status.error or "unavailable"
+        if len(detail) > 120:
+            detail = detail[:117] + "..."
+        lines.append(f"  {status.name}: unavailable ({detail})")
+    return lines

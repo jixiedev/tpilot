@@ -4,7 +4,7 @@ from collections.abc import Callable
 from typing import Any
 
 from langchain_core.language_models import BaseChatModel
-from langchain_core.messages import SystemMessage, ToolMessage
+from langchain_core.messages import AIMessage, SystemMessage, ToolMessage
 from langgraph.prebuilt import ToolNode
 
 from graph.error_recovery import (
@@ -16,6 +16,7 @@ from state.state import SessionAgentState
 from tools.errors import StructuredToolError
 
 ToolCallListener = Callable[[str, dict[str, Any]], None]
+LlmStepListener = Callable[[AIMessage], None]
 
 DEFAULT_HANDLE_TOOL_ERRORS = make_handle_tool_errors()
 DEFAULT_WRAP_TOOL_CALL = make_retrying_tool_wrapper()
@@ -95,6 +96,7 @@ def make_step_llm_node(
     idle_nudge_prompt: str = "",
     tool_budget_exhausted_prompt: str = "",
     max_tool_calls: int = 10,
+    on_llm_step: LlmStepListener | None = None,
 ):
     """Run the bound model; track idle rounds when the model returns no tool calls."""
 
@@ -109,6 +111,8 @@ def make_step_llm_node(
         elif state.get("idle_rounds", 0) > 0 and idle_nudge_prompt.strip():
             messages.append(SystemMessage(content=idle_nudge_prompt))
         response = invoke_with_transient_retry(lambda: model.invoke(messages))
+        if on_llm_step is not None and isinstance(response, AIMessage):
+            on_llm_step(response)
         # MessagesState uses add_messages: this appends `response`, it does not replace history.
         update: dict[str, Any] = {"messages": [response]}
         if response.tool_calls:

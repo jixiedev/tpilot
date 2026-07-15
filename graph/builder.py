@@ -13,13 +13,14 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import RetryPolicy
 
-from graph.classify import make_classify_task_node
-from graph.node import StepToolsNode, ToolCallListener, make_step_llm_node
+from graph.classify import ClassifyTaskListener, make_classify_task_node
+from graph.node import LlmStepListener, StepToolsNode, ToolCallListener, make_step_llm_node
 from graph.error_recovery import (
     default_tool_retry_policy,
     make_step_tools_error_handler,
 )
 from graph.refine_profile import make_refine_user_profile_node
+from memory.profile_store import ProfileStore
 from state.state import SessionAgentState
 
 # Static prompt string, or a callable that renders from the current state (e.g. user profile).
@@ -66,12 +67,15 @@ def build_react_graph(
     route_after_tools: Callable[[SessionAgentState], str],
     compressor: Callable[[SessionAgentState], dict[str, Any]] | None = None,
     refine_user_profile_prompt: str | None = None,
+    profile_store: ProfileStore | None = None,
     classify_prompt: str | None = None,
     idle_nudge_prompt: str = "",
     tool_budget_exhausted_prompt: str = "",
     max_tool_calls: int = 10,
     tool_retry_policy: RetryPolicy | None = None,
     on_tool_call: ToolCallListener | None = None,
+    on_classify: ClassifyTaskListener | None = None,
+    on_llm_step: LlmStepListener | None = None,
 ) -> CompiledStateGraph:
     """Compile inject_system_prompt → (optional classify) → step_llm ↔ step_tools.
 
@@ -86,11 +90,15 @@ def build_react_graph(
     to ``refine_user_profile``, which merges profile updates then ends the turn.
 
     ``system_prompt`` may be a fixed string or a callable ``state -> str`` so agents
-    can include ``user_profile`` from session state.
+    can load ``UserProfile`` from ``ProfileStore`` via ``state["user_id"]``.
     """
     model_with_tools = model.bind_tools(tools)
     enable_classify = bool(classify_prompt and classify_prompt.strip())
-    enable_refine_profile = bool(refine_user_profile_prompt and refine_user_profile_prompt.strip())
+    enable_refine_profile = bool(
+        refine_user_profile_prompt
+        and refine_user_profile_prompt.strip()
+        and profile_store is not None
+    )
 
     graph = StateGraph(SessionAgentState)
     if compressor:
@@ -100,7 +108,11 @@ def build_react_graph(
     if enable_classify:
         graph.add_node(
             "classify_task",
-            make_classify_task_node(classify_prompt.strip(), model),
+            make_classify_task_node(
+                classify_prompt.strip(),
+                model,
+                on_classify=on_classify,
+            ),
         )
     graph.add_node(
         "step_llm",
@@ -110,6 +122,7 @@ def build_react_graph(
             idle_nudge_prompt=idle_nudge_prompt,
             tool_budget_exhausted_prompt=tool_budget_exhausted_prompt,
             max_tool_calls=max_tool_calls,
+            on_llm_step=on_llm_step,
         ),
     )
     graph.add_node(
@@ -121,7 +134,11 @@ def build_react_graph(
     if enable_refine_profile:
         graph.add_node(
             "refine_user_profile",
-            make_refine_user_profile_node(refine_user_profile_prompt.strip(), model),
+            make_refine_user_profile_node(
+                refine_user_profile_prompt.strip(),
+                model,
+                profile_store,
+            ),
         )
 
     if compressor:

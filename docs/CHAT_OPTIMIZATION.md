@@ -206,7 +206,53 @@ Iterative optimization notes for the conversational CLI agent. Each round adds a
 |--------------|--------|-------|
 | Profile updates | Static seed from process user only | Optional `refine_user_profile` after `chat_completion` |
 | Update safety | Full-history rewrite risked wiping fields | Lean turn context + merge keeps blanks/`user_id` |
-| Graph wiring | Node added but unset prompt/edges | Prompt enabled; route end → refine → END |
+| Inject timing | Fixed `SYSTEM_PROMPT` string at graph build | Chatbot inject callback loads profile from `ProfileStore` via `user_id` |
+
+---
+
+## 2026-07-15 — User profile moved to filesystem ProfileStore
+
+**Goal**: Persist personalization by `user_id` across sessions instead of duplicating profile inside each checkpoint thread.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| Profile storage | `user_profile` in session checkpoint | `FileProfileStore` (`profiles/{user_id}.json`) |
+| Session state | Full profile blob per thread | `user_id` only; profile loaded/saved at inject and refine |
+| Cross-session prefs | Lost on new `--session` | Same OS user reloads profile from disk |
+
+---
+
+## 2026-07-15 — Best-effort profile refine with GLM JSON tolerance
+
+**Goal**: End-of-turn profile updates must not hide a successful `chat_completion` reply when the model returns markdown-fenced or loose JSON.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| Profile parse | `with_structured_output` only; fenced JSON crashed the turn | `parse_user_profile_update` strips fences and embedded JSON; plain-invoke fallback |
+| Turn failure | `refine_user_profile` ValidationError aborted the whole graph | Refine is best-effort: log and skip save; user still sees the assistant reply |
+| Provider quirks | Same GLM issue as turn classify | Shared JSON-coercion pattern for profile updates |
+
+---
+
+## 2026-07-15 — MCP server health check at agent startup
+
+**Goal**: Surface MCP connectivity before the first user turn instead of failing mid-conversation on the first tool call.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| MCP visibility | Silent until first tool call; failures easy to misread | CLI probes each configured server and prints ok/unavailable with tool counts |
+| Per-server status | Only aggregate `get_mcp_tools()` success/fail | `check_mcp_servers()` reports each entry in `mcp.json` independently |
+
+---
+
+## 2026-07-15 — `search_glossary_term` wrapper and anti-wildcard search rules
+
+**Goal**: Stop metric lookups from degrading into generic `search("*")` after glossary tool errors.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| Glossary search | Model called raw MCP `search` with ad-hoc filters | `search_glossary_term` tries known GLOSSARY_TERM parameter variants |
+| Failure handling | Vague "technical issues" and wildcard fallback | Prompt requires quoting tool errors; bans `*` search; stop or `chat_completion` after retries |
 
 ---
 

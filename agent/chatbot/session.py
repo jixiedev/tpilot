@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+import getpass
+
 from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
 from langgraph.graph.state import CompiledStateGraph
 
 from agent.chatbot.prompt import SESSION_TURN_BOUNDARY
 from agent.chatbot.tools import CHAT_COMPLETION_TOOL_NAME
-from memory.profile import coerce_user_profile
 from state.state import DEFAULT_TURN_TASK_TYPE, SessionAgentState
 
 
@@ -13,10 +14,21 @@ def graph_config(session: str) -> dict:
     return {"configurable": {"thread_id": session}}
 
 
+def resolve_user_id(prior_user_id: object | None, *, explicit: str | None = None) -> str:
+    """Pick the session user id from an explicit value, checkpoint, or process user."""
+    if explicit is not None and str(explicit).strip():
+        return str(explicit).strip()
+    if isinstance(prior_user_id, str) and prior_user_id.strip():
+        return prior_user_id.strip()
+    return getpass.getuser()
+
+
 async def prepare_turn_input(
     graph: CompiledStateGraph,
     session: str,
     user_prompt: str,
+    *,
+    user_id: str | None = None,
 ) -> SessionAgentState:
     """Build the per-turn graph input using checkpoint history for turn boundaries.
 
@@ -24,8 +36,8 @@ async def prepare_turn_input(
     first persists another ``SESSION_TURN_BOUNDARY`` SystemMessage before the new
     HumanMessage. Markers accumulate by design (one per completed turn boundary).
 
-    ``user_profile`` comes from the checkpoint when present; otherwise
-    ``coerce_user_profile`` creates one with the process user as ``user_id``.
+    User profiles are loaded from ``ProfileStore`` by ``user_id``; only ``user_id``
+    is kept in the session checkpoint.
     """
     snapshot = await graph.aget_state(graph_config(session))
     prior = snapshot.values or {}
@@ -40,12 +52,12 @@ async def prepare_turn_input(
     return {
         "messages": messages,
         "session_name": session,
+        "user_id": resolve_user_id(prior.get("user_id"), explicit=user_id),
         "tool_call_count": 0,
         "idle_rounds": 0,
         "autonomous_compact_requested": False,
         "failed_tools": [],
         "turn_task_type": DEFAULT_TURN_TASK_TYPE,
-        "user_profile": coerce_user_profile(prior.get("user_profile")),
     }
 
 

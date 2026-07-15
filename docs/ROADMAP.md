@@ -26,7 +26,7 @@
 |----|---------|------|--------|------|
 | F1 | Context Engineering | 动态组装 system prompt、上下文片段、工具描述 | P0 | 进行中：`SystemPromptAssembler` → chatbot / data-retrieval 分层组装；按 `UserProfile` 注入；工具描述动态组装未做 |
 | F2 | Structured Output | 结构化输出约束（typed response、JSON schema） | P0 | 进行中：回合分类 `TurnClassification`、画像 refine 用 structured output；对外回复 schema 未做 |
-| F3 | Memory | 跨 Session 状态持久化；用户偏好与历史上下文召回 | P0 | 进行中：checkpointer 持久化对话；`UserProfile` 入 state；回合结束后 `refine_user_profile` 合并偏好；跨会话独立画像库 / 语义召回未做 |
+| F3 | Memory | 跨 Session 状态持久化；用户偏好与历史上下文召回 | P0 | 进行中：checkpointer 持久化对话；`FileProfileStore` 按 `user_id` 存画像；回合结束 `refine_user_profile` 写回；语义召回未做 |
 | F4 | Memory Compression | 长对话自动压缩/摘要，保留关键事实，控制 context 窗口 | P0 | 已完成：三层流水线（工具结果卸载 / 写入参数驱逐 / LLM 摘要）+ `compact_context`；已接入 chatbot graph |
 | F5 | Planning | 任务规划与分解，Plan-and-Execute | P1 | 未开始 |
 | F6 | Human-in-the-Loop | 关键节点 interrupt，等待用户确认或补充 | P1 | 未开始 |

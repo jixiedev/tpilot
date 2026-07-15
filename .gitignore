@@ -22,5 +22,8 @@ logs/
 checkpoints.sqlite
 checkpoints.sqlite-*
 
+# Per-user profile JSON files
+profiles/
+
 # Context compression offload store
 offload_store/

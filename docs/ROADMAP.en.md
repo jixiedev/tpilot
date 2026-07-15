@@ -26,7 +26,7 @@ An AI Agent platform for data teams: chatbot, intelligent data retrieval, data d
 |----|---------|-------------|----------|--------|
 | F1 | Context Engineering | Dynamic assembly of system prompt, context snippets, and tool descriptions | P0 | In progress — `SystemPromptAssembler` → chatbot / data-retrieval layers; `UserProfile` injection; dynamic tool-description assembly not done |
 | F2 | Structured Output | Structured output constraints (typed response, JSON schema) | P0 | In progress — turn `TurnClassification` and profile refine use structured output; user-facing reply schemas not done |
-| F3 | Memory | Cross-session state persistence; user preferences and historical context retrieval | P0 | In progress — checkpointer persists turns; `UserProfile` in state; end-of-turn `refine_user_profile` merge; standalone profile store / semantic recall not done |
+| F3 | Memory | Cross-session state persistence; user preferences and historical context retrieval | P0 | In progress — checkpointer persists turns; `FileProfileStore` keyed by `user_id`; end-of-turn `refine_user_profile` writes back; semantic recall not done |
 | F4 | Memory Compression | Auto-compress/summarize long conversations; retain key facts within context window | P0 | Done — three-layer pipeline (tool-result offload / write-arg eviction / LLM summary) + `compact_context`; wired into the chatbot graph |
 | F5 | Planning | Task planning and decomposition; Plan-and-Execute | P1 | Not started |
 | F6 | Human-in-the-Loop | Interrupt at key nodes; wait for user confirmation or input | P1 | Not started |

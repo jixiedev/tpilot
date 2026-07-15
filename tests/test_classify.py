@@ -4,6 +4,7 @@ from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
 from graph.classify import (
     TurnClassification,
+    coerce_turn_classification,
     latest_human_text,
     make_classify_task_node,
     resolve_turn_task_type,
@@ -78,7 +79,8 @@ def test_classify_task_node_writes_type_without_messages() -> None:
     assert "messages" not in update
     sent = model.structured.invoke_calls[0]
     assert isinstance(sent[0], SystemMessage)
-    assert sent[0].content == "Classify the request."
+    assert sent[0].content.startswith("Classify the request.")
+    assert "JSON" in sent[0].content
     assert isinstance(sent[1], HumanMessage)
     assert sent[1].content == "What does GMV mean?"
 
@@ -100,3 +102,48 @@ def test_classify_task_node_accepts_dict_structured_result() -> None:
     update = node({"messages": [HumanMessage(content="Why did revenue drop?")]})
 
     assert update == {"turn_task_type": "anomaly"}
+
+
+def test_coerce_turn_classification_parses_loose_text() -> None:
+    result = coerce_turn_classification("data_query\n1")
+    assert result.turn_task_type == "data_query"
+    assert result.confidence == 1.0
+
+
+def test_coerce_turn_classification_parses_json_string() -> None:
+    result = coerce_turn_classification('{"turn_task_type": "metric_def", "confidence": 0.8}')
+    assert result.turn_task_type == "metric_def"
+    assert result.confidence == 0.8
+
+
+class _LooseTextModel:
+    def with_structured_output(self, _schema):
+        class _Broken:
+            def invoke(self, _messages):
+                raise ValueError("Invalid JSON: expected value at line 1 column 1")
+
+        return _Broken()
+
+    def invoke(self, messages):
+        self.last_messages = messages
+        return "data_query\n0.9"
+
+
+def test_classify_task_node_falls_back_to_plain_text() -> None:
+    node = make_classify_task_node("Classify the request.", _LooseTextModel())
+    update = node({"messages": [HumanMessage(content="GMV last month?")]})
+    assert update == {"turn_task_type": "data_query"}
+
+
+def test_classify_task_node_invokes_listener() -> None:
+    seen: list[tuple[str, float | None, str | None]] = []
+
+    def listener(resolved, confidence, model_label):
+        seen.append((resolved, confidence, model_label))
+
+    model = _FakeChatModel(TurnClassification(turn_task_type="data_query", confidence=0.2))
+    node = make_classify_task_node("Classify the request.", model, on_classify=listener)
+    update = node({"messages": [HumanMessage(content="GMV last month?")]})
+
+    assert update == {"turn_task_type": DEFAULT_TURN_TASK_TYPE}
+    assert seen == [(DEFAULT_TURN_TASK_TYPE, 0.2, "data_query")]

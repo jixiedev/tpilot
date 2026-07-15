@@ -5,8 +5,6 @@ from typing import Literal
 from langchain_core.messages import AnyMessage, BaseMessage
 from langgraph.graph import MessagesState
 
-from memory.profile import UserProfile
-
 TurnTaskType = Literal["table_meta", "metric_def", "data_query", "anomaly", "other", "unclear"]
 DEFAULT_TURN_TASK_TYPE: TurnTaskType = "unclear"
 
@@ -15,16 +13,16 @@ class SessionAgentState(MessagesState):
     """Conversation state: message history, session id, and per-turn tool budget."""
 
     session_name: str
+    user_id: str
     tool_call_count: int
     idle_rounds: int
     autonomous_compact_requested: bool
     failed_tools: list[str]
     turn_task_type: TurnTaskType
-    user_profile: UserProfile
 
     @staticmethod
     def reset_turn(state: SessionAgentState) -> None:
-        """Clear per-turn counters; leave ``user_profile`` intact across turns."""
+        """Clear per-turn counters; leave ``user_id`` intact across turns."""
         state["tool_call_count"] = 0
         state["idle_rounds"] = 0
         state["failed_tools"] = []

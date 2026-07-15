@@ -2,19 +2,28 @@
 
 from __future__ import annotations
 
+import getpass
+import json
 import logging
 from collections.abc import Callable
 from typing import Any
 
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
+from pydantic import ValidationError
 
 from graph.classify import latest_human_text
 from graph.error_recovery import invoke_with_transient_retry
-from memory.profile import UserProfile, coerce_user_profile, merge_user_profile
+from memory.profile import UserProfile, merge_user_profile, parse_user_profile_update
+from memory.profile_store import ProfileStore
 from state.state import SessionAgentState
 
 logger = logging.getLogger(__name__)
+
+_PROFILE_JSON_HINT = (
+    "Respond with JSON only: a single UserProfile object with keys matching the schema "
+    "(no markdown fences or commentary)."
+)
 
 
 def _latest_chat_completion_reply(state: SessionAgentState) -> str | None:
@@ -27,21 +36,45 @@ def _latest_chat_completion_reply(state: SessionAgentState) -> str | None:
     return None
 
 
+def _session_user_id(state: SessionAgentState) -> str:
+    user_id = state.get("user_id", "")
+    return user_id.strip() if isinstance(user_id, str) and user_id.strip() else getpass.getuser()
+
+
+def _invoke_profile_update(model: BaseChatModel, messages: list) -> UserProfile:
+    """Call the model; tolerate providers that return fenced or loose JSON."""
+    structured_model = model.with_structured_output(UserProfile)
+    try:
+        result = invoke_with_transient_retry(lambda: structured_model.invoke(messages))
+        return parse_user_profile_update(result)
+    except (ValidationError, json.JSONDecodeError, TypeError, ValueError) as exc:
+        logger.warning("structured profile refine failed (%s); falling back to plain parse", exc)
+
+    response = invoke_with_transient_retry(lambda: model.invoke(messages))
+    return parse_user_profile_update(response)
+
+
 def make_refine_user_profile_node(
     refine_prompt: str,
     model: BaseChatModel,
+    profile_store: ProfileStore,
 ) -> Callable[[SessionAgentState], dict[str, Any]]:
-    """After a finished turn, extract profile updates; writes ``user_profile`` only."""
+    """After a finished turn, merge profile updates into ``ProfileStore`` (not session state).
 
-    structured_model = model.with_structured_output(UserProfile)
+    Profile refinement is best-effort: parse or persistence failures are logged and the
+    turn still completes so ``chat_completion`` output remains visible to the user.
+    """
+
+    system_prompt = f"{refine_prompt.strip()}\n\n{_PROFILE_JSON_HINT}"
 
     def refine_user_profile(state: SessionAgentState) -> dict[str, Any]:
-        current = coerce_user_profile(state.get("user_profile"))
+        user_id = _session_user_id(state)
+        current = profile_store.load(user_id)
         user_text = latest_human_text(state) or ""
         reply = _latest_chat_completion_reply(state) or ""
 
         messages = [
-            SystemMessage(content=refine_prompt),
+            SystemMessage(content=system_prompt),
             HumanMessage(
                 content=(
                     "Current user profile JSON:\n"
@@ -53,15 +86,18 @@ def make_refine_user_profile_node(
                 )
             ),
         ]
-        raw = invoke_with_transient_retry(lambda: structured_model.invoke(messages))
-        update = raw if isinstance(raw, UserProfile) else UserProfile.model_validate(raw)
-        merged = merge_user_profile(current, update)
-        logger.info(
-            "refined user_profile user_id=%s role=%s metrics=%s",
-            merged.user_id,
-            merged.role,
-            merged.favorite_metrics,
-        )
-        return {"user_profile": merged}
+        try:
+            update = _invoke_profile_update(model, messages)
+            merged = merge_user_profile(current, update)
+            profile_store.save(user_id, merged)
+            logger.info(
+                "refined user_profile user_id=%s role=%s metrics=%s",
+                merged.user_id,
+                merged.role,
+                merged.favorite_metrics,
+            )
+        except Exception as exc:
+            logger.warning("user profile refine skipped (%s)", exc)
+        return {}
 
     return refine_user_profile

@@ -37,16 +37,42 @@ class ChatbotSystemPrompt(SystemPromptAssembler):
             "Never run destructive or mutating SQL. If the user asks to modify data, refuse and explain "
             "that this assistant is read-only; suggest they do writes through their approved pipelines.",
             "Do not bypass read-only constraints by chaining tools that effectively write data.",
+            "Do not infer that a table measures a metric, entity, or grain from its name alone "
+            "(e.g. a table containing gmv, order, or wish in the name is not proof it is the "
+            "correct source).",
+            "Do not call generic DataHub `search` with wildcard queries (`*`, `**`, or all-entity "
+            "scans) when looking up metrics or glossary terms.",
         ]
 
     def data_required_practices(self) -> list[str]:
         return [
-            "For metric, KPI, or business-definition questions: always search DataHub glossary terms "
-            "(via the available DataHub / MCP tools) for the metric definition before answering or writing SQL. "
-            "Cite the glossary term name and definition you found. If no term is found, say so explicitly "
-            "and state any assumptions before continuing.",
+            "For metric, KPI, or business-definition questions: use `search_glossary_term` to look up "
+            "DataHub glossary terms before answering or writing SQL. Do not use generic `search` for "
+            "metric definitions unless `search_glossary_term` is unavailable. "
+            "If you must call generic `search`, restrict results to glossary terms only — "
+            'pass an entity-type filter such as entity_types=["GLOSSARY_TERM"] (or the tool\'s '
+            "equivalent: GLOSSARY_TERM, glossary_term, or a /q filter that targets glossary terms). "
+            "Do not run an unconstrained search that mixes datasets, dashboards, and glossary terms. "
+            "After a candidate match, fetch the full term definition (e.g. get_glossary_term, "
+            "datahub_get_glossary_term, or get_entities on the glossary-term URN) when the search "
+            "preview is incomplete. "
+            "If a glossary search returns no terms, retry with alternate metric names via "
+            "`search_glossary_term` only. Empty results mean not found yet — not a broken tool — "
+            "unless the payload is `=== TOOL ERROR ===` or `glossary_search_failed`. "
+            "Quote the exact error text in your reasoning; do not describe vague \"technical issues\". "
+            "After at most one retry with a different metric name, stop glossary lookup and "
+            "`chat_completion` to explain that DataHub glossary is unavailable or inconclusive — "
+            "do not fall back to wildcard search, unconstrained `search`, or warehouse catalog browsing.",
+            "Do not skip glossary lookup and browse Hive/Trino catalogs when a metric definition is still required.",
+            "Cite the glossary term name and definition you found. If no glossary term is found, "
+            "say so explicitly and state any assumptions before continuing.",
             "For data queries and anomaly checks: confirm table/column identity via metadata tools when "
             "names are ambiguous, then run only SELECT-style read-only queries.",
+            "Ground table choice in evidence: glossary-linked datasets, DataHub lineage or "
+            "documentation, schema fields that match the metric grain, or explicit user confirmation. "
+            "If you cannot determine the correct table with evidence, do not run aggregating SQL on a "
+            "guess. Tell the user you cannot determine which table to use, or return a short list of "
+            "possible candidate tables with why each might or might not fit and what evidence is missing.",
             "Prefer metadata discovery (Hive / DataHub / MCP) before guessing schemas.",
         ]
 
@@ -111,8 +137,11 @@ class DataRetrievalSystemPrompt(ChatbotSystemPrompt):
         return [
             "Clarify the business question, grains, and filters before writing SQL when ambiguous.",
             "Discover candidate tables first; prefer well-documented or glossary-linked sources.",
+            "Resolve the metric via `search_glossary_term` (or DataHub glossary with GLOSSARY_TERM "
+            "filter) before listing catalogs or schemas.",
             "Validate row grain and join keys before aggregating.",
-            "When multiple tables could answer the question, pick one primary path and state why.",
+            "When multiple tables could answer the question, do not pick one because the name looks relevant. "
+            "Either obtain evidence for a single source or present the candidate tables to the user.",
         ]
 
     def extension_blocks(self) -> list[tuple[str, str]]:
@@ -125,14 +154,33 @@ class DataRetrievalSystemPrompt(ChatbotSystemPrompt):
 DATA_RETRIEVAL_SYSTEM_PROMPT = DataRetrievalSystemPrompt().build()
 
 NEXT_STEP_PROMPT = """\
-Instruction: Decide the single best action for this turn.
+Instruction: Review the latest tool results (if any), reason about what you learned and what \
+is still missing, then choose the single best next action for this turn.
+
+Before each tool call:
+- Read the most recent tool result(s) in this turn. Summarize what they confirmed, ruled out, \
+or left ambiguous.
+- State what you still need to answer the user's request and why your chosen next tool is the \
+right step.
+- Put this reasoning in your message text (not only in the tool call). The CLI prints it as \
+LLM> before Tool>.
 
 Rules:
 - Prior session history (above any turn boundary) is context only; prioritize the \
 latest user message below the boundary.
 - One tool call per turn while discovering metadata or running queries (no parallel tool batching).
 - While still gathering metadata or running queries, use tools only; do not call `chat_completion` yet.
-- For metric / KPI / definition questions: look up DataHub glossary terms before SQL or the final reply.
+- For metric / KPI / definition questions: use `search_glossary_term` before SQL or the final reply.
+- Glossary-first gate for named metrics (e.g. GMV, revenue, DAU): call `search_glossary_term` \
+before any generic `search`, trino_list_*, or hive_* call. Do not call generic `search` with \
+wildcards (`*`) or without a glossary entity filter for metric lookups.
+- If `search_glossary_term` returns `glossary_search_failed` or `=== TOOL ERROR ===`, quote the \
+exact error in LLM> and retry at most once with a different metric name via `search_glossary_term` \
+only. Then `chat_completion` to explain glossary lookup failed — do not broaden to unconstrained search \
+or warehouse browsing for the definition step.
+- When interpreting search results: `=== TOOL ERROR ===` means the tool failed; an empty list or \
+irrelevant entity types means adjust the query and retry within glossary-only tools. Do not abandon \
+DataHub glossary for Trino discovery unless glossary lookup is finished or confirmed unavailable.
 - Never run mutating SQL or tools that change table/database state; this session is read-only.
 - Put the complete, detailed final reply in `chat_completion(reply=...)` only once, when done.
 - The final reply must name tables used, fields used, and the query time range, plus SQL/evidence.
@@ -140,6 +188,10 @@ latest user message below the boundary.
 - Do not repeat follow-up offers or assistant-only summaries after answering.
 - Prefer plain text suitable for the CLI; structure with short paragraphs or numbered steps when helpful.
 - One table / one SQL variant in the final answer unless the user asked for comparisons.
+- Do not choose a table for a metric query from naming alone. Use glossary links, metadata, or \
+schema evidence. If the correct table is still unclear, stop and tell the user you cannot \
+determine which table to use, or list possible tables with brief pros/cons — do not run \
+aggregating SQL on an unverified guess.
 - If a tool result was offloaded, use `read_offloaded_file` only when the preview is insufficient.
 - If a tool returns `=== TOOL ERROR ===` JSON, read `tool`, `hint`, and optional \
 `fallback_tool` (a plan-B suggestion only). Prefer fixing arguments when the error \
@@ -150,11 +202,12 @@ If `fallback_tool` is absent and the hint says both alternatives failed, call \
 """
 
 IDLE_CHAT_COMPLETION_PROMPT = """\
-You returned plain text without calling a tool. Review the current turn and either:
+You returned plain text without calling a tool. Review the latest tool results and your \
+reasoning, then either:
 - call tools if you still need metadata, glossary terms, or query results, or
 - call `chat_completion(reply=...)` now with the complete final answer for the user \
 (including tables, fields, and time range when data is involved).
-Do not respond with plain text again.
+Put brief reasoning in message text before the tool call. Do not respond with plain text alone again.
 """
 
 TOOL_BUDGET_EXHAUSTED_PROMPT = """\
@@ -179,6 +232,7 @@ Rules:
 - Label only this request; prior chat is context, not a new task type.
 - If the request spans multiple labels or is vague, use unclear.
 - Set confidence between 0 and 1 (use lower values when unsure).
+- Output must be a single JSON object with keys turn_task_type and confidence.
 """
 
 REFINE_USER_PROFILE_PROMPT = """\

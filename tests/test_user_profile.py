@@ -1,6 +1,11 @@
 from __future__ import annotations
 
-from memory.profile import UserProfile, coerce_user_profile, merge_user_profile
+from pathlib import Path
+
+import pytest
+
+from memory.profile import UserProfile, coerce_user_profile, merge_user_profile, parse_user_profile_update
+from memory.profile_store import FileProfileStore, safe_profile_filename
 from state.state import SessionAgentState
 
 
@@ -30,6 +35,26 @@ def test_coerce_user_profile_from_dict() -> None:
     assert profile.department == "platform"
 
 
+def test_parse_user_profile_update_markdown_fence() -> None:
+    payload = """```json
+{
+  "user_id": "ignored",
+  "department": "growth",
+  "favorite_metrics": ["gmv"]
+}
+```"""
+    profile = parse_user_profile_update(payload)
+    assert profile.department == "growth"
+    assert profile.favorite_metrics == ["gmv"]
+
+
+def test_parse_user_profile_update_embedded_json() -> None:
+    payload = 'Here is the profile: {"role": "analyst", "language": "en"}'
+    profile = parse_user_profile_update(payload)
+    assert profile.role == "analyst"
+    assert profile.language == "en"
+
+
 def test_merge_user_profile_keeps_blanks_and_user_id() -> None:
     current = UserProfile(
         user_id="alice",
@@ -52,21 +77,21 @@ def test_merge_user_profile_keeps_blanks_and_user_id() -> None:
     assert merged.language == "zh-CN"
 
 
-def test_session_state_includes_user_profile() -> None:
-    assert "user_profile" in SessionAgentState.__annotations__
+def test_session_state_uses_user_id_not_profile() -> None:
+    assert "user_id" in SessionAgentState.__annotations__
+    assert "user_profile" not in SessionAgentState.__annotations__
 
 
-def test_reset_turn_preserves_user_profile() -> None:
-    profile = UserProfile(user_id="dave", role="analyst", region="APAC")
+def test_reset_turn_preserves_user_id() -> None:
     state: SessionAgentState = {
         "messages": [],
         "session_name": "s1",
+        "user_id": "dave",
         "tool_call_count": 3,
         "idle_rounds": 2,
         "autonomous_compact_requested": False,
         "failed_tools": ["hive_list_tables"],
         "turn_task_type": "data_query",
-        "user_profile": profile,
     }
 
     SessionAgentState.reset_turn(state)
@@ -75,7 +100,7 @@ def test_reset_turn_preserves_user_profile() -> None:
     assert state["idle_rounds"] == 0
     assert state["failed_tools"] == []
     assert state["turn_task_type"] == "unclear"
-    assert state["user_profile"] == profile
+    assert state["user_id"] == "dave"
 
 
 def test_user_profile_roundtrip() -> None:
@@ -84,7 +109,7 @@ def test_user_profile_roundtrip() -> None:
         role="data analyst",
         department="growth",
         region="CN",
-        allowed_tables=["hive.ads.gmv_d", "trino.dw.user_d"],
+        allowed_tables=["hive.ads.gmv_d"],
         forbidden_columns=["phone", "id_card"],
         language="zh-CN",
         timezone="Asia/Shanghai",
@@ -96,8 +121,27 @@ def test_user_profile_roundtrip() -> None:
 
     restored = UserProfile.model_validate(profile.model_dump())
     assert restored == profile
-    assert restored.favorite_metrics == ["gmv", "pay_uv"]
-    assert restored.forbidden_columns == ["phone", "id_card"]
+
+
+def test_safe_profile_filename() -> None:
+    assert safe_profile_filename("alice@corp.com") == "alice@corp.com"
+    assert safe_profile_filename("  ") == "anonymous"
+
+
+def test_file_profile_store_roundtrip(tmp_path: Path) -> None:
+    store = FileProfileStore(tmp_path)
+    profile = UserProfile(user_id="erin", role="SRE", favorite_metrics=["gmv"])
+
+    store.save("erin", profile)
+    loaded = store.load("erin")
+
+    assert loaded == profile
+    assert (tmp_path / "erin.json").is_file()
+
+
+def test_file_profile_store_load_missing_returns_default(tmp_path: Path) -> None:
+    store = FileProfileStore(tmp_path)
+    assert store.load("new_user") == UserProfile(user_id="new_user")
 
 
 class _FakeSnapshot:
@@ -113,7 +157,7 @@ class _FakeGraph:
         return _FakeSnapshot(self._values)
 
 
-async def test_prepare_turn_input_defaults_and_preserves_profile(monkeypatch) -> None:
+async def test_prepare_turn_input_sets_user_id_only(monkeypatch) -> None:
     import memory.profile as profile_mod
     from agent.chatbot.session import prepare_turn_input
 
@@ -121,12 +165,13 @@ async def test_prepare_turn_input_defaults_and_preserves_profile(monkeypatch) ->
 
     graph = _FakeGraph()
     first = await prepare_turn_input(graph, "s1", "hello")
-    assert first["user_profile"] == UserProfile(user_id="os_user")
+    assert first["user_id"] == "os_user"
+    assert "user_profile" not in first
 
-    saved = UserProfile(user_id="erin", role="SRE", department="infra")
-    graph = _FakeGraph({"messages": [], "user_profile": saved.model_dump()})
+    graph = _FakeGraph({"messages": [], "user_id": "erin"})
     second = await prepare_turn_input(graph, "s1", "next")
-    assert second["user_profile"] == saved
+    assert second["user_id"] == "erin"
+    assert "user_profile" not in second
 
 
 class _FakeStructuredModel:
@@ -147,30 +192,112 @@ class _FakeChatModel:
         return self.structured
 
 
-def test_refine_user_profile_node_merges_without_touching_messages() -> None:
+def test_refine_user_profile_node_persists_to_store(tmp_path: Path) -> None:
     from langchain_core.messages import HumanMessage, ToolMessage
 
     from graph.refine_profile import make_refine_user_profile_node
 
+    store = FileProfileStore(tmp_path)
+    store.save("alice", UserProfile(user_id="alice", role="analyst", language="zh-CN"))
+
     model = _FakeChatModel(
         UserProfile(department="growth", favorite_metrics=["gmv"], user_id="ignored")
     )
-    node = make_refine_user_profile_node("Refine the profile.", model)
+    node = make_refine_user_profile_node("Refine the profile.", model, store)
     state = {
+        "user_id": "alice",
         "messages": [
             HumanMessage(content="I am on the growth team; track GMV daily."),
             ToolMessage(content="GMV last week was 1.2M CNY.", name="chat_completion", tool_call_id="1"),
         ],
-        "user_profile": UserProfile(user_id="alice", role="analyst", language="zh-CN"),
     }
 
     update = node(state)
 
-    assert "messages" not in update
-    profile = update["user_profile"]
-    assert profile.user_id == "alice"
-    assert profile.role == "analyst"
-    assert profile.language == "zh-CN"
-    assert profile.department == "growth"
-    assert profile.favorite_metrics == ["gmv"]
-    assert len(model.structured.invoke_calls) == 1
+    assert update == {}
+    saved = store.load("alice")
+    assert saved.user_id == "alice"
+    assert saved.role == "analyst"
+    assert saved.language == "zh-CN"
+    assert saved.department == "growth"
+    assert saved.favorite_metrics == ["gmv"]
+
+
+class _BrokenStructuredModel:
+    def invoke(self, _messages):
+        raise ValueError("Invalid JSON: expected value at line 1 column 1")
+
+
+class _LooseFenceProfileModel:
+    def with_structured_output(self, _schema):
+        return _BrokenStructuredModel()
+
+    def invoke(self, _messages):
+        return """```json
+{
+  "department": "checkout",
+  "favorite_metrics": ["gmv"]
+}
+```"""
+
+
+def test_refine_user_profile_node_falls_back_to_fenced_json(tmp_path: Path) -> None:
+    from langchain_core.messages import HumanMessage, ToolMessage
+
+    from graph.refine_profile import make_refine_user_profile_node
+
+    store = FileProfileStore(tmp_path)
+    store.save("alice", UserProfile(user_id="alice", role="analyst"))
+
+    node = make_refine_user_profile_node("Refine the profile.", _LooseFenceProfileModel(), store)
+    state = {
+        "user_id": "alice",
+        "messages": [
+            HumanMessage(content="GMV for wish last month?"),
+            ToolMessage(content="GMV was 1M.", name="chat_completion", tool_call_id="1"),
+        ],
+    }
+
+    update = node(state)
+
+    assert update == {}
+    saved = store.load("alice")
+    assert saved.role == "analyst"
+    assert saved.department == "checkout"
+    assert saved.favorite_metrics == ["gmv"]
+
+
+def test_refine_user_profile_node_skips_without_failing_turn(tmp_path: Path) -> None:
+    from langchain_core.messages import HumanMessage, ToolMessage
+
+    from graph.refine_profile import make_refine_user_profile_node
+
+    store = FileProfileStore(tmp_path)
+    store.save("alice", UserProfile(user_id="alice", role="analyst", language="zh-CN"))
+
+    class _UnparseableModel:
+        def with_structured_output(self, _schema):
+            return _BrokenStructuredModel()
+
+        def invoke(self, _messages):
+            return "not json at all"
+
+    node = make_refine_user_profile_node("Refine the profile.", _UnparseableModel(), store)
+    state = {
+        "user_id": "alice",
+        "messages": [
+            HumanMessage(content="hello"),
+            ToolMessage(content="hi", name="chat_completion", tool_call_id="1"),
+        ],
+    }
+
+    update = node(state)
+
+    assert update == {}
+    assert store.load("alice") == UserProfile(user_id="alice", role="analyst", language="zh-CN")
+
+
+def test_profile_store_save_requires_user_id(tmp_path: Path) -> None:
+    store = FileProfileStore(tmp_path)
+    with pytest.raises(ValueError):
+        store.save("", UserProfile(user_id="alice"))
