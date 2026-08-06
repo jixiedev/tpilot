@@ -12,6 +12,7 @@ from langgraph.prebuilt.tool_node import ToolCallRequest
 from graph.error_recovery import (
     format_turn_failure,
     invoke_with_transient_retry,
+    make_async_retrying_tool_wrapper,
     make_handle_tool_errors,
     make_retrying_tool_wrapper,
     make_step_tools_error_handler,
@@ -211,6 +212,71 @@ def test_retrying_wrapper_retries_transient_tool_message() -> None:
 
     assert attempts["count"] == 2
     assert result.content == '{"ok": true}'
+
+
+@pytest.mark.asyncio
+async def test_async_retrying_wrapper_retries_transient_tool_message() -> None:
+    attempts = {"count": 0}
+
+    async def execute(_request: ToolCallRequest) -> ToolMessage:
+        attempts["count"] += 1
+        if attempts["count"] == 1:
+            content = StructuredToolError.from_exception(
+                "search", ConnectionError("temporary")
+            ).to_message_content()
+            return ToolMessage(
+                content=content, tool_call_id="c1", name="search", status="error"
+            )
+        return ToolMessage(content='{"ok": true}', tool_call_id="c1", name="search")
+
+    wrapper = make_async_retrying_tool_wrapper(max_attempts=2, base_delay=0)
+    request = ToolCallRequest(
+        tool_call={"name": "search", "args": {}, "id": "c1", "type": "tool_call"},
+        tool=MagicMock(),
+        state={},
+        runtime=MagicMock(),
+    )
+
+    result = await wrapper(request, execute)
+
+    assert attempts["count"] == 2
+    assert result.content == '{"ok": true}'
+
+
+@pytest.mark.asyncio
+async def test_async_retrying_wrapper_does_not_retry_syntax_errors() -> None:
+    attempts = {"count": 0}
+
+    async def execute(_request: ToolCallRequest) -> ToolMessage:
+        attempts["count"] += 1
+        content = StructuredToolError.from_exception(
+            "search",
+            RuntimeError("Syntax error at or near FROM"),
+        ).to_message_content()
+        return ToolMessage(
+            content=content, tool_call_id="c1", name="search", status="error"
+        )
+
+    wrapper = make_async_retrying_tool_wrapper(max_attempts=3, base_delay=0)
+    request = ToolCallRequest(
+        tool_call={"name": "search", "args": {}, "id": "c1", "type": "tool_call"},
+        tool=MagicMock(),
+        state={},
+        runtime=MagicMock(),
+    )
+
+    await wrapper(request, execute)
+
+    assert attempts["count"] == 1
+
+
+def test_step_tools_node_registers_async_tool_wrapper() -> None:
+    from graph.node import StepToolsNode
+
+    node = StepToolsNode([])
+
+    assert node._awrap_tool_call is not None
+    assert node._wrap_tool_call is not None
 
 
 def test_retrying_wrapper_does_not_retry_syntax_errors() -> None:

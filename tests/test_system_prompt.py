@@ -61,14 +61,12 @@ def test_chatbot_extends_base_with_data_sections() -> None:
     assert "Data required practices:" in text
     assert "Data answer requirements:" in text
     assert "glossary terms" in text
-    assert "GLOSSARY_TERM" in text
-    assert "search_glossary_term" in text
+    assert "entity_type = GLOSSARY_TERM" in text
     assert "cannot determine which table" in text
     assert "chat_completion" in text
     assert "Session message layout:" in text
-    assert "GLOSSARY_TERM" in NEXT_STEP_PROMPT
     assert "Glossary-first" in NEXT_STEP_PROMPT
-    assert "search_glossary_term" in NEXT_STEP_PROMPT
+    assert "entity_type = GLOSSARY_TERM" in NEXT_STEP_PROMPT
     assert "LLM>" in NEXT_STEP_PROMPT
 
 

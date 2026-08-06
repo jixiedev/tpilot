@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from typing import Any, TypeVar
 
 from langchain_core.messages import SystemMessage, ToolMessage
@@ -58,6 +59,27 @@ def _failed_tools_from_state(state: Any) -> list[str]:
     return list(getattr(state, "failed_tools", None) or [])
 
 
+def _enrich_tool_error_message(
+    request: ToolCallRequest,
+    result: ToolMessage,
+    tool_name: str,
+) -> tuple[ToolMessage, StructuredToolError | None]:
+    structured = StructuredToolError.from_message_content(str(result.content))
+    if structured is None:
+        return result, None
+
+    structured = structured.with_failed_tool(tool_name).against_prior_failures(
+        _failed_tools_from_state(request.state)
+    )
+    enriched = ToolMessage(
+        content=structured.to_message_content(),
+        name=result.name or tool_name,
+        tool_call_id=result.tool_call_id,
+        status="error",
+    )
+    return enriched, structured
+
+
 def make_retrying_tool_wrapper(
     *,
     max_attempts: int = DEFAULT_TOOL_RETRY_ATTEMPTS,
@@ -73,27 +95,13 @@ def make_retrying_tool_wrapper(
         execute: Callable[[ToolCallRequest], ToolMessage | Any],
     ) -> ToolMessage | Any:
         tool_name = request.tool_call.get("name", "unknown")
-        prior_failed = _failed_tools_from_state(request.state)
         for attempt in range(max_attempts):
             result = execute(request)
             if not isinstance(result, ToolMessage) or result.status != "error":
                 return result
 
-            structured = StructuredToolError.from_message_content(str(result.content))
-            if structured is None:
-                return result
-
-            structured = (
-                structured.with_failed_tool(tool_name).against_prior_failures(prior_failed)
-            )
-            result = ToolMessage(
-                content=structured.to_message_content(),
-                name=result.name or tool_name,
-                tool_call_id=result.tool_call_id,
-                status="error",
-            )
-
-            if not structured.is_transient:
+            result, structured = _enrich_tool_error_message(request, result, tool_name)
+            if structured is None or not structured.is_transient:
                 return result
 
             if attempt >= max_attempts - 1:
@@ -118,6 +126,54 @@ def make_retrying_tool_wrapper(
         return result
 
     return retrying_tool_wrapper
+
+
+def make_async_retrying_tool_wrapper(
+    *,
+    max_attempts: int = DEFAULT_TOOL_RETRY_ATTEMPTS,
+    base_delay: float = DEFAULT_TOOL_RETRY_BASE_DELAY,
+) -> Callable[
+    [ToolCallRequest, Callable[[ToolCallRequest], Awaitable[ToolMessage | Any]]],
+    Awaitable[ToolMessage | Any],
+]:
+    """Async variant of ``make_retrying_tool_wrapper`` for ToolNode ``awrap_tool_call``."""
+
+    async def async_retrying_tool_wrapper(
+        request: ToolCallRequest,
+        execute: Callable[[ToolCallRequest], Awaitable[ToolMessage | Any]],
+    ) -> ToolMessage | Any:
+        tool_name = request.tool_call.get("name", "unknown")
+        for attempt in range(max_attempts):
+            result = await execute(request)
+            if not isinstance(result, ToolMessage) or result.status != "error":
+                return result
+
+            result, structured = _enrich_tool_error_message(request, result, tool_name)
+            if structured is None or not structured.is_transient:
+                return result
+
+            if attempt >= max_attempts - 1:
+                logger.warning(
+                    "tool retries exhausted tool=%s type=%s attempts=%s",
+                    tool_name,
+                    structured.error_type,
+                    max_attempts,
+                )
+                return result
+
+            delay = base_delay * (attempt + 1)
+            logger.info(
+                "retrying transient tool error tool=%s type=%s attempt=%s delay=%s",
+                tool_name,
+                structured.error_type,
+                attempt + 2,
+                delay,
+            )
+            await asyncio.sleep(delay)
+
+        return result
+
+    return async_retrying_tool_wrapper
 
 
 def transient_retry_on(exc: BaseException) -> bool:

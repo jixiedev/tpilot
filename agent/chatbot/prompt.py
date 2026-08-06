@@ -46,19 +46,20 @@ class ChatbotSystemPrompt(SystemPromptAssembler):
 
     def data_required_practices(self) -> list[str]:
         return [
-            "For metric, KPI, or business-definition questions: use `search_glossary_term` to look up "
-            "DataHub glossary terms before answering or writing SQL. Do not use generic `search` for "
-            "metric definitions unless `search_glossary_term` is unavailable. "
-            "If you must call generic `search`, restrict results to glossary terms only — "
-            'pass an entity-type filter such as entity_types=["GLOSSARY_TERM"] (or the tool\'s '
-            "equivalent: GLOSSARY_TERM, glossary_term, or a /q filter that targets glossary terms). "
+            "For metric, KPI, or business-definition questions: use the DataHub MCP `search` tool "
+            "(or equivalent glossary tool exposed by MCP) before answering or writing SQL. "
+            "Restrict to glossary terms only — e.g. "
+            '`search(query="GMV", filter="entity_type = GLOSSARY_TERM", num_results=10)` '
+            "or put the entity filter in the query string: "
+            '`search(query="/q GMV AND entityType:GLOSSARY_TERM", num_results=10)`. '
+            "Read each MCP tool's schema; do not pass unsupported arguments such as "
+            "`entity_types` as a list. "
             "Do not run an unconstrained search that mixes datasets, dashboards, and glossary terms. "
-            "After a candidate match, fetch the full term definition (e.g. get_glossary_term, "
-            "datahub_get_glossary_term, or get_entities on the glossary-term URN) when the search "
-            "preview is incomplete. "
-            "If a glossary search returns no terms, retry with alternate metric names via "
-            "`search_glossary_term` only. Empty results mean not found yet — not a broken tool — "
-            "unless the payload is `=== TOOL ERROR ===` or `glossary_search_failed`. "
+            "After a candidate match, fetch the full term definition with MCP tools such as "
+            "`get_entities` on the glossary-term URN when the search preview is incomplete. "
+            "If a glossary search returns no terms, retry with alternate metric names while still "
+            "using glossary-only filters. Empty results mean not found yet — not a broken tool — "
+            "unless the payload is `=== TOOL ERROR ===`. "
             "Quote the exact error text in your reasoning; do not describe vague \"technical issues\". "
             "After at most one retry with a different metric name, stop glossary lookup and "
             "`chat_completion` to explain that DataHub glossary is unavailable or inconclusive — "
@@ -137,8 +138,8 @@ class DataRetrievalSystemPrompt(ChatbotSystemPrompt):
         return [
             "Clarify the business question, grains, and filters before writing SQL when ambiguous.",
             "Discover candidate tables first; prefer well-documented or glossary-linked sources.",
-            "Resolve the metric via `search_glossary_term` (or DataHub glossary with GLOSSARY_TERM "
-            "filter) before listing catalogs or schemas.",
+            "Resolve the metric via DataHub MCP `search` with a GLOSSARY_TERM filter before "
+            "listing catalogs or schemas.",
             "Validate row grain and join keys before aggregating.",
             "When multiple tables could answer the question, do not pick one because the name looks relevant. "
             "Either obtain evidence for a single source or present the candidate tables to the user.",
@@ -170,14 +171,17 @@ Rules:
 latest user message below the boundary.
 - One tool call per turn while discovering metadata or running queries (no parallel tool batching).
 - While still gathering metadata or running queries, use tools only; do not call `chat_completion` yet.
-- For metric / KPI / definition questions: use `search_glossary_term` before SQL or the final reply.
-- Glossary-first gate for named metrics (e.g. GMV, revenue, DAU): call `search_glossary_term` \
-before any generic `search`, trino_list_*, or hive_* call. Do not call generic `search` with \
-wildcards (`*`) or without a glossary entity filter for metric lookups.
-- If `search_glossary_term` returns `glossary_search_failed` or `=== TOOL ERROR ===`, quote the \
-exact error in LLM> and retry at most once with a different metric name via `search_glossary_term` \
-only. Then `chat_completion` to explain glossary lookup failed — do not broaden to unconstrained search \
-or warehouse browsing for the definition step.
+- For metric / KPI / definition questions: use DataHub MCP `search` with a glossary filter \
+before SQL or the final reply.
+- Glossary-first gate for named metrics (e.g. GMV, revenue, DAU): call MCP `search` with \
+`filter="entity_type = GLOSSARY_TERM"` (or `/q … entityType:GLOSSARY_TERM` in query) before \
+any trino_list_* or hive_* call. Do not call `search` with wildcards (`*`) or without a \
+glossary entity filter for metric lookups. Read the tool schema — do not pass `entity_types` \
+as an unsupported list argument.
+- If MCP `search` returns `=== TOOL ERROR ===`, quote the exact error in LLM> and retry at most \
+once with a different metric name or filter spelling. Then `chat_completion` to explain \
+glossary lookup failed — do not broaden to unconstrained search or warehouse browsing for \
+the definition step.
 - When interpreting search results: `=== TOOL ERROR ===` means the tool failed; an empty list or \
 irrelevant entity types means adjust the query and retry within glossary-only tools. Do not abandon \
 DataHub glossary for Trino discovery unless glossary lookup is finished or confirmed unavailable.

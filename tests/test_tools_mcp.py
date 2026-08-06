@@ -75,16 +75,20 @@ async def test_get_mcp_tools_returns_empty_on_client_error(tmp_path: Path) -> No
 async def test_get_mcp_tools_returns_tools_on_success(tmp_path: Path) -> None:
     config_file = tmp_path / "mcp.json"
     config_file.write_text("{}", encoding="utf-8")
-    tools = [MagicMock(name="search")]
+    raw_tool = MagicMock()
+    raw_tool.name = "search"
+    raw_tool.description = "Search DataHub"
 
     client = MagicMock()
-    client.get_tools = AsyncMock(return_value=tools)
+    client.get_tools = AsyncMock(return_value=[raw_tool])
 
     with (
         patch.object(mcp_module, "mcp_config_path", return_value=config_file),
         patch.object(mcp_module, "get_client", return_value=client),
     ):
-        assert await mcp_module.get_mcp_tools() == tools
+        tools = await mcp_module.get_mcp_tools()
+
+    assert tools == [raw_tool]
 
 
 @pytest.mark.asyncio

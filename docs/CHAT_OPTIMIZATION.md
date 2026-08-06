@@ -256,4 +256,40 @@ Iterative optimization notes for the conversational CLI agent. Each round adds a
 
 ---
 
+## 2026-07-16 — Make `search_glossary_term` sync-compatible
+
+**Goal**: Glossary lookup must work under ToolNode's sync `invoke` path.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| Tool arity | Async-only `search_glossary_term` | Sync tool; bridges async MCP `search` when needed |
+| Runtime error | `StructuredTool does not support sync invocation` | ToolNode can call `invoke` without failing |
+
+---
+
+---
+
+## 2026-07-16 — Use native DataHub MCP tools for glossary lookup
+
+**Goal**: Rely on MCP-exposed `search` and related tools instead of a TahoePilot wrapper.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| Glossary tool | Custom `search_glossary_term` wrapper around MCP `search` | MCP tools only; prompts document correct `filter` / `/q` arguments |
+| Tool surface | Duplicate glossary entry in tool list | `load_data_tools` returns MCP + Hive + Trino unchanged |
+
+---
+
+## 2026-07-16 — ToolNode async wrapper for MCP tools
+
+**Goal**: Native async MCP tools must run via `tool.ainvoke` under `graph.ainvoke`, without per-tool sync adapters.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| Tool execution path | Only sync `wrap_tool_call`; async graph fell back to `tool.invoke` | `awrap_tool_call` keeps async path on `tool.ainvoke` |
+| MCP loading | Sync adapter wrapped every MCP tool at load time | `get_mcp_tools` returns native MCP tools unchanged |
+| Runtime error | `StructuredTool does not support sync invocation` on MCP search | Async MCP tools execute normally in CLI turns |
+
+---
+
 <!-- Append the next optimization section above this line -->

@@ -9,6 +9,7 @@ from langgraph.prebuilt import ToolNode
 
 from graph.error_recovery import (
     invoke_with_transient_retry,
+    make_async_retrying_tool_wrapper,
     make_handle_tool_errors,
     make_retrying_tool_wrapper,
 )
@@ -20,6 +21,7 @@ LlmStepListener = Callable[[AIMessage], None]
 
 DEFAULT_HANDLE_TOOL_ERRORS = make_handle_tool_errors()
 DEFAULT_WRAP_TOOL_CALL = make_retrying_tool_wrapper()
+DEFAULT_AWRAP_TOOL_CALL = make_async_retrying_tool_wrapper()
 
 
 class StepToolsNode(ToolNode):
@@ -33,12 +35,14 @@ class StepToolsNode(ToolNode):
         *,
         handle_tool_errors=DEFAULT_HANDLE_TOOL_ERRORS,
         wrap_tool_call=DEFAULT_WRAP_TOOL_CALL,
+        awrap_tool_call=DEFAULT_AWRAP_TOOL_CALL,
         **kwargs,
     ):
         super().__init__(
             tools,
             handle_tool_errors=handle_tool_errors,
             wrap_tool_call=wrap_tool_call,
+            awrap_tool_call=awrap_tool_call,
             **kwargs,
         )
         self.count_key = count_key
