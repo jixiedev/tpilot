@@ -98,7 +98,10 @@ def chatbot_route_after_tools(
     step_outlet: str = "step_llm",
     end_outlet: str = "__end__",
 ) -> Callable[[StateLike], str]:
-    """End the turn when chat_completion has been executed."""
+    """Route back to the LLM, or to ``end_outlet`` once ``chat_completion`` ran.
+
+    Set ``end_outlet`` to ``refine_user_profile`` when profile refinement is enabled.
+    """
 
     def route(state: StateLike) -> str:
         if _chat_completion_executed(state):

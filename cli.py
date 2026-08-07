@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import getpass
 import logging
 import os
 import sys
@@ -15,37 +16,60 @@ from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 
 load_dotenv(Path(__file__).resolve().parent / ".env")
 
+from agent.chatbot.graph import default_profile_store
 from agent.chatbot.session import graph_config
 from agent.registry import AGENTS, DEFAULT_AGENT, get_agent
 from config.logging_config import configure_logging
+from graph.error_recovery import format_turn_failure
 from models.models import default_model, default_model_name
+from tools.mcp.mcp import check_mcp_servers, format_mcp_startup_lines
 
 logger = logging.getLogger(__name__)
 
 _EXIT_COMMANDS = frozenset({"quit", "exit", "q", ":q"})
 _DEFAULT_CHECKPOINT_DB = Path(__file__).resolve().parent / "checkpoints.sqlite"
+_DEFAULT_PROFILE_DIR = Path(__file__).resolve().parent / "profiles"
+
+
+def resolve_cli_user_id(explicit: str | None = None) -> str:
+    """CLI user id: flag / env / process username."""
+    if explicit and explicit.strip():
+        return explicit.strip()
+    env_value = os.getenv("TAHOEPILOT_USER_ID", "").strip()
+    if env_value:
+        return env_value
+    return getpass.getuser()
 
 
 async def run_repl(
     *,
     agent_name: str,
     session: str,
+    user_id: str,
     checkpoint_db: Path,
+    profile_dir: Path,
     verbose: bool = False,
 ) -> None:
     agent = get_agent(agent_name)
+    profile_store = default_profile_store(profile_dir)
     print("TahoePilot — type 'quit' to exit")
     print(f"Agent: {agent.name}")
     print(f"Session: {session}")
+    print(f"User: {user_id}")
     if verbose:
         print(f"Model: {default_model_name}")
         print(f"Checkpoint DB: {checkpoint_db}")
+        print(f"Profile dir: {profile_dir}")
+
+    for line in format_mcp_startup_lines(await check_mcp_servers()):
+        print(line)
 
     async with AsyncSqliteSaver.from_conn_string(str(checkpoint_db)) as checkpointer:
         await checkpointer.setup()
         graph = await agent.build_graph(
             default_model,
             checkpointer=checkpointer,
+            profile_store=profile_store,
             max_tool_calls=30,
         )
         config = graph_config(session)
@@ -63,13 +87,18 @@ async def run_repl(
                 print("Bye.")
                 break
 
-            turn_input = await agent.prepare_turn_input(graph, session, user_input)
+            turn_input = await agent.prepare_turn_input(
+                graph,
+                session,
+                user_input,
+                user_id=user_id,
+            )
 
             try:
                 state = await graph.ainvoke(turn_input, config)
-            except Exception:
+            except Exception as exc:
                 logger.exception("Graph invocation failed")
-                print("Assistant> Request failed; see logs for details.", file=sys.stderr)
+                print(f"Assistant> {format_turn_failure(exc)}", file=sys.stderr)
                 continue
 
             agent.print_turn_output(state)
@@ -91,9 +120,20 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="Session id for conversation history (default: random UUID)",
     )
     parser.add_argument(
+        "-u",
+        "--user-id",
+        default=None,
+        help="User id for profile lookup (default: TAHOEPILOT_USER_ID or process username)",
+    )
+    parser.add_argument(
         "--checkpoint-db",
         default=None,
         help="SQLite path for LangGraph checkpoints (default: ./checkpoints.sqlite)",
+    )
+    parser.add_argument(
+        "--profile-dir",
+        default=None,
+        help="Directory for per-user profile JSON files (default: ./profiles)",
     )
     parser.add_argument(
         "-v",
@@ -108,16 +148,24 @@ def main(argv: list[str] | None = None) -> None:
     args = build_arg_parser().parse_args(argv)
     configure_logging(verbose=args.verbose)
     session = args.session or str(uuid.uuid4())
+    user_id = resolve_cli_user_id(args.user_id)
     checkpoint_db = Path(
         args.checkpoint_db
         or os.getenv("TAHOEPILOT_CHECKPOINT_DB")
         or _DEFAULT_CHECKPOINT_DB
     )
+    profile_dir = Path(
+        args.profile_dir
+        or os.getenv("TAHOEPILOT_PROFILE_DIR")
+        or _DEFAULT_PROFILE_DIR
+    )
     asyncio.run(
         run_repl(
             agent_name=args.agent,
             session=session,
+            user_id=user_id,
             checkpoint_db=checkpoint_db,
+            profile_dir=profile_dir,
             verbose=args.verbose,
         )
     )

@@ -6,6 +6,7 @@ from hmsclient import HMSClient
 from langchain.tools import tool
 
 from config.tool_config import tool_config
+from tools.common import alternative_tool
 
 _thread_local = local()
 
@@ -23,12 +24,14 @@ def get_client() -> HMSClient:
 
 
 @tool
+@alternative_tool("trino_list_tables")
 def hive_list_tables(database: str) -> list[str]:
     """List all table names in a Hive database via HMS."""
     return get_client().get_all_tables(database)
 
 
 @tool
+@alternative_tool("trino_desc_table")
 def hive_desc_table(database: str, table: str):
     """Describe a Hive table schema via HMS."""
     return get_client().get_table(database, table)

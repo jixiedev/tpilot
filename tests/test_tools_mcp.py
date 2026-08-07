@@ -75,16 +75,20 @@ async def test_get_mcp_tools_returns_empty_on_client_error(tmp_path: Path) -> No
 async def test_get_mcp_tools_returns_tools_on_success(tmp_path: Path) -> None:
     config_file = tmp_path / "mcp.json"
     config_file.write_text("{}", encoding="utf-8")
-    tools = [MagicMock(name="search")]
+    raw_tool = MagicMock()
+    raw_tool.name = "search"
+    raw_tool.description = "Search DataHub"
 
     client = MagicMock()
-    client.get_tools = AsyncMock(return_value=tools)
+    client.get_tools = AsyncMock(return_value=[raw_tool])
 
     with (
         patch.object(mcp_module, "mcp_config_path", return_value=config_file),
         patch.object(mcp_module, "get_client", return_value=client),
     ):
-        assert await mcp_module.get_mcp_tools() == tools
+        tools = await mcp_module.get_mcp_tools()
+
+    assert tools == [raw_tool]
 
 
 @pytest.mark.asyncio
@@ -112,3 +116,69 @@ async def test_get_tools_for_server_uses_session(tmp_path: Path) -> None:
     assert result == expected
     client.session.assert_called_once_with("datahub")
     mock_load.assert_awaited_once_with(session)
+
+
+@pytest.mark.asyncio
+async def test_configured_mcp_server_names_reads_mcp_servers(tmp_path: Path) -> None:
+    config_file = tmp_path / "mcp.json"
+    config_file.write_text(
+        json.dumps({"mcpServers": {"datahub": {}, "files": {}}}),
+        encoding="utf-8",
+    )
+
+    with patch.object(mcp_module, "mcp_config_path", return_value=config_file):
+        assert mcp_module.configured_mcp_server_names() == ["datahub", "files"]
+
+
+@pytest.mark.asyncio
+async def test_check_mcp_servers_reports_per_server_status(tmp_path: Path) -> None:
+    config_file = tmp_path / "mcp.json"
+    config_file.write_text(
+        json.dumps({"mcpServers": {"datahub": {}, "broken": {}}}),
+        encoding="utf-8",
+    )
+
+    async def fake_get_tools(server_name: str):
+        if server_name == "broken":
+            raise RuntimeError("connection refused")
+        return [MagicMock(name="search"), MagicMock(name="get_entities")]
+
+    with (
+        patch.object(mcp_module, "mcp_config_path", return_value=config_file),
+        patch.object(mcp_module, "get_tools_for_server", side_effect=fake_get_tools),
+    ):
+        statuses = await mcp_module.check_mcp_servers()
+
+    assert len(statuses) == 2
+    by_name = {status.name: status for status in statuses}
+    assert by_name["datahub"].available is True
+    assert by_name["datahub"].tool_count == 2
+    assert by_name["broken"].available is False
+    assert "connection refused" in by_name["broken"].error
+
+
+def test_format_mcp_startup_lines_when_not_configured(tmp_path: Path) -> None:
+    missing = tmp_path / "missing.json"
+    with patch.object(mcp_module, "mcp_config_path", return_value=missing):
+        lines = mcp_module.format_mcp_startup_lines([])
+
+    assert len(lines) == 1
+    assert "not configured" in lines[0]
+    assert str(missing) in lines[0]
+
+
+def test_format_mcp_startup_lines_lists_servers() -> None:
+    lines = mcp_module.format_mcp_startup_lines(
+        [
+            mcp_module.McpServerStatus(name="datahub", available=True, tool_count=5),
+            mcp_module.McpServerStatus(
+                name="broken",
+                available=False,
+                error="connection refused",
+            ),
+        ]
+    )
+
+    assert lines[0] == "MCP servers:"
+    assert "datahub: ok (5 tools)" in lines[1]
+    assert "broken: unavailable (connection refused)" in lines[2]

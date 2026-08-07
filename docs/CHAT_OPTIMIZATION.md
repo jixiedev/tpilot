@@ -132,4 +132,164 @@ Iterative optimization notes for the conversational CLI agent. Each round adds a
 
 ---
 
+## 2026-07-13 — Structured tool error recovery (F14 initial)
+
+**Goal**: Classify data-tool failures, return actionable TOOL ERROR messages, and retry transient faults without aborting the turn.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| Tool error surface | Generic `repr(exc)` ToolMessage from LangGraph defaults | Structured `=== TOOL ERROR ===` payload with type, hint, optional `fallback_tool`, retryable flag |
+| Hive/Trino fallback | Forced `ToolFallbackError` / `error_type=fallback` | Decorator only registers plan B; real error type kept; LLM sees optional `fallback_tool` hint |
+| Transient failures | No automatic retry within a tool batch | `wrap_tool_call` retries connection/timeout errors before returning the error ToolMessage |
+| Node-level failures | Uncaught `step_tools` exceptions ended the CLI turn | `RetryPolicy` on `step_tools` plus `error_handler` routes back to `step_llm` with a recovery prompt |
+| Mutual fallback loops | Hive↔Trino alternatives could oscillate across tool calls | Per-turn `failed_tools` state suppresses `fallback_tool` once the peer already failed |
+| Trino SQL failures | Generic `repr(exc)` / keyword guessing | `TrinoUserError` / `TrinoExternalError` mapped to NOT_FOUND, SYNTAX, PERMISSION, CONNECTION with retry flags |
+| LLM / turn failures | Generic CLI "Request failed"; no LLM retry | `step_llm` retries transient API errors; CLI prints rate-limit / timeout / connection guidance |
+
+---
+
+## 2026-07-14 — Per-turn task classification hook
+
+**Goal**: Label each user turn before the ReAct loop so later routing can branch on task type without rewriting the graph core.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| Turn typing | No per-turn task label in state | Optional `classify_task` writes `turn_task_type` after system-prompt inject |
+| Classification API | N/A / incomplete boolean flag | Enabled by passing `classify_prompt`; structured output only, no tools |
+| History hygiene | Risk of stuffing classify chatter into `messages` | Classification exchange stays out of conversation history |
+| Ambiguity | Forced single label even when unsure | Low confidence (or missing user text) maps to `unclear` |
+
+---
+
+## 2026-07-14 — Chatbot system prompt: read-only data contract
+
+**Goal**: Make chatbot answers safely read-only and always evidence-backed for warehouse / metric work.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| Prompt structure | Flat role + mixed rules | Explicit Role, General rules, Data prohibitions / required practices / answer requirements |
+| Warehouse safety | Soft "prefer read-only unless user asks otherwise" | Hard ban on mutating SQL and state-changing tools; refuse write requests |
+| Metric grounding | Glossary cited when convenient | Must search DataHub glossary terms before answering metric/KPI questions |
+| Evidence in replies | "full evidence" encouraged | Final data answers must name tables, fields, and query time range |
+
+---
+
+## 2026-07-14 — Layered system-prompt assemblers
+
+**Goal**: Share a generic system-prompt core and let chatbot / data-retrieval agents add sections by inheritance.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| Prompt authorship | One flat `SYSTEM_PROMPT` string in chatbot | `SystemPromptAssembler` → `ChatbotSystemPrompt` → `DataRetrievalSystemPrompt` |
+| Extension model | Copy-paste / rewrite whole prompt | Subclasses append via `extension_blocks()` + content hooks |
+| Agent reuse | N/A | `DataRetrievalSystemPrompt` lives beside chatbot prompts and inherits chatbot data rules |
+
+---
+
+## 2026-07-14 — System prompt personalization via UserProfile
+
+**Goal**: Include session user identity and preferences in the system prompt without hard-coding them at import time.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| Profile in prompt | Not used when assembling system text | `SystemPromptAssembler` renders optional `User profile` section |
+| Profile schema | username / nested domain preferences | Identity, permissions, locale, long-term prefs, favorite metrics/dimensions |
+| Inject timing | Fixed `SYSTEM_PROMPT` string at graph build | Chatbot inject callback rebuilds from `state["user_profile"]` |
+
+---
+
+## 2026-07-14 — End-of-turn user profile refinement
+
+**Goal**: Learn lasting personalization from finished turns without rewriting conversation history.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| Profile updates | Static seed from process user only | Optional `refine_user_profile` after `chat_completion` |
+| Update safety | Full-history rewrite risked wiping fields | Lean turn context + merge keeps blanks/`user_id` |
+| Inject timing | Fixed `SYSTEM_PROMPT` string at graph build | Chatbot inject callback loads profile from `ProfileStore` via `user_id` |
+
+---
+
+## 2026-07-15 — User profile moved to filesystem ProfileStore
+
+**Goal**: Persist personalization by `user_id` across sessions instead of duplicating profile inside each checkpoint thread.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| Profile storage | `user_profile` in session checkpoint | `FileProfileStore` (`profiles/{user_id}.json`) |
+| Session state | Full profile blob per thread | `user_id` only; profile loaded/saved at inject and refine |
+| Cross-session prefs | Lost on new `--session` | Same OS user reloads profile from disk |
+
+---
+
+## 2026-07-15 — Best-effort profile refine with GLM JSON tolerance
+
+**Goal**: End-of-turn profile updates must not hide a successful `chat_completion` reply when the model returns markdown-fenced or loose JSON.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| Profile parse | `with_structured_output` only; fenced JSON crashed the turn | `parse_user_profile_update` strips fences and embedded JSON; plain-invoke fallback |
+| Turn failure | `refine_user_profile` ValidationError aborted the whole graph | Refine is best-effort: log and skip save; user still sees the assistant reply |
+| Provider quirks | Same GLM issue as turn classify | Shared JSON-coercion pattern for profile updates |
+
+---
+
+## 2026-07-15 — MCP server health check at agent startup
+
+**Goal**: Surface MCP connectivity before the first user turn instead of failing mid-conversation on the first tool call.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| MCP visibility | Silent until first tool call; failures easy to misread | CLI probes each configured server and prints ok/unavailable with tool counts |
+| Per-server status | Only aggregate `get_mcp_tools()` success/fail | `check_mcp_servers()` reports each entry in `mcp.json` independently |
+
+---
+
+## 2026-07-15 — `search_glossary_term` wrapper and anti-wildcard search rules
+
+**Goal**: Stop metric lookups from degrading into generic `search("*")` after glossary tool errors.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| Glossary search | Model called raw MCP `search` with ad-hoc filters | `search_glossary_term` tries known GLOSSARY_TERM parameter variants |
+| Failure handling | Vague "technical issues" and wildcard fallback | Prompt requires quoting tool errors; bans `*` search; stop or `chat_completion` after retries |
+
+---
+
+## 2026-07-16 — Make `search_glossary_term` sync-compatible
+
+**Goal**: Glossary lookup must work under ToolNode's sync `invoke` path.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| Tool arity | Async-only `search_glossary_term` | Sync tool; bridges async MCP `search` when needed |
+| Runtime error | `StructuredTool does not support sync invocation` | ToolNode can call `invoke` without failing |
+
+---
+
+---
+
+## 2026-07-16 — Use native DataHub MCP tools for glossary lookup
+
+**Goal**: Rely on MCP-exposed `search` and related tools instead of a TahoePilot wrapper.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| Glossary tool | Custom `search_glossary_term` wrapper around MCP `search` | MCP tools only; prompts document correct `filter` / `/q` arguments |
+| Tool surface | Duplicate glossary entry in tool list | `load_data_tools` returns MCP + Hive + Trino unchanged |
+
+---
+
+## 2026-07-16 — ToolNode async wrapper for MCP tools
+
+**Goal**: Native async MCP tools must run via `tool.ainvoke` under `graph.ainvoke`, without per-tool sync adapters.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| Tool execution path | Only sync `wrap_tool_call`; async graph fell back to `tool.invoke` | `awrap_tool_call` keeps async path on `tool.ainvoke` |
+| MCP loading | Sync adapter wrapped every MCP tool at load time | `get_mcp_tools` returns native MCP tools unchanged |
+| Runtime error | `StructuredTool does not support sync invocation` on MCP search | Async MCP tools execute normally in CLI turns |
+
+---
+
 <!-- Append the next optimization section above this line -->
