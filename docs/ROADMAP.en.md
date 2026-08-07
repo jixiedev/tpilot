@@ -15,7 +15,7 @@ An AI Agent platform for data teams: chatbot, intelligent data retrieval, data d
 |----|-----------|-------------|--------|
 | M0 | Conversational | Multi-turn chat in the CLI; call Hive/Trino/MCP tools to get results | Done — generic ReAct graph + pluggable `--agent` (default `chatbot`); see [CHAT_OPTIMIZATION.md](CHAT_OPTIMIZATION.md) |
 | M1 | Resumable | Conversation state persists; pick up where you left off; long-context management | Done — `AsyncSqliteSaver` + `--session` resume across restarts; three-layer context compression (F4) wired into the chatbot graph |
-| M2 | Data retrieval | Describe data needs in natural language; Agent finds tables, writes SQL, returns results | In progress — chatbot read-only retrieval contract + per-turn task classification; `DataRetrievalSystemPrompt` in place; dedicated retrieval agent / evals not done |
+| M2 | Data retrieval | Describe data needs in natural language; Agent finds tables, writes SQL, returns results | Done — chatbot read-only retrieval contract; glossary-first (DataHub MCP) → metadata/lineage → Hive/Trino SQL; per-turn task classification; `DataRetrievalSystemPrompt`; dedicated retrieval agent / evals can still be strengthened later |
 | M3 | Collaborative | Complex tasks split across specialized agents that pass intermediate results | Not started |
 | M4 | Diagnostic | Describe data anomalies; Agent runs quality checks, reasons about root cause, produces reports | Not started |
 | M5 | Deployable | Move from local CLI to an outward-facing service (UI, API, auth, observability) | Not started |
@@ -41,4 +41,4 @@ An AI Agent platform for data teams: chatbot, intelligent data retrieval, data d
 
 ---
 
-*Last updated: 2026-07-14*
+*Last updated: 2026-08-07*

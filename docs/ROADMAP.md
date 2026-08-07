@@ -15,7 +15,7 @@
 |----|-----------|------|------|
 | M0 | 可对话 | CLI 里与 Agent 多轮对话，调用 Hive/Trino/MCP 工具拿到结果 | 已完成：通用 ReAct Graph + `--agent` 插件化；默认 `chatbot`；详见 [CHAT_OPTIMIZATION.md](CHAT_OPTIMIZATION.md) |
 | M1 | 可恢复 | 对话状态持久化，关掉再开能接着聊；长对话有上下文管理 | 已完成：`AsyncSqliteSaver` + `--session` 跨进程恢复；三层上下文压缩（F4）已接入 chatbot graph |
-| M2 | 能取数 | 用自然语言描述数据需求，Agent 找表、写 SQL、返回查询结果 | 进行中：chatbot 只读取数契约 + 回合任务分类；`DataRetrievalSystemPrompt` 已就位；独立取数 agent / 评测未做 |
+| M2 | 能取数 | 用自然语言描述数据需求，Agent 找表、写 SQL、返回查询结果 | 已完成：chatbot 只读取数契约；glossary-first（DataHub MCP）→ 元数据/血缘 → Hive/Trino SQL；回合任务分类；`DataRetrievalSystemPrompt`；独立取数 agent / 评测仍可后续加强 |
 | M3 | 能协作 | 复杂任务拆给多个专精 Agent，彼此传递中间结果 | 未开始 |
 | M4 | 能诊断 | 描述数据异常，Agent 跑质量检查、推根因、出报告 | 未开始 |
 | M5 | 可部署 | 从本地 CLI 变成可对外提供的服务（UI、API、权限、观测） | 未开始 |
@@ -41,4 +41,4 @@
 
 ---
 
-*最后更新：2026-07-14*
+*最后更新：2026-08-07*
