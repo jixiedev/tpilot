@@ -20,8 +20,8 @@ class AgentSpec:
     print_turn_output: Callable[..., None]
 
 
-CHATBOT = AgentSpec(
-    name="chatbot",
+DATABOT = AgentSpec(
+    name="databot",
     description="Multi-turn data assistant",
     build_graph=build_chat_graph,
     prepare_turn_input=prepare_turn_input,
@@ -29,10 +29,10 @@ CHATBOT = AgentSpec(
 )
 
 AGENTS: dict[str, AgentSpec] = {
-    CHATBOT.name: CHATBOT,
+    DATABOT.name: DATABOT,
 }
 
-DEFAULT_AGENT = CHATBOT.name
+DEFAULT_AGENT = DATABOT.name
 
 
 def get_agent(name: str) -> AgentSpec:

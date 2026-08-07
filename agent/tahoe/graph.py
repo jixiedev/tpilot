@@ -15,7 +15,7 @@ from agent.chatbot.prompt import (
     NEXT_STEP_PROMPT,
     REFINE_USER_PROFILE_PROMPT,
     TOOL_BUDGET_EXHAUSTED_PROMPT,
-    ChatbotSystemPrompt,
+    TahoeSystemPrompt,
 )
 from agent.chatbot.display import print_classify_task, print_llm_step, print_tool_call
 from agent.chatbot.routes import DEFAULT_MAX_IDLE_ROUNDS, chatbot_route_after_step, chatbot_route_after_tools
@@ -29,7 +29,7 @@ from tools.loader import load_data_tools
 DEFAULT_MAX_TOOL_CALLS = 10
 DEFAULT_PROFILE_DIR = Path(__file__).resolve().parents[2] / "profiles"
 
-_CHATBOT_PROMPT = ChatbotSystemPrompt()
+_CHATBOT_PROMPT = TahoeSystemPrompt()
 
 
 def default_profile_store(root: Path | None = None) -> FileProfileStore:

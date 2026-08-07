@@ -6,7 +6,7 @@ from agent.chatbot.prompt import (
     DATA_RETRIEVAL_SYSTEM_PROMPT,
     NEXT_STEP_PROMPT,
     SYSTEM_PROMPT as CHATBOT_SYSTEM_PROMPT,
-    ChatbotSystemPrompt,
+    TahoeSystemPrompt,
     DataRetrievalSystemPrompt,
 )
 from agent.prompt import SystemPromptAssembler
@@ -48,14 +48,14 @@ def test_assembler_includes_user_profile_section() -> None:
 
 
 def test_build_user_profile_override() -> None:
-    base = ChatbotSystemPrompt(user_profile=UserProfile(user_id="old"))
+    base = TahoeSystemPrompt(user_profile=UserProfile(user_id="old"))
     text = base.build(user_profile=UserProfile(user_id="new"))
     assert "User id: new" in text
     assert "User id: old" not in text
 
 
 def test_chatbot_extends_base_with_data_sections() -> None:
-    text = ChatbotSystemPrompt().build()
+    text = TahoeSystemPrompt().build()
     assert text == CHATBOT_SYSTEM_PROMPT
     assert "Data prohibitions:" in text
     assert "Data required practices:" in text
