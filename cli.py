@@ -16,11 +16,11 @@ from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 
 load_dotenv(Path(__file__).resolve().parent / ".env")
 
-from agent.chatbot.graph import default_profile_store
-from agent.chatbot.session import graph_config
 from agent.registry import AGENTS, DEFAULT_AGENT, get_agent
+from agent.tahoe.tahoe_agent import TahoeAgent
 from config.logging_config import configure_logging
 from graph.error_recovery import format_turn_failure
+from memory import CompressionConfig
 from models.models import default_model, default_model_name
 from tools.mcp.mcp import check_mcp_servers, format_mcp_startup_lines
 
@@ -50,10 +50,10 @@ async def run_repl(
     profile_dir: Path,
     verbose: bool = False,
 ) -> None:
-    agent = get_agent(agent_name)
-    profile_store = default_profile_store(profile_dir)
+    spec = get_agent(agent_name)
+    profile_store = TahoeAgent.default_profile_store(profile_dir)
     print("TahoePilot — type 'quit' to exit")
-    print(f"Agent: {agent.name}")
+    print(f"Agent: {spec.name}")
     print(f"Session: {session}")
     print(f"User: {user_id}")
     if verbose:
@@ -66,13 +66,16 @@ async def run_repl(
 
     async with AsyncSqliteSaver.from_conn_string(str(checkpoint_db)) as checkpointer:
         await checkpointer.setup()
-        graph = await agent.build_graph(
-            default_model,
-            checkpointer=checkpointer,
+        agent = await spec.create_agent(
             profile_store=profile_store,
             max_tool_calls=30,
         )
-        config = graph_config(session)
+        graph = await agent.build_graph(
+            default_model,
+            checkpointer=checkpointer,
+            compression_config=CompressionConfig(enabled=True),
+        )
+        config = TahoeAgent.graph_config(session)
 
         while True:
             try:

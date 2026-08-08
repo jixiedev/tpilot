@@ -1,4 +1,4 @@
-"""Prompt templates for the interactive chatbot CLI."""
+"""Prompt templates for the Tahoe team agent base (no domain-specific data tools)."""
 
 from __future__ import annotations
 
@@ -13,21 +13,14 @@ Use history for reference; focus tool calls and your reply on the current reques
 
 
 class TahoeSystemPrompt(SystemPromptAssembler):
-    """Tahoe prompt: generic base plus read-only data rules and chat_completion output."""
+    """Tahoe team base prompt: CLI assistant contract + chat_completion output."""
 
     def role(self) -> str:
         return (
-            "You are TahoePilot, an interactive CLI assistant for data teams. Help users "
-            "discover warehouse metadata, understand metrics, run read-only analysis, and "
-            "investigate data issues with transparent, verifiable answers."
+            "You are TahoePilot, an interactive CLI assistant for the Tahoe team. "
+            "Help users complete their requests with clear reasoning, the available tools, "
+            "and transparent, verifiable answers."
         )
-
-    def general_rules(self) -> list[str]:
-        return [
-            *super().general_rules(),
-            "Prefer listing and describing tables or schemas before writing SQL when names are uncertain.",
-        ]
-
 
     def output(self) -> str:
         return (
@@ -46,37 +39,6 @@ class TahoeSystemPrompt(SystemPromptAssembler):
 
 SYSTEM_PROMPT = TahoeSystemPrompt().build()
 
-
-class DataRetrievalSystemPrompt(TahoeSystemPrompt):
-    """Data-retrieval prompt: chatbot rules plus retrieval-specialized sections."""
-
-    def role(self) -> str:
-        return (
-            f"{super().role()} "
-            "Specialize in turning natural-language data needs into grounded "
-            "table discovery, SQL, and query results."
-        )
-
-    def retrieval_practices(self) -> list[str]:
-        return [
-            "Clarify the business question, grains, and filters before writing SQL when ambiguous.",
-            "Discover candidate tables first; prefer well-documented or glossary-linked sources.",
-            "Resolve the metric via DataHub MCP `search` with a GLOSSARY_TERM filter before "
-            "listing catalogs or schemas.",
-            "Validate row grain and join keys before aggregating.",
-            "When multiple tables could answer the question, do not pick one because the name looks relevant. "
-            "Either obtain evidence for a single source or present the candidate tables to the user.",
-        ]
-
-    def extension_blocks(self) -> list[tuple[str, str]]:
-        return [
-            *super().extension_blocks(),
-            ("Data retrieval practices", self._bullets(self.retrieval_practices())),
-        ]
-
-
-DATA_RETRIEVAL_SYSTEM_PROMPT = DataRetrievalSystemPrompt().build()
-
 NEXT_STEP_PROMPT = """\
 Instruction: Review the latest tool results (if any), reason about what you learned and what \
 is still missing, then choose the single best next action for this turn.
@@ -92,33 +54,12 @@ LLM> before Tool>.
 Rules:
 - Prior session history (above any turn boundary) is context only; prioritize the \
 latest user message below the boundary.
-- One tool call per turn while discovering metadata or running queries (no parallel tool batching).
-- While still gathering metadata or running queries, use tools only; do not call `chat_completion` yet.
-- For metric / KPI / definition questions: use DataHub MCP `search` with a glossary filter \
-before SQL or the final reply.
-- Glossary-first gate for named metrics (e.g. GMV, revenue, DAU): call MCP `search` with \
-`filter="entity_type = GLOSSARY_TERM"` (or `/q … entityType:GLOSSARY_TERM` in query) before \
-any trino_list_* or hive_* call. Do not call `search` with wildcards (`*`) or without a \
-glossary entity filter for metric lookups. Read the tool schema — do not pass `entity_types` \
-as an unsupported list argument.
-- If MCP `search` returns `=== TOOL ERROR ===`, quote the exact error in LLM> and retry at most \
-once with a different metric name or filter spelling. Then `chat_completion` to explain \
-glossary lookup failed — do not broaden to unconstrained search or warehouse browsing for \
-the definition step.
-- When interpreting search results: `=== TOOL ERROR ===` means the tool failed; an empty list or \
-irrelevant entity types means adjust the query and retry within glossary-only tools. Do not abandon \
-DataHub glossary for Trino discovery unless glossary lookup is finished or confirmed unavailable.
-- Never run mutating SQL or tools that change table/database state; this session is read-only.
-- Put the complete, detailed final reply in `chat_completion(reply=...)` only once, when done.
-- The final reply must name tables used, fields used, and the query time range, plus SQL/evidence.
+- Prefer one tool call at a time while gathering information (no unnecessary parallel batching).
+- While still gathering information with tools, do not call `chat_completion` yet.
+- Put the complete final reply in `chat_completion(reply=...)` only once, when done.
 - Do not repeat a tool call with identical arguments unless the prior result failed.
 - Do not repeat follow-up offers or assistant-only summaries after answering.
 - Prefer plain text suitable for the CLI; structure with short paragraphs or numbered steps when helpful.
-- One table / one SQL variant in the final answer unless the user asked for comparisons.
-- Do not choose a table for a metric query from naming alone. Use glossary links, metadata, or \
-schema evidence. If the correct table is still unclear, stop and tell the user you cannot \
-determine which table to use, or list possible tables with brief pros/cons — do not run \
-aggregating SQL on an unverified guess.
 - If a tool result was offloaded, use `read_offloaded_file` only when the preview is insufficient.
 - If a tool returns `=== TOOL ERROR ===` JSON, read `tool`, `hint`, and optional \
 `fallback_tool` (a plan-B suggestion only). Prefer fixing arguments when the error \
@@ -131,17 +72,15 @@ If `fallback_tool` is absent and the hint says both alternatives failed, call \
 IDLE_CHAT_COMPLETION_PROMPT = """\
 You returned plain text without calling a tool. Review the latest tool results and your \
 reasoning, then either:
-- call tools if you still need metadata, glossary terms, or query results, or
-- call `chat_completion(reply=...)` now with the complete final answer for the user \
-(including tables, fields, and time range when data is involved).
+- call tools if you still need information, or
+- call `chat_completion(reply=...)` now with the complete final answer for the user.
 Put brief reasoning in message text before the tool call. Do not respond with plain text alone again.
 """
 
 TOOL_BUDGET_EXHAUSTED_PROMPT = """\
 You have reached the maximum number of tool calls for this turn. Do not call any \
-more data or MCP tools. Summarize what you have learned so far with full evidence \
-(tables, fields, time range, SQL, assumptions) and call `chat_completion(reply=...)` \
-now to deliver your final answer to the user.
+more tools. Summarize what you have learned so far, including assumptions and gaps, \
+and call `chat_completion(reply=...)` now to deliver your final answer to the user.
 """
 
 CLASSIFY_TASK_PROMPT = """\
@@ -169,10 +108,7 @@ Rules:
 - Start from the provided current profile JSON; preserve stable identity.
 - Never invent a new user_id when one already exists.
 - Only fill fields supported by clear evidence in the latest user request or assistant reply \
-(role, department, region, language, timezone, preferred currency/time grain, favorite \
-metrics/dimensions, allowed tables, forbidden columns).
+(role, department, region, language, timezone, and lasting preferences).
 - Leave fields empty when unsure so existing values are kept by the merger.
-- Do not copy one-off query filters into the profile unless the user states a lasting preference.
-- Favorite metrics/dimensions should be canonical names when known; avoid raw SQL fragments.
-- allowed_tables / forbidden_columns are lasting access preferences, not every table touched this turn.
+- Do not copy one-off request details into the profile unless the user states a lasting preference.
 """

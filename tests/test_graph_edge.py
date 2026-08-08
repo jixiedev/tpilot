@@ -2,8 +2,9 @@ from __future__ import annotations
 
 from langchain_core.messages import AIMessage
 
-from agent.chatbot.routes import chatbot_route_after_step
-from agent.chatbot.tools import CHAT_COMPLETION_TOOL_NAME
+from agent.config import AgentRunConfig, RouterConfig
+from agent.router import CompletionToolRouter
+from agent.tahoe.tools import CHAT_COMPLETION_TOOL_NAME
 
 
 def _state(
@@ -19,8 +20,17 @@ def _state(
     }
 
 
+def _route(*, max_tool_steps: int = 10, max_idle_rounds: int = 3):
+    router = CompletionToolRouter(
+        AgentRunConfig(max_tool_calls=max_tool_steps, max_idle_rounds=max_idle_rounds),
+        RouterConfig(),
+        completion_tool_name=CHAT_COMPLETION_TOOL_NAME,
+    )
+    return router.route_after_step()
+
+
 def test_budget_exhausted_with_data_tools_routes_to_step_llm() -> None:
-    route = chatbot_route_after_step(max_tool_steps=10)
+    route = _route(max_tool_steps=10)
     state = _state(
         tool_call_count=10,
         tool_calls=[{"name": "trino_run_query", "args": {"sql": "SELECT 1"}, "id": "1"}],
@@ -30,7 +40,7 @@ def test_budget_exhausted_with_data_tools_routes_to_step_llm() -> None:
 
 
 def test_budget_exhausted_with_chat_completion_routes_to_tools() -> None:
-    route = chatbot_route_after_step(max_tool_steps=10)
+    route = _route(max_tool_steps=10)
     state = _state(
         tool_call_count=10,
         tool_calls=[
@@ -46,14 +56,14 @@ def test_budget_exhausted_with_chat_completion_routes_to_tools() -> None:
 
 
 def test_budget_exhausted_without_tools_routes_to_step_llm() -> None:
-    route = chatbot_route_after_step(max_tool_steps=10)
+    route = _route(max_tool_steps=10)
     state = _state(tool_call_count=10, idle_rounds=1)
 
     assert route(state) == "step_llm"
 
 
 def test_under_budget_with_tools_routes_to_tools() -> None:
-    route = chatbot_route_after_step(max_tool_steps=10)
+    route = _route(max_tool_steps=10)
     state = _state(
         tool_call_count=3,
         tool_calls=[{"name": "hive_list_tables", "args": {"database": "default"}, "id": "1"}],
@@ -63,14 +73,14 @@ def test_under_budget_with_tools_routes_to_tools() -> None:
 
 
 def test_idle_limit_without_budget_routes_to_end() -> None:
-    route = chatbot_route_after_step(max_tool_steps=10, max_idle_rounds=3)
+    route = _route(max_tool_steps=10, max_idle_rounds=3)
     state = _state(idle_rounds=3)
 
     assert route(state) == "__end__"
 
 
 def test_idle_limit_with_budget_exhausted_routes_to_end() -> None:
-    route = chatbot_route_after_step(max_tool_steps=10, max_idle_rounds=3)
+    route = _route(max_tool_steps=10, max_idle_rounds=3)
     state = _state(tool_call_count=10, idle_rounds=3)
 
     assert route(state) == "__end__"

@@ -159,17 +159,19 @@ class _FakeGraph:
 
 async def test_prepare_turn_input_sets_user_id_only(monkeypatch) -> None:
     import memory.profile as profile_mod
-    from agent.chatbot.session import prepare_turn_input
+    from agent.tahoe.tahoe_agent import TahoeAgent
 
     monkeypatch.setattr(profile_mod.getpass, "getuser", lambda: "os_user")
+    monkeypatch.setattr("agent.session.getpass.getuser", lambda: "os_user")
 
+    agent = TahoeAgent(profile_store=TahoeAgent.default_profile_store(), tools=[])
     graph = _FakeGraph()
-    first = await prepare_turn_input(graph, "s1", "hello")
+    first = await agent.prepare_turn_input(graph, "s1", "hello")
     assert first["user_id"] == "os_user"
     assert "user_profile" not in first
 
     graph = _FakeGraph({"messages": [], "user_id": "erin"})
-    second = await prepare_turn_input(graph, "s1", "next")
+    second = await agent.prepare_turn_input(graph, "s1", "next")
     assert second["user_id"] == "erin"
     assert "user_profile" not in second
 

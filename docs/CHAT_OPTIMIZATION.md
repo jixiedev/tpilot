@@ -292,4 +292,17 @@ Iterative optimization notes for the conversational CLI agent. Each round adds a
 
 ---
 
+## 2026-08-08 — OOP ReAct agents and Tahoe / Databot split
+
+**Goal**: Replace chatbot module functions with reusable ReAct agent classes; keep Tahoe as a team base without data-domain coupling.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| Agent shape | Chatbot assembled via module-level graph/route/session helpers | `BaseReactAgent` + collaborators (`CompletionToolRouter`, `SessionTurnBuilder`, `CliReactListener`) |
+| Tahoe role | Chatbot / Tahoe owned warehouse rules, glossary prompts, and data tools | `TahoeAgent` is Tahoe-team base: session, `chat_completion`, generic prompts only |
+| Data retrieval | Same agent surface mixed general chat with retrieval contract | `DatabotAgent` subclasses Tahoe and owns data tools plus retrieval prompts |
+| Extension path | New agents copied chatbot modules | New Tahoe-team agents subclass `TahoeAgent` and override prompts/tools |
+
+---
+
 <!-- Append the next optimization section above this line -->

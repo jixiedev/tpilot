@@ -2,37 +2,46 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+from typing import Any
 
-from langgraph.graph.state import CompiledStateGraph
-
-from agent.chatbot.display import print_turn_output
-from agent.chatbot.graph import build_chat_graph
-from agent.chatbot.session import prepare_turn_input
-from state.state import SessionAgentState
+from agent.agent import BaseReactAgent
+from agent.databot.databot_agent import DatabotAgent
+from agent.tahoe.tahoe_agent import TahoeAgent
 
 
 @dataclass(frozen=True)
 class AgentSpec:
     name: str
     description: str
-    build_graph: Callable[..., Awaitable[CompiledStateGraph]]
-    prepare_turn_input: Callable[..., Awaitable[SessionAgentState]]
-    print_turn_output: Callable[..., None]
+    create_agent: Callable[..., Awaitable[BaseReactAgent]]
 
+
+async def _create_tahoe_agent(**kwargs: Any) -> TahoeAgent:
+    return await TahoeAgent.create(**kwargs)
+
+
+async def _create_databot_agent(**kwargs: Any) -> DatabotAgent:
+    return await DatabotAgent.create(**kwargs)
+
+
+TAHOE = AgentSpec(
+    name="tahoe",
+    description="Tahoe interactive ReAct agent",
+    create_agent=_create_tahoe_agent,
+)
 
 DATABOT = AgentSpec(
     name="databot",
-    description="Multi-turn data assistant",
-    build_graph=build_chat_graph,
-    prepare_turn_input=prepare_turn_input,
-    print_turn_output=print_turn_output,
+    description="Data-retrieval specialist (glossary-first → SQL → evidenced answer)",
+    create_agent=_create_databot_agent,
 )
 
 AGENTS: dict[str, AgentSpec] = {
+    TAHOE.name: TAHOE,
     DATABOT.name: DATABOT,
 }
 
-DEFAULT_AGENT = DATABOT.name
+DEFAULT_AGENT = TAHOE.name
 
 
 def get_agent(name: str) -> AgentSpec:
