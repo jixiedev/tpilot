@@ -83,24 +83,6 @@ more tools. Summarize what you have learned so far, including assumptions and ga
 and call `chat_completion(reply=...)` now to deliver your final answer to the user.
 """
 
-CLASSIFY_TASK_PROMPT = """\
-Classify the user's latest request into exactly one turn_task_type.
-
-Labels:
-- table_meta: schema / table / column / partition discovery or descriptions
-- metric_def: metric, KPI, glossary, or business-definition questions
-- data_query: fetch or compute data via SQL or equivalent query tools
-- anomaly: data quality issues, unexpected values, root-cause investigation
-- other: clear intent that is none of the above
-- unclear: ambiguous, mixed, or insufficient to label confidently
-
-Rules:
-- Label only this request; prior chat is context, not a new task type.
-- If the request spans multiple labels or is vague, use unclear.
-- Set confidence between 0 and 1 (use lower values when unsure).
-- Output must be a single JSON object with keys turn_task_type and confidence.
-"""
-
 REFINE_USER_PROFILE_PROMPT = """\
 Update the user's long-lived profile from this turn only.
 

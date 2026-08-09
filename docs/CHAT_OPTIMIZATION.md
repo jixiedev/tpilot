@@ -305,4 +305,112 @@ Iterative optimization notes for the conversational CLI agent. Each round adds a
 
 ---
 
+## 2026-08-09 — Plan Knowledge agent (M3)
+
+**Goal**: Add a Tahoe-team knowledge specialist alongside Databot, covering codebase and internal docs before multi-agent collaboration.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| Product scope | Specialists covered data retrieval only (`databot`) | Roadmap M3 = Knowledge Q&A; prior M3–M5 shift to M4–M6 |
+| Agent role | No dedicated knowledge surface | `KnowledgeAgent` subclasses `TahoeAgent` for code learning and doc explanation |
+| Knowledge sources | Unscoped team Q&A | Code repos, Google Docs, Wiki/FAQ, Jira (TAHOE / CORE / SQD) |
+| Delivery path | N/A | Wire prompts/tools + `--agent knowledge` registry; collaboration (M4) can hand off to Knowledge |
+
+---
+
+## 2026-08-09 — Keep graph/ generic; agent owns product nodes
+
+**Goal**: Confine `graph/` to shared ReAct topology; move product-specific nodes under the ReAct agent package.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| Classify / refine ownership | Lived in `graph/` and were constructed inside the generic builder | `agent/react/classify.py` and `refine_profile.py`; `BaseReactAgent` builds the nodes |
+| Builder API | `build_react_graph` took classify/refine prompts and profile store | Builder accepts optional node callables only; no agent product imports |
+| Layering | New agents risked editing `graph/` for product behavior | Product behavior extends via agent modules; `graph/` stays reusable |
+
+---
+
+## 2026-08-09 — IntentAgent router; remove ReAct classify_task
+
+**Goal**: Route turns to DATA vs KNOWLEDGE via a dedicated intent graph; stop doing per-turn task labels inside ReAct.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| Intent routing | ReAct `classify_task` wrote fine-grained `turn_task_type` | `IntentAgent`: detect → review → clarify/publish/reject |
+| Clarification | No mid-graph ask for ambiguous intent | Low-confidence interrupt; CLI resumes with `Prompt>` |
+| Specialist target | Label unused for routing | Published `route_target` (`databot` / `knowledge`) |
+| ReAct surface | Every Tahoe/Databot turn ran classify | Classify node/prompts/state field removed from ReAct |
+
+---
+
+## 2026-08-09 — Extensible intention → agent routes in registry
+
+**Goal**: Declare specialist routing next to agent registration so new agents plug in without editing IntentAgent.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| Route table | Hardcoded `INTENTION_ROUTE_TARGET` in state | `AgentSpec.intention` (+ description); `resolve_route_target` / `intention_routes` |
+| Adding specialists | Touch intent/state constants | Register agent with `intention="LABEL"` |
+| Prompt labels | Fixed DATA/KNOWLEDGE copy | Built from `intention_catalog()` |
+
+---
+
+## 2026-08-09 — CLI intent → specialist handoff
+
+**Goal**: After IntentAgent publishes a route, actually run the target specialist in the CLI.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| CLI after intent | Printed `Intent>` only | `Route> {agent}` then invoke specialist turn |
+| Specialist lifecycle | N/A | Lazy cache per agent; checkpoint thread `{session}:{agent}` |
+| Safety | N/A | Only agents with `AgentSpec.intention` accept handoff |
+
+---
+
+## 2026-08-09 — Agent owns bind/run; CLI is a thin REPL
+
+**Goal**: Move graph build, invoke, interrupt resume, and intent handoff into the agent layer.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| Turn execution | CLI orchestrated prepare → ainvoke → print → route | `BaseAgent.bind` + `run`; CLI only reads input and calls `run` |
+| Interrupts | CLI-owned resume loop | Shared `ainvoke_resolving_interrupts` via `on_interrupt` callback |
+| Intent handoff | CLI special-cased routing | `IntentAgent.run` loads specialist and calls its `run` |
+
+---
+
+## 2026-08-09 — Composite intentions → plan → AgentChain
+
+**Goal**: Treat every request as an ordered list of intentions; Intent plans a specialist chain, passes upstream outputs downstream, and returns the last agent’s result. Session memory stays on Intent; specialists are ephemeral workers.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| Task type shape | Single `user_intention` label | Always `user_intentions[]` (length 1 = simple; length >1 = composite) |
+| Routing artifact | One `route_target` | Model-built ordered `execution_plan` (intention + per-step task); materializes as `PlannedAgentChain` |
+| Specialist input | Re-sent original user question | Structured handoff: task background, this step’s assignment, upstream output, who/what is downstream |
+| Specialist session | Shared `{session}:{agent}` thread (could accumulate history) | Ephemeral `{session}:plan:{run}:{step}` — no inherited conversation; Intent keeps multi-turn memory |
+| Workflow result | First specialist reply (single hop) | Last plan step’s output is the turn result |
+| Clarify / reject | Based on one label + confidence | Same gates; publish only when every listed intention is routable and plan resolves to agents |
+
+Implementation notes (behavior only): detect emits intentions + plan steps; publish resolves agents and stores the plan; `IntentOrchestrator.run` executes the chain and surfaces the final specialist state.
+
+---
+
+## 2026-08-09 — Rename IntentAgent → IntentOrchestrator
+
+**Goal**: Name the entry agent for planning + chain execution, not classification alone.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| Module / class | `agent/intent/intent.py` · `IntentAgent` | `agent/intent/orchestrator.py` · `IntentOrchestrator` |
+| CLI / package | `--agent intent`, `agent/intent/` | Unchanged (still the intention entrypoint) |
+
+---
+
 <!-- Append the next optimization section above this line -->
+
+
+
+
+
+

@@ -28,7 +28,6 @@ class AgentPromptConfig:
     idle_nudge_prompt: str
     tool_budget_exhausted_prompt: str
     refine_user_profile_prompt: str
-    classify_task_prompt: str
     idle_step: str = ""
 
     def __post_init__(self) -> None:

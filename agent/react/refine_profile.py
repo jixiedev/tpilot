@@ -1,4 +1,4 @@
-"""End-of-turn user profile refinement node."""
+"""End-of-turn user profile refinement for ReAct agents."""
 
 from __future__ import annotations
 
@@ -12,11 +12,10 @@ from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
 from pydantic import ValidationError
 
-from graph.classify import latest_human_text
 from graph.error_recovery import invoke_with_transient_retry
 from memory.profile import UserProfile, merge_user_profile, parse_user_profile_update
 from memory.profile_store import ProfileStore
-from state.state import SessionAgentState
+from state.state import SessionAgentState, latest_human_text
 
 logger = logging.getLogger(__name__)
 
@@ -26,9 +25,13 @@ _PROFILE_JSON_HINT = (
 )
 
 
-def _latest_chat_completion_reply(state: SessionAgentState) -> str | None:
+def _latest_completion_reply(
+    state: SessionAgentState,
+    *,
+    completion_tool_name: str,
+) -> str | None:
     for message in reversed(state.get("messages") or []):
-        if isinstance(message, ToolMessage) and message.name == "chat_completion":
+        if isinstance(message, ToolMessage) and message.name == completion_tool_name:
             content = message.content
             if isinstance(content, str):
                 return content
@@ -58,11 +61,13 @@ def make_refine_user_profile_node(
     refine_prompt: str,
     model: BaseChatModel,
     profile_store: ProfileStore,
+    *,
+    completion_tool_name: str = "chat_completion",
 ) -> Callable[[SessionAgentState], dict[str, Any]]:
     """After a finished turn, merge profile updates into ``ProfileStore`` (not session state).
 
     Profile refinement is best-effort: parse or persistence failures are logged and the
-    turn still completes so ``chat_completion`` output remains visible to the user.
+    turn still completes so the completion-tool reply remains visible to the user.
     """
 
     system_prompt = f"{refine_prompt.strip()}\n\n{_PROFILE_JSON_HINT}"
@@ -71,7 +76,10 @@ def make_refine_user_profile_node(
         user_id = _session_user_id(state)
         current = profile_store.load(user_id)
         user_text = latest_human_text(state) or ""
-        reply = _latest_chat_completion_reply(state) or ""
+        reply = _latest_completion_reply(
+            state,
+            completion_tool_name=completion_tool_name,
+        ) or ""
 
         messages = [
             SystemMessage(content=system_prompt),

@@ -200,25 +200,6 @@ more data or MCP tools. Summarize what you have learned so far with full evidenc
 instead of inventing a source.
 """
 
-CLASSIFY_TASK_PROMPT = """\
-Classify the user's latest request into exactly one turn_task_type for Databot (retrieval-focused).
-
-Labels:
-- table_meta: schema / table / column / partition discovery or descriptions
-- metric_def: metric, KPI, glossary, or business-definition questions
-- data_query: fetch or compute data via SQL or equivalent query tools
-- anomaly: data quality issues, unexpected values, root-cause investigation that needs data pulls
-- other: clear intent that is none of the above (still answer helpfully if in scope)
-- unclear: ambiguous, mixed, or insufficient to label confidently
-
-Rules:
-- Prefer table_meta / metric_def / data_query when the user wants warehouse facts or numbers.
-- Label only this request; prior chat is context, not a new task type.
-- If the request spans multiple labels or is vague, use unclear.
-- Set confidence between 0 and 1 (use lower values when unsure).
-- Output must be a single JSON object with keys turn_task_type and confidence.
-"""
-
 REFINE_USER_PROFILE_PROMPT = f"""\
 {_TAHOE_REFINE_USER_PROFILE_PROMPT.strip()}
 

@@ -7,21 +7,13 @@ from typing import Any
 
 from langchain_core.messages import AIMessage, ToolMessage
 
-from state.state import SessionAgentState, TurnTaskType
+from state.state import SessionAgentState, last_ai_message, message_text
 
 
 class ReactAgentListener:
     """Hooks for CLI / UI feedback during a ReAct turn."""
 
     def print_tool_call(self, name: str, args: dict) -> None:
-        return None
-
-    def print_classify_task(
-        self,
-        turn_task_type: TurnTaskType,
-        confidence: float | None,
-        model_label: TurnTaskType | None,
-    ) -> None:
         return None
 
     def print_llm_step(self, message: AIMessage) -> None:
@@ -32,7 +24,7 @@ class ReactAgentListener:
 
 
 class CliReactListener(ReactAgentListener):
-    """Print tool / LLM / classify / turn output for a CLI ReAct loop."""
+    """Print tool / LLM / turn output for a CLI ReAct loop."""
 
     def __init__(
         self,
@@ -45,8 +37,7 @@ class CliReactListener(ReactAgentListener):
 
     @staticmethod
     def message_text_content(content: Any) -> str:
-        if isinstance(content, str):
-            return content.strip()
+        # Keep thinking-block support for CLI LLM> traces; shared helper covers text.
         if isinstance(content, list):
             parts: list[str] = []
             for block in content:
@@ -61,9 +52,7 @@ class CliReactListener(ReactAgentListener):
                 elif block_type == "thinking" and block.get("thinking"):
                     parts.append(str(block["thinking"]).strip())
             return "\n".join(part for part in parts if part)
-        if content is None:
-            return ""
-        return str(content).strip()
+        return message_text(content)
 
     def format_tool_call(self, name: str, args: dict) -> str | None:
         if name in self.silent_tool_names:
@@ -76,20 +65,6 @@ class CliReactListener(ReactAgentListener):
         if not text:
             return None
         return f"LLM> {text}"
-
-    @staticmethod
-    def format_classify_task(
-        turn_task_type: TurnTaskType,
-        confidence: float | None,
-        model_label: TurnTaskType | None,
-    ) -> str:
-        details: list[str] = []
-        if model_label is not None:
-            details.append(f"model={model_label}")
-        if confidence is not None:
-            details.append(f"confidence={confidence:.2f}")
-        suffix = f" ({', '.join(details)})" if details else ""
-        return f"Classify> {turn_task_type}{suffix}"
 
     def last_completion_reply(self, state: SessionAgentState) -> str | None:
         for message in reversed(state["messages"]):
@@ -105,14 +80,6 @@ class CliReactListener(ReactAgentListener):
         if line:
             print(line)
 
-    def print_classify_task(
-        self,
-        turn_task_type: TurnTaskType,
-        confidence: float | None,
-        model_label: TurnTaskType | None,
-    ) -> None:
-        print(self.format_classify_task(turn_task_type, confidence, model_label))
-
     def print_llm_step(self, message: AIMessage) -> None:
         line = self.format_llm_step(message)
         if line:
@@ -121,7 +88,7 @@ class CliReactListener(ReactAgentListener):
     def print_turn_output(self, state: SessionAgentState) -> None:
         reply = self.last_completion_reply(state)
         if reply is None:
-            fallback = SessionAgentState.last_ai_message(state)
+            fallback = last_ai_message(state)
             if fallback is not None:
                 print(f"Assistant> {self.message_text_content(fallback.content)}")
                 return

@@ -13,9 +13,11 @@ from langchain_core.tools import BaseTool
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph.state import CompiledStateGraph
 
+from agent.agent import BaseAgent
 from agent.config import AgentPromptConfig, AgentRunConfig, RouterConfig, StateLike
 from agent.listener import CliReactListener, ReactAgentListener
 from agent.prompt import SystemPromptAssembler
+from agent.react.refine_profile import make_refine_user_profile_node
 from agent.router import CompletionToolRouter
 from agent.session import SessionTurnBuilder
 from graph.builder import SystemPromptSpec, build_react_graph
@@ -34,7 +36,7 @@ __all__ = [
 ]
 
 
-class BaseReactAgent(ABC):
+class BaseReactAgent(BaseAgent):
     """Shared ReAct wiring: graph build, session turns, completion-tool routing.
 
     Subclasses supply product-specific prompts, tools, and defaults.
@@ -52,8 +54,8 @@ class BaseReactAgent(ABC):
 
     def __init__(
         self,
-        *,
         system_prompt: str | SystemPromptSpec | None = None,
+        *,
         agent_prompt_config: AgentPromptConfig,
         agent_run_config: AgentRunConfig,
         router_config: RouterConfig | None = None,
@@ -64,6 +66,7 @@ class BaseReactAgent(ABC):
         turn_boundary: str | None = None,
         completion_tool_name: str | None = None,
     ) -> None:
+        super().__init__(system_prompt=None)
         self.agent_prompt = agent_prompt_config
         self.agent_run_config = agent_run_config
         self.router_config = router_config or RouterConfig()
@@ -83,10 +86,10 @@ class BaseReactAgent(ABC):
             self.router_config,
             completion_tool_name=self.completion_tool_name,
         )
-        self.system_prompt: str | SystemPromptSpec = (
+        self.system_prompt = (
             system_prompt if system_prompt is not None else self.render_system_prompt
         )
-        self.session_state: SessionAgentState | None = None
+        self.session_state = None
 
     @classmethod
     def default_profile_store(cls, root: Path | None = None) -> FileProfileStore:
@@ -152,17 +155,30 @@ class BaseReactAgent(ABC):
     async def build_graph(
         self,
         model: BaseChatModel,
-        *,
+        *
         checkpointer: BaseCheckpointSaver,
         compression_config: CompressionConfig | None = None,
         enable_compression: bool | None = None,
+        **kwargs,
     ) -> CompiledStateGraph:
         config = self.resolve_compression_config(
             compression_config,
             enable_compression=enable_compression,
         )
         compressor = make_compressor(model, config) if config.enabled else None
+
         refine_prompt = self.agent_prompt.refine_user_profile_prompt.strip()
+        refine_user_profile_node = (
+            make_refine_user_profile_node(
+                refine_prompt,
+                model,
+                self.profile_store,
+                completion_tool_name=self.completion_tool_name,
+            )
+            if refine_prompt
+            else None
+        )
+
         return build_react_graph(
             model,
             self.tools,
@@ -172,13 +188,10 @@ class BaseReactAgent(ABC):
             route_after_step=self.route_after_step(),
             route_after_tools=self.route_after_tools(),
             compressor=compressor,
-            refine_user_profile_prompt=refine_prompt or None,
-            profile_store=self.profile_store,
-            classify_prompt=self.agent_prompt.classify_task_prompt,
+            refine_user_profile_node=refine_user_profile_node,
             idle_nudge_prompt=self.agent_prompt.idle_nudge_prompt,
             tool_budget_exhausted_prompt=self.agent_prompt.tool_budget_exhausted_prompt,
             max_tool_calls=self.agent_run_config.max_tool_calls,
             on_tool_call=self.react_listener.print_tool_call,
-            on_classify=self.react_listener.print_classify_task,
             on_llm_step=self.react_listener.print_llm_step,
         )

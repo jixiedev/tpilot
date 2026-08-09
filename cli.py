@@ -41,6 +41,26 @@ def resolve_cli_user_id(explicit: str | None = None) -> str:
     return getpass.getuser()
 
 
+def _read_line(prompt: str) -> str | None:
+    try:
+        return input(prompt)
+    except (EOFError, KeyboardInterrupt):
+        print()
+        return None
+
+
+async def _cli_on_interrupt(question: str) -> str | None:
+    """Human-in-the-loop callback used by ``BaseAgent.run``."""
+    print(f"Prompt> {question}")
+    reply = _read_line("You> ")
+    if reply is None:
+        return None
+    text = reply.strip()
+    if text.lower() in _EXIT_COMMANDS:
+        return None
+    return text
+
+
 async def run_repl(
     *,
     agent_name: str,
@@ -70,41 +90,41 @@ async def run_repl(
             profile_store=profile_store,
             max_tool_calls=30,
         )
-        graph = await agent.build_graph(
+        await agent.bind(
             default_model,
-            checkpointer=checkpointer,
+            checkpointer,
             compression_config=CompressionConfig(enabled=True),
         )
-        config = TahoeAgent.graph_config(session)
 
         while True:
-            try:
-                user_input = input("You> ").strip()
-            except (EOFError, KeyboardInterrupt):
-                print("\nBye.")
+            user_input = _read_line("You> ")
+            if user_input is None:
+                print("Bye.")
                 break
 
+            user_input = user_input.strip()
             if not user_input:
                 continue
             if user_input.lower() in _EXIT_COMMANDS:
                 print("Bye.")
                 break
 
-            turn_input = await agent.prepare_turn_input(
-                graph,
-                session,
-                user_input,
-                user_id=user_id,
-            )
-
             try:
-                state = await graph.ainvoke(turn_input, config)
+                result = await agent.run(
+                    user_input,
+                    session=session,
+                    user_id=user_id,
+                    on_interrupt=_cli_on_interrupt,
+                    print_output=True,
+                )
             except Exception as exc:
-                logger.exception("Graph invocation failed")
+                logger.exception("Agent turn failed")
                 print(f"Assistant> {format_turn_failure(exc)}", file=sys.stderr)
                 continue
 
-            agent.print_turn_output(state)
+            if result.cancelled:
+                print("Bye.")
+                break
 
 
 def build_arg_parser() -> argparse.ArgumentParser:

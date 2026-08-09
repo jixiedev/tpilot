@@ -8,7 +8,6 @@ from langchain_core.tools import BaseTool
 
 from agent.config import AgentPromptConfig, AgentRunConfig, RouterConfig
 from agent.react.databot.prompt import (
-    CLASSIFY_TASK_PROMPT,
     IDLE_CHAT_COMPLETION_PROMPT,
     NEXT_STEP_PROMPT,
     REFINE_USER_PROFILE_PROMPT,
@@ -61,7 +60,6 @@ class DatabotAgent(TahoeAgent):
             idle_nudge_prompt=IDLE_CHAT_COMPLETION_PROMPT,
             tool_budget_exhausted_prompt=TOOL_BUDGET_EXHAUSTED_PROMPT,
             refine_user_profile_prompt=REFINE_USER_PROFILE_PROMPT,
-            classify_task_prompt=CLASSIFY_TASK_PROMPT,
         )
 
     @classmethod

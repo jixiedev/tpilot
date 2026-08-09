@@ -7,7 +7,7 @@ import getpass
 from langchain_core.messages import HumanMessage, SystemMessage
 from langgraph.graph.state import CompiledStateGraph
 
-from state.state import DEFAULT_TURN_TASK_TYPE, SessionAgentState
+from state.state import SessionAgentState, has_prior_turns
 
 
 class SessionTurnBuilder:
@@ -44,7 +44,7 @@ class SessionTurnBuilder:
         if (
             self.turn_boundary
             and prior_messages
-            and SessionAgentState.has_prior_turns(prior_messages)
+            and has_prior_turns(prior_messages)
         ):
             messages.append(SystemMessage(content=self.turn_boundary))
         messages.append(HumanMessage(content=user_prompt))
@@ -57,5 +57,4 @@ class SessionTurnBuilder:
             "idle_rounds": 0,
             "autonomous_compact_requested": False,
             "failed_tools": [],
-            "turn_task_type": DEFAULT_TURN_TASK_TYPE,
         }
