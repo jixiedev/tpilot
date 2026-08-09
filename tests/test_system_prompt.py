@@ -2,14 +2,14 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from agent.databot.prompt import (
+from agent.react.databot.prompt import (
     DATA_RETRIEVAL_SYSTEM_PROMPT,
     NEXT_STEP_PROMPT as DATABOT_NEXT_STEP_PROMPT,
     SYSTEM_PROMPT as DATABOT_SYSTEM_PROMPT,
     DatabotSystemPrompt,
     DataRetrievalSystemPrompt,
 )
-from agent.tahoe.prompt import (
+from agent.react.tahoe import (
     NEXT_STEP_PROMPT,
     SYSTEM_PROMPT as TAHOE_SYSTEM_PROMPT,
     TahoeSystemPrompt,
@@ -111,7 +111,7 @@ def test_subclass_can_append_extra_section() -> None:
 
 
 def test_render_databot_system_prompt_uses_profile_store(tmp_path: Path) -> None:
-    from agent.databot.databot_agent import DatabotAgent
+    from agent.react.databot.databot_agent import DatabotAgent
     from memory.profile_store import FileProfileStore
 
     store = FileProfileStore(tmp_path)
@@ -126,7 +126,7 @@ def test_render_databot_system_prompt_uses_profile_store(tmp_path: Path) -> None
 
 
 def test_render_tahoe_system_prompt_uses_profile_store(tmp_path: Path) -> None:
-    from agent.tahoe.tahoe_agent import TahoeAgent
+    from agent.react.tahoe.tahoe_agent import TahoeAgent
     from memory.profile_store import FileProfileStore
 
     store = FileProfileStore(tmp_path)

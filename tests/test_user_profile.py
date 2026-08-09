@@ -159,7 +159,7 @@ class _FakeGraph:
 
 async def test_prepare_turn_input_sets_user_id_only(monkeypatch) -> None:
     import memory.profile as profile_mod
-    from agent.tahoe.tahoe_agent import TahoeAgent
+    from agent.react.tahoe.tahoe_agent import TahoeAgent
 
     monkeypatch.setattr(profile_mod.getpass, "getuser", lambda: "os_user")
     monkeypatch.setattr("agent.session.getpass.getuser", lambda: "os_user")

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from agent.tahoe.prompt import (
+from agent.react.tahoe import (
     REFINE_USER_PROFILE_PROMPT as _TAHOE_REFINE_USER_PROFILE_PROMPT,
     SESSION_TURN_BOUNDARY as _SHARED_SESSION_TURN_BOUNDARY,
     TahoeSystemPrompt,

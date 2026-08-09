@@ -4,7 +4,7 @@ from langchain_core.messages import AIMessage
 
 from agent.config import AgentRunConfig, RouterConfig
 from agent.router import CompletionToolRouter
-from agent.tahoe.tools import CHAT_COMPLETION_TOOL_NAME
+from agent.react.tahoe.tools import CHAT_COMPLETION_TOOL_NAME
 
 
 def _state(

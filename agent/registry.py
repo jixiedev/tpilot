@@ -4,9 +4,9 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any
 
-from agent.agent import BaseReactAgent
-from agent.databot.databot_agent import DatabotAgent
-from agent.tahoe.tahoe_agent import TahoeAgent
+from agent.react import BaseReactAgent
+from agent.react.databot.databot_agent import DatabotAgent
+from agent.react.tahoe.tahoe_agent import TahoeAgent
 
 
 @dataclass(frozen=True)

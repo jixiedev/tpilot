@@ -17,7 +17,7 @@ from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 load_dotenv(Path(__file__).resolve().parent / ".env")
 
 from agent.registry import AGENTS, DEFAULT_AGENT, get_agent
-from agent.tahoe.tahoe_agent import TahoeAgent
+from agent.react.tahoe.tahoe_agent import TahoeAgent
 from config.logging_config import configure_logging
 from graph.error_recovery import format_turn_failure
 from memory import CompressionConfig

@@ -100,9 +100,11 @@ class BaseReactAgent(ABC):
         return self.prompt_assembler.with_profile(profile).build()
 
     def route_after_step(self) -> Callable[[StateLike], str]:
+        """Conditional edge after ``step_llm``; see ``CompletionToolRouter.route_after_step``."""
         return self.router.route_after_step()
 
     def route_after_tools(self) -> Callable[[StateLike], str]:
+        """Conditional edge after tools; see ``CompletionToolRouter.route_after_tools``."""
         return self.router.route_after_tools()
 
     @staticmethod

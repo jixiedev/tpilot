@@ -55,6 +55,19 @@ class CompletionToolRouter:
         return False
 
     def route_after_step(self) -> Callable[[StateLike], str]:
+        """Return the conditional edge used after ``step_llm``.
+
+        Inspects the latest AI message and chooses the next node:
+        - Has tool calls and budget remains → ``step_tools`` (run tools).
+        - Budget exhausted but calls are only ``completion_tool_name`` → ``step_tools``
+          (allow the final user-visible reply).
+        - Budget exhausted with other tools → ``step_llm`` (nudge toward completion).
+        - Plain text (no tool calls) → ``step_llm`` (idle retry with nudge).
+        - Plain text and idle rounds hit the cap → ``__end__`` (stop the loop).
+
+        Plain assistant text alone never ends a normal turn; completion must go
+        through the completion tool (then ``route_after_tools``).
+        """
         max_idle = self.run_config.max_idle_rounds
         idle_outlet = self.router_config.step_idle_outlet
         tools_outlet = self.router_config.step_tools_outlet
@@ -64,30 +77,22 @@ class CompletionToolRouter:
             ai_message = latest_message(state)
             tool_calls = getattr(ai_message, "tool_calls", None) or []
             budget_exhausted = self.tool_budget_exhausted(state)
+            idle_capped = idle_rounds(state) >= max_idle
 
+            # No tools: idle retry, or force-end when idle cap is hit.
             if not tool_calls:
-                if budget_exhausted:
-                    if idle_rounds(state) >= max_idle:
-                        logger.warning(
-                            "tool budget exhausted and reached maximum idle steps "
-                            "(%s); routing to %s",
-                            max_idle,
-                            end_outlet,
-                        )
-                        return end_outlet
-                    return idle_outlet
-                if idle_rounds(state) >= max_idle:
-                    logger.warning(
-                        "reached maximum idle steps (%s); routing to %s",
-                        max_idle,
-                        end_outlet,
+                if idle_capped:
+                    reason = (
+                        "tool budget exhausted and reached maximum idle steps"
+                        if budget_exhausted
+                        else "reached maximum idle steps"
                     )
+                    logger.warning("%s (%s); routing to %s", reason, max_idle, end_outlet)
                     return end_outlet
                 return idle_outlet
 
-            if budget_exhausted:
-                if self.tool_calls_are_completion_only(tool_calls):
-                    return tools_outlet
+            # Over budget: only the completion tool may still run.
+            if budget_exhausted and not self.tool_calls_are_completion_only(tool_calls):
                 logger.warning(
                     "reached maximum tool steps (%s); routing to %s for %s",
                     self.run_config.max_tool_steps,
@@ -101,6 +106,12 @@ class CompletionToolRouter:
         return route
 
     def route_after_tools(self) -> Callable[[StateLike], str]:
+        """Return the conditional edge used after tool execution.
+
+        - Completion tool already ran → ``tool_end_outlet`` (``refine_user_profile``
+          or ``__end__``).
+        - Otherwise → ``step_llm`` for another ReAct iteration.
+        """
         step_outlet = self.router_config.tool_step_outlet
         end_outlet = self.router_config.tool_end_outlet
 

@@ -102,26 +102,42 @@ def make_step_llm_node(
     max_tool_calls: int = 10,
     on_llm_step: LlmStepListener | None = None,
 ):
-    """Run the bound model; track idle rounds when the model returns no tool calls."""
+    """Build the ReAct ``step_llm`` node: one model call, then update idle state.
+
+    Ephemeral system prompts (not written back to checkpoint history):
+    - Always append ``next_step_prompt`` when non-empty (per-step tool guidance).
+    - If ``tool_call_count >= max_tool_calls``, append ``tool_budget_exhausted_prompt``.
+    - Else if ``idle_rounds > 0``, append ``idle_nudge_prompt``.
+
+    After the model responds, append the AI message to history. Reset
+    ``idle_rounds`` when there are tool calls; otherwise increment it.
+    Downstream ``route_after_step`` uses tool calls, idle rounds, and budget
+    to choose ``step_tools``, another ``step_llm``, or end.
+    """
 
     def step_llm(state: SessionAgentState) -> dict[str, Any]:
-        # Local copy for this invoke only. Ephemeral SystemMessages appended below
-        # are NOT returned in the state update, so they never enter checkpoint history.
+        # Local copy only: ephemeral SystemMessages below are not returned in the
+        # update, so they never enter checkpoint / session history.
         messages = list(state["messages"])
         if next_step_prompt.strip():
             messages.append(SystemMessage(content=next_step_prompt))
+
+        # Prefer budget guidance over idle nudge when both could apply.
         if state.get("tool_call_count", 0) >= max_tool_calls and tool_budget_exhausted_prompt.strip():
             messages.append(SystemMessage(content=tool_budget_exhausted_prompt))
         elif state.get("idle_rounds", 0) > 0 and idle_nudge_prompt.strip():
             messages.append(SystemMessage(content=idle_nudge_prompt))
+
         response = invoke_with_transient_retry(lambda: model.invoke(messages))
         if on_llm_step is not None and isinstance(response, AIMessage):
             on_llm_step(response)
-        # MessagesState uses add_messages: this appends `response`, it does not replace history.
+
+        # MessagesState.add_messages appends `response`; it does not replace history.
         update: dict[str, Any] = {"messages": [response]}
         if response.tool_calls:
             update["idle_rounds"] = 0
         else:
+            # Plain text: count as an idle round for route_after_step / nudge logic.
             update["idle_rounds"] = state.get("idle_rounds", 0) + 1
         return update
 

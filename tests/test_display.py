@@ -3,7 +3,7 @@ from __future__ import annotations
 from langchain_core.messages import AIMessage
 
 from agent.listener import CliReactListener
-from agent.tahoe.tools import CHAT_COMPLETION_TOOL_NAME
+from agent.react.tahoe.tools import CHAT_COMPLETION_TOOL_NAME
 
 
 def _listener() -> CliReactListener:
