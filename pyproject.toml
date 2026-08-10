@@ -6,6 +6,7 @@ readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
     "hmsclient>=0.1.1",
+    "kubernetes~=10.0.0",
     "langchain>=1.3.11",
     "langchain-mcp-adapters>=0.3.0",
     "langchain-openai>=1.3.3",
