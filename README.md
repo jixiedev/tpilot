@@ -165,6 +165,7 @@ tahoepilot/
 
 - [Roadmap (中文)](docs/ROADMAP.md) · [Roadmap (English)](docs/ROADMAP.en.md)
 - [Optimization log](docs/CHAT_OPTIMIZATION.md)
+- [RAG ingest (Qdrant / Jira / Google Drive)](rag/README.md)
 
 ## Tech stack
 

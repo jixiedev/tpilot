@@ -407,6 +407,31 @@ Implementation notes (behavior only): detect emits intentions + plan steps; publ
 
 ---
 
+## 2026-08-10 — Local Qdrant RAG for Jira knowledge
+
+**Goal**: Give Knowledge agent a working Jira retrieval path: local Qdrant, ingest CLI, and a typed search tool.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| Vector store | Stub compose + empty helper | Pinned Qdrant compose with healthcheck; `config/rag.toml` for URL/embeddings |
+| Ingest | Assumed non-Jira `title`/`id` columns | Jira CSV export headers; embed summary/description/comments; ensure collection |
+| Agent tool | Broken `search` API + string `limit` | `fetch_related_jira_tickets` via `query_points`; wired into `load_knowledge_tools` / KnowledgeAgent |
+
+---
+
+## 2026-08-10 — Google Docs / Drive zip ingest for RAG (F15 / M3)
+
+**Goal**: Index Google Drive folder downloads (Docs and related exports) into Qdrant the same way as Jira, via a directory + collection CLI.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| Google Docs path | M3 listed Google Docs as a knowledge source only | Drive zip downloads under a directory ingest into a named collection (`upload_google_drive`) |
+| File handling | N/A | Unzip archives; extract text from Docs-style exports (docx/pdf/html/md/txt/xlsx); chunk long docs; skip media and Drive shortcuts |
+| Operator surface | Jira-only ingest story | `python -m rag -t google_drive -p <dir> -c <collection>`; usage in `rag/README.md` |
+| Roadmap | M3/F15 Docs still “open” with no ingest | F15 in progress includes Drive ingest; search tool for Drive collections still open |
+
+---
+
 <!-- Append the next optimization section above this line -->
 
 

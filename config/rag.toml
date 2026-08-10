@@ -1,0 +1,16 @@
+[qdrant]
+url = "http://localhost:6333"
+api_key = ""
+api_key_env = "QDRANT_API_KEY"
+timeout_seconds = 30.0
+
+[embedding]
+# OpenAI-compatible embeddings API (OpenAI, OpenRouter, etc.).
+base_url = "https://api.openai.com/v1"
+api_key = ""
+api_key_env = "OPENAI_API_KEY"
+model = "text-embedding-3-small"
+vector_size = 1536
+timeout_seconds = 60.0
+max_chars = 16000
+batch_size = 64

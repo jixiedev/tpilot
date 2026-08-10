@@ -16,5 +16,7 @@ async def load_data_tools() -> list[BaseTool]:
 
 
 async def load_knowledge_tools() -> list[BaseTool]:
-    """Tools for knowledge-oriented agents (metadata search first)."""
-    return [*datahub_tools]
+    """Tools for knowledge-oriented agents (metadata + indexed docs/Jira)."""
+    from tools.rag import TOOLS as rag_tools
+
+    return [*datahub_tools, *rag_tools]
