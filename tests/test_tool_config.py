@@ -2,7 +2,12 @@ from __future__ import annotations
 
 import pytest
 
-from config.tool_config import TrinoToolConfig, trino_password
+from config.tool_config import (
+    DataHubToolConfig,
+    TrinoToolConfig,
+    datahub_token,
+    trino_password,
+)
 
 
 def test_trino_password_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -42,3 +47,22 @@ def test_trino_password_missing_raises(monkeypatch: pytest.MonkeyPatch) -> None:
 
     with pytest.raises(ValueError, match="TRINO_PASSWORD"):
         trino_password(cfg)
+
+
+def test_datahub_token_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("DATAHUB_TOKEN", "token-from-env")
+    cfg = DataHubToolConfig(token_env="DATAHUB_TOKEN")
+    assert datahub_token(cfg) == "token-from-env"
+
+
+def test_datahub_token_falls_back_to_toml(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("DATAHUB_TOKEN", raising=False)
+    cfg = DataHubToolConfig(token="inline-token", token_env="DATAHUB_TOKEN")
+    assert datahub_token(cfg) == "inline-token"
+
+
+def test_datahub_token_missing_raises(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("DATAHUB_TOKEN", raising=False)
+    cfg = DataHubToolConfig(token="", token_env="DATAHUB_TOKEN")
+    with pytest.raises(ValueError, match="DATAHUB_TOKEN"):
+        datahub_token(cfg)

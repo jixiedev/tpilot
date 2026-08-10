@@ -4,7 +4,7 @@ import os
 import tomllib
 from pathlib import Path
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 _CONFIG_PATH = Path(__file__).resolve().parent / "tools.toml"
 
@@ -25,9 +25,22 @@ class TrinoToolConfig(BaseModel):
     http_scheme: str = "https"
 
 
+class DataHubToolConfig(BaseModel):
+    """DataHub GraphQL client settings (query-only tools).
+
+    Compatible with DataHub ~1.2.x ``POST /api/graphql`` + Bearer token auth.
+    """
+
+    graphql_url: str = "http://localhost:8080/api/graphql"
+    token: str = ""
+    token_env: str | None = "DATAHUB_TOKEN"
+    timeout_seconds: float = 30.0
+
+
 class ToolConfig(BaseModel):
     hive: HiveToolConfig
     trino: TrinoToolConfig
+    datahub: DataHubToolConfig = Field(default_factory=DataHubToolConfig)
 
 
 def trino_password(cfg: TrinoToolConfig | None = None) -> str:
@@ -42,6 +55,21 @@ def trino_password(cfg: TrinoToolConfig | None = None) -> str:
     raise ValueError(
         f"Missing Trino password for user={trino.user!r}; "
         f"set environment variable {env_hint!r} or tools.toml password"
+    )
+
+
+def datahub_token(cfg: DataHubToolConfig | None = None) -> str:
+    datahub = cfg or tool_config.datahub
+    if datahub.token_env:
+        env_value = os.environ.get(datahub.token_env, "").strip()
+        if env_value:
+            return env_value
+    if datahub.token.strip():
+        return datahub.token.strip()
+    env_hint = datahub.token_env or "DATAHUB_TOKEN"
+    raise ValueError(
+        f"Missing DataHub access token; "
+        f"set environment variable {env_hint!r} or tools.toml [datahub].token"
     )
 
 

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
-from tools.hive import hive_desc_table, hive_list_tables
+from tools.data.hive import hive_desc_table, hive_list_tables
 
 
 @patch("tools.hive.get_client")

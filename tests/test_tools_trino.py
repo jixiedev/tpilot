@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from tools.trino import (
+from tools.data.trino import (
     DEFAULT_ROW_LIMIT,
     _execute_query,
     _rows_to_dicts,

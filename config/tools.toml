@@ -11,5 +11,11 @@ catalog = "hive"
 schema_name = "default"
 http_scheme = "https"
 
+[datahub]
+# DataHub 1.x GraphQL endpoint (GMS or frontend proxy).
+graphql_url = "http://localhost:8080/api/graphql"
+token_env = "DATAHUB_TOKEN"
+timeout_seconds = 30
+
 [spark]
 master = "local[*]"

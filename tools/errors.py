@@ -53,7 +53,7 @@ def _trino_exception_message(exc: Exception) -> str:
 def _classify_trino_exception(exc: Exception) -> tuple[ToolErrorType, bool, str] | None:
     """Map Trino SDK exceptions to (error_type, retryable, message)."""
     try:
-        from trino.exceptions import (
+        from tools.data.trino import (
             Http502Error,
             Http503Error,
             Http504Error,

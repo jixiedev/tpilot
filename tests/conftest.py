@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from tools import hive, trino
+from tools.data import hive, trino
 
 
 @pytest.fixture(autouse=True)
