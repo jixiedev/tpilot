@@ -25,6 +25,7 @@ DEFAULT_NEVER_OFFLOAD_TOOLS: frozenset[str] = frozenset({"chat_completion"})
 class CompressionConfig:
     """Thresholds and paths for graduated context compression."""
 
+    enabled: bool = True
     context_window: int = 128_000
     tool_result_offload_threshold: int = 2_000
     tool_input_offload_threshold: int = 500

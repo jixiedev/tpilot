@@ -91,7 +91,6 @@ def test_reset_turn_preserves_user_id() -> None:
         "idle_rounds": 2,
         "autonomous_compact_requested": False,
         "failed_tools": ["hive_list_tables"],
-        "turn_task_type": "data_query",
     }
 
     SessionAgentState.reset_turn(state)
@@ -99,7 +98,6 @@ def test_reset_turn_preserves_user_id() -> None:
     assert state["tool_call_count"] == 0
     assert state["idle_rounds"] == 0
     assert state["failed_tools"] == []
-    assert state["turn_task_type"] == "unclear"
     assert state["user_id"] == "dave"
 
 
@@ -159,17 +157,19 @@ class _FakeGraph:
 
 async def test_prepare_turn_input_sets_user_id_only(monkeypatch) -> None:
     import memory.profile as profile_mod
-    from agent.chatbot.session import prepare_turn_input
+    from agent.react.tahoe.tahoe_agent import TahoeAgent
 
     monkeypatch.setattr(profile_mod.getpass, "getuser", lambda: "os_user")
+    monkeypatch.setattr("agent.session.getpass.getuser", lambda: "os_user")
 
+    agent = TahoeAgent(profile_store=TahoeAgent.default_profile_store(), tools=[])
     graph = _FakeGraph()
-    first = await prepare_turn_input(graph, "s1", "hello")
+    first = await agent.prepare_turn_input(graph, "s1", "hello")
     assert first["user_id"] == "os_user"
     assert "user_profile" not in first
 
     graph = _FakeGraph({"messages": [], "user_id": "erin"})
-    second = await prepare_turn_input(graph, "s1", "next")
+    second = await agent.prepare_turn_input(graph, "s1", "next")
     assert second["user_id"] == "erin"
     assert "user_profile" not in second
 
@@ -195,7 +195,7 @@ class _FakeChatModel:
 def test_refine_user_profile_node_persists_to_store(tmp_path: Path) -> None:
     from langchain_core.messages import HumanMessage, ToolMessage
 
-    from graph.refine_profile import make_refine_user_profile_node
+    from agent.react.refine_profile import make_refine_user_profile_node
 
     store = FileProfileStore(tmp_path)
     store.save("alice", UserProfile(user_id="alice", role="analyst", language="zh-CN"))
@@ -244,7 +244,7 @@ class _LooseFenceProfileModel:
 def test_refine_user_profile_node_falls_back_to_fenced_json(tmp_path: Path) -> None:
     from langchain_core.messages import HumanMessage, ToolMessage
 
-    from graph.refine_profile import make_refine_user_profile_node
+    from agent.react.refine_profile import make_refine_user_profile_node
 
     store = FileProfileStore(tmp_path)
     store.save("alice", UserProfile(user_id="alice", role="analyst"))
@@ -270,7 +270,7 @@ def test_refine_user_profile_node_falls_back_to_fenced_json(tmp_path: Path) -> N
 def test_refine_user_profile_node_skips_without_failing_turn(tmp_path: Path) -> None:
     from langchain_core.messages import HumanMessage, ToolMessage
 
-    from graph.refine_profile import make_refine_user_profile_node
+    from agent.react.refine_profile import make_refine_user_profile_node
 
     store = FileProfileStore(tmp_path)
     store.save("alice", UserProfile(user_id="alice", role="analyst", language="zh-CN"))

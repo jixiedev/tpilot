@@ -103,6 +103,10 @@ class SystemPromptAssembler:
         return []
 
     def section_blocks(self) -> list[tuple[str, str]]:
+        """
+        Role -> User profile -> General rules -> Extension blocks -> Session message layout
+        :return: assembled blocks
+        """
         blocks: list[tuple[str, str]] = [("Role", self.role())]
         profile_body = self.format_user_profile()
         if profile_body:
