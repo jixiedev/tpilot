@@ -51,7 +51,7 @@ Items marked **Done** mean the main path works. The list below is optional deepe
 
 | Related | Possible follow-ups |
 |---------|---------------------|
-| M2 | Dedicated retrieval eval set; stronger table-selection / SQL repair loops; add `related_glossary_term` on Databot / data-agent state for the DataHub glossary term (name or URN) tied to the current data question, for grounded retrieval and citations |
+| M2 | Dedicated retrieval eval set; stronger table-selection / SQL repair loops; bind the DataHub glossary term (name/URN) for the turn: store `related_glossary_term` in state as a program anchor (gates, citation checks, AgentChain handoff) and inject it into messages/system (models do not see bare state)—do not rely on state alone for attention |
 | M3 | Drive/Wiki/code search tools and Knowledge prompts; Intent composite-chain soak; see [rag/README.md](../rag/README.md) |
 | M4 | End-to-end composite chains once Knowledge is productized; plan-confirmation HITL; richer structured handoff payloads |
 | M5 / M6 | Still tracked as not started (diagnostic agent; service UI/API/auth/observability) |

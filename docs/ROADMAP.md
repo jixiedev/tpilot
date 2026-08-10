@@ -51,7 +51,7 @@
 
 | 关联 | 可能优化 |
 |------|----------|
-| M2 | 独立取数评测集；更强的表选择 / SQL 纠错闭环；在 Databot / data agent 的 state 中增加 `related_glossary_term`，记录本轮数据问题关联的 DataHub glossary term（名称或 URN），供后续取数与引用对齐 |
+| M2 | 独立取数评测集；更强的表选择 / SQL 纠错闭环；本轮绑定 DataHub glossary（名称/URN）：写入 state `related_glossary_term` 作程序锚点（门禁、引用校验、AgentChain handoff），并显式注入 messages/system（模型默认读不到纯 state），避免只靠 state 指望注意力 |
 | M3 | 补齐 Drive/Wiki/代码检索工具与 Knowledge prompt；与 Intent 复合链路联调；详见 [rag/README.md](../rag/README.md) |
 | M4 | Knowledge 产品化后的真实复合链路联调；计划确认 HITL；比纯文本更结构化的 handoff payload |
 | M5 / M6 | 仍按未开始推进（诊断 Agent；服务化 UI/API/权限/观测） |
