@@ -155,7 +155,6 @@ class BaseReactAgent(BaseAgent):
     async def build_graph(
         self,
         model: BaseChatModel,
-        *
         checkpointer: BaseCheckpointSaver,
         compression_config: CompressionConfig | None = None,
         enable_compression: bool | None = None,

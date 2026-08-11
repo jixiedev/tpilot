@@ -5,6 +5,8 @@ import pytest
 from config.tool_config import (
     DataHubToolConfig,
     TrinoToolConfig,
+    datahub_graphql_url,
+    datahub_gms_url,
     datahub_token,
     trino_password,
 )
@@ -50,19 +52,35 @@ def test_trino_password_missing_raises(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_datahub_token_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("DATAHUB_TOKEN", "token-from-env")
-    cfg = DataHubToolConfig(token_env="DATAHUB_TOKEN")
+    monkeypatch.setenv("DATAHUB_GMS_TOKEN", "token-from-env")
+    cfg = DataHubToolConfig(token_env="DATAHUB_GMS_TOKEN")
     assert datahub_token(cfg) == "token-from-env"
 
 
 def test_datahub_token_falls_back_to_toml(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("DATAHUB_TOKEN", raising=False)
-    cfg = DataHubToolConfig(token="inline-token", token_env="DATAHUB_TOKEN")
+    monkeypatch.delenv("DATAHUB_GMS_TOKEN", raising=False)
+    cfg = DataHubToolConfig(token="inline-token", token_env="DATAHUB_GMS_TOKEN")
     assert datahub_token(cfg) == "inline-token"
 
 
 def test_datahub_token_missing_raises(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("DATAHUB_TOKEN", raising=False)
-    cfg = DataHubToolConfig(token="", token_env="DATAHUB_TOKEN")
-    with pytest.raises(ValueError, match="DATAHUB_TOKEN"):
+    monkeypatch.delenv("DATAHUB_GMS_TOKEN", raising=False)
+    cfg = DataHubToolConfig(token="", token_env="DATAHUB_GMS_TOKEN")
+    with pytest.raises(ValueError, match="DATAHUB_GMS_TOKEN"):
         datahub_token(cfg)
+
+
+def test_datahub_gms_url_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("DATAHUB_GMS_URL", "https://gms.example:8080/")
+    cfg = DataHubToolConfig(
+        gms_url="http://localhost:8080",
+        gms_url_env="DATAHUB_GMS_URL",
+    )
+    assert datahub_gms_url(cfg) == "https://gms.example:8080"
+    assert datahub_graphql_url(cfg) == "https://gms.example:8080/api/graphql"
+
+
+def test_datahub_graphql_url_from_toml(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("DATAHUB_GMS_URL", raising=False)
+    cfg = DataHubToolConfig(gms_url="https://datahub.s.tahoe.wish.site:8080")
+    assert datahub_graphql_url(cfg) == "https://datahub.s.tahoe.wish.site:8080/api/graphql"

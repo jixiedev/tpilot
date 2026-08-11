@@ -28,7 +28,12 @@ def _local_model() -> Any:
     kwargs: dict[str, Any] = {}
     if cfg.device.strip():
         kwargs["device"] = cfg.device.strip()
-    return SentenceTransformer(cfg.model, **kwargs)
+    # Prefer the local Hugging Face cache so query-time embedding does not hit
+    # huggingface.co (often reset / slow). Fall back to online download once.
+    try:
+        return SentenceTransformer(cfg.model, local_files_only=True, **kwargs)
+    except Exception:
+        return SentenceTransformer(cfg.model, local_files_only=False, **kwargs)
 
 
 def truncate_text(text: str, *, max_chars: int | None = None) -> str:

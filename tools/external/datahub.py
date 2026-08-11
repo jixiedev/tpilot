@@ -15,7 +15,7 @@ from typing import Any
 
 from langchain.tools import tool
 
-from config.tool_config import DataHubToolConfig, datahub_token, tool_config
+from config.tool_config import DataHubToolConfig, datahub_graphql_url, datahub_token, tool_config
 
 _MUTATION_RE = re.compile(r"\b(mutation|subscription)\b", re.IGNORECASE)
 
@@ -430,7 +430,7 @@ def execute_graphql(
         "Authorization": f"Bearer {datahub_token(config)}",
     }
     request = urllib.request.Request(
-        config.graphql_url,
+        datahub_graphql_url(config),
         data=body,
         headers=headers,
         method="POST",

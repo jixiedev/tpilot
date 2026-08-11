@@ -131,6 +131,23 @@ async def test_configured_mcp_server_names_reads_mcp_servers(tmp_path: Path) -> 
 
 
 @pytest.mark.asyncio
+async def test_configured_mcp_server_names_reads_flat_server_map(tmp_path: Path) -> None:
+    config_file = tmp_path / "mcp.json"
+    config_file.write_text(
+        json.dumps(
+            {
+                "datahub": {"transport": "stdio", "command": "uvx", "args": ["mcp-server-datahub"]},
+                "files": {"transport": "stdio", "command": "npx", "args": ["-y", "x"]},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    with patch.object(mcp_module, "mcp_config_path", return_value=config_file):
+        assert mcp_module.configured_mcp_server_names() == ["datahub", "files"]
+
+
+@pytest.mark.asyncio
 async def test_check_mcp_servers_reports_per_server_status(tmp_path: Path) -> None:
     config_file = tmp_path / "mcp.json"
     config_file.write_text(

@@ -79,11 +79,36 @@ def load_mcp_config() -> dict:
     return _quiet_stdio_servers(config)
 
 
+def mcp_servers_from_config(config: dict) -> dict:
+    """Return server-name → connection map.
+
+    Accepts either Cursor-style ``{"mcpServers": {...}}`` or a flat map of
+    server configs (as expected by ``MultiServerMCPClient``).
+    """
+    nested = config.get("mcpServers")
+    if isinstance(nested, dict):
+        return {
+            name: server
+            for name, server in nested.items()
+            if isinstance(name, str) and name.strip() and isinstance(server, dict)
+        }
+    return {
+        name: server
+        for name, server in config.items()
+        if isinstance(name, str)
+        and name.strip()
+        and isinstance(server, dict)
+        and (
+            "command" in server
+            or "url" in server
+            or "transport" in server
+        )
+    }
+
+
 def _quiet_stdio_servers(config: dict) -> dict:
     """Reduce uv/MCP subprocess noise on the terminal."""
-    servers = config.get("mcpServers")
-    if not isinstance(servers, dict):
-        return config
+    servers = mcp_servers_from_config(config)
     for server in servers.values():
         if not isinstance(server, dict) or server.get("transport") != "stdio":
             continue
@@ -99,7 +124,7 @@ def get_client() -> MultiServerMCPClient:
     global _client
     if _client is None:
         _redirect_stdio_server_stderr()
-        _client = MultiServerMCPClient(load_mcp_config())
+        _client = MultiServerMCPClient(mcp_servers_from_config(load_mcp_config()))
     return _client
 
 
@@ -127,11 +152,7 @@ def configured_mcp_server_names() -> list[str]:
     """Return MCP server names from config, or an empty list when unset."""
     if not mcp_config_path().is_file():
         return []
-    config = load_mcp_config()
-    servers = config.get("mcpServers")
-    if not isinstance(servers, dict):
-        return []
-    return sorted(name for name in servers if isinstance(name, str) and name.strip())
+    return sorted(mcp_servers_from_config(load_mcp_config()))
 
 
 async def check_mcp_servers() -> list[McpServerStatus]:

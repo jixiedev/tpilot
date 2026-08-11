@@ -82,10 +82,16 @@ def test_fetch_related_jira_tickets_formats_hits(mock_search: MagicMock) -> None
             "created": "2024-02-01",
             "updated": "2024-02-02",
             "description": "Lag spiked overnight",
-            "comments": "",
         }
     ]
     mock_search.assert_called_once_with("jira_tahoe", "flink lag", limit=3)
+
+
+def test_fetch_related_jira_tickets_rejects_wildcard_query() -> None:
+    with pytest.raises(Exception, match="natural-language"):
+        fetch_related_jira_tickets.invoke(
+            {"query": "*", "project": "tahoe", "limit": 100}
+        )
 
 
 def test_fetch_related_jira_tickets_rejects_unknown_project() -> None:

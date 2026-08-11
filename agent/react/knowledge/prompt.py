@@ -36,6 +36,9 @@ class KnowledgeSystemPrompt(TahoeSystemPrompt):
             "Cite issue keys (and scores when useful) for Jira-backed answers; say when search "
             "returned nothing relevant.",
             "Do not invent ticket numbers, owners, or resolutions that tools did not return.",
+            "For `fetch_related_jira_tickets`, use a specific natural-language query — never `*` "
+            "or empty strings. Prefer limit ≤ 10. Do not loop on `read_offloaded_file` just to "
+            "count tickets; use the tool result preview / returned list length.",
         ]
 
 

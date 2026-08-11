@@ -12,9 +12,11 @@ schema_name = "default"
 http_scheme = "https"
 
 [datahub]
-# DataHub 1.x GraphQL endpoint (GMS or frontend proxy).
-graphql_url = "http://localhost:8080/api/graphql"
-token_env = "DATAHUB_TOKEN"
+# Native GraphQL tools (not MCP). Env names match mcp-server-datahub convention:
+#   DATAHUB_GMS_URL, DATAHUB_GMS_TOKEN
+gms_url = "https://datahub.s.tahoe.wish.site:8080"
+gms_url_env = "DATAHUB_GMS_URL"
+token_env = "DATAHUB_GMS_TOKEN"
 timeout_seconds = 30
 
 [spark]

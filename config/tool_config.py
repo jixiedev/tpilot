@@ -28,12 +28,14 @@ class TrinoToolConfig(BaseModel):
 class DataHubToolConfig(BaseModel):
     """DataHub GraphQL client settings (query-only tools).
 
-    Compatible with DataHub ~1.2.x ``POST /api/graphql`` + Bearer token auth.
+    Aligned with ``mcp-server-datahub`` env naming (``DATAHUB_GMS_URL`` +
+    ``DATAHUB_GMS_TOKEN``). GraphQL is ``{gms_url}/api/graphql``.
     """
 
-    graphql_url: str = "http://localhost:8080/api/graphql"
+    gms_url: str = "http://localhost:8080"
+    gms_url_env: str | None = "DATAHUB_GMS_URL"
     token: str = ""
-    token_env: str | None = "DATAHUB_TOKEN"
+    token_env: str | None = "DATAHUB_GMS_TOKEN"
     timeout_seconds: float = 30.0
 
 
@@ -58,6 +60,31 @@ def trino_password(cfg: TrinoToolConfig | None = None) -> str:
     )
 
 
+def datahub_gms_url(cfg: DataHubToolConfig | None = None) -> str:
+    """Resolve GMS base URL (env overrides toml), same source as MCP ``DATAHUB_GMS_URL``."""
+    datahub = cfg or tool_config.datahub
+    if datahub.gms_url_env:
+        env_value = os.environ.get(datahub.gms_url_env, "").strip()
+        if env_value:
+            return env_value.rstrip("/")
+    base = datahub.gms_url.strip().rstrip("/")
+    if not base:
+        raise ValueError(
+            "Missing DataHub GMS URL; "
+            f"set environment variable {datahub.gms_url_env or 'DATAHUB_GMS_URL'!r} "
+            "or tools.toml [datahub].gms_url"
+        )
+    return base
+
+
+def datahub_graphql_url(cfg: DataHubToolConfig | None = None) -> str:
+    """GraphQL endpoint derived from GMS URL (``/api/graphql``)."""
+    base = datahub_gms_url(cfg)
+    if base.endswith("/api/graphql"):
+        return base
+    return f"{base}/api/graphql"
+
+
 def datahub_token(cfg: DataHubToolConfig | None = None) -> str:
     datahub = cfg or tool_config.datahub
     if datahub.token_env:
@@ -66,7 +93,7 @@ def datahub_token(cfg: DataHubToolConfig | None = None) -> str:
             return env_value
     if datahub.token.strip():
         return datahub.token.strip()
-    env_hint = datahub.token_env or "DATAHUB_TOKEN"
+    env_hint = datahub.token_env or "DATAHUB_GMS_TOKEN"
     raise ValueError(
         f"Missing DataHub access token; "
         f"set environment variable {env_hint!r} or tools.toml [datahub].token"

@@ -30,24 +30,5 @@
       "--auth-token",
       "${AIRFLOW_LEGACY_MCP_AUTH_TOKEN}"
     ]
-  },
-  "tahoe_superset": {
-    "transport": "stdio",
-    "command": "uv",
-    "args": [
-      "run",
-      "--directory",
-      "/Users/jixie/wbox/superset-mcp",
-      "main.py"
-    ]
-  },
-  "datahub": {
-    "transport": "stdio",
-    "command": "/Users/jixie/.local/bin/uvx",
-    "args": ["mcp-server-datahub"],
-    "env": {
-      "DATAHUB_GMS_URL": "https://datahub.s.tahoe.wish.site:8080",
-      "DATAHUB_GMS_TOKEN": "${DATAHUB_GMS_TOKEN}"
-    }
   }
 }

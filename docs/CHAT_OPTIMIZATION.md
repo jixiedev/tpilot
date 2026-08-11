@@ -444,6 +444,17 @@ Implementation notes (behavior only): detect emits intentions + plan steps; publ
 
 ---
 
+## 2026-08-11 — Align DataHub tools with MCP GMS settings
+
+**Goal**: Native DataHub GraphQL tools use the same GMS URL and token as `mcp-server-datahub`.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| Endpoint | Separate `graphql_url` + `DATAHUB_TOKEN` in `tools.toml` | `gms_url` / `DATAHUB_GMS_URL` + `DATAHUB_GMS_TOKEN`, GraphQL = `{gms}/api/graphql` |
+| Config drift | MCP and HTTP tools could point at different hosts/tokens | Same env vars as `tools/mcp/mcp.json` datahub server |
+
+---
+
 <!-- Append the next optimization section above this line -->
 
 

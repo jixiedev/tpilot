@@ -23,7 +23,7 @@ def test_assert_query_only_allows_query() -> None:
 def test_execute_graphql_posts_and_returns_data(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("DATAHUB_TOKEN", "test-token")
+    monkeypatch.setenv("DATAHUB_GMS_TOKEN", "test-token")
     captured: dict[str, Any] = {}
 
     class _Resp:
@@ -46,8 +46,8 @@ def test_execute_graphql_posts_and_returns_data(
 
     monkeypatch.setattr(datahub_mod.urllib.request, "urlopen", fake_urlopen)
     cfg = DataHubToolConfig(
-        graphql_url="http://datahub.example/api/graphql",
-        token_env="DATAHUB_TOKEN",
+        gms_url="http://datahub.example",
+        token_env="DATAHUB_GMS_TOKEN",
         timeout_seconds=12,
     )
     result = datahub_mod.execute_graphql(
@@ -68,7 +68,7 @@ def test_execute_graphql_posts_and_returns_data(
 def test_execute_graphql_raises_on_graphql_errors(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("DATAHUB_TOKEN", "t")
+    monkeypatch.setenv("DATAHUB_GMS_TOKEN", "t")
 
     class _Resp:
         def __enter__(self):
@@ -86,18 +86,18 @@ def test_execute_graphql_raises_on_graphql_errors(
         lambda *args, **kwargs: _Resp(),
     )
     with pytest.raises(datahub_mod.DataHubGraphQLError, match="bad field"):
-        datahub_mod.execute_graphql("{ nope }", cfg=DataHubToolConfig(token_env="DATAHUB_TOKEN"))
+        datahub_mod.execute_graphql("{ nope }", cfg=DataHubToolConfig(token_env="DATAHUB_GMS_TOKEN"))
 
 
 def test_execute_graphql_connection_error(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("DATAHUB_TOKEN", "t")
+    monkeypatch.setenv("DATAHUB_GMS_TOKEN", "t")
 
     def boom(*args, **kwargs):
         raise URLError("connection refused")
 
     monkeypatch.setattr(datahub_mod.urllib.request, "urlopen", boom)
     with pytest.raises(datahub_mod.DataHubGraphQLError, match="connection failed"):
-        datahub_mod.execute_graphql("{ me { urn } }", cfg=DataHubToolConfig(token_env="DATAHUB_TOKEN"))
+        datahub_mod.execute_graphql("{ me { urn } }", cfg=DataHubToolConfig(token_env="DATAHUB_GMS_TOKEN"))
 
 
 def test_datahub_graphql_query_tool_rejects_mutation() -> None:
@@ -108,7 +108,7 @@ def test_datahub_graphql_query_tool_rejects_mutation() -> None:
 
 
 def test_list_entities_search_then_hydrate(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("DATAHUB_TOKEN", "t")
+    monkeypatch.setenv("DATAHUB_GMS_TOKEN", "t")
     calls: list[dict[str, Any]] = []
 
     def fake_execute(query: str, variables=None, *, cfg=None):
@@ -173,7 +173,7 @@ def test_list_entities_search_then_hydrate(monkeypatch: pytest.MonkeyPatch) -> N
 def test_list_glossary_terms_tool_uses_glossary_fragment(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("DATAHUB_TOKEN", "t")
+    monkeypatch.setenv("DATAHUB_GMS_TOKEN", "t")
 
     def fake_execute(query: str, variables=None, *, cfg=None):
         if "searchAcrossEntities" in query:
@@ -211,7 +211,7 @@ def test_list_glossary_terms_tool_uses_glossary_fragment(
 
 
 def test_list_count_is_clamped(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("DATAHUB_TOKEN", "t")
+    monkeypatch.setenv("DATAHUB_GMS_TOKEN", "t")
     seen: dict[str, Any] = {}
 
     def fake_execute(query: str, variables=None, *, cfg=None):

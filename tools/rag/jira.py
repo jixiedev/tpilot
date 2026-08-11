@@ -112,12 +112,22 @@ def _tool_description() -> str:
         "Search indexed Jira tickets related to a natural-language query.\n\n"
         "Use for past incidents, ownership, migrations, on-call history, or how a change "
         "was tracked in Jira. Pick `project` from the catalog below (do not invent keys).\n\n"
+        "Write a concrete semantic query (e.g. 'Hudi JupyterHub notebook', 'Airflow DAG OOM'). "
+        "Do not use wildcards like `*` or empty queries — this is vector search, not JQL.\n"
+        "Keep `limit` small (default 5, max 20). Results include truncated description only; "
+        "do not repeatedly call `read_offloaded_file` to re-count the same preview.\n\n"
         f"Project catalog:\n{_project_catalog_for_tool()}"
     )
 
 
+_DESC_PREVIEW_CHARS = 400
+
+
 def _format_hit(hit: dict[str, Any]) -> dict[str, Any]:
     payload = hit.get("payload") or {}
+    description = str(payload.get("description") or "")
+    if len(description) > _DESC_PREVIEW_CHARS:
+        description = description[:_DESC_PREVIEW_CHARS] + "…"
     return {
         "score": hit.get("score"),
         "issue_key": payload.get("issue_key") or "",
@@ -129,8 +139,7 @@ def _format_hit(hit: dict[str, Any]) -> dict[str, Any]:
         "issue_type": payload.get("issue_type") or "",
         "created": payload.get("created") or "",
         "updated": payload.get("updated") or "",
-        "description": payload.get("description") or "",
-        "comments": payload.get("comments") or "",
+        "description": description,
     }
 
 
@@ -141,12 +150,18 @@ def fetch_related_jira_tickets(
     limit: int = 5,
 ) -> list[dict[str, Any]]:
     """Search indexed Jira tickets; see tool description for the project catalog."""
+    cleaned = (query or "").strip()
+    if not cleaned or cleaned in {"*", "**", "?", ".*"}:
+        raise ValueError(
+            "query must be a natural-language search phrase "
+            "(e.g. 'Hudi JupyterHub'); wildcards like '*' are not supported"
+        )
     profile = _PROJECT_BY_NAME.get(project)
     if profile is None:
         known = ", ".join(sorted(_PROJECT_BY_NAME))
         raise ValueError(f"Unknown Jira project {project!r}; choose one of: {known}")
     limit = max(1, min(int(limit), 20))
-    hits = qdrant_search(profile["collection"], query, limit=limit)
+    hits = qdrant_search(profile["collection"], cleaned, limit=limit)
     return [_format_hit(hit) for hit in hits]
 
 
