@@ -27,8 +27,10 @@ class EmbeddingConfig(BaseModel):
     api_key: str = ""
     api_key_env: str | None = "OPENAI_API_KEY"
     timeout_seconds: float = 60.0
-    max_chars: int = 16000
-    batch_size: int = 32
+    # Token cap for local sentence-transformers (avoids multi‑GiB encode buffers).
+    max_seq_length: int = 512
+    max_chars: int = 2000
+    batch_size: int = 8
 
 
 class RagConfig(BaseModel):

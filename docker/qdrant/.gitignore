@@ -1,1 +1,14 @@
+# Local Qdrant data (binary cwd ./storage, compose volume)
+storage/
 qdrant_storage/
+
+# Snapshots and runtime markers
+snapshots/
+.qdrant-initialized
+
+# Local binary / release downloads (not source)
+qdrant
+qdrant-*.tar.gz
+dist-qdrant.zip
+dist/
+static/

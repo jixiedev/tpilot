@@ -455,6 +455,19 @@ Implementation notes (behavior only): detect emits intentions + plan steps; publ
 
 ---
 
+## 2026-08-11 — Bound local BGE encode memory for Jira ingest
+
+**Goal**: Stop local `BAAI/bge-m3` ingest from allocating multi‑GiB encode buffers on long Jira texts.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| Encode length | `max_chars=16000`, no `max_seq_length` cap | `max_seq_length=512` on the local model; `max_chars=2000` |
+| Batch size | Default `batch_size=32` | Default `batch_size=8` for safer CPU/MPS runs |
+| Failure mode | Batches fail with `Invalid buffer size: … GiB` | Ingest completes under bounded memory; raise caps only when hardware allows |
+| Docs | Limits undocumented | Noted in `rag/README.md` (vector size stays **1024**; 512 is token length, not dimension) |
+
+---
+
 <!-- Append the next optimization section above this line -->
 
 

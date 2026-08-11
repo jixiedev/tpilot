@@ -28,6 +28,10 @@ export EMBEDDING_VECTOR_SIZE="1024"
 # export EMBEDDING_DEVICE="cpu"   # or cuda / mps
 ```
 
+Local defaults cap encode length (`max_seq_length=512`, `max_chars=2000`, `batch_size=8`) so long Jira
+descriptions do not blow memory (`Invalid buffer size: … GiB`). Raise those in `config/rag.toml` only if
+you have spare GPU/MPS RAM.
+
 First run downloads the model from Hugging Face into the local cache (several GB).
 If `huggingface.co` resets connections (common on some networks), use a mirror before ingest:
 

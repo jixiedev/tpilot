@@ -31,9 +31,13 @@ def _local_model() -> Any:
     # Prefer the local Hugging Face cache so query-time embedding does not hit
     # huggingface.co (often reset / slow). Fall back to online download once.
     try:
-        return SentenceTransformer(cfg.model, local_files_only=True, **kwargs)
+        model = SentenceTransformer(cfg.model, local_files_only=True, **kwargs)
     except Exception:
-        return SentenceTransformer(cfg.model, local_files_only=False, **kwargs)
+        model = SentenceTransformer(cfg.model, local_files_only=False, **kwargs)
+    # Cap sequence length so long Jira/docs texts do not allocate multi‑GiB buffers.
+    seq = max(32, int(cfg.max_seq_length))
+    model.max_seq_length = seq
+    return model
 
 
 def truncate_text(text: str, *, max_chars: int | None = None) -> str:
@@ -46,6 +50,7 @@ def truncate_text(text: str, *, max_chars: int | None = None) -> str:
 
 def _embed_local(payloads: list[str], *, config: EmbeddingConfig) -> list[list[float]]:
     model = _local_model()
+    # Truncation is enforced via model.max_seq_length set in _local_model.
     vectors = model.encode(
         payloads,
         normalize_embeddings=True,

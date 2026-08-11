@@ -51,4 +51,6 @@ def test_get_rag_config_loads_toml() -> None:
     assert cfg.embedding.provider == "local"
     assert cfg.embedding.model == "BAAI/bge-m3"
     assert cfg.embedding.vector_size == 1024
+    assert cfg.embedding.max_seq_length == 512
+    assert cfg.embedding.batch_size <= 8
     get_rag_config.cache_clear()
