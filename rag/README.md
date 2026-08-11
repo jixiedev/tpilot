@@ -15,18 +15,40 @@ docker compose up -d
 - Dashboard: http://localhost:6333/dashboard
 - Data volume: `docker/qdrant/qdrant_storage/` (gitignored)
 
-2. Configure embeddings in `config/rag.toml` (or env overrides). Set the embedding API key:
+2. Configure embeddings in `config/rag.toml` (defaults to local **BAAI/bge-m3**).
+
+Local mode (default — no OpenAI key):
 
 ```bash
-export OPENAI_API_KEY="your-key"
 # optional overrides
 export QDRANT_URL="http://localhost:6333"
+export EMBEDDING_PROVIDER="local"
+export EMBEDDING_MODEL="BAAI/bge-m3"
+export EMBEDDING_VECTOR_SIZE="1024"
+# export EMBEDDING_DEVICE="cpu"   # or cuda / mps
+```
+
+First run downloads the model from Hugging Face into the local cache (several GB).
+If `huggingface.co` resets connections (common on some networks), use a mirror before ingest:
+
+```bash
+export HF_ENDPOINT=https://hf-mirror.com
+python -m rag -t jira -p rag/raw/Jira-tahoe.csv -c jira_tahoe
+```
+
+Or download the model once with the same env, then later runs use `~/.cache/huggingface/`.
+
+OpenAI-compatible API mode:
+
+```bash
+export EMBEDDING_PROVIDER="openai"
+export OPENAI_API_KEY="your-key"
 export EMBEDDING_BASE_URL="https://api.openai.com/v1"
 export EMBEDDING_MODEL="text-embedding-3-small"
 export EMBEDDING_VECTOR_SIZE="1536"
 ```
 
-`[embedding].vector_size` must match the model. Changing it after a collection exists requires recreating that collection.
+`[embedding].vector_size` must match the model (**1024** for `BAAI/bge-m3`). Changing it after a collection exists requires recreating that collection.
 
 3. From the repo root (with the project venv / `uv`):
 

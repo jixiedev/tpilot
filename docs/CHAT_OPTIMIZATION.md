@@ -432,6 +432,18 @@ Implementation notes (behavior only): detect emits intentions + plan steps; publ
 
 ---
 
+## 2026-08-11 — Local BGE-M3 embeddings for RAG
+
+**Goal**: Run RAG ingest/query without paid OpenAI embedding calls by default.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| Embedding backend | OpenAI-compatible HTTP only (`text-embedding-3-small`, 1536-d) | Default `provider=local` via `sentence-transformers` + `BAAI/bge-m3` (1024-d) |
+| Secrets | Required `OPENAI_API_KEY` for any ingest | Local mode needs no embedding API key; `openai` provider still supported |
+| Config | Fixed remote defaults in `rag.toml` | `provider` / `device` / env overrides; recreate Qdrant collections after dimension change |
+
+---
+
 <!-- Append the next optimization section above this line -->
 
 

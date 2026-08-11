@@ -1,9 +1,10 @@
-"""RAG runtime settings (Qdrant + OpenAI-compatible embeddings)."""
+"""RAG runtime settings (Qdrant + embeddings)."""
 
 from __future__ import annotations
 
 import os
 from functools import lru_cache
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -16,16 +17,18 @@ class QdrantConfig(BaseModel):
 
 
 class EmbeddingConfig(BaseModel):
-    """OpenAI-compatible embeddings endpoint (same shape as chat models)."""
+    """Local sentence-transformers or OpenAI-compatible embeddings endpoint."""
 
+    provider: Literal["local", "openai"] = "local"
+    model: str = "BAAI/bge-m3"
+    vector_size: int = 1024
+    device: str = ""
     base_url: str = "https://api.openai.com/v1"
     api_key: str = ""
     api_key_env: str | None = "OPENAI_API_KEY"
-    model: str = "text-embedding-3-small"
-    vector_size: int = 1536
     timeout_seconds: float = 60.0
     max_chars: int = 16000
-    batch_size: int = 64
+    batch_size: int = 32
 
 
 class RagConfig(BaseModel):
@@ -41,6 +44,13 @@ def _env_or(value: str, env_name: str | None) -> str:
     return value.strip()
 
 
+def _embedding_provider_from_env() -> Literal["local", "openai"] | None:
+    raw = os.environ.get("EMBEDDING_PROVIDER", "").strip().lower()
+    if raw in {"local", "openai"}:
+        return raw  # type: ignore[return-value]
+    return None
+
+
 def resolve_qdrant_api_key(cfg: QdrantConfig | None = None) -> str | None:
     qdrant = cfg or get_rag_config().qdrant
     key = _env_or(qdrant.api_key, qdrant.api_key_env)
@@ -49,6 +59,8 @@ def resolve_qdrant_api_key(cfg: QdrantConfig | None = None) -> str | None:
 
 def resolve_embedding_api_key(cfg: EmbeddingConfig | None = None) -> str:
     embedding = cfg or get_rag_config().embedding
+    if embedding.provider == "local":
+        return ""
     key = _env_or(embedding.api_key, embedding.api_key_env)
     if key:
         return key
@@ -73,6 +85,7 @@ def get_rag_config() -> RagConfig:
                 or "http://localhost:6333",
             ),
             embedding=EmbeddingConfig(
+                provider=_embedding_provider_from_env() or EmbeddingConfig().provider,
                 base_url=os.environ.get("EMBEDDING_BASE_URL", "").strip()
                 or EmbeddingConfig().base_url,
                 model=os.environ.get("EMBEDDING_MODEL", "").strip()
@@ -81,6 +94,8 @@ def get_rag_config() -> RagConfig:
                     os.environ.get("EMBEDDING_VECTOR_SIZE", "")
                     or EmbeddingConfig().vector_size
                 ),
+                device=os.environ.get("EMBEDDING_DEVICE", "").strip()
+                or EmbeddingConfig().device,
             ),
         )
 
@@ -93,16 +108,22 @@ def get_rag_config() -> RagConfig:
         cfg = cfg.model_copy(
             update={"qdrant": cfg.qdrant.model_copy(update={"url": url})}
         )
+    emb_provider = _embedding_provider_from_env()
     emb_url = os.environ.get("EMBEDDING_BASE_URL", "").strip()
     emb_model = os.environ.get("EMBEDDING_MODEL", "").strip()
     emb_size = os.environ.get("EMBEDDING_VECTOR_SIZE", "").strip()
+    emb_device = os.environ.get("EMBEDDING_DEVICE", "").strip()
     emb_updates: dict[str, object] = {}
+    if emb_provider:
+        emb_updates["provider"] = emb_provider
     if emb_url:
         emb_updates["base_url"] = emb_url
     if emb_model:
         emb_updates["model"] = emb_model
     if emb_size:
         emb_updates["vector_size"] = int(emb_size)
+    if emb_device:
+        emb_updates["device"] = emb_device
     if emb_updates:
         cfg = cfg.model_copy(
             update={"embedding": cfg.embedding.model_copy(update=emb_updates)}

@@ -1,22 +1,34 @@
-"""OpenAI-compatible text embeddings for RAG ingest and query."""
+"""Text embeddings for RAG ingest and query (local BGE or OpenAI-compatible API)."""
 
 from __future__ import annotations
 
 from functools import lru_cache
-
-from openai import OpenAI
+from typing import Any
 
 from rag.config import EmbeddingConfig, get_rag_config, resolve_embedding_api_key
 
 
 @lru_cache(maxsize=1)
-def _client() -> OpenAI:
+def _openai_client() -> Any:
+    from openai import OpenAI
+
     cfg = get_rag_config().embedding
     return OpenAI(
         api_key=resolve_embedding_api_key(cfg),
         base_url=cfg.base_url,
         timeout=cfg.timeout_seconds,
     )
+
+
+@lru_cache(maxsize=1)
+def _local_model() -> Any:
+    from sentence_transformers import SentenceTransformer
+
+    cfg = get_rag_config().embedding
+    kwargs: dict[str, Any] = {}
+    if cfg.device.strip():
+        kwargs["device"] = cfg.device.strip()
+    return SentenceTransformer(cfg.model, **kwargs)
 
 
 def truncate_text(text: str, *, max_chars: int | None = None) -> str:
@@ -27,6 +39,27 @@ def truncate_text(text: str, *, max_chars: int | None = None) -> str:
     return cleaned[:limit]
 
 
+def _embed_local(payloads: list[str], *, config: EmbeddingConfig) -> list[list[float]]:
+    model = _local_model()
+    vectors = model.encode(
+        payloads,
+        normalize_embeddings=True,
+        show_progress_bar=False,
+        batch_size=max(1, config.batch_size),
+    )
+    return [list(map(float, row)) for row in vectors]
+
+
+def _embed_openai(
+    payloads: list[str],
+    *,
+    model: str,
+) -> list[list[float]]:
+    response = _openai_client().embeddings.create(input=payloads, model=model)
+    ordered = sorted(response.data, key=lambda item: item.index)
+    return [list(item.embedding) for item in ordered]
+
+
 def get_embedding(
     text: str,
     *,
@@ -34,15 +67,7 @@ def get_embedding(
     config: EmbeddingConfig | None = None,
 ) -> list[float]:
     """Embed a single text string; returns the dense vector."""
-    cfg = config or get_rag_config().embedding
-    payload = truncate_text(text, max_chars=cfg.max_chars)
-    if not payload:
-        raise ValueError("Cannot embed empty text")
-    response = _client().embeddings.create(
-        input=payload,
-        model=model or cfg.model,
-    )
-    return list(response.data[0].embedding)
+    return get_embeddings([text], model=model, config=config)[0]
 
 
 def get_embeddings(
@@ -51,14 +76,14 @@ def get_embeddings(
     model: str | None = None,
     config: EmbeddingConfig | None = None,
 ) -> list[list[float]]:
-    """Embed multiple texts in one request (provider batching)."""
+    """Embed multiple texts (local batch or provider batching)."""
     cfg = config or get_rag_config().embedding
     payloads = [truncate_text(t, max_chars=cfg.max_chars) for t in texts]
     if not payloads or any(not p for p in payloads):
         raise ValueError("Cannot embed empty text in batch")
-    response = _client().embeddings.create(
-        input=payloads,
-        model=model or cfg.model,
-    )
-    ordered = sorted(response.data, key=lambda item: item.index)
-    return [list(item.embedding) for item in ordered]
+
+    if cfg.provider == "local":
+        return _embed_local(payloads, config=cfg)
+    if cfg.provider == "openai":
+        return _embed_openai(payloads, model=model or cfg.model)
+    raise ValueError(f"Unsupported embedding provider: {cfg.provider!r}")

@@ -5,12 +5,16 @@ api_key_env = "QDRANT_API_KEY"
 timeout_seconds = 30.0
 
 [embedding]
-# OpenAI-compatible embeddings API (OpenAI, OpenRouter, etc.).
+# provider: "local" (sentence-transformers) or "openai" (OpenAI-compatible HTTP API)
+provider = "local"
+model = "BAAI/bge-m3"
+vector_size = 1024
+# Optional device override for local models: "", "cpu", "cuda", "mps"
+device = ""
+# Used only when provider = "openai"
 base_url = "https://api.openai.com/v1"
 api_key = ""
 api_key_env = "OPENAI_API_KEY"
-model = "text-embedding-3-small"
-vector_size = 1536
 timeout_seconds = 60.0
 max_chars = 16000
-batch_size = 64
+batch_size = 32
