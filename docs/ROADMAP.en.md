@@ -16,7 +16,7 @@ An AI Agent platform for data teams: chatbot, intelligent data retrieval, team k
 | M0 | Conversational | Multi-turn chat in the CLI; call Hive/Trino/MCP tools to get results | Done — generic ReAct graph + pluggable `--agent`; see [CHAT_OPTIMIZATION.md](CHAT_OPTIMIZATION.md) |
 | M1 | Resumable | Conversation state persists; pick up where you left off; long-context management | Done — `AsyncSqliteSaver` + `--session`; context compression (F4) wired in |
 | M2 | Data retrieval | Describe data needs in natural language; Agent finds tables, writes SQL, returns results | Done — glossary-first → metadata/lineage → read-only SQL; `DatabotAgent` / retrieval prompt contract |
-| M3 | Knowledge Q&A | Ask about Tahoe team knowledge — codebase, Google Docs, Wiki/FAQ, Jira; Agent retrieves and explains | In progress — `KnowledgeAgent` + Jira search tool; Qdrant RAG ingest (Jira CSV / Google Drive zip) working; codebase and Wiki still open |
+| M3 | Knowledge Q&A | Ask about Tahoe team knowledge — codebase, Google Docs, Wiki/FAQ, Jira; Agent retrieves and explains | Done (v1) — `KnowledgeAgent` (`--agent knowledge` / Intent `KNOWLEDGE`); Jira Qdrant search; DataHub + read-only K8s. Drive zip ingest works; codebase / Wiki / Drive search tools remain follow-ups |
 | M4 | Collaborative | Complex tasks split across specialized agents that pass intermediate results | Done — `IntentOrchestrator` composite intentions → `execution_plan` → `PlannedAgentChain`; upstream feeds downstream; ephemeral specialist sessions |
 | M5 | Diagnostic | Describe data anomalies; Agent runs quality checks, reasons about root cause, produces reports | Not started |
 | M6 | Deployable | Move from local CLI to an outward-facing service (UI, API, auth, observability) | Not started |
@@ -39,7 +39,7 @@ An AI Agent platform for data teams: chatbot, intelligent data retrieval, team k
 | F12 | Model Routing | Dynamic model selection by task complexity and cost | P2 | Not started |
 | F13 | Procedural Memory | Distill reusable tool-call sequences and workflows from successful interactions | P3 | Not started |
 | F14 | Error Handling | Classify, retry, and degrade on LLM/tool failures; friendly errors and recoverable interrupts | P1 | Done — TOOL ERROR, transient retries, Hive↔Trino anti-oscillation, CLI-friendly errors |
-| F15 | RAG | Local Qdrant vector store; ingest and semantic search over Jira / Google Drive (and later Wiki) for Knowledge Agent | P1 | In progress — Docker Qdrant, ingest CLI (Jira CSV / Drive zip), Jira search tool; Drive/Wiki search tools and eval still open |
+| F15 | RAG | Local Qdrant vector store; ingest and semantic search over Jira / Google Drive (and later Wiki) for Knowledge Agent | P1 | Done (Jira main path) — Docker Qdrant, ingest CLI (Jira CSV / Drive zip), `fetch_related_jira_tickets`. Drive/Wiki search tools and eval still open |
 
 ---
 
@@ -52,8 +52,8 @@ Items marked **Done** mean the main path works. The list below is optional deepe
 | Related | Possible follow-ups |
 |---------|---------------------|
 | M2 | Dedicated retrieval eval set; stronger table-selection / SQL repair loops; bind the DataHub glossary term (name/URN) for the turn: store `related_glossary_term` in state as a program anchor (gates, citation checks, AgentChain handoff) and inject it into messages/system (models do not see bare state)—do not rely on state alone for attention |
-| M3 | Drive/Wiki/code search tools and Knowledge prompts; Intent composite-chain soak; see [rag/README.md](../rag/README.md) |
-| M4 | End-to-end composite chains once Knowledge is productized; plan-confirmation HITL; richer structured handoff payloads |
+| M3 | Drive / Wiki / code search tools and Knowledge prompts; soak Intent composite chains against a real knowledge corpus; see [rag/README.md](../rag/README.md) |
+| M4 | Plan-confirmation HITL; richer structured handoff payloads |
 | M5 / M6 | Still tracked as not started (diagnostic agent; service UI/API/auth/observability) |
 
 ### Feature-related
@@ -71,4 +71,4 @@ Items marked **Done** mean the main path works. The list below is optional deepe
 
 ---
 
-*Last updated: 2026-08-10*
+*Last updated: 2026-08-20*
