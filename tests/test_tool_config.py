@@ -4,11 +4,18 @@ import pytest
 
 from config.tool_config import (
     DataHubToolConfig,
+    K8sToolConfig,
+    S3ToolConfig,
     TrinoToolConfig,
+    WebSearchToolConfig,
     datahub_graphql_url,
     datahub_gms_url,
     datahub_token,
+    k8s_config_file,
+    s3_access_key_id,
+    s3_region,
     trino_password,
+    web_search_api_key,
 )
 
 
@@ -84,3 +91,34 @@ def test_datahub_graphql_url_from_toml(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("DATAHUB_GMS_URL", raising=False)
     cfg = DataHubToolConfig(gms_url="https://datahub.s.tahoe.wish.site:8080")
     assert datahub_graphql_url(cfg) == "https://datahub.s.tahoe.wish.site:8080/api/graphql"
+
+
+def test_k8s_config_file_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("KUBECONFIG", "/tmp/custom.kubeconfig")
+    cfg = K8sToolConfig(config_file="./k8s_config", config_file_env="KUBECONFIG")
+    assert k8s_config_file(cfg) == "/tmp/custom.kubeconfig"
+
+
+def test_k8s_config_file_falls_back_to_toml(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("KUBECONFIG", raising=False)
+    cfg = K8sToolConfig(config_file="./k8s_config", config_file_env="KUBECONFIG")
+    assert k8s_config_file(cfg) == "./k8s_config"
+
+
+def test_web_search_api_key_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("TAVILY_API_KEY", "tvly-env")
+    cfg = WebSearchToolConfig(tavily_api_key="toml", tavily_api_key_env="TAVILY_API_KEY")
+    assert web_search_api_key("tavily", cfg) == "tvly-env"
+
+
+def test_s3_access_key_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("AWS_ACCESS_KEY_ID", "AKIATEST")
+    monkeypatch.setenv("AWS_REGION", "eu-west-1")
+    cfg = S3ToolConfig(
+        access_key_id="toml-key",
+        access_key_id_env="AWS_ACCESS_KEY_ID",
+        region="us-east-1",
+        region_env="AWS_REGION",
+    )
+    assert s3_access_key_id(cfg) == "AKIATEST"
+    assert s3_region(cfg) == "eu-west-1"

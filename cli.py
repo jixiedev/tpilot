@@ -74,10 +74,10 @@ async def run_repl(
     profile_store = TahoeAgent.default_profile_store(profile_dir)
     print("TahoePilot — type 'quit' to exit")
     print(f"Agent: {spec.name}")
+    print(f"Model: {default_model_name}")
     print(f"Session: {session}")
     print(f"User: {user_id}")
     if verbose:
-        print(f"Model: {default_model_name}")
         print(f"Checkpoint DB: {checkpoint_db}")
         print(f"Profile dir: {profile_dir}")
 

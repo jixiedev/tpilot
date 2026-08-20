@@ -17,7 +17,13 @@ from graph.error_recovery import (
     default_tool_retry_policy,
     make_step_tools_error_handler,
 )
-from graph.node import LlmStepListener, StepToolsNode, ToolCallListener, make_step_llm_node
+from graph.node import (
+    LlmStepListener,
+    StepToolsNode,
+    ToolCallListener,
+    ToolResultListener,
+    make_step_llm_node,
+)
 from state.state import SessionAgentState
 
 # Static prompt string, or a callable that renders from the current state (e.g. user profile).
@@ -70,6 +76,7 @@ def build_react_graph(
     max_tool_calls: int = 10,
     tool_retry_policy: RetryPolicy | None = None,
     on_tool_call: ToolCallListener | None = None,
+    on_tool_result: ToolResultListener | None = None,
     on_llm_step: LlmStepListener | None = None,
 ) -> CompiledStateGraph:
     """Compile inject_system_prompt → step_llm ↔ step_tools.
@@ -102,7 +109,11 @@ def build_react_graph(
     )
     graph.add_node(
         "step_tools",
-        StepToolsNode(tools, on_tool_call=on_tool_call),
+        StepToolsNode(
+            tools,
+            on_tool_call=on_tool_call,
+            on_tool_result=on_tool_result,
+        ),
         retry_policy=tool_retry_policy or default_tool_retry_policy(),
         error_handler=make_step_tools_error_handler(),
     )

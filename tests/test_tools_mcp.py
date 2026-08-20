@@ -119,6 +119,61 @@ async def test_get_tools_for_server_uses_session(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_get_datahub_mcp_tools_returns_empty_when_not_configured(
+    tmp_path: Path,
+) -> None:
+    missing = tmp_path / "missing.json"
+    with patch.object(mcp_module, "mcp_config_path", return_value=missing):
+        assert await mcp_module.get_datahub_mcp_tools() == []
+
+
+@pytest.mark.asyncio
+async def test_get_datahub_mcp_tools_loads_datahub_server(tmp_path: Path) -> None:
+    config_file = tmp_path / "mcp.json"
+    config_file.write_text(
+        json.dumps({"mcpServers": {"datahub": {}, "files": {}}}),
+        encoding="utf-8",
+    )
+    expected = [MagicMock(name="search")]
+
+    with (
+        patch.object(mcp_module, "mcp_config_path", return_value=config_file),
+        patch.object(
+            mcp_module,
+            "get_tools_for_server",
+            new_callable=AsyncMock,
+            return_value=expected,
+        ) as mock_get,
+    ):
+        tools = await mcp_module.get_datahub_mcp_tools()
+
+    assert tools == expected
+    mock_get.assert_awaited_once_with("datahub")
+
+
+@pytest.mark.asyncio
+async def test_get_datahub_mcp_tools_returns_empty_on_server_error(
+    tmp_path: Path,
+) -> None:
+    config_file = tmp_path / "mcp.json"
+    config_file.write_text(
+        json.dumps({"mcpServers": {"datahub": {}}}),
+        encoding="utf-8",
+    )
+
+    with (
+        patch.object(mcp_module, "mcp_config_path", return_value=config_file),
+        patch.object(
+            mcp_module,
+            "get_tools_for_server",
+            new_callable=AsyncMock,
+            side_effect=RuntimeError("connection refused"),
+        ),
+    ):
+        assert await mcp_module.get_datahub_mcp_tools() == []
+
+
+@pytest.mark.asyncio
 async def test_configured_mcp_server_names_reads_mcp_servers(tmp_path: Path) -> None:
     config_file = tmp_path / "mcp.json"
     config_file.write_text(

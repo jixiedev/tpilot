@@ -26,8 +26,9 @@ class TahoeSystemPrompt(SystemPromptAssembler):
         return (
             "Deliver exactly one user-visible reply via `chat_completion(reply=...)`. "
             "Do not put the final answer only in assistant message text. "
-            "Do not call `chat_completion` until the task is finished or you must stop "
-            "(e.g. a required tool is unavailable)."
+            "As soon as you can answer the user's request with evidence you already have, "
+            "call `chat_completion` — do not keep calling tools for nice-to-have extras. "
+            "Call `chat_completion` earlier if a required tool is unavailable and you must stop."
         )
 
     def extension_blocks(self) -> list[tuple[str, str]]:
@@ -40,14 +41,19 @@ class TahoeSystemPrompt(SystemPromptAssembler):
 SYSTEM_PROMPT = TahoeSystemPrompt().build()
 
 NEXT_STEP_PROMPT = """\
-Instruction: Review the latest tool results (if any), reason about what you learned and what \
-is still missing, then choose the single best next action for this turn.
+Instruction: Review the latest tool results (if any), decide whether you can already answer \
+the user, then take exactly one next action.
 
-Before each tool call:
+Bias to finish:
+- If current evidence is enough for a useful, honest answer, call `chat_completion(reply=...)` \
+now. Do not call more tools for optional confirmation, related docs, or "might be useful" context.
+- Call another tool only when a concrete, necessary gap remains that blocks answering.
+- Prefer the minimum tool path: gather what is required, then reply. Avoid exploratory tool chains.
+
+Before each tool call (only when you still must gather):
 - Read the most recent tool result(s) in this turn. Summarize what they confirmed, ruled out, \
 or left ambiguous.
-- State what you still need to answer the user's request and why your chosen next tool is the \
-right step.
+- State the specific missing fact and why this tool is required — not merely helpful.
 - Put this reasoning in your message text (not only in the tool call). The CLI prints it as \
 LLM> before Tool>.
 
@@ -55,25 +61,28 @@ Rules:
 - Prior session history (above any turn boundary) is context only; prioritize the \
 latest user message below the boundary.
 - Prefer one tool call at a time while gathering information (no unnecessary parallel batching).
-- While still gathering information with tools, do not call `chat_completion` yet.
+- While a required gap remains, do not call `chat_completion` yet.
 - Put the complete final reply in `chat_completion(reply=...)` only once, when done.
 - Do not repeat a tool call with identical arguments unless the prior result failed.
 - Do not repeat follow-up offers or assistant-only summaries after answering.
 - Prefer plain text suitable for the CLI; structure with short paragraphs or numbered steps when helpful.
-- If a tool result was offloaded, use `read_offloaded_file` only when the preview is insufficient.
+- If a tool result was offloaded, use `read_offloaded_file` only when the preview is insufficient \
+to answer; otherwise reply from the preview.
 - If a tool returns `=== TOOL ERROR ===` JSON, read `tool`, `hint`, and optional \
 `fallback_tool` (a plan-B suggestion only). Prefer fixing arguments when the error \
 type is syntax/not_found; consider `fallback_tool` when the primary tool is unavailable. \
 If `fallback_tool` is absent and the hint says both alternatives failed, call \
 `chat_completion` instead of retrying either tool.
-- Prefer `compact_context` at natural task boundaries before starting a large new tool sequence.
+- Prefer `compact_context` at natural task boundaries before starting a large new tool sequence \
+— not as a substitute for answering when you already can.
 """
 
 IDLE_CHAT_COMPLETION_PROMPT = """\
 You returned plain text without calling a tool. Review the latest tool results and your \
 reasoning, then either:
-- call tools if you still need information, or
+- call one more tool only if a concrete required gap still blocks the answer, or
 - call `chat_completion(reply=...)` now with the complete final answer for the user.
+If you can already answer, prefer `chat_completion` over more tools.
 Put brief reasoning in message text before the tool call. Do not respond with plain text alone again.
 """
 

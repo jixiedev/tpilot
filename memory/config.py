@@ -1,4 +1,4 @@
-"""Configuration for the three-layer context compression pipeline."""
+"""Configuration for the graduated context compression pipeline."""
 
 from __future__ import annotations
 
@@ -14,11 +14,15 @@ DEFAULT_WRITE_TOOLS: frozenset[str] = frozenset(
         "save_content",
         "ingest_document",
         "ingest_file_path",
+        "str_replace_editor",
     }
 )
 
 # Tool results that must stay in-context (e.g. the user-visible reply).
 DEFAULT_NEVER_OFFLOAD_TOOLS: frozenset[str] = frozenset({"chat_completion"})
+
+# Marker text used by SessionTurnBuilder between CLI turns.
+TURN_BOUNDARY_MARKER = "--- Session turn boundary ---"
 
 
 @dataclass(frozen=True)
@@ -35,3 +39,7 @@ class CompressionConfig:
     offload_dir: Path = field(default_factory=lambda: Path("offload_store"))
     write_tools: frozenset[str] = DEFAULT_WRITE_TOOLS
     never_offload_tools: frozenset[str] = DEFAULT_NEVER_OFFLOAD_TOOLS
+    # Drop prior-turn tool trajectories; keep Human + chat_completion Q&A only.
+    prior_turns_qa_only: bool = True
+    chat_completion_tool_name: str = "chat_completion"
+    turn_boundary_marker: str = TURN_BOUNDARY_MARKER

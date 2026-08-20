@@ -19,5 +19,34 @@ gms_url_env = "DATAHUB_GMS_URL"
 token_env = "DATAHUB_GMS_TOKEN"
 timeout_seconds = 30
 
+[k8s]
+# Empty config_file → standard kubeconfig discovery (~/.kube/config or $KUBECONFIG).
+config_file = ""
+config_file_env = "KUBECONFIG"
+default_namespace = "default"
+
 [spark]
 master = "local[*]"
+
+[web_search]
+# Public web search. provider: duckduckgo (no key) | tavily | brave.
+# Missing API keys fall back to DuckDuckGo.
+enabled = true
+provider = "duckduckgo"
+max_results = 5
+tavily_api_key = ""
+tavily_api_key_env = "TAVILY_API_KEY"
+brave_api_key = ""
+brave_api_key_env = "BRAVE_API_KEY"
+
+[s3]
+# Read-only S3. Env overrides toml (AWS_* names match Janus / AWS SDK).
+access_key_id = ""
+access_key_id_env = "AWS_ACCESS_KEY_ID"
+secret_access_key = ""
+secret_access_key_env = "AWS_SECRET_ACCESS_KEY"
+region = ""
+region_env = "AWS_REGION"
+endpoint_url = ""
+endpoint_url_env = "AWS_ENDPOINT_URL"
+path_style_access = false

@@ -55,7 +55,7 @@ def _mock_cursor(
     return cursor
 
 
-@patch("tools.trino.get_connection")
+@patch("tools.data.trino.get_connection")
 def test_execute_query_no_result_set(mock_get_connection: MagicMock) -> None:
     cursor = _mock_cursor(description=None, rows=[])
     conn = MagicMock()
@@ -68,7 +68,7 @@ def test_execute_query_no_result_set(mock_get_connection: MagicMock) -> None:
     cursor.execute.assert_called_once_with("CREATE TABLE t (id int)")
 
 
-@patch("tools.trino.get_connection")
+@patch("tools.data.trino.get_connection")
 def test_execute_query_truncates_at_limit(mock_get_connection: MagicMock) -> None:
     cursor = _mock_cursor(
         description=[("n",)],
@@ -86,7 +86,7 @@ def test_execute_query_truncates_at_limit(mock_get_connection: MagicMock) -> Non
     assert result["rows"] == [{"n": 0}, {"n": 1}]
 
 
-@patch("tools.trino.get_connection")
+@patch("tools.data.trino.get_connection")
 def test_execute_query_returns_full_page(mock_get_connection: MagicMock) -> None:
     cursor = _mock_cursor(description=[("catalog",)], rows=[("hive",), ("iceberg",)])
     conn = MagicMock()
@@ -101,7 +101,7 @@ def test_execute_query_returns_full_page(mock_get_connection: MagicMock) -> None
     assert result["truncated"] is False
 
 
-@patch("tools.trino._execute_query")
+@patch("tools.data.trino._execute_query")
 def test_trino_run_query_delegates(mock_execute: MagicMock) -> None:
     payload = {"columns": ["x"], "rows": [{"x": 1}], "row_count": 1, "truncated": False}
     mock_execute.return_value = payload
@@ -110,7 +110,14 @@ def test_trino_run_query_delegates(mock_execute: MagicMock) -> None:
     mock_execute.assert_called_once_with("SELECT 1", 10)
 
 
-@patch("tools.trino._execute_query")
+@patch("tools.data.trino._execute_query")
+def test_trino_run_query_rejects_mutating_sql(mock_execute: MagicMock) -> None:
+    with pytest.raises(ValueError, match="read-only"):
+        trino_run_query.invoke({"sql": "DELETE FROM t"})
+    mock_execute.assert_not_called()
+
+
+@patch("tools.data.trino._execute_query")
 def test_trino_list_catalogs(mock_execute: MagicMock) -> None:
     mock_execute.return_value = {"rows": [{"Catalog": "hive"}]}
 
@@ -118,7 +125,7 @@ def test_trino_list_catalogs(mock_execute: MagicMock) -> None:
     mock_execute.assert_called_once_with("SHOW CATALOGS")
 
 
-@patch("tools.trino._execute_query")
+@patch("tools.data.trino._execute_query")
 def test_trino_list_schemas(mock_execute: MagicMock) -> None:
     mock_execute.return_value = {"rows": [{"Schema": "default"}]}
 
@@ -126,7 +133,7 @@ def test_trino_list_schemas(mock_execute: MagicMock) -> None:
     mock_execute.assert_called_once_with("SHOW SCHEMAS FROM hive")
 
 
-@patch("tools.trino._execute_query")
+@patch("tools.data.trino._execute_query")
 def test_trino_list_tables(mock_execute: MagicMock) -> None:
     mock_execute.return_value = {"rows": [{"Table": "users"}]}
 
@@ -135,7 +142,16 @@ def test_trino_list_tables(mock_execute: MagicMock) -> None:
     mock_execute.assert_called_once_with("SHOW TABLES FROM hive.analytics")
 
 
-@patch("tools.trino._execute_query")
+@patch("tools.data.trino._execute_query")
+def test_trino_list_tables_uses_config_defaults(mock_execute: MagicMock) -> None:
+    mock_execute.return_value = {"rows": [{"Table": "t"}]}
+
+    result = trino_list_tables.invoke({})
+    assert result == [{"Table": "t"}]
+    mock_execute.assert_called_once_with("SHOW TABLES FROM hive.default")
+
+
+@patch("tools.data.trino._execute_query")
 def test_trino_desc_table(mock_execute: MagicMock) -> None:
     mock_execute.return_value = {"rows": [{"Column": "id", "Type": "bigint"}]}
 

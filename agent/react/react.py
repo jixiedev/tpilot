@@ -192,5 +192,6 @@ class BaseReactAgent(BaseAgent):
             tool_budget_exhausted_prompt=self.agent_prompt.tool_budget_exhausted_prompt,
             max_tool_calls=self.agent_run_config.max_tool_calls,
             on_tool_call=self.react_listener.print_tool_call,
+            on_tool_result=self.react_listener.print_tool_result,
             on_llm_step=self.react_listener.print_llm_step,
         )

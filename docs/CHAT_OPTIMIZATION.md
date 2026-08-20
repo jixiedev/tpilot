@@ -468,6 +468,120 @@ Implementation notes (behavior only): detect emits intentions + plan steps; publ
 
 ---
 
+## 2026-08-12 — Faster local Ollama turns (no thinking, one idle)
+
+**Goal**: Cut multi-minute delays on local `qwen3:8b` for simple CLI turns.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| Qwen3 thinking | OpenAI-compatible Ollama left thinking on by default | `extra_body.reasoning_effort=none` for `qwen3:8b` (`/v1` ignores `think`) |
+| Plain-text idle | Up to 3 LLM retries when model skipped `chat_completion` | Cap at 1 idle round — first plain-text answer ends the turn |
+| Local max tokens | `8192` encouraged long local generations | `2048` for `qwen3:8b` |
+
+---
+
+## 2026-08-12 — Knowledge treats Jira as task/history, not default
+
+**Goal**: Stop Knowledge from searching Jira after routine glossary/catalog answers.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| Jira usage | Easy to treat as default “extra documentation” | Prefer catalog/glossary; Jira only for clear past-work asks or when other clues fail |
+| Tool description | Generic incident/ownership wording | Same gate: not a default follow-up for metric/definition questions |
+
+---
+
+## 2026-08-12 — Tahoe next-step biases to reply early
+
+**Goal**: Stop Tahoe-based agents from chaining optional tools after they already have enough to answer.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| Next-step default | Emphasized gathering / what is still missing | Bias to `chat_completion` once evidence is enough; tools only for required gaps |
+| Offload / extras | Easy to keep exploring | `read_offloaded_file` only if preview cannot answer; no nice-to-have follow-up tools |
+
+---
+
+## 2026-08-12 — Compact DataHub glossary tool results
+
+**Goal**: Keep glossary answers in-context so agents stop wandering after a successful GMV lookup.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| Glossary payload | Full hydration (owners, domains, broad relationships) → huge offload | Compact definition fields only (name, description, aggregation, source table, key URNs) |
+| Agent behavior | Truncation/offload → extra dataset searches / retries | Model can read calculation text and reply |
+
+---
+
+## 2026-08-12 — Raise local Qwen Ollama context window
+
+**Goal**: Stop tool-heavy Knowledge turns from running in Ollama’s default 4k context.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| Runtime `num_ctx` | Ollama loaded `qwen3:8b` at **4096** (model max ~40k unused) | Derived `qwen3-ctx40k` with `PARAMETER num_ctx 40960` (default); 16k tag kept optional |
+| Glossary page size | Default `count=10` still bulky for small local models | Default/cap **5** compact terms |
+
+---
+
+## 2026-08-12 — Native DataHub query, lineage, and schema tools
+
+**Goal**: Give agents sample SQL, multi-hop lineage, and paginated schema fields without relying only on MCP.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| Sample queries | No native access to real SQL usage | `datahub_get_dataset_queries` via `listQueries` |
+| Lineage depth | 1-hop snippets inside list hydration | `datahub_get_lineage` / `datahub_get_lineage_paths_between` via `searchAcrossLineage` |
+| Large schemas | Full field lists inside dataset hydration | `datahub_list_schema_fields` with keyword filter and pagination |
+
+---
+
+## 2026-08-13 — Knowledge agent uses DataHub MCP
+
+**Goal**: Give Knowledge the same DataHub MCP catalog tools as Databot (`search`, lineage, entities).
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| Catalog tools | Native `datahub_list_*` GraphQL only | Prefer configured `datahub` MCP server; fall back to native if MCP missing |
+| Prompt | Generic “prefer DataHub” | Explicit MCP `search` / URN / lineage usage rules for glossary and asset traces |
+
+---
+
+## 2026-08-13 — Cross-turn history keeps Q&A only
+
+**Goal**: Free context for the current tool loop by dropping prior-turn tool trajectories.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| Prior turns | Full AI/tool traces stayed until Layer-3 LLM summary | Keep Human + `chat_completion` (plus role/boundary/summary system messages); archive discarded tools |
+| Current turn | Same | Unchanged — full tool trail retained after the latest Human message |
+
+---
+
+## 2026-08-13 — Read-only Kubernetes tools for Knowledge
+
+**Goal**: Let Knowledge inspect Tahoe cluster namespaces without importing a live kube client at startup.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| Tool surface | Raw helper methods, import-time kubeconfig, huge API objects | LangChain `k8s_*` tools with compact pod/deploy/event/CR summaries |
+| Safety | Could delete unusable kubeconfig on failure | Lazy load; errors become `K8sToolError`; no file deletion |
+| Wiring | Not in agent tool loaders | Included in Knowledge tools + prompt guidance for platform namespaces |
+
+---
+
+## 2026-08-19 — Janus-aligned general tools
+
+**Goal**: Give TahoePilot the same local coding, web, S3, and planning tools Janus exposes, without duplicating warehouse/K8s work already in this repo.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| Local coding | Only `chat_completion` on the Tahoe base | Persistent `bash`, `python_execute`, and `str_replace_editor` (view/create/replace/insert/undo) |
+| Public search / object storage | No web search; no S3 | `web_search` (Tavily/Brave with DuckDuckGo fallback) and read-only `s3_list_objects` / `s3_head_object` / `s3_get_object` |
+| Planning / warehouse safety | Prompt-only SQL rules; no plan tool | In-memory `planning`; `trino_run_query` rejects mutating SQL; `k8s_describe_pod` for crash debugging |
+
+---
+
 <!-- Append the next optimization section above this line -->
 
 

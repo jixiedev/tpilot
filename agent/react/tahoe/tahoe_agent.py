@@ -22,9 +22,11 @@ from agent.react.tahoe.tools import CHAT_COMPLETION_TOOL_NAME, TOOLS as TAHOE_TO
 from graph.builder import SystemPromptSpec
 from memory import COMPRESSION_TOOLS
 from memory.profile_store import ProfileStore
+from tools.loader import load_general_tools
 
 DEFAULT_MAX_TOOL_CALLS = 10
-DEFAULT_MAX_IDLE_ROUNDS = 3
+# One plain-text reply ends the turn (no multi-minute idle retries for local models).
+DEFAULT_MAX_IDLE_ROUNDS = 1
 DEFAULT_PROFILE_DIR = Path(__file__).resolve().parents[2] / "profiles"
 
 
@@ -90,6 +92,7 @@ class TahoeAgent(BaseReactAgent):
         tools: list[BaseTool] = []
         if enable_compression_tools:
             tools.extend(COMPRESSION_TOOLS)
+        tools.extend(load_general_tools())
         tools.extend(TAHOE_TOOLS)
         return tools
 

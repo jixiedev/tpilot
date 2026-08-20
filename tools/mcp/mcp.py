@@ -148,6 +148,27 @@ async def get_tools_for_server(server_name: str) -> list[BaseTool]:
         return await load_mcp_tools(session)
 
 
+DATAHUB_MCP_SERVER_NAME = "datahub"
+
+
+async def get_datahub_mcp_tools() -> list[BaseTool]:
+    """Load tools from the ``datahub`` MCP server, or ``[]`` if unavailable."""
+    if DATAHUB_MCP_SERVER_NAME not in configured_mcp_server_names():
+        _logger.info(
+            "MCP server %r not configured; skipping DataHub MCP tools",
+            DATAHUB_MCP_SERVER_NAME,
+        )
+        return []
+    try:
+        return await get_tools_for_server(DATAHUB_MCP_SERVER_NAME)
+    except Exception:
+        _logger.exception(
+            "Failed to load DataHub MCP tools from server %r",
+            DATAHUB_MCP_SERVER_NAME,
+        )
+        return []
+
+
 def configured_mcp_server_names() -> list[str]:
     """Return MCP server names from config, or an empty list when unset."""
     if not mcp_config_path().is_file():

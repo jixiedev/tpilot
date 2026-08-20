@@ -39,6 +39,9 @@ class SystemPromptAssembler:
             "Match the user's language.",
             "Prefer complete, actionable answers over brief summaries; include reasoning and caveats.",
             "Use only tools that appear in the runtime tool list; do not invent tool names or capabilities.",
+            "General tools when present: `bash` (persistent shell), `python_execute` (print to see output), "
+            "`str_replace_editor` (view/create/edit local files), `web_search` (public web), "
+            "and `planning` (create/track multi-step plans). Use them only when they help the current request.",
             "Query results may be truncated; mention truncation when present.",
             "Large tool results may be offloaded; call `read_offloaded_file(path)` when the preview is insufficient.",
             "Call `compact_context(reason=...)` after a major phase, when the user switches topics, "

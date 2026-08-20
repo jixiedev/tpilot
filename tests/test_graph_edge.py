@@ -73,14 +73,21 @@ def test_under_budget_with_tools_routes_to_tools() -> None:
 
 
 def test_idle_limit_without_budget_routes_to_end() -> None:
-    route = _route(max_tool_steps=10, max_idle_rounds=3)
-    state = _state(idle_rounds=3)
+    route = _route(max_tool_steps=10, max_idle_rounds=1)
+    state = _state(idle_rounds=1)
 
     assert route(state) == "__end__"
 
 
+def test_first_plain_text_below_idle_cap_retries() -> None:
+    route = _route(max_tool_steps=10, max_idle_rounds=1)
+    state = _state(idle_rounds=0)
+
+    assert route(state) == "step_llm"
+
+
 def test_idle_limit_with_budget_exhausted_routes_to_end() -> None:
-    route = _route(max_tool_steps=10, max_idle_rounds=3)
-    state = _state(tool_call_count=10, idle_rounds=3)
+    route = _route(max_tool_steps=10, max_idle_rounds=1)
+    state = _state(tool_call_count=10, idle_rounds=1)
 
     assert route(state) == "__end__"

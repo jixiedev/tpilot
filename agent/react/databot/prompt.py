@@ -67,13 +67,20 @@ class DatabotSystemPrompt(TahoeSystemPrompt):
             "Cite the glossary term name and definition you found. If no glossary term is found, "
             "say so explicitly and state any assumptions before continuing.",
             "For data queries and anomaly checks: confirm table/column identity via metadata tools when "
-            "names are ambiguous, then run only SELECT-style read-only queries.",
+            "names are ambiguous, then run only SELECT-style read-only queries. "
+            "`trino_run_query` rejects mutating SQL. Inspect warehouse files with read-only "
+            "`s3_list_objects` / `s3_head_object` / `s3_get_object` when a table location is an S3 path.",
             "Ground table choice in evidence: glossary-linked datasets, DataHub lineage or "
             "documentation, schema fields that match the metric grain, or explicit user confirmation. "
             "If you cannot determine the correct table with evidence, do not run aggregating SQL on a "
             "guess. Tell the user you cannot determine which table to use, or return a short list of "
             "possible candidate tables with why each might or might not fit and what evidence is missing.",
             "Prefer metadata discovery (Hive / DataHub / MCP) before guessing schemas.",
+            "After a candidate table is known, prefer native "
+            "`datahub_list_schema_fields` and `datahub_get_dataset_queries` "
+            "(or equivalent MCP tools) before writing SQL. "
+            "Use `datahub_get_lineage` / `datahub_get_lineage_paths_between` when "
+            "provenance, impact, or table-to-table relationships matter.",
         ]
 
     def data_answer_requirements(self) -> list[str]:

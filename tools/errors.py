@@ -53,7 +53,7 @@ def _trino_exception_message(exc: Exception) -> str:
 def _classify_trino_exception(exc: Exception) -> tuple[ToolErrorType, bool, str] | None:
     """Map Trino SDK exceptions to (error_type, retryable, message)."""
     try:
-        from tools.data.trino import (
+        from trino.exceptions import (
             Http502Error,
             Http503Error,
             Http504Error,
@@ -147,6 +147,12 @@ def _hint_for(
             f"{base} Optional plan B: `{fallback_tool}` may cover the same need — "
             f"you decide whether to switch; do not call `{tool}` again for the same need."
         )
+        if fallback_tool == "trino_list_tables":
+            base = (
+                f"{base} For `trino_list_tables`, pass `catalog` and `schema_name`, "
+                "or omit them to use tools.toml `[trino]` defaults "
+                "(do not invent a catalog name like `tahoe`)."
+            )
     return base
 
 

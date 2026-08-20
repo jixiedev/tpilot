@@ -39,10 +39,48 @@ class DataHubToolConfig(BaseModel):
     timeout_seconds: float = 30.0
 
 
+class K8sToolConfig(BaseModel):
+    """Kubernetes client settings for read-only cluster tools."""
+
+    # Empty → default kubeconfig discovery (~/.kube/config or KUBECONFIG).
+    config_file: str = ""
+    config_file_env: str | None = "KUBECONFIG"
+    default_namespace: str = "default"
+
+
+class WebSearchToolConfig(BaseModel):
+    """Public web search (Tavily / Brave / DuckDuckGo)."""
+
+    enabled: bool = True
+    provider: str = "duckduckgo"
+    max_results: int = 5
+    tavily_api_key: str = ""
+    tavily_api_key_env: str | None = "TAVILY_API_KEY"
+    brave_api_key: str = ""
+    brave_api_key_env: str | None = "BRAVE_API_KEY"
+
+
+class S3ToolConfig(BaseModel):
+    """Read-only S3 client settings."""
+
+    access_key_id: str = ""
+    access_key_id_env: str | None = "AWS_ACCESS_KEY_ID"
+    secret_access_key: str = ""
+    secret_access_key_env: str | None = "AWS_SECRET_ACCESS_KEY"
+    region: str = ""
+    region_env: str | None = "AWS_REGION"
+    endpoint_url: str = ""
+    endpoint_url_env: str | None = "AWS_ENDPOINT_URL"
+    path_style_access: bool = False
+
+
 class ToolConfig(BaseModel):
     hive: HiveToolConfig
     trino: TrinoToolConfig
     datahub: DataHubToolConfig = Field(default_factory=DataHubToolConfig)
+    k8s: K8sToolConfig = Field(default_factory=K8sToolConfig)
+    web_search: WebSearchToolConfig = Field(default_factory=WebSearchToolConfig)
+    s3: S3ToolConfig = Field(default_factory=S3ToolConfig)
 
 
 def trino_password(cfg: TrinoToolConfig | None = None) -> str:
@@ -98,6 +136,57 @@ def datahub_token(cfg: DataHubToolConfig | None = None) -> str:
         f"Missing DataHub access token; "
         f"set environment variable {env_hint!r} or tools.toml [datahub].token"
     )
+
+
+def k8s_config_file(cfg: K8sToolConfig | None = None) -> str:
+    """Resolve kubeconfig path (env overrides toml). Empty means client default discovery."""
+    k8s = cfg or tool_config.k8s
+    if k8s.config_file_env:
+        env_value = os.environ.get(k8s.config_file_env, "").strip()
+        if env_value:
+            return env_value
+    return (k8s.config_file or "").strip()
+
+
+def _env_or_value(env_name: str | None, inline: str) -> str:
+    if env_name:
+        env_value = os.environ.get(env_name, "").strip()
+        if env_value:
+            return env_value
+    return (inline or "").strip()
+
+
+def web_search_api_key(kind: str, cfg: WebSearchToolConfig | None = None) -> str:
+    """Resolve Tavily or Brave API key (env overrides toml)."""
+    search = cfg or tool_config.web_search
+    if kind == "tavily":
+        return _env_or_value(search.tavily_api_key_env, search.tavily_api_key)
+    if kind == "brave":
+        return _env_or_value(search.brave_api_key_env, search.brave_api_key)
+    raise ValueError(f"Unknown web search key kind: {kind!r}")
+
+
+def s3_access_key_id(cfg: S3ToolConfig | None = None) -> str:
+    s3 = cfg or tool_config.s3
+    return _env_or_value(s3.access_key_id_env, s3.access_key_id)
+
+
+def s3_secret_access_key(cfg: S3ToolConfig | None = None) -> str:
+    s3 = cfg or tool_config.s3
+    return _env_or_value(s3.secret_access_key_env, s3.secret_access_key)
+
+
+def s3_region(cfg: S3ToolConfig | None = None) -> str:
+    s3 = cfg or tool_config.s3
+    region = _env_or_value(s3.region_env, s3.region)
+    if region:
+        return region
+    return os.environ.get("AWS_DEFAULT_REGION", "").strip()
+
+
+def s3_endpoint_url(cfg: S3ToolConfig | None = None) -> str:
+    s3 = cfg or tool_config.s3
+    return _env_or_value(s3.endpoint_url_env, s3.endpoint_url)
 
 
 with open(_CONFIG_PATH, "rb") as f:

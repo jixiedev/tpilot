@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, patch
 from tools.data.hive import hive_desc_table, hive_list_tables
 
 
-@patch("tools.hive.get_client")
+@patch("tools.data.hive.get_client")
 def test_hive_list_tables(mock_get_client: MagicMock) -> None:
     client = MagicMock()
     client.get_all_tables.return_value = ["users", "orders"]
@@ -17,7 +17,7 @@ def test_hive_list_tables(mock_get_client: MagicMock) -> None:
     client.get_all_tables.assert_called_once_with("analytics")
 
 
-@patch("tools.hive.get_client")
+@patch("tools.data.hive.get_client")
 def test_hive_desc_table(mock_get_client: MagicMock) -> None:
     table_meta = {"tableName": "users", "cols": []}
     client = MagicMock()

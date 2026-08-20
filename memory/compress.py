@@ -1,6 +1,7 @@
-"""Three-layer automatic context compression for long-running agents.
+"""Graduated automatic context compression for long-running agents.
 
 Layer 1 — always-on tool-result offloading (disk I/O only)
+Layer 1b — prior-turn Q&A fold (keep Human + chat_completion; drop tool trails)
 Layer 2 — write-tool input eviction when context fill is high
 Layer 3 — structured LLM summarization of the conversation head
 Layer 4 — agent-initiated compact via ``compact_context`` (force=True)
@@ -73,6 +74,27 @@ def _detect_autonomous_compact(messages: list[BaseMessage]) -> bool:
         if AUTONOMOUS_COMPACT_MARKER in content:
             return True
     return False
+
+
+def _ai_calls_tool(message: AIMessage, tool_name: str) -> bool:
+    for call in message.tool_calls or []:
+        if call.get("name") == tool_name:
+            return True
+    return False
+
+
+def _is_turn_boundary(message: BaseMessage, marker: str) -> bool:
+    if not isinstance(message, SystemMessage):
+        return False
+    text = _content_to_text(message.content)
+    return bool(marker) and marker in text
+
+
+def _last_human_index(messages: list[BaseMessage]) -> int | None:
+    for index in range(len(messages) - 1, -1, -1):
+        if isinstance(messages[index], HumanMessage):
+            return index
+    return None
 
 
 def _serialize_messages(messages: list[BaseMessage]) -> str:
@@ -172,6 +194,12 @@ class ContextCompressor:
             updates.extend(layer1)
             working = self._apply_replacements(working, layer1)
 
+        if self.config.prior_turns_qa_only:
+            prior_qa = self.layer_prior_turns_qa_only(working)
+            if prior_qa:
+                updates.extend(prior_qa)
+                working = self._apply_replacements(working, prior_qa)
+
         fill = context_fill(working, self.config.context_window)
         if force or fill >= self.config.fill_trigger:
             layer2 = self.layer2_offload_tool_inputs(working)
@@ -254,6 +282,69 @@ class ContextCompressor:
                 )
             )
             logger.debug("Layer 1 offloaded tool result %s (%s tokens)", message.name, tokens)
+        return updates
+
+    def layer_prior_turns_qa_only(self, messages: list[BaseMessage]) -> list[BaseMessage]:
+        """Drop prior-turn tool trajectories; keep Human + chat_completion Q&A.
+
+        The current turn starts at the last ``HumanMessage``. Everything before
+        that is prior history. Within prior history keep:
+
+        - leading role ``SystemMessage`` (if present)
+        - turn-boundary ``SystemMessage`` markers
+        - prior Layer-3 compression summaries (``CONTEXT COMPRESSED``)
+        - ``HumanMessage`` questions
+        - ``AIMessage`` that invoked ``chat_completion``
+        - ``ToolMessage`` named ``chat_completion`` (the user-visible answer)
+
+        All other prior AI/tool messages are removed (and archived). Current-turn
+        messages after the last human are left untouched.
+        """
+        last_human = _last_human_index(messages)
+        if last_human is None or last_human == 0:
+            return []
+
+        prior = messages[:last_human]
+        completion_name = self.config.chat_completion_tool_name
+        boundary_marker = self.config.turn_boundary_marker
+
+        discard: list[BaseMessage] = []
+        for index, message in enumerate(prior):
+            mid = _message_id(message)
+            if not mid:
+                continue
+            if index == 0 and isinstance(message, SystemMessage) and not _is_turn_boundary(
+                message, boundary_marker
+            ):
+                continue
+            if isinstance(message, HumanMessage):
+                continue
+            if isinstance(message, SystemMessage):
+                # Keep turn boundaries and prior compression summaries.
+                continue
+            if isinstance(message, ToolMessage) and message.name == completion_name:
+                continue
+            if isinstance(message, AIMessage) and _ai_calls_tool(message, completion_name):
+                continue
+            discard.append(message)
+
+        if not discard:
+            return []
+
+        archive_path = self.store.write(
+            _serialize_messages(discard),
+            label="prior_turn_tools_archive",
+        )
+        updates: list[BaseMessage] = [
+            RemoveMessage(id=mid)
+            for message in discard
+            if (mid := _message_id(message))
+        ]
+        logger.info(
+            "Prior-turn Q&A fold removed %s messages; archive=%s",
+            len(discard),
+            archive_path,
+        )
         return updates
 
     def layer2_offload_tool_inputs(self, messages: list[BaseMessage]) -> list[BaseMessage]:

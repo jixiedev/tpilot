@@ -65,6 +65,8 @@ def test_tahoe_base_has_no_data_domain_sections() -> None:
     assert "TahoePilot" in text
     assert "chat_completion" in text
     assert "Output:" in text
+    assert "web_search" in text
+    assert "str_replace_editor" in text
     assert "Session message layout:" in text
     assert "Data prohibitions:" not in text
     assert "Data required practices:" not in text

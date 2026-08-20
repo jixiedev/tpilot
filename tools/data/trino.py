@@ -9,6 +9,7 @@ from trino.dbapi import connect
 
 from config.tool_config import tool_config, trino_password
 from tools.common import alternative_tool
+from tools.data.sql_guard import validate_read_only_sql
 
 _thread_local = local()
 DEFAULT_ROW_LIMIT = 100
@@ -65,8 +66,11 @@ def _execute_query(sql: str, limit: int = DEFAULT_ROW_LIMIT) -> dict[str, Any]:
 
 @tool
 def trino_run_query(sql: str, limit: int = DEFAULT_ROW_LIMIT) -> dict[str, Any]:
-    """Execute a read-only Trino SQL query and return rows (may truncate)."""
-    return _execute_query(sql, limit)
+    """Execute a read-only Trino SQL query and return rows (may truncate).
+
+    Only SELECT/WITH/SHOW/DESCRIBE/EXPLAIN are allowed; multiple statements are rejected.
+    """
+    return _execute_query(validate_read_only_sql(sql), limit)
 
 
 @tool
@@ -76,23 +80,55 @@ def trino_list_catalogs() -> list[dict[str, Any]]:
 
 
 @tool
-def trino_list_schemas(catalog: str) -> list[dict[str, Any]]:
-    """List schemas in a Trino catalog."""
-    return _execute_query(f"SHOW SCHEMAS FROM {catalog}")["rows"]
+def trino_list_schemas(catalog: str = "") -> list[dict[str, Any]]:
+    """List schemas in a Trino catalog (defaults to ``[trino].catalog`` in tools.toml)."""
+    cfg = tool_config.trino
+    cat = (catalog or "").strip() or cfg.catalog
+    return _execute_query(f"SHOW SCHEMAS FROM {cat}")["rows"]
 
 
 @tool
 @alternative_tool("hive_list_tables")
-def trino_list_tables(catalog: str, schema_name: str) -> list[dict[str, Any]]:
-    """List tables in a Trino catalog and schema."""
-    return _execute_query(f"SHOW TABLES FROM {catalog}.{schema_name}")["rows"]
+def trino_list_tables(catalog: str = "", schema_name: str = "") -> list[dict[str, Any]]:
+    """List tables in a Trino catalog and schema.
+
+    ``catalog`` / ``schema_name`` default to ``[trino].catalog`` and
+    ``[trino].schema_name`` in tools.toml when omitted (useful after a Hive HMS failure).
+    """
+    cfg = tool_config.trino
+    cat = (catalog or "").strip() or cfg.catalog
+    schema = (schema_name or "").strip() or cfg.schema_name
+    if not cat or not schema:
+        raise ValueError(
+            "catalog and schema_name are required "
+            "(pass them explicitly or set [trino] catalog/schema_name in tools.toml)"
+        )
+    return _execute_query(f"SHOW TABLES FROM {cat}.{schema}")["rows"]
 
 
 @tool
 @alternative_tool("hive_desc_table")
-def trino_desc_table(catalog: str, schema_name: str, table: str) -> list[dict[str, Any]]:
-    """Describe columns of a Trino table."""
-    return _execute_query(f"DESCRIBE {catalog}.{schema_name}.{table}")["rows"]
+def trino_desc_table(
+    table: str,
+    catalog: str = "",
+    schema_name: str = "",
+) -> list[dict[str, Any]]:
+    """Describe columns of a Trino table.
+
+    ``catalog`` / ``schema_name`` default to tools.toml ``[trino]`` when omitted.
+    """
+    cfg = tool_config.trino
+    cat = (catalog or "").strip() or cfg.catalog
+    schema = (schema_name or "").strip() or cfg.schema_name
+    table_name = (table or "").strip()
+    if not table_name:
+        raise ValueError("table is required")
+    if not cat or not schema:
+        raise ValueError(
+            "catalog and schema_name are required "
+            "(pass them explicitly or set [trino] catalog/schema_name in tools.toml)"
+        )
+    return _execute_query(f"DESCRIBE {cat}.{schema}.{table_name}")["rows"]
 
 
 TOOLS = [

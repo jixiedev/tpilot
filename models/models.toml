@@ -27,3 +27,45 @@ temperature = 0.3
 max_tokens = 65536
 timeout_seconds = 120
 max_retries = 3
+
+# Local Ollama Qwen3 8B with baked-in 40k context (model max).
+# Create: printf 'FROM qwen3:8b\nPARAMETER num_ctx 40960\n' | ollama create qwen3-ctx40k -f /dev/stdin
+# (or: ollama create qwen3-ctx40k -f Modelfile)
+# OpenAI-compatible /v1 ignores per-request options.num_ctx; stock qwen3:8b loads at 4096.
+[model."qwen3-ctx40k"]
+base_url = "http://127.0.0.1:11434/v1"
+api_key = "ollama"
+provider = "openai"
+temperature = 0.3
+max_tokens = 2048
+timeout_seconds = 300
+max_retries = 2
+
+[model."qwen3-ctx40k".kwargs.extra_body]
+reasoning_effort = "none"
+
+# 16k variant (optional).
+[model."qwen3-ctx16k"]
+base_url = "http://127.0.0.1:11434/v1"
+api_key = "ollama"
+provider = "openai"
+temperature = 0.3
+max_tokens = 2048
+timeout_seconds = 300
+max_retries = 2
+
+[model."qwen3-ctx16k".kwargs.extra_body]
+reasoning_effort = "none"
+
+# Stock tag (4k default context unless recreated with num_ctx).
+[model."qwen3:8b"]
+base_url = "http://127.0.0.1:11434/v1"
+api_key = "ollama"
+provider = "openai"
+temperature = 0.3
+max_tokens = 2048
+timeout_seconds = 300
+max_retries = 2
+
+[model."qwen3:8b".kwargs.extra_body]
+reasoning_effort = "none"

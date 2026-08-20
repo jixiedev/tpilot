@@ -46,7 +46,7 @@ def _config(tmp_path: Path, **overrides) -> CompressionConfig:
 def test_layer1_offloads_large_tool_result(tmp_path: Path) -> None:
     cfg = _config(tmp_path)
     compressor = ContextCompressor(config=cfg, store=OffloadStore(cfg.offload_dir))
-    big = "x" * 400
+    big = "row data " * 80
     messages = [
         AIMessage(content="", id="ai-1", tool_calls=[{"name": "trino_run_query", "args": {}, "id": "c1"}]),
         ToolMessage(content=big, tool_call_id="c1", name="trino_run_query", id="tm-1"),
@@ -158,5 +158,105 @@ def test_read_offloaded_file_tool(tmp_path: Path) -> None:
     assert result == "hello-offload"
 
 
-def test_count_tokens_positive() -> None:
-    assert count_tokens("hello world") > 0
+def test_layer_prior_turns_qa_only_keeps_qa_drops_tool_trail(tmp_path: Path) -> None:
+    cfg = _config(tmp_path)
+    compressor = ContextCompressor(config=cfg, store=OffloadStore(cfg.offload_dir))
+    messages = [
+        SystemMessage(content="You are TahoePilot.", id="sys-role"),
+        HumanMessage(content="What is GMV?", id="h-1"),
+        AIMessage(
+            content="",
+            id="ai-search",
+            tool_calls=[{"name": "search", "args": {"query": "GMV"}, "id": "c1"}],
+        ),
+        ToolMessage(content="glossary hit...", tool_call_id="c1", name="search", id="tm-search"),
+        AIMessage(
+            content="",
+            id="ai-reply-1",
+            tool_calls=[{"name": "chat_completion", "args": {"reply": "GMV is ..."}, "id": "c2"}],
+        ),
+        ToolMessage(
+            content="GMV is gross merchandise value.",
+            tool_call_id="c2",
+            name="chat_completion",
+            id="tm-reply-1",
+        ),
+        SystemMessage(content="--- Session turn boundary ---\nPrior above.", id="sys-boundary"),
+        HumanMessage(content="Show related tables", id="h-2"),
+        AIMessage(
+            content="",
+            id="ai-current",
+            tool_calls=[{"name": "search", "args": {"query": "tables"}, "id": "c3"}],
+        ),
+        ToolMessage(content="table list...", tool_call_id="c3", name="search", id="tm-current"),
+    ]
+
+    updates = compressor.layer_prior_turns_qa_only(messages)
+
+    from langchain_core.messages import RemoveMessage
+
+    remove_ids = {u.id for u in updates if isinstance(u, RemoveMessage)}
+    assert remove_ids == {"ai-search", "tm-search"}
+    assert "ai-reply-1" not in remove_ids
+    assert "tm-reply-1" not in remove_ids
+    assert "h-1" not in remove_ids
+    assert "sys-role" not in remove_ids
+    assert "sys-boundary" not in remove_ids
+    assert "h-2" not in remove_ids
+    assert "ai-current" not in remove_ids
+    assert "tm-current" not in remove_ids
+    archived = list((tmp_path / "offload").glob("prior_turn_tools_archive_*.txt"))
+    assert len(archived) == 1
+
+
+def test_run_applies_prior_turn_qa_fold(tmp_path: Path) -> None:
+    cfg = _config(tmp_path, fill_trigger=0.99, context_window=100_000)
+    compressor = ContextCompressor(config=cfg, store=OffloadStore(cfg.offload_dir))
+    messages = [
+        HumanMessage(content="Q1", id="h-1"),
+        AIMessage(
+            content="",
+            id="ai-tool",
+            tool_calls=[{"name": "trino_run_query", "args": {}, "id": "c1"}],
+        ),
+        ToolMessage(content="rows", tool_call_id="c1", name="trino_run_query", id="tm-tool"),
+        AIMessage(
+            content="",
+            id="ai-reply",
+            tool_calls=[{"name": "chat_completion", "args": {"reply": "A1"}, "id": "c2"}],
+        ),
+        ToolMessage(content="A1", tool_call_id="c2", name="chat_completion", id="tm-reply"),
+        HumanMessage(content="Q2", id="h-2"),
+    ]
+
+    updates = compressor.run(messages)
+
+    from langchain_core.messages import RemoveMessage
+
+    remove_ids = {u.id for u in updates if isinstance(u, RemoveMessage)}
+    assert "ai-tool" in remove_ids
+    assert "tm-tool" in remove_ids
+    assert "tm-reply" not in remove_ids
+
+
+def test_prior_turns_qa_only_can_be_disabled(tmp_path: Path) -> None:
+    cfg = _config(tmp_path, prior_turns_qa_only=False, fill_trigger=0.99, context_window=100_000)
+    compressor = ContextCompressor(config=cfg, store=OffloadStore(cfg.offload_dir))
+    messages = [
+        HumanMessage(content="Q1", id="h-1"),
+        AIMessage(
+            content="",
+            id="ai-tool",
+            tool_calls=[{"name": "search", "args": {}, "id": "c1"}],
+        ),
+        ToolMessage(content="hit", tool_call_id="c1", name="search", id="tm-tool"),
+        AIMessage(
+            content="",
+            id="ai-reply",
+            tool_calls=[{"name": "chat_completion", "args": {"reply": "A1"}, "id": "c2"}],
+        ),
+        ToolMessage(content="A1", tool_call_id="c2", name="chat_completion", id="tm-reply"),
+        HumanMessage(content="Q2", id="h-2"),
+    ]
+
+    assert compressor.run(messages) == []

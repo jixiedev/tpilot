@@ -14,7 +14,7 @@ StateLike = Union[list[AnyMessage], dict[str, Any], BaseModel]
 @dataclass
 class AgentRunConfig:
     max_tool_calls: int = 10
-    max_idle_rounds: int = 3
+    max_idle_rounds: int = 1
     max_tool_steps: int | None = None
 
     def __post_init__(self) -> None:

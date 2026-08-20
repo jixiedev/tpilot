@@ -17,6 +17,7 @@ from state.state import SessionAgentState
 from tools.errors import StructuredToolError
 
 ToolCallListener = Callable[[str, dict[str, Any]], None]
+ToolResultListener = Callable[[str, Any], None]
 LlmStepListener = Callable[[AIMessage], None]
 
 DEFAULT_HANDLE_TOOL_ERRORS = make_handle_tool_errors()
@@ -32,6 +33,7 @@ class StepToolsNode(ToolNode):
         tools,
         count_key: str = "tool_call_count",
         on_tool_call: ToolCallListener | None = None,
+        on_tool_result: ToolResultListener | None = None,
         *,
         handle_tool_errors=DEFAULT_HANDLE_TOOL_ERRORS,
         wrap_tool_call=DEFAULT_WRAP_TOOL_CALL,
@@ -47,6 +49,7 @@ class StepToolsNode(ToolNode):
         )
         self.count_key = count_key
         self.on_tool_call = on_tool_call
+        self.on_tool_result = on_tool_result
 
     def _emit_tool_calls(self, state: SessionAgentState) -> None:
         if not self.on_tool_call:
@@ -58,6 +61,14 @@ class StepToolsNode(ToolNode):
         tool_calls = getattr(last, "tool_calls", None) or []
         for call in tool_calls:
             self.on_tool_call(call.get("name", "?"), call.get("args", {}))
+
+    def _emit_tool_results(self, result: dict[str, Any]) -> None:
+        if not self.on_tool_result:
+            return
+        for message in result.get("messages") or []:
+            if not isinstance(message, ToolMessage):
+                continue
+            self.on_tool_result(message.name or "?", message.content)
 
     @staticmethod
     def _collect_failed_tools(state: SessionAgentState, result: dict[str, Any]) -> list[str]:
@@ -83,6 +94,7 @@ class StepToolsNode(ToolNode):
         self._emit_tool_calls(state)
         result = super().invoke(state, config, **kwargs)
         if isinstance(result, dict):
+            self._emit_tool_results(result)
             return self._apply_counter(state, result)
         return result
 
@@ -90,6 +102,7 @@ class StepToolsNode(ToolNode):
         self._emit_tool_calls(state)
         result = await super().ainvoke(state, config, **kwargs)
         if isinstance(result, dict):
+            self._emit_tool_results(result)
             return self._apply_counter(state, result)
         return result
 
