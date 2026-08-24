@@ -33,7 +33,7 @@
 | F6 | Human-in-the-Loop | 关键节点 interrupt，等待用户确认或补充 | P1 | 已完成：Intent 低置信澄清 interrupt + CLI resume |
 | F7 | Reflective Reasoning | 输出前自我审查与修正（一致性检查、retry） | P1 | 未开始 |
 | F8 | Parallel Tool Use | 并行工具调用与结果聚合 | P1 | 未开始 |
-| F9 | Eval Loop | 评测集回归、Prompt/Agent 行为持续迭代 | P2 | 未开始 |
+| F9 | Eval Loop | 评测集回归、Prompt/Agent 行为持续迭代 | P2 | 已完成（v1）：`observability` 用例 JSON + Observer 打分（工具序/轮次/答案）+ `python -m observability` |
 | F10 | Monitoring | Token 用量、Cache 命中率、工具调用延迟与错误率 | P2 | 未开始 |
 | F11 | Semantic Cache | 语义相似的请求命中缓存，避免重复推理 | P2 | 未开始 |
 | F12 | Model Routing | 按任务复杂度/成本动态选择模型 | P2 | 未开始 |
@@ -65,10 +65,10 @@
 | F3 | 跨会话语义召回（不止画像与 checkpointer） |
 | F5 | 通用 Plan 节点（非仅 Intent 编排）；计划修订与重规划 |
 | F6 | 通用确认门（写操作、高成本工具、发布计划前确认） |
-| F7–F13 | 仍按未开始推进（反思、并行工具、评测、监控、语义缓存、选模、程序性记忆） |
+| F7–F13 | F7/F8/F10–F13 仍按未开始推进（反思、并行工具、监控、语义缓存、选模、程序性记忆）；F9 评测主路径已可用，可继续扩评测集与 CI 门禁 |
 | F14 | 失败观测指标；更完整的集成测试覆盖 |
 | F15 | Google Drive / Wiki 检索工具；增量更新与去重；检索质量评测；多 collection 路由 |
 
 ---
 
-*最后更新：2026-08-20*
+*最后更新：2026-08-24*

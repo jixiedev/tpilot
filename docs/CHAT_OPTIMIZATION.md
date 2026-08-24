@@ -582,6 +582,18 @@ Implementation notes (behavior only): detect emits intentions + plan steps; publ
 
 ---
 
+## 2026-08-24 — Eval loop (observability cases)
+
+**Goal**: Give prompt/agent changes a fixed regression harness with tool-order, round-budget, and answer checks.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| Eval surface | Empty `observability/` stubs; F9 not started | Case JSON suites, `Observer` recording, equal-weight scoring, `python -m observability` CLI |
+| Turn hooks | Single CLI listener baked into the graph | `ListenerHub` fans out to registerable observers without rebinding |
+| Score signal | No structured case outcomes | Per-case tools / rounds / answer scores plus average and optional `--fail-under` |
+
+---
+
 <!-- Append the next optimization section above this line -->
 
 

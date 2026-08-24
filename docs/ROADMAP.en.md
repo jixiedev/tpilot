@@ -33,7 +33,7 @@ An AI Agent platform for data teams: chatbot, intelligent data retrieval, team k
 | F6 | Human-in-the-Loop | Interrupt at key nodes; wait for user confirmation or input | P1 | Done — Intent low-confidence clarification interrupt + CLI resume |
 | F7 | Reflective Reasoning | Self-review and correction before delivery (consistency checks, retry) | P1 | Not started |
 | F8 | Parallel Tool Use | Parallel tool invocation and result aggregation | P1 | Not started |
-| F9 | Eval Loop | Eval set regression; continuous iteration on prompts and agent behavior | P2 | Not started |
+| F9 | Eval Loop | Eval set regression; continuous iteration on prompts and agent behavior | P2 | Done (v1) — `observability` case JSON + Observer scoring (tool order / rounds / answer) + `python -m observability` |
 | F10 | Monitoring | Token usage, cache hit rate, tool call latency and error rate | P2 | Not started |
 | F11 | Semantic Cache | Semantically similar requests hit cache; avoid redundant reasoning | P2 | Not started |
 | F12 | Model Routing | Dynamic model selection by task complexity and cost | P2 | Not started |
@@ -65,10 +65,10 @@ Items marked **Done** mean the main path works. The list below is optional deepe
 | F3 | Cross-session semantic recall (beyond profile + checkpointer) |
 | F5 | Generic Plan node (not only Intent orchestration); plan revise / replan |
 | F6 | General confirmation gates (writes, costly tools, confirm-before-plan-run) |
-| F7–F13 | Still tracked as not started (reflection, parallel tools, eval, monitoring, semantic cache, model routing, procedural memory) |
+| F7–F13 | F7/F8/F10–F13 still not started (reflection, parallel tools, monitoring, semantic cache, model routing, procedural memory); F9 eval main path is usable — expand case sets and CI gates next |
 | F14 | Failure metrics; broader integration-test coverage |
 | F15 | Google Drive / Wiki search tools; incremental refresh and dedupe; retrieval quality eval; multi-collection routing |
 
 ---
 
-*Last updated: 2026-08-20*
+*Last updated: 2026-08-24*

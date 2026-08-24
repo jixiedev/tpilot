@@ -33,6 +33,47 @@ class ReactAgentListener:
         return None
 
 
+class ListenerHub(ReactAgentListener):
+    """Fan-out listener: primary UI hooks plus optional eval/monitoring observers.
+
+    Graph callbacks close over this instance at bind time, so observers can be
+    registered or cleared between turns without rebuilding the graph.
+    """
+
+    def __init__(self, primary: ReactAgentListener | None = None) -> None:
+        self.primary = primary or ReactAgentListener()
+        self._observers: list[ReactAgentListener] = []
+
+    def register(self, listener: ReactAgentListener) -> None:
+        if listener is self or listener is self.primary:
+            return
+        if listener not in self._observers:
+            self._observers.append(listener)
+
+    def unregister(self, listener: ReactAgentListener) -> None:
+        self._observers = [item for item in self._observers if item is not listener]
+
+    def clear_observers(self) -> None:
+        self._observers.clear()
+
+    def _fan_out(self, method: str, *args: Any, **kwargs: Any) -> None:
+        getattr(self.primary, method)(*args, **kwargs)
+        for observer in list(self._observers):
+            getattr(observer, method)(*args, **kwargs)
+
+    def print_tool_call(self, name: str, args: dict) -> None:
+        self._fan_out("print_tool_call", name, args)
+
+    def print_tool_result(self, name: str, content: Any) -> None:
+        self._fan_out("print_tool_result", name, content)
+
+    def print_llm_step(self, message: AIMessage) -> None:
+        self._fan_out("print_llm_step", message)
+
+    def print_turn_output(self, state: SessionAgentState) -> None:
+        self._fan_out("print_turn_output", state)
+
+
 class CliReactListener(ReactAgentListener):
     """Print tool / LLM / turn output for a CLI ReAct loop."""
 

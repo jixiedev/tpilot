@@ -1,0 +1,13 @@
+{
+  "default": [
+    {
+      "name": "arithmetic",
+      "query": "tell me the answer of 1 + 2",
+      "expected_tools": [],
+      "total_rounds": 1,
+      "answer": {
+        "result": 3
+      }
+    }
+  ]
+}
