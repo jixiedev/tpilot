@@ -10,9 +10,15 @@ from typing import Any
 
 from agent.react.react import BaseReactAgent
 from agent.turn import AgentTurnResult, extract_turn_output
+from observability.answer_match import score_answer
 from observability.observe import CaseScore, Observer
 
 CASES_DIR = Path(__file__).resolve().parent / "cases"
+
+# Backward-compatible group keys (e.g. docs / scripts using ``knowledge_case``).
+GROUP_ALIASES: dict[str, str] = {
+    "knowledge_case": "knowledge",
+}
 
 
 @dataclass
@@ -118,22 +124,7 @@ class ToolCallCase:
         return score, details
 
     def _score_answer(self, reply: str) -> tuple[float, dict[str, Any]]:
-        if not self.answer:
-            return 1.0, {"matched": [], "missing": []}
-        haystack = reply.casefold()
-        matched: list[str] = []
-        missing: list[str] = []
-        for key, value in self.answer.items():
-            needle = str(value).strip()
-            if not needle:
-                matched.append(key)
-                continue
-            if needle.casefold() in haystack:
-                matched.append(key)
-            else:
-                missing.append(key)
-        score = len(matched) / len(self.answer)
-        return score, {"matched": matched, "missing": missing, "reply_preview": reply[:240]}
+        return score_answer(reply, self.answer)
 
 
 def _is_subsequence(expected: list[str], actual: list[str]) -> bool:
@@ -148,28 +139,55 @@ def _is_subsequence(expected: list[str], actual: list[str]) -> bool:
     return False
 
 
+def list_case_groups(*, cases_dir: Path | None = None) -> list[str]:
+    """Return sorted group keys derived from ``*.json`` files under ``cases/``."""
+    root = cases_dir or CASES_DIR
+    return sorted(path.stem for path in root.glob("*.json"))
+
+
+def resolve_group_path(group: str, *, cases_dir: Path | None = None) -> Path:
+    root = cases_dir or CASES_DIR
+    candidates = [group]
+    alias = GROUP_ALIASES.get(group)
+    if alias and alias not in candidates:
+        candidates.append(alias)
+    for name in candidates:
+        path = root / f"{name}.json"
+        if path.is_file():
+            return path
+    tried = ", ".join(f"{name}.json" for name in candidates)
+    raise FileNotFoundError(f"case group file not found for {group!r} (tried: {tried})")
+
+
 def find_cases(groups: list[str], *, cases_dir: Path | None = None) -> list[ToolCallCase]:
     root = cases_dir or CASES_DIR
     all_cases: list[ToolCallCase] = []
     for group in groups:
-        path = root / f"{group}.json"
-        if not path.is_file():
-            raise FileNotFoundError(f"case group file not found: {path}")
+        path = resolve_group_path(group, cases_dir=root)
         payload = json.loads(path.read_text(encoding="utf-8"))
         suites = _normalize_suites(payload)
         for suite_name, cases in suites.items():
             for raw in cases:
-                all_cases.append(
-                    ToolCallCase(
-                        name=str(raw["name"]),
-                        case_group=f"{group}/{suite_name}",
-                        query=str(raw["query"]),
-                        expected_tools=list(raw.get("expected_tools") or []),
-                        total_rounds=int(raw.get("total_rounds") or 1),
-                        answer=dict(raw.get("answer") or {}),
-                    )
-                )
+                all_cases.append(_load_case(raw, group=group, suite_name=suite_name))
     return all_cases
+
+
+def _load_case(raw: dict[str, Any], *, group: str, suite_name: str) -> ToolCallCase:
+    if "name" not in raw:
+        raise ValueError(f"case in {group}/{suite_name} is missing required field 'name'")
+    if "query" not in raw:
+        raise ValueError(
+            f"case {raw.get('name', '?')!r} in {group}/{suite_name} "
+            "is missing required field 'query'"
+        )
+    return ToolCallCase(
+        name=str(raw["name"]),
+        case_group=f"{group}/{suite_name}",
+        query=str(raw["query"]),
+        expected_tools=list(raw.get("expected_tools") or []),
+        total_rounds=int(raw.get("total_rounds") or 1),
+        answer=dict(raw.get("answer") or {}),
+    )
 
 
 def _normalize_suites(payload: Any) -> dict[str, list[dict[str, Any]]]:
@@ -206,6 +224,44 @@ async def run_cases(
         results.append(case_result)
         total += 0.0 if case_result.cancelled else case_result.score.total
     return total / len(cases), results
+
+
+def format_case_result(result: CaseResult) -> str:
+    """Human-readable one-case summary for CLI output."""
+    case = result.case
+    score = result.score
+    status = "CANCELLED" if result.cancelled else f"{score.total:.2f}"
+    lines = [
+        f"[{status}] {case.case_group}/{case.name} "
+        f"(tools={score.tool_score:.2f} rounds={score.round_score:.2f} "
+        f"answer={score.answer_score:.2f})",
+    ]
+    if result.cancelled:
+        return lines[0]
+    tools = score.details.get("tools") or {}
+    rounds = score.details.get("rounds") or {}
+    answer = score.details.get("answer") or {}
+    if tools.get("reason"):
+        lines.append(
+            f"  tools: expected={tools.get('expected')} actual={tools.get('actual')} "
+            f"({tools['reason']})"
+        )
+    if rounds:
+        lines.append(
+            f"  rounds: expected={rounds.get('expected')} actual={rounds.get('actual')}"
+        )
+    missing = answer.get("missing") or []
+    if missing:
+        lines.append(f"  answer missing keys: {missing}")
+    mismatched = answer.get("mismatched") or []
+    if mismatched:
+        lines.append(f"  answer mismatched keys: {mismatched}")
+    if answer.get("skipped"):
+        lines.append("  answer: skipped")
+    parse_error = answer.get("parse_error")
+    if parse_error:
+        lines.append(f"  answer parse error: {parse_error}")
+    return "\n".join(lines)
 
 
 # Backward-compatible name used by early scaffolding.

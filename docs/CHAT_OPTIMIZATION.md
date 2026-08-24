@@ -594,6 +594,42 @@ Implementation notes (behavior only): detect emits intentions + plan steps; publ
 
 ---
 
+## 2026-08-24 — Observability cases hardening
+
+**Goal**: Make the eval harness runnable, testable, and aligned with agent-specific case groups.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| CLI entrypoint | Library only; docs referenced missing `python -m observability` | `observability/__main__.py` with `--agent`, `--groups`, `--fail-under`, `--list-groups` |
+| Case fixtures | Two minimal files; awkward `knowledge_case` name | `general`, `tahoe`, `databot`, `knowledge` groups; alias keeps `knowledge_case` working |
+| Regression safety | No tests for scoring or JSON loading | Unit tests cover tool order, round budget, answer matching, and fixture validation |
+
+---
+
+## 2026-08-24 — Intent router eval cases
+
+**Goal**: Regression-test whether IntentOrchestrator publishes the right specialist route for representative queries.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| Intent eval | No routing cases; intent agent excluded from observability | `intent.json` router cases score status / intentions / route order |
+| Eval scope | Full intent turn always executed specialists | `execute_plan=False` stops after publish/reject/clarify for routing-only eval |
+| CLI | `--agent` limited to ReAct agents | `--agent intent` runs intent router cases via `python -m observability` |
+
+---
+
+## 2026-08-24 — Unified JSON answer scoring
+
+**Goal**: One answer contract for all tool-call eval cases — model returns JSON, scorer compares fields to `answer`.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| Answer contract | Non-empty `answer` auto-appends required JSON shape to the query | JSON shape lives in each case `query`; scorer only parses and compares to `answer` |
+| Comparison | Keyword hit anywhere in reply | Parse JSON object and compare each expected field; empty `answer` skips |
+| Case authoring | Prompt authors hand-write format hints | Case JSON only lists expected fields and values |
+
+---
+
 <!-- Append the next optimization section above this line -->
 
 

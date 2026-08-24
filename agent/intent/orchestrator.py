@@ -470,8 +470,9 @@ class IntentOrchestrator(BaseAgent):
         user_id: str | None = None,
         on_interrupt: OnInterrupt | None = None,
         print_output: bool = True,
+        execute_plan: bool = True,
     ) -> AgentTurnResult:
-        """Detect intentions, publish a plan, then execute specialists via AgentChain."""
+        """Detect intentions, publish a plan, then optionally execute specialists."""
         result = await super().run(
             user_prompt,
             session=session,
@@ -479,7 +480,7 @@ class IntentOrchestrator(BaseAgent):
             on_interrupt=on_interrupt,
             print_output=print_output,
         )
-        if result.cancelled:
+        if result.cancelled or not execute_plan:
             return result
 
         status = str(result.state.get("status") or "").strip().lower()

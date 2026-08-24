@@ -1,0 +1,11 @@
+{
+  "planning": [
+    {
+      "name": "create_plan_before_reply",
+      "query": "I need to migrate a Python script from cron to Airflow. Create a short plan with the planning tool, then summarize the plan.",
+      "expected_tools": ["planning"],
+      "total_rounds": 2,
+      "answer": {}
+    }
+  ]
+}

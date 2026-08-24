@@ -2,12 +2,19 @@
   "default": [
     {
       "name": "arithmetic",
-      "query": "tell me the answer of 1 + 2",
+      "query": "What is 1 + 2? Reply with a single JSON object only. Do not wrap it in markdown fences and do not add any other text. Required shape: {\"result\": \"<value>\"}",
       "expected_tools": [],
       "total_rounds": 1,
       "answer": {
-        "result": 3
+        "result": "3"
       }
+    },
+    {
+      "name": "greeting",
+      "query": "Say hello in one short sentence.",
+      "expected_tools": [],
+      "total_rounds": 1,
+      "answer": {}
     }
   ]
 }
