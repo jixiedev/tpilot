@@ -17,6 +17,7 @@ from typing import Any, Literal
 from langchain.tools import tool
 
 from config.tool_config import DataHubToolConfig, datahub_graphql_url, datahub_token, tool_config
+from tools.errors import ToolErrorType, register_exception
 
 _MUTATION_RE = re.compile(r"\b(mutation|subscription)\b", re.IGNORECASE)
 
@@ -492,6 +493,22 @@ _HYDRATION_FRAGMENTS: dict[str, str] = {
 
 class DataHubGraphQLError(RuntimeError):
     """Raised when a DataHub GraphQL request fails or returns GraphQL errors."""
+
+
+def _classify_datahub_graphql_error(exc: BaseException) -> tuple[ToolErrorType, bool, str] | None:
+    message = str(exc)
+    lower = message.lower()
+    if any(token in lower for token in ("timeout", "timed out")):
+        return ToolErrorType.TIMEOUT, True, message
+    if any(
+        token in lower
+        for token in ("connection", "connect", "refused", "unreachable", "urlerror")
+    ):
+        return ToolErrorType.CONNECTION, True, message
+    return ToolErrorType.UNKNOWN, False, message
+
+
+register_exception(DataHubGraphQLError, classifier=_classify_datahub_graphql_error)
 
 
 def _normalize_variables(variables: dict[str, Any] | str | None) -> dict[str, Any]:

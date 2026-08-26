@@ -7,6 +7,8 @@ from pathlib import Path
 
 from langchain.tools import tool
 
+from tools.errors import ToolErrorType, register_exception
+
 SNIPPET_LINES = 4
 MAX_RESPONSE_LEN = 16_000
 TRUNCATED_MESSAGE = (
@@ -33,6 +35,9 @@ _file_history: dict[str, deque[str]] = defaultdict(deque)
 
 class EditorError(ValueError):
     """Raised when an editor command cannot be applied."""
+
+
+register_exception(EditorError, error_type=ToolErrorType.UNKNOWN, retryable=False)
 
 
 def clear_history() -> None:

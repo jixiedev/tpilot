@@ -27,13 +27,17 @@ from tools.common import (
 )
 from tools.errors import StructuredToolError, ToolErrorType
 
+# Product modules register their exception mappings at import time.
+import tools.data.trino_errors  # noqa: E402,F401
+import tools.plan  # noqa: E402,F401
+import graph.error_recovery  # noqa: E402,F401
+
 
 @pytest.fixture(autouse=True)
 def _reset_alternative_registry() -> None:
     clear_alternative_tools()
     yield
     clear_alternative_tools()
-
 
 def test_alternative_tool_registers_plan_b_without_wrapping() -> None:
     @alternative_tool("trino_list_tables")
@@ -154,14 +158,58 @@ def test_trino_external_error_is_retryable_connection() -> None:
     assert structured.is_transient is True
 
 
-def test_from_exception_sql_syntax() -> None:
+def test_from_exception_unregistered_runtime_error_is_unknown() -> None:
     structured = StructuredToolError.from_exception(
         "trino_run_query",
         RuntimeError("line 1:8: Syntax error at or near SELECT"),
     )
 
+    assert structured.error_type is ToolErrorType.UNKNOWN
+    assert structured.retryable is False
+    assert structured.is_transient is False
+
+
+def test_tool_invocation_error_is_syntax_not_timeout() -> None:
+    from langgraph.prebuilt.tool_node import ToolInvocationError
+    from pydantic import ValidationError
+
+    source = ValidationError.from_exception_data(
+        "planning",
+        [
+            {
+                "type": "list_type",
+                "loc": ("steps",),
+                "msg": "Input should be a valid list",
+                "input": '["Define the DAG: retries, timeout, deps"]',
+            }
+        ],
+    )
+    exc = ToolInvocationError(
+        "planning",
+        source,
+        {
+            "command": "create",
+            "title": "Migrate",
+            "steps": '["Define the DAG: retries, timeout, deps"]',
+        },
+    )
+    structured = StructuredToolError.from_exception("planning", exc)
+
     assert structured.error_type is ToolErrorType.SYNTAX
-    assert "SQL" in structured.hint or "table" in structured.hint
+    assert structured.retryable is False
+    assert structured.is_transient is False
+
+
+def test_plan_tool_error_is_not_retryable() -> None:
+    from tools.plan import PlanToolError
+
+    structured = StructuredToolError.from_exception(
+        "planning",
+        PlanToolError("`plan_id` required for create"),
+    )
+
+    assert structured.error_type is ToolErrorType.UNKNOWN
+    assert structured.retryable is False
     assert structured.is_transient is False
 
 
@@ -376,6 +424,28 @@ def test_step_tools_collects_failed_tools() -> None:
     assert failed == ["hive_list_tables", "trino_list_tables"]
 
 
+def test_step_tools_removes_tool_from_failed_on_success() -> None:
+    from graph.node import StepToolsNode
+
+    state = {
+        "failed_tools": ["hive_list_tables", "trino_list_tables"],
+        "tool_call_count": 1,
+    }
+    result = {
+        "messages": [
+            ToolMessage(
+                content='[{"table": "orders"}]',
+                tool_call_id="c2",
+                name="hive_list_tables",
+            )
+        ]
+    }
+
+    failed = StepToolsNode._collect_failed_tools(state, result)
+
+    assert failed == ["trino_list_tables"]
+
+
 def test_step_tools_error_handler_routes_back_to_llm() -> None:
     handler = make_step_tools_error_handler(goto="step_llm")
     command = handler({"messages": []}, NodeError("step_tools", RuntimeError("boom")))
@@ -433,3 +503,26 @@ def test_format_turn_failure_messages() -> None:
 def test_transient_retry_on_matches_connection_errors() -> None:
     assert transient_retry_on(ConnectionError("down")) is True
     assert transient_retry_on(ValueError("bad sql")) is False
+
+
+def test_transient_retry_on_uses_trino_registry() -> None:
+    from trino.exceptions import TrinoExternalError, TrinoUserError
+
+    external = TrinoExternalError(
+        {
+            "errorName": "HIVE_METASTORE_ERROR",
+            "errorType": "EXTERNAL",
+            "message": "Error communicating with Hive Metastore",
+        },
+        query_id="q-ext",
+    )
+    user = TrinoUserError(
+        {
+            "errorName": "SYNTAX_ERROR",
+            "errorType": "USER_ERROR",
+            "message": "bad sql",
+        },
+        query_id="q-user",
+    )
+    assert transient_retry_on(external) is True
+    assert transient_retry_on(user) is False

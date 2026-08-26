@@ -10,6 +10,9 @@ from trino.dbapi import connect
 from config.tool_config import tool_config, trino_password
 from tools.common import alternative_tool
 from tools.data.sql_guard import validate_read_only_sql
+from tools.data.trino_errors import register_trino_exception_mappings
+
+register_trino_exception_mappings()
 
 _thread_local = local()
 DEFAULT_ROW_LIMIT = 100

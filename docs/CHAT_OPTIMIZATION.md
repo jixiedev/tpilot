@@ -582,6 +582,102 @@ Implementation notes (behavior only): detect emits intentions + plan steps; publ
 
 ---
 
+## 2026-08-24 — Eval loop (observability cases)
+
+**Goal**: Give prompt/agent changes a fixed regression harness with tool-order, round-budget, and answer checks.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| Eval surface | Empty `observability/` stubs; F9 not started | Case JSON suites, `Observer` recording, equal-weight scoring, `python -m observability` CLI |
+| Turn hooks | Single CLI listener baked into the graph | `ListenerHub` fans out to registerable observers without rebinding |
+| Score signal | No structured case outcomes | Per-case tools / rounds / answer scores plus average and optional `--fail-under` |
+
+---
+
+## 2026-08-24 — Observability cases hardening
+
+**Goal**: Make the eval harness runnable, testable, and aligned with agent-specific case groups.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| CLI entrypoint | Library only; docs referenced missing `python -m observability` | `observability/__main__.py` with `--agent`, `--groups`, `--fail-under`, `--list-groups` |
+| Case fixtures | Two minimal files; awkward `knowledge_case` name | `general`, `tahoe`, `databot`, `knowledge` groups; alias keeps `knowledge_case` working |
+| Regression safety | No tests for scoring or JSON loading | Unit tests cover tool order, round budget, answer matching, and fixture validation |
+
+---
+
+## 2026-08-24 — Intent router eval cases
+
+**Goal**: Regression-test whether IntentOrchestrator publishes the right specialist route for representative queries.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| Intent eval | No routing cases; intent agent excluded from observability | `intent.json` router cases score status / intentions / route order |
+| Eval scope | Full intent turn always executed specialists | `execute_plan=False` stops after publish/reject/clarify for routing-only eval |
+| CLI | `--agent` limited to ReAct agents | `--agent intent` runs intent router cases via `python -m observability` |
+
+---
+
+## 2026-08-24 — Unified JSON answer scoring
+
+**Goal**: One answer contract for all tool-call eval cases — model returns JSON, scorer compares fields to `answer`.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| Answer contract | Non-empty `answer` auto-appends required JSON shape to the query | JSON shape lives in each case `query`; scorer only parses and compares to `answer` |
+| Comparison | Keyword hit anywhere in reply | Parse JSON object and compare each expected field; empty `answer` skips |
+| Case authoring | Prompt authors hand-write format hints | Case JSON only lists expected fields and values |
+
+---
+
+## 2026-08-25 — CLI progress Status lines
+
+**Goal**: Show what the agent is waiting on so long LLM / routing pauses do not look like a hang.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| LLM wait | Silent until the model returned (or tools printed) | `Status> LLM thinking (tools=…/…, idle=…)` before each `step_llm` call |
+| Intent routing | Blank until `Intent>` after detect finished | `Status> Intent routing…` before the router model call (including clarify re-detect) |
+| Specialist handoff | Only `Plan>` step lines | `Status> Running specialist: …` immediately before each specialist turn |
+
+---
+
+## 2026-08-25 — Scope Assistant reply to current turn
+
+**Goal**: Stop reprinting the previous turn's answer when this turn ends without `chat_completion`.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| Reply lookup | Latest `chat_completion` anywhere in session history | Only after the latest human message |
+| Idle / plain-text end | Quietly showed prior-turn `Assistant>` | Falls back to this turn's AI text, or an explicit no-reply message |
+| Chain handoff | Same global lookup via `extract_turn_output` | Same current-turn scoping |
+
+---
+
+## 2026-08-26 — Per-tool exception → ToolErrorType registry
+
+**Goal**: Stop centralizing product-specific error classification (especially Trino) inside `from_exception`.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| Classification ownership | `tools/errors.py` hard-coded Trino SDK types and message substrings | Each tool module registers exception → `ToolErrorType` / `retryable` via `register_exception` |
+| Lookup path | Nested if/else in `from_exception` | `resolve_exception` walks exception MRO against the registry |
+| False timeout retries | `ToolInvocationError` text containing the word “timeout” was treated as transient | LangGraph arg-validation errors register as non-retryable `syntax` |
+
+---
+
+## 2026-08-26 — Eval cases pin models and average across them
+
+**Goal**: Make eval scores less tied to whichever default LLM is currently configured.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| Model choice | Always `default_model` from `models.toml` | Case/file `models` list (names from `models.toml`) |
+| Aggregation | One run per case | Per-model runs → case average → suite average |
+| CLI | No model listing | `--list-models`; output shows `model=` and `case avg` |
+
+---
+
 <!-- Append the next optimization section above this line -->
 
 

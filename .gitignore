@@ -27,3 +27,5 @@ profiles/
 
 # Context compression offload store
 offload_store/
+
+.idea/

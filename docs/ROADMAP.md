@@ -33,7 +33,7 @@
 | F6 | Human-in-the-Loop | 关键节点 interrupt，等待用户确认或补充 | P1 | 已完成：Intent 低置信澄清 interrupt + CLI resume |
 | F7 | Reflective Reasoning | 输出前自我审查与修正（一致性检查、retry） | P1 | 未开始 |
 | F8 | Parallel Tool Use | 并行工具调用与结果聚合 | P1 | 未开始 |
-| F9 | Eval Loop | 评测集回归、Prompt/Agent 行为持续迭代 | P2 | 未开始 |
+| F9 | Eval Loop | 评测集回归、Prompt/Agent 行为持续迭代 | P2 | 已完成（v1）：`observability` 用例 JSON + Observer 打分（工具序/轮次/答案）+ `python -m observability` |
 | F10 | Monitoring | Token 用量、Cache 命中率、工具调用延迟与错误率 | P2 | 未开始 |
 | F11 | Semantic Cache | 语义相似的请求命中缓存，避免重复推理 | P2 | 未开始 |
 | F12 | Model Routing | 按任务复杂度/成本动态选择模型 | P2 | 未开始 |
@@ -65,10 +65,37 @@
 | F3 | 跨会话语义召回（不止画像与 checkpointer） |
 | F5 | 通用 Plan 节点（非仅 Intent 编排）；计划修订与重规划 |
 | F6 | 通用确认门（写操作、高成本工具、发布计划前确认） |
-| F7–F13 | 仍按未开始推进（反思、并行工具、评测、监控、语义缓存、选模、程序性记忆） |
+| F7–F13 | F7/F8/F10–F13 仍按未开始推进（反思、并行工具、监控、语义缓存、选模、程序性记忆）；F9 评测见下文 **F9 Eval Loop** |
 | F14 | 失败观测指标；更完整的集成测试覆盖 |
 | F15 | Google Drive / Wiki 检索工具；增量更新与去重；检索质量评测；多 collection 路由 |
 
+### F9 Eval Loop（v1 → 后续）
+
+**已交付（v1）** — 仓库内 JSON 用例、`Observer` 轨迹、`python -m observability`：
+
+| 用例类型 | 打分维度 |
+|----------|----------|
+| ReAct（`ToolCallCase`） | 工具顺序（子序列）、ReAct 轮次预算、JSON 答案字段（shape 写在 case `query`；`answer` 为空则跳过） |
+| Intent（`IntentRouterCase`） | 路由 status、意图标签、专精 Agent 顺序（`execute_plan=False`） |
+
+**优点** — 简单、可 git 管理、无 SaaS 依赖；贴合 ReAct + Intent；确定性 scorer 可单测；不只验最终文本，还看工具/路由过程。
+
+**局限** — 依赖 live LLM 与外部服务（Qdrant/MCP），CI 易 flake；JSON 字段精确匹配，同义改写会失败；未校验 tool 参数；三维等权；query 与 answer 重复维护；少 multi-turn / clarify；无 trace 归档与实验对比；评测强制 JSON 可能与线上真实 prompt 不一致。
+
+**主流做法** — 数据集行 → 执行（live / mock / 回放）→ **多种 scorer**（规则 + 可选 LLM judge + 环境结果）→ 报告与门禁；LangSmith / Langfuse / Braintrust 等持久化 trace 并对比实验。常见 CI：L0 scorer 单测 → L1 mock LLM/工具 → L2 smoke live → L3 夜间 integration → L4 抽样 LLM judge。
+
+**分阶段规划**
+
+| 阶段 | 重点 |
+|------|------|
+| **1 — 稳定 CI** | fast（mock 路由 + scorer 单测）/ slow（live）；加权或 hard gate；tool 参数校验；用例 tags（`smoke` / `integration`） |
+| **2 — 更强确定性评测** | 可选 JSON Schema；shape 与期望值单一来源；multi-turn clarify  fixture；golden trace 回放 |
+| **3 — Trace 与实验**（配合 F10） | 持久化 Observer；run id + git sha；同数据集跨版本 diff |
+| **4 — 语义 / RAG 评测**（配合 F15） | 抽样 LLM judge；Jira 语料 faithfulness / recall；eval 与生产 prompt 分离 |
+| **5 — 产品化评测**（配合 M6） | M2/M3 专用数据集；线上 trace 抽样；服务侧 eval API |
+
+**近期** — case `tags` + CLI 过滤；CI 内 mock-LLM intent 用例；各 group 环境依赖说明；case 内 scorer 权重；`Observer` 单次 run trace JSON 导出试验。
+
 ---
 
-*最后更新：2026-08-20*
+*最后更新：2026-08-24*

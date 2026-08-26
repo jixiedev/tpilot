@@ -19,6 +19,8 @@ from tools.errors import StructuredToolError
 ToolCallListener = Callable[[str, dict[str, Any]], None]
 ToolResultListener = Callable[[str, Any], None]
 LlmStepListener = Callable[[AIMessage], None]
+# tool_call_count, max_tool_calls, idle_rounds — emitted before the model call.
+LlmStartListener = Callable[[int, int, int], None]
 
 DEFAULT_HANDLE_TOOL_ERRORS = make_handle_tool_errors()
 DEFAULT_WRAP_TOOL_CALL = make_retrying_tool_wrapper()
@@ -72,16 +74,20 @@ class StepToolsNode(ToolNode):
 
     @staticmethod
     def _collect_failed_tools(state: SessionAgentState, result: dict[str, Any]) -> list[str]:
+        """Accumulate failures this turn; drop a tool name again after a successful call."""
         failed = list(state.get("failed_tools") or [])
         for message in result.get("messages") or []:
             if not isinstance(message, ToolMessage):
                 continue
-            if getattr(message, "status", None) != "error":
+            name = message.name
+            if getattr(message, "status", None) == "error":
+                structured = StructuredToolError.from_message_content(str(message.content))
+                name = (structured.tool if structured else None) or name
+                if name and name not in failed:
+                    failed.append(name)
                 continue
-            structured = StructuredToolError.from_message_content(str(message.content))
-            name = (structured.tool if structured else None) or message.name
-            if name and name not in failed:
-                failed.append(name)
+            if name and name in failed:
+                failed.remove(name)
         return failed
 
     def _apply_counter(self, state: SessionAgentState, result: dict[str, Any]) -> dict[str, Any]:
@@ -113,6 +119,7 @@ def make_step_llm_node(
     idle_nudge_prompt: str = "",
     tool_budget_exhausted_prompt: str = "",
     max_tool_calls: int = 10,
+    on_llm_start: LlmStartListener | None = None,
     on_llm_step: LlmStepListener | None = None,
 ):
     """Build the ReAct ``step_llm`` node: one model call, then update idle state.
@@ -122,10 +129,11 @@ def make_step_llm_node(
     - If ``tool_call_count >= max_tool_calls``, append ``tool_budget_exhausted_prompt``.
     - Else if ``idle_rounds > 0``, append ``idle_nudge_prompt``.
 
-    After the model responds, append the AI message to history. Reset
-    ``idle_rounds`` when there are tool calls; otherwise increment it.
-    Downstream ``route_after_step`` uses tool calls, idle rounds, and budget
-    to choose ``step_tools``, another ``step_llm``, or end.
+    ``on_llm_start`` runs immediately before the model call so the CLI can show
+    progress while waiting on the provider. After the model responds, append the
+    AI message to history. Reset ``idle_rounds`` when there are tool calls;
+    otherwise increment it. Downstream ``route_after_step`` uses tool calls,
+    idle rounds, and budget to choose ``step_tools``, another ``step_llm``, or end.
     """
 
     def step_llm(state: SessionAgentState) -> dict[str, Any]:
@@ -140,6 +148,13 @@ def make_step_llm_node(
             messages.append(SystemMessage(content=tool_budget_exhausted_prompt))
         elif state.get("idle_rounds", 0) > 0 and idle_nudge_prompt.strip():
             messages.append(SystemMessage(content=idle_nudge_prompt))
+
+        if on_llm_start is not None:
+            on_llm_start(
+                state.get("tool_call_count", 0),
+                max_tool_calls,
+                state.get("idle_rounds", 0),
+            )
 
         response = invoke_with_transient_retry(lambda: model.invoke(messages))
         if on_llm_step is not None and isinstance(response, AIMessage):

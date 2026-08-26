@@ -1,0 +1,71 @@
+{
+  "models": [
+    "sensenova-6.7-flash-lite"
+  ],
+  "router": [
+    {
+      "name": "data_gmv_query",
+      "query": "What was yesterday's GMV? Use the warehouse and run SQL if needed.",
+      "expected_status": "published",
+      "expected_intentions": [
+        "DATA"
+      ],
+      "expected_routes": [
+        "databot"
+      ]
+    },
+    {
+      "name": "data_table_lookup",
+      "query": "Find the table that stores daily active users and describe its schema.",
+      "expected_status": "published",
+      "expected_intentions": [
+        "DATA"
+      ],
+      "expected_routes": [
+        "databot"
+      ]
+    },
+    {
+      "name": "knowledge_jira_lookup",
+      "query": "Which Jira ticket tracks security vulnerabilities in Superset?",
+      "expected_status": "published",
+      "expected_intentions": [
+        "KNOWLEDGE"
+      ],
+      "expected_routes": [
+        "knowledge"
+      ]
+    },
+    {
+      "name": "knowledge_architecture_docs",
+      "query": "Where is the Tahoe deployment architecture documented?",
+      "expected_status": "published",
+      "expected_intentions": [
+        "KNOWLEDGE"
+      ],
+      "expected_routes": [
+        "knowledge"
+      ]
+    },
+    {
+      "name": "composite_gmv_definition_then_query",
+      "query": "Look up the GMV metric definition in team docs, then query yesterday's GMV from the warehouse.",
+      "expected_status": "published",
+      "expected_intentions": [
+        "KNOWLEDGE",
+        "DATA"
+      ],
+      "expected_routes": [
+        "knowledge",
+        "databot"
+      ]
+    },
+    {
+      "name": "reject_small_talk",
+      "query": "hello",
+      "expected_status": "rejected",
+      "expected_intentions": [],
+      "expected_routes": []
+    }
+  ]
+}

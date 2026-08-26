@@ -13,7 +13,7 @@ from langgraph.errors import NodeError
 from langgraph.prebuilt.tool_node import ToolCallRequest
 from langgraph.types import Command, RetryPolicy
 
-from tools.errors import StructuredToolError
+from tools.errors import StructuredToolError, ToolErrorType, register_exception
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +29,22 @@ arguments or call `chat_completion` with a clear explanation for the user.
 """
 
 T = TypeVar("T")
+
+
+def _register_langgraph_tool_invocation_errors() -> None:
+    """Arg-validation failures from ToolNode are never transient timeouts."""
+    try:
+        from langgraph.prebuilt.tool_node import ToolInvocationError
+    except ImportError:
+        return
+    register_exception(
+        ToolInvocationError,
+        error_type=ToolErrorType.SYNTAX,
+        retryable=False,
+    )
+
+
+_register_langgraph_tool_invocation_errors()
 
 
 def make_handle_tool_errors(
@@ -178,34 +194,10 @@ def make_async_retrying_tool_wrapper(
 
 def transient_retry_on(exc: BaseException) -> bool:
     """Retry node execution only for infrastructure-level transient failures."""
-    if isinstance(exc, (ConnectionError, TimeoutError)):
-        return True
-    try:
-        from trino.exceptions import (
-            Http502Error,
-            Http503Error,
-            Http504Error,
-            OperationalError,
-            TrinoConnectionError,
-            TrinoExternalError,
-            TrinoInternalError,
-        )
+    from tools.errors import resolve_exception
 
-        return isinstance(
-            exc,
-            (
-                TrinoConnectionError,
-                Http502Error,
-                Http503Error,
-                Http504Error,
-                TrinoExternalError,
-                TrinoInternalError,
-                OperationalError,
-            ),
-        )
-    except ImportError:
-        return False
-
+    _error_type, retryable, _message = resolve_exception(exc)
+    return retryable
 
 def transient_llm_retry_on(exc: BaseException) -> bool:
     """Whether an LLM / API failure is worth retrying."""

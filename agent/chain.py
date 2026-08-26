@@ -416,8 +416,13 @@ class PlannedAgentChain(AgentChain):
             agent = self.get_agent(index)
             if print_output:
                 print(
+                    f"Status> Running specialist: {plan_step.agent_name}…",
+                    flush=True,
+                )
+                print(
                     f"Plan> step {index + 1}/{len(self.plan_steps)} "
-                    f"→ {plan_step.agent_name} ({plan_step.intention})"
+                    f"→ {plan_step.agent_name} ({plan_step.intention})",
+                    flush=True,
                 )
             result = await agent.run(
                 prompt,

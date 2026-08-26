@@ -13,6 +13,7 @@ from typing import Any
 from langchain.tools import tool
 
 from config.tool_config import K8sToolConfig, k8s_config_file, tool_config
+from tools.errors import ToolErrorType, register_exception
 
 log = logging.getLogger(__name__)
 
@@ -38,6 +39,22 @@ MAX_LIST_LIMIT = 50
 class K8sToolError(RuntimeError):
     """Raised when a Kubernetes API call fails."""
 
+
+def _classify_k8s_tool_error(exc: BaseException) -> tuple[ToolErrorType, bool, str] | None:
+    message = str(exc)
+    lower = message.lower()
+    if any(token in lower for token in ("not found", "404", "notfound")):
+        return ToolErrorType.NOT_FOUND, False, message
+    if any(token in lower for token in ("forbidden", "unauthorized", "403", "401")):
+        return ToolErrorType.PERMISSION, False, message
+    if any(token in lower for token in ("timeout", "timed out")):
+        return ToolErrorType.TIMEOUT, True, message
+    if any(token in lower for token in ("connection", "connect", "refused", "unreachable")):
+        return ToolErrorType.CONNECTION, True, message
+    return ToolErrorType.UNKNOWN, False, message
+
+
+register_exception(K8sToolError, classifier=_classify_k8s_tool_error)
 
 def _clamp_limit(limit: int) -> int:
     try:

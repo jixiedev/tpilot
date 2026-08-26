@@ -169,6 +169,47 @@ async def test_extract_turn_output_prefers_value() -> None:
     assert extract_turn_output({"value": "x"}) == "x"
 
 
+def test_extract_turn_output_ignores_prior_completion() -> None:
+    from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+
+    state = {
+        "messages": [
+            HumanMessage(content="q1"),
+            ToolMessage(content="answer-1", name="chat_completion", tool_call_id="1"),
+            HumanMessage(content="q2"),
+            AIMessage(content="idle reply for q2"),
+        ]
+    }
+    assert extract_turn_output(state) == "idle reply for q2"
+
+
+def test_extract_turn_output_prefers_current_completion() -> None:
+    from langchain_core.messages import HumanMessage, ToolMessage
+
+    state = {
+        "messages": [
+            HumanMessage(content="q1"),
+            ToolMessage(content="answer-1", name="chat_completion", tool_call_id="1"),
+            HumanMessage(content="q2"),
+            ToolMessage(content="answer-2", name="chat_completion", tool_call_id="2"),
+        ]
+    }
+    assert extract_turn_output(state) == "answer-2"
+
+
+def test_extract_turn_output_empty_when_no_current_reply() -> None:
+    from langchain_core.messages import HumanMessage, ToolMessage
+
+    state = {
+        "messages": [
+            HumanMessage(content="q1"),
+            ToolMessage(content="answer-1", name="chat_completion", tool_call_id="1"),
+            HumanMessage(content="q2"),
+        ]
+    }
+    assert extract_turn_output(state) == ""
+
+
 async def test_receive_and_determine_contract() -> None:
     class _Fixed(AgentChain):
         def determine_next_agent(self, last_agent_id: int) -> int | None:

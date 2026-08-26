@@ -15,6 +15,7 @@ from config.tool_config import (
     s3_secret_access_key,
     tool_config,
 )
+from tools.errors import ToolErrorType, register_exception
 
 DEFAULT_MAX_KEYS = 100
 MAX_ALLOWED_KEYS = 1000
@@ -25,6 +26,22 @@ MAX_ALLOWED_BYTES = 262_144
 class S3ToolError(RuntimeError):
     """Raised when S3 configuration or an API call fails."""
 
+
+def _classify_s3_tool_error(exc: BaseException) -> tuple[ToolErrorType, bool, str] | None:
+    message = str(exc)
+    lower = message.lower()
+    if "not found" in lower or "nosuchkey" in lower or "404" in lower:
+        return ToolErrorType.NOT_FOUND, False, message
+    if any(token in lower for token in ("timeout", "timed out")):
+        return ToolErrorType.TIMEOUT, True, message
+    if any(token in lower for token in ("connection", "connect", "refused", "unreachable")):
+        return ToolErrorType.CONNECTION, True, message
+    if any(token in lower for token in ("access denied", "forbidden", "not authorized", "403")):
+        return ToolErrorType.PERMISSION, False, message
+    return ToolErrorType.UNKNOWN, False, message
+
+
+register_exception(S3ToolError, classifier=_classify_s3_tool_error)
 
 def _clamp(value: int | None, default: int, maximum: int) -> int:
     if value is None or value <= 0:

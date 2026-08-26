@@ -1,13 +1,17 @@
-"""Structured tool error types and classification for data-plane tools."""
+"""Structured tool errors and per-exception classification registry."""
 
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any
 
 from tools.common import lookup_alternative_tool
+
+ExceptionClassifier = Callable[[BaseException], tuple["ToolErrorType", bool, str] | None]
+ExceptionMessageFn = Callable[[BaseException], str]
 
 
 class ToolErrorType(StrEnum):
@@ -19,87 +23,83 @@ class ToolErrorType(StrEnum):
     UNKNOWN = "unknown"
 
 
-def _message_error_type(message: str) -> ToolErrorType | None:
-    lower = message.lower()
-    if any(token in lower for token in ("syntax", "parse error", "mismatched", "invalid query")):
-        return ToolErrorType.SYNTAX
-    if any(
-        token in lower
-        for token in ("does not exist", "not found", "unknown table", "unknown database", "no such")
-    ):
-        return ToolErrorType.NOT_FOUND
-    if any(token in lower for token in ("permission", "denied", "not authorized", "access denied")):
-        return ToolErrorType.PERMISSION
-    if any(token in lower for token in ("timeout", "timed out")):
-        return ToolErrorType.TIMEOUT
-    if any(
-        token in lower
-        for token in ("connection", "connect", "refused", "unreachable", "502", "503", "504")
-    ):
-        return ToolErrorType.CONNECTION
-    return None
+@dataclass(frozen=True)
+class _ExceptionRule:
+    """Static mapping and/or a classifier for one exception type."""
+
+    error_type: ToolErrorType | None = None
+    retryable: bool = False
+    classifier: ExceptionClassifier | None = None
+    message: ExceptionMessageFn | None = None
 
 
-def _trino_exception_message(exc: Exception) -> str:
-    message = getattr(exc, "message", None)
-    if isinstance(message, str) and message.strip():
-        error_name = getattr(exc, "error_name", None)
-        if isinstance(error_name, str) and error_name.strip():
-            return f"{error_name}: {message}"
-        return message
-    return str(exc)
+_EXCEPTION_RULES: dict[type[BaseException], _ExceptionRule] = {}
+_BUILTIN_EXCEPTION_TYPES: frozenset[type[BaseException]] = frozenset()
 
 
-def _classify_trino_exception(exc: Exception) -> tuple[ToolErrorType, bool, str] | None:
-    """Map Trino SDK exceptions to (error_type, retryable, message)."""
-    try:
-        from trino.exceptions import (
-            Http502Error,
-            Http503Error,
-            Http504Error,
-            OperationalError,
-            TrinoConnectionError,
-            TrinoExternalError,
-            TrinoInternalError,
-            TrinoQueryError,
-            TrinoUserError,
-        )
-    except ImportError:
-        return None
+def register_exception(
+    *exc_types: type[BaseException],
+    error_type: ToolErrorType | None = None,
+    retryable: bool = False,
+    classifier: ExceptionClassifier | None = None,
+    message: ExceptionMessageFn | None = None,
+) -> None:
+    """Register how an exception type maps to ``ToolErrorType`` / retryability.
 
-    message = _trino_exception_message(exc)
-    error_name = (getattr(exc, "error_name", None) or "").upper()
+    Prefer a static ``error_type`` when the whole class shares one outcome.
+    Prefer ``classifier`` when subclasses or attributes need finer mapping
+    (e.g. Trino ``error_name``). Classifier results win when non-``None``;
+    otherwise the static ``error_type`` is used when set.
+    """
+    if error_type is None and classifier is None:
+        raise ValueError("register_exception requires error_type and/or classifier")
+    rule = _ExceptionRule(
+        error_type=error_type,
+        retryable=retryable,
+        classifier=classifier,
+        message=message,
+    )
+    for exc_type in exc_types:
+        _EXCEPTION_RULES[exc_type] = rule
 
-    if isinstance(exc, (TrinoConnectionError, Http502Error, Http503Error, Http504Error)):
-        return ToolErrorType.CONNECTION, True, message
 
-    if isinstance(exc, TrinoUserError):
-        if any(token in error_name for token in ("PERMISSION", "ACCESS_DENIED", "NOT_AUTHORIZED")):
-            return ToolErrorType.PERMISSION, False, message
-        if any(token in error_name for token in ("NOT_FOUND", "MISSING")):
-            return ToolErrorType.NOT_FOUND, False, message
-        if any(token in error_name for token in ("SYNTAX", "MISMATCH", "TYPE_MISMATCH")):
-            return ToolErrorType.SYNTAX, False, message
-        hinted = _message_error_type(message)
-        return (hinted or ToolErrorType.SYNTAX), False, message
+def clear_exception_mappings(*, keep_builtins: bool = True) -> None:
+    """Clear registered mappings (tests). Builtins stay unless ``keep_builtins=False``."""
+    if not keep_builtins:
+        _EXCEPTION_RULES.clear()
+        return
+    for exc_type in list(_EXCEPTION_RULES):
+        if exc_type not in _BUILTIN_EXCEPTION_TYPES:
+            del _EXCEPTION_RULES[exc_type]
 
-    if isinstance(exc, TrinoExternalError):
-        hinted = _message_error_type(message)
-        if hinted is ToolErrorType.TIMEOUT:
-            return ToolErrorType.TIMEOUT, True, message
-        return ToolErrorType.CONNECTION, True, message
 
-    if isinstance(exc, TrinoInternalError):
-        return ToolErrorType.UNKNOWN, True, message
+def resolve_exception(exc: BaseException) -> tuple[ToolErrorType, bool, str]:
+    """Look up the most specific registered mapping for ``exc``."""
+    for cls in type(exc).mro():
+        if cls is BaseException:
+            break
+        rule = _EXCEPTION_RULES.get(cls)
+        if rule is None:
+            continue
+        if rule.classifier is not None:
+            classified = rule.classifier(exc)
+            if classified is not None:
+                return classified
+        if rule.error_type is not None:
+            msg_fn = rule.message or (lambda e: str(e))
+            return rule.error_type, rule.retryable, msg_fn(exc)
+    return ToolErrorType.UNKNOWN, False, str(exc)
 
-    if isinstance(exc, TrinoQueryError):
-        hinted = _message_error_type(message)
-        return (hinted or ToolErrorType.UNKNOWN), False, message
 
-    if isinstance(exc, OperationalError):
-        return ToolErrorType.CONNECTION, True, message
+def _register_builtin_exception_mappings() -> None:
+    """Infrastructure exceptions shared by all tools (not product-specific)."""
+    global _BUILTIN_EXCEPTION_TYPES
+    register_exception(TimeoutError, error_type=ToolErrorType.TIMEOUT, retryable=True)
+    register_exception(ConnectionError, error_type=ToolErrorType.CONNECTION, retryable=True)
+    _BUILTIN_EXCEPTION_TYPES = frozenset({TimeoutError, ConnectionError})
 
-    return None
+
+_register_builtin_exception_mappings()
 
 
 def _hint_for(
@@ -269,33 +269,8 @@ class StructuredToolError:
 
     @classmethod
     def from_exception(cls, tool_name: str, exc: Exception) -> StructuredToolError:
-        """Map a tool exception to a structured, model-facing error payload."""
-        trino = _classify_trino_exception(exc)
-        if trino is not None:
-            error_type, retryable, message = trino
-        else:
-            retryable = False
-            error_type = ToolErrorType.UNKNOWN
-            message = str(exc)
-
-            if isinstance(exc, TimeoutError):
-                error_type = ToolErrorType.TIMEOUT
-                retryable = True
-            elif isinstance(exc, ConnectionError):
-                error_type = ToolErrorType.CONNECTION
-                retryable = True
-            elif isinstance(exc, OSError):
-                error_type = ToolErrorType.CONNECTION
-                retryable = True
-
-            hinted = _message_error_type(message)
-            if hinted is not None:
-                error_type = hinted
-                retryable = retryable or hinted in {
-                    ToolErrorType.CONNECTION,
-                    ToolErrorType.TIMEOUT,
-                }
-
+        """Map a tool exception via the exception-type registry (no product hardcoding)."""
+        error_type, retryable, message = resolve_exception(exc)
         fallback = lookup_alternative_tool(tool_name)
         return cls(
             error_type=error_type,

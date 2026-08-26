@@ -15,7 +15,7 @@ from langgraph.graph.state import CompiledStateGraph
 
 from agent.agent import BaseAgent
 from agent.config import AgentPromptConfig, AgentRunConfig, RouterConfig, StateLike
-from agent.listener import CliReactListener, ReactAgentListener
+from agent.listener import CliReactListener, ListenerHub, ReactAgentListener
 from agent.prompt import SystemPromptAssembler
 from agent.react.refine_profile import make_refine_user_profile_node
 from agent.router import CompletionToolRouter
@@ -77,8 +77,11 @@ class BaseReactAgent(BaseAgent):
             type(self).turn_boundary if turn_boundary is None else turn_boundary
         )
         self.prompt_assembler = prompt_assembler or self.prompt_assembler_cls()
-        self.react_listener = react_listener or CliReactListener(
+        primary = react_listener or CliReactListener(
             completion_tool_name=self.completion_tool_name
+        )
+        self.react_listener: ListenerHub = (
+            primary if isinstance(primary, ListenerHub) else ListenerHub(primary)
         )
         self.session = SessionTurnBuilder(self.turn_boundary)
         self.router = CompletionToolRouter(
@@ -138,6 +141,14 @@ class BaseReactAgent(BaseAgent):
     def print_turn_output(self, state: SessionAgentState) -> None:
         self.react_listener.print_turn_output(state)
 
+    def register_observer(self, observer: ReactAgentListener) -> None:
+        """Attach an eval/monitoring listener for subsequent turns."""
+        self.react_listener.register(observer)
+
+    def clear_observers(self) -> None:
+        """Drop all registered observers (primary CLI/UI listener stays)."""
+        self.react_listener.clear_observers()
+
     @staticmethod
     def resolve_compression_config(
         compression_config: CompressionConfig | None = None,
@@ -193,5 +204,6 @@ class BaseReactAgent(BaseAgent):
             max_tool_calls=self.agent_run_config.max_tool_calls,
             on_tool_call=self.react_listener.print_tool_call,
             on_tool_result=self.react_listener.print_tool_result,
+            on_llm_start=self.react_listener.print_llm_start,
             on_llm_step=self.react_listener.print_llm_step,
         )
