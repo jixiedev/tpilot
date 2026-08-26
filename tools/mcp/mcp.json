@@ -1,11 +1,11 @@
 {
   "airflow_tahoe": {
     "transport": "stdio",
-    "command": "/Users/jixie/.local/bin/uv",
+    "command": "/Users/cdpac/.local/bin/uv",
     "args": [
       "run",
       "--directory",
-      "/Users/jixie/sbox/airflow-mcp-server",
+      "/Users/cdpac/wbox/airflow-mcp-server",
       "airflow-mcp-server",
       "--safe",
       "--static-tools",
@@ -17,11 +17,11 @@
   },
   "airflow_legacy": {
     "transport": "stdio",
-    "command": "/Users/jixie/.local/bin/uv",
+    "command": "/Users/cdpac/.local/bin/uv",
     "args": [
       "run",
       "--directory",
-      "/Users/jixie/sbox/airflow-mcp-server",
+      "/Users/cdpac/wbox/airflow-mcp-server",
       "airflow-mcp-server",
       "--safe",
       "--static-tools",

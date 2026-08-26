@@ -23,6 +23,7 @@ dependencies = [
     "sentence-transformers>=3.0.0",
     "torch>=2.2.0,<2.12",
     "trino>=0.338.0",
+    "langgraph-cli[inmem]>=0.4.31",
     "pyyaml>=6.0.3",
     "pathlib>=1.0.1",
 ]
