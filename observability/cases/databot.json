@@ -1,9 +1,14 @@
 {
+  "models": [
+    "sensenova-6.7-flash-lite"
+  ],
   "catalog": [
     {
       "name": "find_dataset_metadata",
       "query": "Which DataHub dataset stores daily active users for the Tahoe product? Reply with the dataset URN or name if you find it.",
-      "expected_tools": ["search"],
+      "expected_tools": [
+        "search"
+      ],
       "total_rounds": 3,
       "answer": {}
     }

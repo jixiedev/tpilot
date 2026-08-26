@@ -26,14 +26,13 @@ JIRA_PROFILES: list[JiraProfile] = [
         "jira_name": "Tahoe",
         "collection": "jira_tahoe",
         "description": (
-            "Wish offline data platform / lakehouse operations (issue keys TAHOE-*). "
-            "Use for Airflow DAGs & images, Hive/Presto/Trino queries & resource groups, "
-            "Spark/EMR jobs, Flink & Kafka / MSK, Superset & Tableau, DataHub, "
-            "Hudi incremental processing, logging (td-agent / td-aggregator), "
-            "JupyterHub, Tahoe API/UX, infra & security reviews, onboarding, and "
-            "pipeline migrations or cost work owned by the Tahoe team. "
-            "Not for generic k8s/Mongo/Vitess platform tickets (prefer core) or "
-            "product experiment / MRF / CX analytics tickets (prefer de or ds)."
+            "Historical Wish offline data platform / lakehouse board (issue keys TAHOE-*). "
+            "Covers older Airflow DAGs & images, Hive/Presto/Trino, Spark/EMR, Flink & Kafka / MSK, "
+            "Superset & Tableau, DataHub, Hudi, logging (td-agent / td-aggregator), JupyterHub, "
+            "Tahoe API/UX, and related ops. "
+            "Tahoe work later migrated into CORE — prefer `core` for current Tahoe / lakehouse "
+            "and shared platform tickets; use `tahoe` mainly when searching legacy TAHOE-* history. "
+            "Not for product experiment / MRF / CX analytics tickets (prefer de or ds)."
         ),
     },
     {
@@ -42,13 +41,15 @@ JIRA_PROFILES: list[JiraProfile] = [
         "jira_name": "Infrastructure Core",
         "collection": "jira_core",
         "description": (
-            "Company-wide infrastructure core (issue keys CORE-*). "
-            "Use for Storage & Compute capacity, Kubernetes/k8s clusters & nodes, "
-            "MongoDB / Vitess / RDS database operations, AWS cost & rightsizing, "
-            "Prometheus/PagerDuty observability, platform services, tech-debt, "
-            "SRE/CICD, and shared infra libraries. "
-            "Choose this when the ticket is about platform runtime rather than "
-            "Tahoe-specific lakehouse components (Airflow/Hive/Presto/Flink owned by tahoe)."
+            "Company-wide infrastructure and multi-project board (issue keys CORE-*). "
+            "Includes Storage & Compute capacity, Kubernetes/k8s clusters & nodes, "
+            "MongoDB / Vitess / RDS, AWS cost & rightsizing, Prometheus/PagerDuty observability, "
+            "platform services, tech-debt, SRE/CICD, and shared infra libraries. "
+            "Also hosts Tahoe work after the TAHOE→CORE migration: Airflow, "
+            "Hive/Presto/Trino, Spark/EMR, Flink & Kafka / MSK, Superset, DataHub, Hudi, "
+            "logging, JupyterHub, and related offline-platform ops. "
+            "Default choice for current Tahoe-related and shared platform tickets; "
+            "use `tahoe` only for historical TAHOE-* tickets."
         ),
     },
     {
@@ -62,8 +63,8 @@ JIRA_PROFILES: list[JiraProfile] = [
             "MRF and core data pipelines, Airflow pipeline work for product/DE teams, "
             "LakeView, merchant risk / payments / ads / attribution / pricing data, "
             "metric onboarding, backfills, and BI-DS style pipeline requests. "
-            "Prefer tahoe for platform/cluster/Hive-Presto infra itself; prefer ds "
-            "(CXDS) for consumer-experience analytics (video, checkout, post-purchase)."
+            "Prefer `core` (or historical `tahoe`) for platform/cluster/Hive-Presto infra; "
+            "prefer ds (CXDS) for consumer-experience analytics (video, checkout, post-purchase)."
         ),
     },
     {
@@ -77,7 +78,7 @@ JIRA_PROFILES: list[JiraProfile] = [
             "Post-Purchase & returns/refunds, Checkout Experience, Homepage & Navigation, "
             "CS Operations, flat-rate shipping, NPS/WBR reporting, funnel metrics, "
             "merchandising data pulls, and dashboards supporting consumer product decisions. "
-            "Smaller corpus than DSE; not the place for Tahoe platform ops or CORE infra."
+            "Smaller corpus than DSE; not the place for Tahoe/lakehouse ops or CORE infra."
         ),
     },
     {
@@ -88,7 +89,8 @@ JIRA_PROFILES: list[JiraProfile] = [
         "description": (
             "SQD support / queue tickets (issue keys SQD-*) when indexed. "
             "Use for cross-team support requests and escalations filed in SQD rather than "
-            "long-running Tahoe/CORE platform epics or DSE/CXDS product-data delivery work."
+            "long-running CORE platform epics (incl. migrated Tahoe work) or "
+            "DSE/CXDS product-data delivery work."
         ),
     },
 ]
@@ -149,7 +151,7 @@ def _format_hit(hit: dict[str, Any]) -> dict[str, Any]:
 @tool(description=_tool_description())
 def fetch_related_jira_tickets(
     query: str,
-    project: JiraProject = "tahoe",
+    project: JiraProject = "core",
     limit: int = 5,
 ) -> list[dict[str, Any]]:
     """Search indexed Jira tickets; see tool description for the project catalog."""

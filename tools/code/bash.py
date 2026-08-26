@@ -10,6 +10,8 @@ from pathlib import Path
 
 from langchain.tools import tool
 
+from tools.errors import ToolErrorType, register_exception
+
 DESCRIPTION = """\
 Execute a bash command in the terminal.
 * Long running commands: For commands that may run indefinitely, it should be run in the background and the output should be redirected to a file, e.g. command = `python3 app.py > server.log 2>&1 &`.
@@ -31,6 +33,16 @@ class BashSessionError(RuntimeError):
     def __init__(self, message: str, system: str | None = None) -> None:
         super().__init__(message)
         self.system = system
+
+
+def _classify_bash_session_error(exc: BaseException) -> tuple[ToolErrorType, bool, str] | None:
+    message = str(exc)
+    if "timed out" in message.lower() or "timeout" in message.lower():
+        return ToolErrorType.TIMEOUT, True, message
+    return ToolErrorType.UNKNOWN, False, message
+
+
+register_exception(BashSessionError, classifier=_classify_bash_session_error)
 
 
 class _BashSession:

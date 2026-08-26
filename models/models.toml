@@ -1,5 +1,5 @@
 [basic]
-default_model_name = "glm-4.7-flash"
+default_model_name = "sensenova-6.7-flash-lite"
 
 [model."glm-4.7-flash"]
 base_url = "https://open.bigmodel.cn/api/paas/v4/"

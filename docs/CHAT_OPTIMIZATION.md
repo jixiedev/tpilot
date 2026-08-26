@@ -630,6 +630,54 @@ Implementation notes (behavior only): detect emits intentions + plan steps; publ
 
 ---
 
+## 2026-08-25 — CLI progress Status lines
+
+**Goal**: Show what the agent is waiting on so long LLM / routing pauses do not look like a hang.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| LLM wait | Silent until the model returned (or tools printed) | `Status> LLM thinking (tools=…/…, idle=…)` before each `step_llm` call |
+| Intent routing | Blank until `Intent>` after detect finished | `Status> Intent routing…` before the router model call (including clarify re-detect) |
+| Specialist handoff | Only `Plan>` step lines | `Status> Running specialist: …` immediately before each specialist turn |
+
+---
+
+## 2026-08-25 — Scope Assistant reply to current turn
+
+**Goal**: Stop reprinting the previous turn's answer when this turn ends without `chat_completion`.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| Reply lookup | Latest `chat_completion` anywhere in session history | Only after the latest human message |
+| Idle / plain-text end | Quietly showed prior-turn `Assistant>` | Falls back to this turn's AI text, or an explicit no-reply message |
+| Chain handoff | Same global lookup via `extract_turn_output` | Same current-turn scoping |
+
+---
+
+## 2026-08-26 — Per-tool exception → ToolErrorType registry
+
+**Goal**: Stop centralizing product-specific error classification (especially Trino) inside `from_exception`.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| Classification ownership | `tools/errors.py` hard-coded Trino SDK types and message substrings | Each tool module registers exception → `ToolErrorType` / `retryable` via `register_exception` |
+| Lookup path | Nested if/else in `from_exception` | `resolve_exception` walks exception MRO against the registry |
+| False timeout retries | `ToolInvocationError` text containing the word “timeout” was treated as transient | LangGraph arg-validation errors register as non-retryable `syntax` |
+
+---
+
+## 2026-08-26 — Eval cases pin models and average across them
+
+**Goal**: Make eval scores less tied to whichever default LLM is currently configured.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| Model choice | Always `default_model` from `models.toml` | Case/file `models` list (names from `models.toml`) |
+| Aggregation | One run per case | Per-model runs → case average → suite average |
+| CLI | No model listing | `--list-models`; output shows `model=` and `case avg` |
+
+---
+
 <!-- Append the next optimization section above this line -->
 
 

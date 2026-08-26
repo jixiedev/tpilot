@@ -6,8 +6,9 @@ import json
 import re
 from typing import Any
 
-from langchain_core.messages import AIMessage, ToolMessage
+from langchain_core.messages import AIMessage
 
+from agent.turn import completion_tool_reply, current_turn_messages
 from state.state import SessionAgentState, last_ai_message, message_text
 
 _DEFAULT_RESULT_PREVIEW_CHARS = 2000
@@ -19,6 +20,17 @@ _WRAPPED_COMPLETION_RE = re.compile(
 
 class ReactAgentListener:
     """Hooks for CLI / UI feedback during a ReAct turn."""
+
+    def print_status(self, message: str) -> None:
+        return None
+
+    def print_llm_start(
+        self,
+        tool_call_count: int = 0,
+        max_tool_calls: int = 0,
+        idle_rounds: int = 0,
+    ) -> None:
+        return None
 
     def print_tool_call(self, name: str, args: dict) -> None:
         return None
@@ -60,6 +72,22 @@ class ListenerHub(ReactAgentListener):
         getattr(self.primary, method)(*args, **kwargs)
         for observer in list(self._observers):
             getattr(observer, method)(*args, **kwargs)
+
+    def print_status(self, message: str) -> None:
+        self._fan_out("print_status", message)
+
+    def print_llm_start(
+        self,
+        tool_call_count: int = 0,
+        max_tool_calls: int = 0,
+        idle_rounds: int = 0,
+    ) -> None:
+        self._fan_out(
+            "print_llm_start",
+            tool_call_count,
+            max_tool_calls,
+            idle_rounds,
+        )
 
     def print_tool_call(self, name: str, args: dict) -> None:
         self._fan_out("print_tool_call", name, args)
@@ -139,6 +167,39 @@ class CliReactListener(ReactAgentListener):
                         parts.append(text)
         return "\n".join(parts)
 
+    @staticmethod
+    def format_status(message: str) -> str:
+        text = message.strip() or "working"
+        return f"Status> {text}"
+
+    def format_llm_start(
+        self,
+        tool_call_count: int = 0,
+        max_tool_calls: int = 0,
+        idle_rounds: int = 0,
+    ) -> str:
+        return self.format_status(
+            f"LLM thinking (tools={tool_call_count}/{max_tool_calls}, idle={idle_rounds})"
+        )
+
+    def print_status(self, message: str) -> None:
+        print(self.format_status(message), flush=True)
+
+    def print_llm_start(
+        self,
+        tool_call_count: int = 0,
+        max_tool_calls: int = 0,
+        idle_rounds: int = 0,
+    ) -> None:
+        print(
+            self.format_llm_start(
+                tool_call_count=tool_call_count,
+                max_tool_calls=max_tool_calls,
+                idle_rounds=idle_rounds,
+            ),
+            flush=True,
+        )
+
     def format_tool_call(self, name: str, args: dict) -> str | None:
         if name in self.silent_tool_names:
             return None
@@ -184,13 +245,18 @@ class CliReactListener(ReactAgentListener):
         return "\n".join(lines)
 
     def last_completion_reply(self, state: SessionAgentState) -> str | None:
-        for message in reversed(state["messages"]):
-            if isinstance(message, ToolMessage) and message.name == self.completion_tool_name:
-                content = message.content
-                if isinstance(content, str):
-                    return self.unwrap_completion_reply(content)
-                return self.unwrap_completion_reply(str(content))
-        return None
+        """Return this turn's ``chat_completion`` reply, if any.
+
+        Prior-turn completions are ignored so an idle/plain-text end cannot
+        reprint the previous answer.
+        """
+        reply = completion_tool_reply(
+            state,
+            completion_tool_name=self.completion_tool_name,
+        )
+        if reply is None:
+            return None
+        return self.unwrap_completion_reply(reply)
 
     @staticmethod
     def unwrap_completion_reply(reply: str) -> str:
@@ -218,7 +284,7 @@ class CliReactListener(ReactAgentListener):
     def print_turn_output(self, state: SessionAgentState) -> None:
         reply = self.last_completion_reply(state)
         if reply is None:
-            fallback = last_ai_message(state)
+            fallback = last_ai_message(current_turn_messages(state))
             if fallback is not None:
                 print(f"Assistant> {self.message_text_content(fallback.content)}")
                 return

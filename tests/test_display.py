@@ -88,6 +88,25 @@ def test_format_llm_step_reason_only_with_tool_calls() -> None:
     assert listener.format_llm_step(message) == "Reason> Call Jira search."
 
 
+def test_format_llm_start_includes_budget() -> None:
+    listener = _listener()
+    assert listener.format_llm_start(
+        tool_call_count=3,
+        max_tool_calls=30,
+        idle_rounds=1,
+    ) == "Status> LLM thinking (tools=3/30, idle=1)"
+
+
+def test_print_llm_start_writes_to_stdout(capsys) -> None:
+    _listener().print_llm_start(tool_call_count=0, max_tool_calls=10, idle_rounds=0)
+    assert capsys.readouterr().out == "Status> LLM thinking (tools=0/10, idle=0)\n"
+
+
+def test_print_status_writes_to_stdout(capsys) -> None:
+    _listener().print_status("Intent routing…")
+    assert capsys.readouterr().out == "Status> Intent routing…\n"
+
+
 def test_print_llm_step_writes_to_stdout(capsys) -> None:
     _listener().print_llm_step(
         AIMessage(
@@ -134,3 +153,80 @@ def test_unwrap_completion_reply_strips_nested_tool_syntax() -> None:
         CliReactListener.unwrap_completion_reply(wrapped) == "GMV is sum of gmv_variation"
     )
     assert CliReactListener.unwrap_completion_reply("plain answer") == "plain answer"
+
+
+def test_last_completion_reply_ignores_prior_turn(capsys) -> None:
+    from langchain_core.messages import HumanMessage, ToolMessage
+
+    listener = _listener()
+    state = {
+        "messages": [
+            HumanMessage(content="old question"),
+            AIMessage(
+                content="",
+                tool_calls=[
+                    {
+                        "name": CHAT_COMPLETION_TOOL_NAME,
+                        "args": {"reply": "old answer"},
+                        "id": "c1",
+                        "type": "tool_call",
+                    }
+                ],
+            ),
+            ToolMessage(
+                content="old answer",
+                name=CHAT_COMPLETION_TOOL_NAME,
+                tool_call_id="c1",
+            ),
+            HumanMessage(content="new question"),
+            AIMessage(content="plain idle answer this turn"),
+        ]
+    }
+    assert listener.last_completion_reply(state) is None
+    listener.print_turn_output(state)
+    assert capsys.readouterr().out == "Assistant> plain idle answer this turn\n"
+
+
+def test_last_completion_reply_uses_current_turn_only() -> None:
+    from langchain_core.messages import HumanMessage, ToolMessage
+
+    listener = _listener()
+    state = {
+        "messages": [
+            HumanMessage(content="old question"),
+            ToolMessage(
+                content="old answer",
+                name=CHAT_COMPLETION_TOOL_NAME,
+                tool_call_id="c1",
+            ),
+            HumanMessage(content="new question"),
+            ToolMessage(
+                content="new answer",
+                name=CHAT_COMPLETION_TOOL_NAME,
+                tool_call_id="c2",
+            ),
+        ]
+    }
+    assert listener.last_completion_reply(state) == "new answer"
+
+
+def test_print_turn_output_without_current_reply(capsys) -> None:
+    from langchain_core.messages import HumanMessage, ToolMessage
+
+    listener = _listener()
+    state = {
+        "messages": [
+            HumanMessage(content="old question"),
+            ToolMessage(
+                content="old answer",
+                name=CHAT_COMPLETION_TOOL_NAME,
+                tool_call_id="c1",
+            ),
+            HumanMessage(content="new question"),
+        ]
+    }
+    listener.print_turn_output(state)
+    assert (
+        capsys.readouterr().out
+        == f"Assistant> (no reply; expected {CHAT_COMPLETION_TOOL_NAME})\n"
+    )

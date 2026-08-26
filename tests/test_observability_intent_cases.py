@@ -22,6 +22,7 @@ def _intent_case(**overrides) -> IntentRouterCase:
         "expected_status": "published",
         "expected_intentions": ["DATA"],
         "expected_routes": ["databot"],
+        "models": ["sensenova-6.7-flash-lite"],
     }
     defaults.update(overrides)
     return IntentRouterCase(**defaults)
@@ -105,6 +106,7 @@ def test_score_unordered_route_partial_credit() -> None:
 
 def test_find_intent_cases_requires_expected_status(tmp_path: Path) -> None:
     payload = {
+        "models": ["sensenova-6.7-flash-lite"],
         "router": [
             {
                 "name": "ok",
@@ -113,15 +115,21 @@ def test_find_intent_cases_requires_expected_status(tmp_path: Path) -> None:
                 "expected_intentions": ["DATA"],
                 "expected_routes": ["databot"],
             }
-        ]
+        ],
     }
     (tmp_path / "intent.json").write_text(json.dumps(payload), encoding="utf-8")
     cases = find_intent_cases(["intent"], cases_dir=tmp_path)
     assert len(cases) == 1
     assert cases[0].expected_routes == ["databot"]
+    assert cases[0].models == ["sensenova-6.7-flash-lite"]
 
     (tmp_path / "bad.json").write_text(
-        json.dumps({"router": [{"name": "missing-status", "query": "hello"}]}),
+        json.dumps(
+            {
+                "models": ["m"],
+                "router": [{"name": "missing-status", "query": "hello"}],
+            }
+        ),
         encoding="utf-8",
     )
     with pytest.raises(ValueError, match="expected_status"):

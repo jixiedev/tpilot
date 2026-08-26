@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import json
 import uuid
-from dataclasses import dataclass
+from collections.abc import Awaitable, Callable
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -20,6 +21,11 @@ GROUP_ALIASES: dict[str, str] = {
     "knowledge_case": "knowledge",
 }
 
+# Reserved top-level JSON keys that are not suite names.
+_FILE_META_KEYS = frozenset({"models"})
+
+AgentFactory = Callable[[str], Awaitable[BaseReactAgent]]
+
 
 @dataclass
 class CaseResult:
@@ -27,6 +33,24 @@ class CaseResult:
     score: CaseScore
     reply: str
     cancelled: bool = False
+    model_name: str = ""
+
+
+@dataclass
+class CaseAggregate:
+    """One case averaged across its configured models."""
+
+    case: ToolCallCase
+    model_results: list[CaseResult] = field(default_factory=list)
+
+    @property
+    def average(self) -> float:
+        if not self.model_results:
+            return 0.0
+        total = 0.0
+        for result in self.model_results:
+            total += 0.0 if result.cancelled else result.score.total
+        return total / len(self.model_results)
 
 
 class ToolCallCase:
@@ -38,6 +62,7 @@ class ToolCallCase:
         expected_tools: list[str],
         total_rounds: int,
         answer: dict[str, Any],
+        models: list[str],
     ) -> None:
         self.name = name
         self.case_group = case_group
@@ -45,8 +70,9 @@ class ToolCallCase:
         self.expected_tools = list(expected_tools)
         self.total_rounds = int(total_rounds)
         self.answer = dict(answer)
+        self.models = list(models)
 
-    async def run(self, agent: BaseReactAgent) -> CaseResult:
+    async def run(self, agent: BaseReactAgent, *, model_name: str = "") -> CaseResult:
         observer = Observer(completion_tool_name=agent.completion_tool_name)
         agent.clear_observers()
         agent.register_observer(observer)
@@ -58,7 +84,9 @@ class ToolCallCase:
             print_output=False,
         )
         try:
-            return self.score(result, observer)
+            case_result = self.score(result, observer)
+            case_result.model_name = model_name
+            return case_result
         finally:
             agent.clear_observers()
 
@@ -159,20 +187,66 @@ def resolve_group_path(group: str, *, cases_dir: Path | None = None) -> Path:
     raise FileNotFoundError(f"case group file not found for {group!r} (tried: {tried})")
 
 
+def parse_models_field(
+    raw: Any,
+    *,
+    label: str,
+    default_models: list[str] | None = None,
+) -> list[str]:
+    """Normalize a case/file ``models`` value to a non-empty list of names."""
+    if raw is None:
+        if default_models:
+            return list(default_models)
+        raise ValueError(
+            f"{label} is missing required field 'models' "
+            "(list of names from models/models.toml)"
+        )
+    if isinstance(raw, str):
+        names = [raw.strip()] if raw.strip() else []
+    elif isinstance(raw, list):
+        names = [str(item).strip() for item in raw if str(item).strip()]
+    else:
+        raise ValueError(f"{label} field 'models' must be a string or list of strings")
+    if not names:
+        raise ValueError(f"{label} field 'models' must be a non-empty list")
+    return names
+
+
+def extract_file_default_models(payload: Any) -> list[str] | None:
+    """Optional top-level ``models`` shared by every case in the file."""
+    if not isinstance(payload, dict) or "models" not in payload:
+        return None
+    return parse_models_field(payload["models"], label="case file")
+
+
 def find_cases(groups: list[str], *, cases_dir: Path | None = None) -> list[ToolCallCase]:
     root = cases_dir or CASES_DIR
     all_cases: list[ToolCallCase] = []
     for group in groups:
         path = resolve_group_path(group, cases_dir=root)
         payload = json.loads(path.read_text(encoding="utf-8"))
+        default_models = extract_file_default_models(payload)
         suites = _normalize_suites(payload)
         for suite_name, cases in suites.items():
             for raw in cases:
-                all_cases.append(_load_case(raw, group=group, suite_name=suite_name))
+                all_cases.append(
+                    _load_case(
+                        raw,
+                        group=group,
+                        suite_name=suite_name,
+                        default_models=default_models,
+                    )
+                )
     return all_cases
 
 
-def _load_case(raw: dict[str, Any], *, group: str, suite_name: str) -> ToolCallCase:
+def _load_case(
+    raw: dict[str, Any],
+    *,
+    group: str,
+    suite_name: str,
+    default_models: list[str] | None,
+) -> ToolCallCase:
     if "name" not in raw:
         raise ValueError(f"case in {group}/{suite_name} is missing required field 'name'")
     if "query" not in raw:
@@ -180,6 +254,12 @@ def _load_case(raw: dict[str, Any], *, group: str, suite_name: str) -> ToolCallC
             f"case {raw.get('name', '?')!r} in {group}/{suite_name} "
             "is missing required field 'query'"
         )
+    label = f"case {raw['name']!r} in {group}/{suite_name}"
+    models = parse_models_field(
+        raw.get("models"),
+        label=label,
+        default_models=default_models,
+    )
     return ToolCallCase(
         name=str(raw["name"]),
         case_group=f"{group}/{suite_name}",
@@ -187,6 +267,7 @@ def _load_case(raw: dict[str, Any], *, group: str, suite_name: str) -> ToolCallC
         expected_tools=list(raw.get("expected_tools") or []),
         total_rounds=int(raw.get("total_rounds") or 1),
         answer=dict(raw.get("answer") or {}),
+        models=models,
     )
 
 
@@ -196,6 +277,8 @@ def _normalize_suites(payload: Any) -> dict[str, list[dict[str, Any]]]:
     if isinstance(payload, dict):
         suites: dict[str, list[dict[str, Any]]] = {}
         for key, value in payload.items():
+            if key in _FILE_META_KEYS:
+                continue
             if not isinstance(value, list):
                 raise ValueError(f"case suite {key!r} must be a list")
             suites[str(key)] = value
@@ -205,34 +288,49 @@ def _normalize_suites(payload: Any) -> dict[str, list[dict[str, Any]]]:
 
 async def run_cases(
     groups: list[str],
-    agent: BaseReactAgent,
+    agent_factory: AgentFactory,
     *,
     cases_dir: Path | None = None,
-) -> tuple[float, list[CaseResult]]:
-    if not hasattr(agent, "register_observer"):
-        raise TypeError(
-            f"{type(agent).__name__} does not support observers; "
-            "use a BaseReactAgent (tahoe / databot / knowledge)"
-        )
+) -> tuple[float, list[CaseAggregate]]:
+    """Run each case on every listed model; average models, then cases.
+
+    ``agent_factory(model_name)`` must return a bound agent for that model.
+    """
     cases = find_cases(groups, cases_dir=cases_dir)
     if not cases:
         return 0.0, []
-    results: list[CaseResult] = []
-    total = 0.0
+
+    agents: dict[str, BaseReactAgent] = {}
+    aggregates: list[CaseAggregate] = []
+    case_totals = 0.0
+
     for case in cases:
-        case_result = await case.run(agent)
-        results.append(case_result)
-        total += 0.0 if case_result.cancelled else case_result.score.total
-    return total / len(cases), results
+        aggregate = CaseAggregate(case=case)
+        for model_name in case.models:
+            if model_name not in agents:
+                agent = await agent_factory(model_name)
+                if not hasattr(agent, "register_observer"):
+                    raise TypeError(
+                        f"{type(agent).__name__} does not support observers; "
+                        "use a BaseReactAgent (tahoe / databot / knowledge)"
+                    )
+                agents[model_name] = agent
+            case_result = await case.run(agents[model_name], model_name=model_name)
+            aggregate.model_results.append(case_result)
+        aggregates.append(aggregate)
+        case_totals += aggregate.average
+
+    return case_totals / len(aggregates), aggregates
 
 
 def format_case_result(result: CaseResult) -> str:
-    """Human-readable one-case summary for CLI output."""
+    """Human-readable one-model run summary for CLI output."""
     case = result.case
     score = result.score
     status = "CANCELLED" if result.cancelled else f"{score.total:.2f}"
+    model_bit = f" model={result.model_name}" if result.model_name else ""
     lines = [
-        f"[{status}] {case.case_group}/{case.name} "
+        f"[{status}] {case.case_group}/{case.name}{model_bit} "
         f"(tools={score.tool_score:.2f} rounds={score.round_score:.2f} "
         f"answer={score.answer_score:.2f})",
     ]
@@ -264,7 +362,18 @@ def format_case_result(result: CaseResult) -> str:
     return "\n".join(lines)
 
 
+def format_case_aggregate(aggregate: CaseAggregate) -> str:
+    """Print every model run, then the per-case model average."""
+    lines = [format_case_result(result) for result in aggregate.model_results]
+    n = len(aggregate.model_results)
+    lines.append(
+        f"  case avg: {aggregate.average:.3f} "
+        f"({n} model{'s' if n != 1 else ''}: {', '.join(aggregate.case.models)})"
+    )
+    return "\n".join(lines)
+
+
 # Backward-compatible name used by early scaffolding.
-async def run(groups: list[str], agent: BaseReactAgent) -> float:
-    average, _ = await run_cases(groups, agent)
+async def run(groups: list[str], agent_factory: AgentFactory) -> float:
+    average, _ = await run_cases(groups, agent_factory)
     return average

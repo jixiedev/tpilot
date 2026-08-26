@@ -18,6 +18,7 @@ from graph.error_recovery import (
     make_step_tools_error_handler,
 )
 from graph.node import (
+    LlmStartListener,
     LlmStepListener,
     StepToolsNode,
     ToolCallListener,
@@ -77,6 +78,7 @@ def build_react_graph(
     tool_retry_policy: RetryPolicy | None = None,
     on_tool_call: ToolCallListener | None = None,
     on_tool_result: ToolResultListener | None = None,
+    on_llm_start: LlmStartListener | None = None,
     on_llm_step: LlmStepListener | None = None,
 ) -> CompiledStateGraph:
     """Compile inject_system_prompt → step_llm ↔ step_tools.
@@ -104,6 +106,7 @@ def build_react_graph(
             idle_nudge_prompt=idle_nudge_prompt,
             tool_budget_exhausted_prompt=tool_budget_exhausted_prompt,
             max_tool_calls=max_tool_calls,
+            on_llm_start=on_llm_start,
             on_llm_step=on_llm_step,
         ),
     )

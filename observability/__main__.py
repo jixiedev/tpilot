@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 
 from dotenv import load_dotenv
+from langchain_core.language_models import BaseChatModel
 
 load_dotenv(Path(__file__).resolve().parents[1] / ".env")
 
@@ -55,28 +56,44 @@ def build_arg_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="list available case group keys and exit",
     )
+    parser.add_argument(
+        "--list-models",
+        action="store_true",
+        help="list model names from models/models.toml and exit",
+    )
     return parser
 
 
-async def create_eval_agent(agent_name: str):
+def resolve_eval_model(model_name: str) -> BaseChatModel:
+    from models.models import models
+
+    if model_name not in models:
+        known = ", ".join(sorted(models))
+        raise ValueError(f"Unknown model {model_name!r}; known models: {known}")
+    return models[model_name]
+
+
+async def create_eval_agent(agent_name: str, model_name: str):
     from langgraph.checkpoint.memory import MemorySaver
 
     from agent.listener import ReactAgentListener
     from agent.registry import get_agent
     from agent.react.tahoe.tahoe_agent import TahoeAgent
     from memory import CompressionConfig
-    from models.models import default_model
 
+    model = resolve_eval_model(model_name)
     spec = get_agent(agent_name)
     if agent_name == "intent":
         agent = await spec.create_agent()
-        await agent.bind(default_model, MemorySaver())
+        await agent.bind(model, MemorySaver())
         return agent
 
-    profile_store = TahoeAgent.default_profile_store()
-    agent = await spec.create_agent(react_listener=ReactAgentListener())
+    agent = await spec.create_agent(
+        profile_store=TahoeAgent.default_profile_store(),
+        react_listener=ReactAgentListener(),
+    )
     await agent.bind(
-        default_model,
+        model,
         MemorySaver(),
         compression_config=CompressionConfig(enabled=False),
     )
@@ -89,21 +106,39 @@ async def run_eval(
     groups: list[str],
     cases_dir: Path | None,
 ) -> tuple[float, list]:
-    agent = await create_eval_agent(agent_name)
+    async def agent_factory(model_name: str):
+        return await create_eval_agent(agent_name, model_name)
+
     if agent_name == "intent":
-        from observability.intent_case import format_intent_case_result, run_intent_cases
+        from observability.intent_case import (
+            format_intent_case_aggregate,
+            run_intent_cases,
+        )
 
-        average, results = await run_intent_cases(groups, agent, cases_dir=cases_dir)
-        for result in results:
-            print(format_intent_case_result(result))
+        average, aggregates = await run_intent_cases(
+            groups,
+            agent_factory,
+            cases_dir=cases_dir,
+        )
+        for aggregate in aggregates:
+            print(format_intent_case_aggregate(aggregate))
     else:
-        from observability.case import format_case_result, run_cases
+        from observability.case import format_case_aggregate, run_cases
 
-        average, results = await run_cases(groups, agent, cases_dir=cases_dir)
-        for result in results:
-            print(format_case_result(result))
-    print(f"Average score: {average:.3f} ({len(results)} case(s))")
-    return average, results
+        average, aggregates = await run_cases(
+            groups,
+            agent_factory,
+            cases_dir=cases_dir,
+        )
+        for aggregate in aggregates:
+            print(format_case_aggregate(aggregate))
+
+    model_runs = sum(len(item.model_results) for item in aggregates)
+    print(
+        f"Average score: {average:.3f} "
+        f"({len(aggregates)} case(s), {model_runs} model run(s))"
+    )
+    return average, aggregates
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -113,6 +148,13 @@ def main(argv: list[str] | None = None) -> int:
     if args.list_groups:
         for group in list_case_groups(cases_dir=args.cases_dir):
             print(group)
+        return 0
+    if args.list_models:
+        from models.models import default_model_name, models
+
+        for name in sorted(models):
+            marker = " (default)" if name == default_model_name else ""
+            print(f"{name}{marker}")
         return 0
 
     groups = args.groups or DEFAULT_GROUPS[args.agent]

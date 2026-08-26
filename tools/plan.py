@@ -7,6 +7,8 @@ from enum import Enum
 
 from langchain.tools import tool
 
+from tools.errors import ToolErrorType, register_exception
+
 DESCRIPTION = """\
 Create and manage plans: create, update, list, get, mark_step, delete.
 Steps are short actionable strings; use [agent_name] prefix when multiple agents exist.
@@ -16,6 +18,9 @@ plan_id is required for all commands except list.
 
 class PlanToolError(ValueError):
     """Raised when a planning command cannot be applied."""
+
+
+register_exception(PlanToolError, error_type=ToolErrorType.UNKNOWN, retryable=False)
 
 
 class StepStatus(Enum):

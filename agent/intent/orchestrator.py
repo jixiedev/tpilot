@@ -367,6 +367,7 @@ class IntentOrchestrator(BaseAgent):
         self._handoff_profile_store: ProfileStore | None = None
         self._handoff_max_tool_calls: int = 30
         self._specialists: dict[str, BaseAgent] = {}
+        self._print_progress = False
 
     @classmethod
     async def create(cls, **kwargs: Any) -> IntentOrchestrator:
@@ -439,7 +440,7 @@ class IntentOrchestrator(BaseAgent):
 
         if print_output:
             agents = " → ".join(step.agent_name for step in chain.plan_steps)
-            print(f"Plan> {agents}")
+            print(f"Plan> {agents}", flush=True)
 
         chain_result = await chain.execute(
             session=session,
@@ -473,28 +474,32 @@ class IntentOrchestrator(BaseAgent):
         execute_plan: bool = True,
     ) -> AgentTurnResult:
         """Detect intentions, publish a plan, then optionally execute specialists."""
-        result = await super().run(
-            user_prompt,
-            session=session,
-            user_id=user_id,
-            on_interrupt=on_interrupt,
-            print_output=print_output,
-        )
-        if result.cancelled or not execute_plan:
-            return result
+        self._print_progress = print_output
+        try:
+            result = await super().run(
+                user_prompt,
+                session=session,
+                user_id=user_id,
+                on_interrupt=on_interrupt,
+                print_output=print_output,
+            )
+            if result.cancelled or not execute_plan:
+                return result
 
-        status = str(result.state.get("status") or "").strip().lower()
-        plan = list(result.state.get("execution_plan") or [])
-        if status != "published" or not plan:
-            return result
+            status = str(result.state.get("status") or "").strip().lower()
+            plan = list(result.state.get("execution_plan") or [])
+            if status != "published" or not plan:
+                return result
 
-        return await self._execute_plan(
-            result.state,
-            session=session,
-            user_id=user_id,
-            on_interrupt=on_interrupt,
-            print_output=print_output,
-        )
+            return await self._execute_plan(
+                result.state,
+                session=session,
+                user_id=user_id,
+                on_interrupt=on_interrupt,
+                print_output=print_output,
+            )
+        finally:
+            self._print_progress = False
 
     def _detection_system_prompt(self) -> str:
         content = self.system_prompt
@@ -549,6 +554,9 @@ class IntentOrchestrator(BaseAgent):
                 messages.extend(history)
             else:
                 messages.append(HumanMessage(content=user_text))
+
+            if self._print_progress:
+                print("Status> Intent routing…", flush=True)
 
             try:
                 result = self._invoke_intention(model, messages)
@@ -677,12 +685,12 @@ class IntentOrchestrator(BaseAgent):
             else:
                 route = (state.get("route_target") or "").strip()
             suffix = f" → {route}" if route else ""
-            print(f"Intent> {intention} (confidence={confidence:.2f}){suffix}")
+            print(f"Intent> {intention} (confidence={confidence:.2f}){suffix}", flush=True)
             return
         if status == "rejected":
-            print(f"Intent> UNCLEAR (rejected; confidence={confidence:.2f})")
+            print(f"Intent> UNCLEAR (rejected; confidence={confidence:.2f})", flush=True)
             return
-        print(f"Intent> {intention} (status={status}; confidence={confidence:.2f})")
+        print(f"Intent> {intention} (status={status}; confidence={confidence:.2f})", flush=True)
 
     def render_system_prompt(self, state: IntentionState) -> str:
         return build_intention_system_prompt(

@@ -1,9 +1,14 @@
 {
+  "models": [
+    "sensenova-6.7-flash-lite"
+  ],
   "jira": [
     {
       "name": "jira_superset_security",
       "query": "How should we address security vulnerabilities in Superset? Reply with a single JSON object only. Do not wrap it in markdown fences and do not add any other text. Required shape: {\"jira_ticket\": \"<value>\"}",
-      "expected_tools": ["fetch_related_jira_tickets"],
+      "expected_tools": [
+        "fetch_related_jira_tickets"
+      ],
       "total_rounds": 2,
       "answer": {
         "jira_ticket": "TAHOE-949"
