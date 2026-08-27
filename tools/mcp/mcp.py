@@ -154,7 +154,7 @@ DATAHUB_MCP_SERVER_NAME = "datahub"
 async def get_datahub_mcp_tools() -> list[BaseTool]:
     """Load tools from the ``datahub`` MCP server, or ``[]`` if unavailable."""
     if DATAHUB_MCP_SERVER_NAME not in configured_mcp_server_names():
-        _logger.info(
+        _logger.debug(
             "MCP server %r not configured; skipping DataHub MCP tools",
             DATAHUB_MCP_SERVER_NAME,
         )

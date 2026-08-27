@@ -1,7 +1,9 @@
 {
   "dependencies": ["."],
   "graphs": {
-    "agent": "./ui.py:ui_agent"
+    "databot": "./ui.py:databot_ui_agent",
+    "knowledge": "./ui.py:knowledge_ui_agent",
+    "intent": "./ui.py:intent_ui_agent"
   },
   "env": ".env"
 }

@@ -9,7 +9,7 @@ from collections.abc import Callable
 from typing import Any
 
 from langchain_core.language_models import BaseChatModel
-from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
+from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage, AIMessage
 from pydantic import ValidationError
 
 from graph.error_recovery import invoke_with_transient_retry
@@ -106,6 +106,11 @@ def make_refine_user_profile_node(
             )
         except Exception as exc:
             logger.warning("user profile refine skipped (%s)", exc)
-        return {}
+
+        # todo jiapeng we populate last completion tool's reply into state, as the last AI message
+        # todo add a specific node to handle this
+        fake_ai_message = AIMessage(content=reply)
+        logger.info("inject last completion tools' reply into state")
+        return {"messages": [fake_ai_message]}
 
     return refine_user_profile
