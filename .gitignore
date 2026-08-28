@@ -29,3 +29,16 @@ profiles/
 offload_store/
 
 .idea/
+
+# LangGraph API
+.langgraph_api/
+
+# Frontend (Next.js / CopilotKit) — only cache / deps, source stays tracked
+frontend/node_modules/
+frontend/.next/
+frontend/.next/dev/
+frontend/tsconfig.tsbuildinfo
+frontend/.DS_Store
+frontend/**/.DS_Store
+frontend/out/
+frontend/build/

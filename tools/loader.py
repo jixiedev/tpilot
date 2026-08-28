@@ -20,8 +20,17 @@ def load_general_tools() -> list[BaseTool]:
 
 
 async def load_data_tools() -> list[BaseTool]:
+    """Tools for the data-retrieval agent (MCP / DataHub / Hive / Trino / S3 / dbt RAG).
+
+    RAG tools (``fetch_related_models`` + ``add_card_to_state``) are also
+    exposed to KnowledgeAgent via ``load_knowledge_tools``; they live here
+    because the canonical workflow (fetch TableCard → human approve → state
+    → SQL) is the Databot path.
+    """
+    from tools.rag import TOOLS as rag_tools
+
     mcp_tools = await get_mcp_tools()
-    return [*mcp_tools, *datahub_tools, *hive_tools, *trino_tools, *s3_tools]
+    return [*mcp_tools, *datahub_tools, *hive_tools, *trino_tools, *s3_tools, *rag_tools]
 
 
 async def load_knowledge_tools() -> list[BaseTool]:
