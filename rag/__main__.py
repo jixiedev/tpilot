@@ -12,14 +12,17 @@ def build_arg_parser() -> argparse.ArgumentParser:
         "-t",
         "--job-type",
         default="jira",
-        choices=("jira", "google_drive", "wiki"),
+        choices=("jira", "google_drive", "model", "wiki"),
         help="document source type",
     )
     parser.add_argument(
         "-p",
         "--path",
         required=True,
-        help="path to the document file (jira CSV) or directory (google_drive zips)",
+        help=(
+            "path to the document file (jira CSV), directory of zips "
+            "(google_drive), or directory of dbt schema yml files (model)"
+        ),
     )
     parser.add_argument(
         "-c",
@@ -51,6 +54,11 @@ def main(argv: list[str] | None = None) -> int:
         from rag.google_drive_ingest import upload_google_drive
 
         upload_google_drive(args.path, args.collection_name)
+        return 0
+    if args.job_type == "model":
+        from rag.model_ingest import upload_semantic_models
+
+        upload_semantic_models(args.path, args.collection_name)
         return 0
     print(
         f"Job type {args.job_type!r} is not implemented yet.",

@@ -16,7 +16,7 @@
 | M0 | 可对话 | CLI 里与 Agent 多轮对话，调用 Hive/Trino/MCP 工具拿到结果 | 已完成：通用 ReAct Graph + `--agent` 插件化；详见 [CHAT_OPTIMIZATION.md](CHAT_OPTIMIZATION.md) |
 | M1 | 可恢复 | 对话状态持久化，关掉再开能接着聊；长对话有上下文管理 | 已完成：`AsyncSqliteSaver` + `--session`；上下文压缩（F4）已接入 |
 | M2 | 能取数 | 用自然语言描述数据需求，Agent 找表、写 SQL、返回查询结果 | 已完成：glossary-first → 元数据/血缘 → 只读 SQL；`DatabotAgent` / 取数 prompt 契约 |
-| M3 | 能查知识 | 用自然语言问 Tahoe 团队知识：代码库、Google Docs、Wiki/FAQ、Jira；Agent 检索并解释 | 已完成（v1）：`KnowledgeAgent`（`--agent knowledge` / Intent `KNOWLEDGE`）；Jira Qdrant 检索；DataHub + 只读 K8s。Drive zip 可入库；代码库 / Wiki / Drive 检索工具见后续优化 |
+| M3 | 能查知识 | 用自然语言问 Tahoe 团队知识：代码库、Google Docs、Wiki/FAQ、Jira；Agent 检索并解释 | 已完成（v1）：`KnowledgeAgent`（`--agent knowledge` / Intent `KNOWLEDGE`）；Jira Qdrant 检索；DataHub + 只读 K8s。Drive zip 与 dbt semantic model 可入库；`fetch_related_models` 工具已接；代码库 / Wiki / Drive 检索工具待接 |
 | M4 | 能协作 | 复杂任务拆给多个专精 Agent，彼此传递中间结果 | 已完成：`IntentOrchestrator` 复合意图 → `execution_plan` → `PlannedAgentChain`；上游输出喂下游；子 Agent 短时会话 |
 | M5 | 能诊断 | 描述数据异常，Agent 跑质量检查、推根因、出报告 | 未开始 |
 | M6 | 可部署 | 从本地 CLI 变成可对外提供的服务（UI、API、权限、观测） | 未开始 |
@@ -39,7 +39,7 @@
 | F12 | Model Routing | 按任务复杂度/成本动态选择模型 | P2 | 未开始 |
 | F13 | Procedural Memory | 从成功交互中提炼可复用的工具调用序列与工作流 | P3 | 未开始 |
 | F14 | Error Handling | LLM/工具失败分类、重试与降级；友好报错与可恢复中断 | P1 | 已完成：TOOL ERROR、瞬时重试、Hive↔Trino 防振荡、CLI 友好报错 |
-| F15 | RAG | 本地 Qdrant 向量库；Jira / Google Drive 等知识入库与语义检索，供 Knowledge Agent 使用 | P1 | 已完成（Jira 主路径）：Docker Qdrant、ingest CLI（Jira CSV / Drive zip）、`fetch_related_jira_tickets`。Drive/Wiki 检索工具与评测仍开放 |
+| F15 | RAG | 本地 Qdrant 向量库；Jira / Google Drive 等知识入库与语义检索，供 Knowledge Agent 使用 | P1 | 已完成（Jira 主路径）：Docker Qdrant、ingest CLI（Jira CSV / Drive zip / dbt semantic model）、`fetch_related_jira_tickets` 与 `fetch_related_models`。Drive / Wiki 检索工具与 RAG 评测待接 |
 
 ---
 
@@ -98,4 +98,4 @@
 
 ---
 
-*最后更新：2026-08-24*
+*最后更新：2026-08-28*

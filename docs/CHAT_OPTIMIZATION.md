@@ -678,6 +678,42 @@ Implementation notes (behavior only): detect emits intentions + plan steps; publ
 
 ---
 
+## 2026-08-28 — CopilotKit runtime endpoint fix (M2 databot UI)
+
+**Goal**: Make the CopilotKit browser runtime reach the `databot` agent.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| App Router placement | `app/api/copilotkit/route.ts` only matched the bare path; `/info` and `/agent/<id>/run` 404'd in Next.js | Catch-all `app/api/copilotkit/[...path]/route.ts` |
+| Runtime mode | `intelligence: new CopilotKitIntelligence(...)` + `identifyUser` returning `anonymous` → managed service tried Clerk → `401 CLERK_TOKEN_INVALID` | Dropped `intelligence`; runtime defaults to SSE mode + `InMemoryAgentRunner` (LangGraph keeps its own thread state in `checkpoints.sqlite`) |
+
+---
+
+## 2026-08-28 — dbt semantic model RAG ingest (F15)
+
+**Goal**: Index dbt semantic layer yml + sibling sql into Qdrant for the Knowledge agent to retrieve the right `TableCard` (per `tools/rag/semantic.py`).
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| Ingest path | No dbt coverage under `rag/` | `python -m rag -t model -p <dbt-dir> -c <collection>` walks yml + sql |
+| Chunk design | Per-column / per-metric chunks (popularity bias in top-K) or single chunk per model (description truncated to fit BGE's 512-token cap) | **Two points per model**: `model+columns` + `model+metrics`; each chunk focused, descriptions fit without aggressive pre-truncation |
+| Payload | — | Every point's payload carries the full structured model so the LLM can render a `TableCard` from a single retrieved point |
+
+---
+
+## 2026-08-28 — `fetch_related_models` tool wired (F15 / M3)
+
+**Goal**: Let the Knowledge agent retrieve candidate dbt models from the indexed collection.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| Retrieval tool | `tools/rag/semantic.py` `fetch_related_models` was a stub (`pass`) returning `list[Card]` | Real implementation: Qdrant `query_points` with `chunk_type` payload filter, dedup by `model_name` (each model has 2 points), returns `TableCard`-shaped dicts + score + matched chunk type |
+| `rag.store.search` | No filter support | Added `query_filter` kwarg passing through to `query_points` |
+| `add_card_to_state` typing | `list[TableCard]`; LLM would need to re-construct objects | `dict_to_table_card` helper hydrates tool output back to `TableCard` before `add_card_to_state` |
+| Tool loader wiring | Only `load_knowledge_tools()` (via `tools/rag/__init__.py`) — `TableCard` workflow was actually Databot's but ended up on Knowledge | `load_data_tools()` also includes `*rag_tools`; Knowledge keeps it; `fetch_related_models` and `add_card_to_state` now on both Databot and Knowledge |
+
+---
+
 <!-- Append the next optimization section above this line -->
 
 

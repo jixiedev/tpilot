@@ -83,9 +83,15 @@ def search(
     *,
     limit: int = 5,
     score_threshold: float | None = None,
+    query_filter: qmodels.Filter | None = None,
     client: QdrantClient | None = None,
 ) -> list[dict[str, Any]]:
-    """Embed ``query`` and return ranked payload hits for agent tools."""
+    """Embed ``query`` and return ranked payload hits for agent tools.
+
+    ``query_filter`` is a Qdrant ``Filter`` expression applied to payload
+    fields (e.g. ``chunk_type = "model+columns"``). When ``None``, the
+    full collection is searched.
+    """
     qdrant = client or get_client()
     vector = get_embedding(query)
     response = qdrant.query_points(
@@ -93,6 +99,7 @@ def search(
         query=vector,
         limit=max(1, limit),
         score_threshold=score_threshold,
+        query_filter=query_filter,
         with_payload=True,
         with_vectors=False,
     )
