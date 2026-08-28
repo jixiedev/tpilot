@@ -149,7 +149,7 @@ class SemanticProfile(TypedDict):
 SEMANTIC_PROFILES: list[SemanticProfile] = [
     {
         "layer": "hive_analytics",
-        "collection": "dbt_hive_analytics",
+        "collection": "dbt_models",
         "description": (
             "Analytics-layer dbt semantic models in the Hive warehouse. "
             "Use for merchant, transaction, and product analytics tables; "
@@ -362,17 +362,24 @@ def fetch_related_models(
 
 
 @tool
-def add_card_to_state(cards: list[TableCard]):
+def add_card_to_state(cards: list[dict]):
     """Commit picked ``TableCard``s into agent state under ``cards``.
 
-    Call after the user has approved a subset of cards returned by
-    ``fetch_related_models`` (hydrate each dict via ``dict_to_table_card``
-    first). The cards flow into the agent state and become the working
-    set for downstream SQL generation / MetricFlow calls.
+    Accepts the dict shape returned by ``fetch_related_models``; hydrates
+    each entry back to a real ``TableCard`` via ``dict_to_table_card``
+    before storing. Call after the user has approved a subset of cards
+    from a prior ``fetch_related_models`` result. The hydrated cards
+    become the working set for downstream SQL generation / MetricFlow.
+
+    Why dicts on the wire: ``TableCard`` is a plain Python class (not
+    Pydantic) and LangChain's tool binding cannot generate a JSON schema
+    for ``list[TableCard]``. The LLM only ever has the dict projection
+    anyway, so the hydration happens server-side here.
     """
+    hydrated = [dict_to_table_card(c) for c in cards]
     return Command(
         update={
-            "cards": cards
+            "cards": hydrated
         }
     )
 
