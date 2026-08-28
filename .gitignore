@@ -31,7 +31,7 @@ offload_store/
 .idea/
 
 # LangGraph API
-.langgraph_api\
+.langgraph_api/
 
 # Frontend (Next.js / CopilotKit) — only cache / deps, source stays tracked
 frontend/node_modules/
