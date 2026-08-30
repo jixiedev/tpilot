@@ -1,0 +1,139 @@
+"""Unit tests for the Databot v2 human-gate decision parsing.
+
+The state machine itself is exercised by an end-to-end graph smoke
+test (see test_databot_graph.py). Here we cover the smaller piece:
+how the CLI's resume payload is normalized into a (decision, comments)
+pair, plus the default-when-empty behavior.
+"""
+
+from __future__ import annotations
+
+import pytest
+
+from agent.react.databot.gates import (
+    DEFAULT_GATE_DECISION,
+    GATE_OPTIONS,
+    _parse_resume,
+)
+
+
+@pytest.mark.parametrize("token", list(GATE_OPTIONS))
+def test_parse_resume_accepts_bare_tokens(token: str) -> None:
+    decision, comments = _parse_resume(token)
+    assert decision == token
+    assert comments == ""
+
+
+def test_parse_resume_defaults_to_dryrun_on_empty() -> None:
+    decision, comments = _parse_resume("")
+    assert decision == DEFAULT_GATE_DECISION == "dryrun"
+    assert comments == ""
+
+
+def test_parse_resume_defaults_to_dryrun_on_none() -> None:
+    decision, _ = _parse_resume(None)
+    assert decision == "dryrun"
+
+
+def test_parse_resume_accepts_json_object() -> None:
+    decision, comments = _parse_resume(
+        '{"decision": "deny-comments", "comments": "use a different table"}'
+    )
+    assert decision == "deny-comments"
+    assert comments == "use a different table"
+
+
+def test_parse_resume_keeps_comments_when_decision_unknown() -> None:
+    decision, comments = _parse_resume(
+        '{"decision": "banana", "comments": "please clarify the metric"}'
+    )
+    assert decision == "dryrun"  # safe default
+    assert comments == "please clarify the metric"
+
+
+def test_parse_resume_preserves_freeform_text_as_comments() -> None:
+    # Freeform text without a recognized token — we default to dryrun and
+    # keep the user's text as a comment for the audit log.
+    decision, comments = _parse_resume("approve with notes: prefer last 7 days")
+    assert decision == "dryrun"
+    assert "approve with notes" in comments
+
+
+def test_parse_resume_handles_non_string_payload() -> None:
+    # Non-string, non-JSON payload should fall back to default + nothing.
+    decision, comments = _parse_resume(42)  # type: ignore[arg-type]
+    assert decision == "dryrun"
+    assert comments == "42"  # coerced to string
+
+
+def test_gate_options_includes_all_thought1_verdicts() -> None:
+    """thought 1 lists exactly these four verdicts."""
+    assert set(GATE_OPTIONS) == {"approve", "deny-comments", "deny-halt", "dryrun"}
+
+
+# ---------------------------------------------------------------------------
+# Stage tool schema coercion (regression: LLM passed reasons as a list
+# instead of a dict; the tool now accepts both shapes).
+# ---------------------------------------------------------------------------
+
+from agent.react.databot.stage_tools import _coerce_gate_reasons  # noqa: E402
+
+
+def test_coerce_gate_reasons_dict_form() -> None:
+    out = _coerce_gate_reasons({
+        "approve": "card matches",
+        "deny-comments": "maybe stale",
+        "deny-halt": "no",
+        "dryrun": "safe",
+    })
+    assert out == {
+        "approve": "card matches",
+        "deny-comments": "maybe stale",
+        "deny-halt": "no",
+        "dryrun": "safe",
+    }
+
+
+def test_coerce_gate_reasons_list_positional() -> None:
+    out = _coerce_gate_reasons([
+        "approve: card matches",          # prefix gets stripped
+        "deny-comments: maybe stale",
+        "deny-halt: no",
+        "dryrun: safe",
+    ])
+    assert out == {
+        "approve": "card matches",
+        "deny-comments": "maybe stale",
+        "deny-halt": "no",
+        "dryrun": "safe",
+    }
+
+
+def test_coerce_gate_reasons_list_short() -> None:
+    out = _coerce_gate_reasons(["only one reason"])
+    assert out == {"approve": "only one reason"}
+
+
+def test_coerce_gate_reasons_unknown_keys_dropped() -> None:
+    out = _coerce_gate_reasons({
+        "approve": "ok",
+        "banana": "no",
+        "DENY-COMMENTS": "uppercase ok",  # not in lowercase set → dropped
+    })
+    assert out == {"approve": "ok"}
+
+
+def test_coerce_gate_reasons_empty_and_garbage() -> None:
+    assert _coerce_gate_reasons(None) == {}
+    assert _coerce_gate_reasons("just a string") == {}
+    assert _coerce_gate_reasons([]) == {}
+    assert _coerce_gate_reasons({}) == {}
+
+
+def test_coerce_gate_reasons_list_with_prefixed_and_bare() -> None:
+    out = _coerce_gate_reasons([
+        "approve: matches",
+        "no prefix here",  # no head in GATE_OPTIONS — keep as is
+    ])
+    assert out["approve"] == "matches"
+    assert out["deny-comments"] == "no prefix here"
