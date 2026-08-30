@@ -40,18 +40,39 @@ class CompletionToolRouter:
         return tool_call_count(state) >= int(self.run_config.max_tool_steps or 0)
 
     def completion_executed(self, state: StateLike) -> bool:
+        """Return True if the completion tool fired in the most recent round.
+
+        Walks ``messages`` in reverse and only considers ``ToolMessage``
+        entries — ``AIMessage`` between the tool call and the tool
+        result is normal (e.g. the LLM emits a final answer alongside
+        the tool result) and must NOT short-circuit the check. Without
+        this guard, every chat_completion call is followed by a fresh
+        ``AIMessage`` (the final-answer chunk), which the previous
+        implementation treated as "no completion yet" and routed back
+        to ``step_llm`` — an infinite loop where the LLM keeps
+        re-asserting "I should call chat_completion next" forever and
+        the subgraph never advances.
+        """
         messages = state["messages"] if isinstance(state, dict) else getattr(state, "messages", [])
         index = len(messages) - 1
-        while index >= 0:
-            message = messages[index]
+        # Walk back to the most recent AIMessage (the call site). If a
+        # chat_completion ToolMessage appears after that AIMessage,
+        # we're done.
+        last_ai_index = None
+        for i in range(index, -1, -1):
+            message = messages[i]
+            if getattr(message, "type", None) == "ai" or isinstance(message, AIMessage):
+                last_ai_index = i
+                break
             if isinstance(message, ToolMessage):
-                if message.name == self.completion_tool_name:
+                if getattr(message, "name", "") == self.completion_tool_name:
                     return True
-                index -= 1
-                continue
-            if message.type == "ai":
-                return False
-            index -= 1
+        # No AIMessage at all -> the only messages we've seen are
+        # tools, which is a degenerate case; fall back to a
+        # straight scan.
+        for message in messages:
+            if isinstance(message, ToolMessage) and getattr(message, "name", "") == self.completion_tool_name:
+                return True
         return False
 
     def route_after_step(self) -> Callable[[StateLike], str]:

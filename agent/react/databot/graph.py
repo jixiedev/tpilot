@@ -285,7 +285,9 @@ def _stage_completion_marker_present(state: DatabotState) -> bool:
 
     for msg in reversed(state.get("messages") or []):
         if isinstance(msg, ToolMessage):
-            return getattr(msg, "name", "") == "chat_completion"
+            if getattr(msg, "name", "") == "chat_completion":
+                return True
+            continue
         # Stop scanning once we hit a non-ToolMessage boundary — there
         # may be a trailing AIMessage after the completion tool result
         # if the LLM did another round after completion (e.g. an
