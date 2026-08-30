@@ -21,7 +21,7 @@ from agent.react.tahoe.tahoe_agent import TahoeAgent
 from config.logging_config import configure_logging
 from graph.error_recovery import format_turn_failure
 from memory import CompressionConfig
-from models.models import default_model, default_model_name
+from models.models import default_model_name, get_default_model
 from tools.mcp.mcp import check_mcp_servers, format_mcp_startup_lines
 
 logger = logging.getLogger(__name__)
@@ -91,7 +91,7 @@ async def run_repl(
             max_tool_calls=30,
         )
         await agent.bind(
-            default_model,
+            get_default_model(),
             checkpointer,
             compression_config=CompressionConfig(enabled=True),
         )

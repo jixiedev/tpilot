@@ -5,5 +5,8 @@
     "knowledge": "./ui.py:knowledge_ui_agent",
     "intent": "./ui.py:intent_ui_agent"
   },
-  "env": ".env"
+  "env": ".env",
+  "http": {
+    "app": "./agui_server.py:app"
+  }
 }

@@ -1,6 +1,9 @@
+"use client";
+
 import { CopilotKit } from "@copilotkit/react-core/v2";
 import "@copilotkit/react-core/v2/styles.css";
 import "./globals.css";
+import "./databot.css";
 
 // const geistSans = Geist({
 //   variable: "--font-geist-sans",

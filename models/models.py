@@ -58,34 +58,104 @@ def get_model(model_name: str, model_config: ModelConfig) -> BaseChatModel:
     )
 
 
+def get_model_by_name(model_name: str) -> BaseChatModel:
+    """Build the named chat model from the registered ``ModelConfig``s.
+
+    Raises ``KeyError`` (with a friendly message) when the name is
+    unknown; raises the same error as ``get_model`` if instantiation
+    fails (e.g. missing API key).
+    """
+    if model_name not in _model_configs:
+        known = ", ".join(sorted(_model_configs))
+        raise KeyError(
+            f"Unknown model {model_name!r}; known models: {known}"
+        )
+    return get_model(model_name, _model_configs[model_name])
+
+
 @lru_cache(maxsize=1)
-def _load_registry() -> tuple[str, dict[str, BaseChatModel]]:
+def _load_registry() -> tuple[str, dict[str, ModelConfig]]:
+    """Read models.toml and return the default name + a name -> ``ModelConfig`` map.
+
+    We intentionally do **not** call ``get_model`` here. Instantiating a
+    chat model pulls an HTTP-capable client and validates the API key at
+    construction time. That made ``models`` import-time eager: a single
+    model with a missing key would crash the whole registry and break
+    ``langgraph dev`` even when the user had a *different* model with a
+    valid key. Now ``default_model`` is built lazily on first access.
+    """
     with _CONFIG_PATH.open("rb") as f:
         config = tomllib.load(f)
 
     default_name = config["basic"]["default_model_name"].strip()
-    models: dict[str, BaseChatModel] = {}
-
+    configs: dict[str, ModelConfig] = {}
     for model_name, raw in config["model"].items():
-        models[model_name] = get_model(model_name, ModelConfig(**raw))
+        configs[model_name] = ModelConfig(**raw)
 
-    if default_name and default_name not in models:
+    if default_name and default_name not in configs:
         raise ValueError(
             f"default_model_name={default_name!r} is not defined under [model.*]"
         )
 
-    return default_name, models
+    return default_name, configs
 
 
-default_model_name, models = _load_registry()
-default_model: BaseChatModel | None = models.get(default_model_name) if default_model_name else None
+default_model_name, _model_configs = _load_registry()
 
-if default_model is None and models:
-    default_model_name = next(iter(models))
-    default_model = models[default_model_name]
 
-if default_model is None:
+def _resolve_default_model() -> BaseChatModel:
+    """Build the configured default chat model, lazily.
+
+    Tries ``[basic].default_model_name`` first; if its key is missing
+    or instantiation fails, falls back to the first model in the
+    registry whose key is currently set, then to any other model.
+    Surfaces the last-seen error if no model can be built.
+    """
+    errors: list[str] = []
+    candidates: list[str] = []
+    if default_model_name:
+        candidates.append(default_model_name)
+    for name in _model_configs:
+        if name not in candidates:
+            candidates.append(name)
+
+    last_error: Exception | None = None
+    for name in candidates:
+        cfg = _model_configs[name]
+        try:
+            return get_model(name, cfg)
+        except Exception as exc:  # missing key, init failure, etc.
+            last_error = exc
+            errors.append(f"{name}: {type(exc).__name__}: {exc}")
+            continue
+
     raise RuntimeError(
-        "No chat models configured. Add entries to models/models.toml "
-        "and set [basic].default_model_name."
+        "No chat model could be instantiated. Tried: "
+        + "; ".join(errors)
+        + (
+            f"; last error: {type(last_error).__name__}: {last_error}"
+            if last_error
+            else ""
+        )
     )
+
+
+# ``default_model`` is a lazy proxy so ``import models`` never blocks on
+# a missing API key. Downstream code should still treat it as a
+# ``BaseChatModel | None``-style accessor (``agent._graph`` etc.
+# already call ``default_model.invoke`` which raises if not built).
+default_model: BaseChatModel | None = None
+
+
+def get_default_model() -> BaseChatModel:
+    """Module-level accessor that builds the default model on demand.
+
+    Replaces the previous eager ``default_model`` singleton. Callers
+    that previously did ``default_model.invoke(...)`` should now do
+    ``get_default_model().invoke(...)`` (or call this at the top of
+    their function and cache the result themselves).
+    """
+    global default_model
+    if default_model is None:
+        default_model = _resolve_default_model()
+    return default_model

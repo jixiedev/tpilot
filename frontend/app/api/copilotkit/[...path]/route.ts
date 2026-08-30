@@ -1,21 +1,43 @@
+import { HttpAgent } from "@ag-ui/client";
 import {
   CopilotRuntime,
-  createCopilotRuntimeHandler,
   InMemoryAgentRunner,
+  createCopilotRuntimeHandler,
 } from "@copilotkit/runtime/v2";
-import { LangGraphAgent } from "@copilotkit/runtime/langgraph";
+
+// ---------------------------------------------------------------------------
+// Path B wiring (see agui_server.py and langgraph.json http.app).
+//
+// The graph runs wrapped in a ``LangGraphAgent`` and is served by
+// ``langgraph dev`` on port 8000 at the ``/agui`` path. ``langgraph dev``
+// honours the ``http.app`` field in langgraph.json — it imports the
+// module and mounts the resulting Starlette/FastAPI app alongside its
+// own LangGraph Platform routes.
+//
+// This route no longer wraps a ``LangGraphAgent`` — that was the source
+// of the "View in Inspector (local only)" issue, because the raw AG-UI
+// bridge didn't surface the graph's tool calls to the runtime's
+// registry. We now point the runtime straight at the AG-UI endpoint
+// via an ``HttpAgent`` so the runtime forwards events 1:1 and lets the
+// frontend's chat panel re-render.
+// ---------------------------------------------------------------------------
+
+const AGUI_BACKEND_URL =
+  process.env.AGUI_BACKEND_URL || "http://localhost:8000/agui";
 
 const runtime = new CopilotRuntime({
   agents: {
-    databot: new LangGraphAgent({
-      deploymentUrl: process.env.LANGGRAPH_DEPLOYMENT_URL || "http://localhost:8123",
-      graphId: "databot",
-      langsmithApiKey: process.env.LANGSMITH_API_KEY || "",
+    // One HttpAgent per logical agent name. The CopilotKit runtime keys
+    // its agent registry on this name; the frontend's ``useAgent`` and
+    // the ``<CopilotKit agent="...">`` prop must use the same string.
+    databot: new HttpAgent({
+      url: AGUI_BACKEND_URL,
+      description:
+        "Databot — staged data retrieval pipeline (RAG → human-gated SQL → execute).",
     }),
   },
-  // SSE mode + process-local thread store. Real conversation state lives in
-  // the LangGraph backend (checkpoints.sqlite); this only holds UI thread
-  // metadata. Restarting `next dev` clears the list.
+  // SSE mode. The real conversation state lives in checkpoints.sqlite
+  // (set up in agui_server.py), this only holds UI thread metadata.
   runner: new InMemoryAgentRunner(),
 });
 

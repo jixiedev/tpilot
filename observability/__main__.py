@@ -65,12 +65,12 @@ def build_arg_parser() -> argparse.ArgumentParser:
 
 
 def resolve_eval_model(model_name: str) -> BaseChatModel:
-    from models.models import models
+    from models.models import get_model_by_name
 
-    if model_name not in models:
-        known = ", ".join(sorted(models))
-        raise ValueError(f"Unknown model {model_name!r}; known models: {known}")
-    return models[model_name]
+    try:
+        return get_model_by_name(model_name)
+    except KeyError as exc:
+        raise ValueError(str(exc)) from exc
 
 
 async def create_eval_agent(agent_name: str, model_name: str):
@@ -150,9 +150,9 @@ def main(argv: list[str] | None = None) -> int:
             print(group)
         return 0
     if args.list_models:
-        from models.models import default_model_name, models
+        from models.models import _model_configs, default_model_name
 
-        for name in sorted(models):
+        for name in sorted(_model_configs):
             marker = " (default)" if name == default_model_name else ""
             print(f"{name}{marker}")
         return 0

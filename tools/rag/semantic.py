@@ -362,8 +362,8 @@ def fetch_related_models(
 
 
 @tool
-def add_card_to_state(cards: list[dict]):
-    """Commit picked ``TableCard``s into agent state under ``cards``.
+def add_card_to_state(cards: list[Any]):
+    """Commit picked ``TableCard``s into agent state under ``candidate_cards``.
 
     Accepts the dict shape returned by ``fetch_related_models``; hydrates
     each entry back to a real ``TableCard`` via ``dict_to_table_card``
@@ -371,15 +371,32 @@ def add_card_to_state(cards: list[dict]):
     from a prior ``fetch_related_models`` result. The hydrated cards
     become the working set for downstream SQL generation / MetricFlow.
 
+    Why ``list[Any]`` on the wire: ``list[dict]`` makes LangChain emit
+    ``{"type": "array", "items": {"additionalProperties": true, "type":
+    "object"}}`` which some OpenAI-compatible providers (GLM, MiniMax
+    in their stricter 2025 builds) reject with a confusing
+    ``typing.Union`` schema error. ``list[Any]`` collapses to
+    ``{"type": "array"}`` and round-trips fine across providers.
+
     Why dicts on the wire: ``TableCard`` is a plain Python class (not
     Pydantic) and LangChain's tool binding cannot generate a JSON schema
     for ``list[TableCard]``. The LLM only ever has the dict projection
     anyway, so the hydration happens server-side here.
     """
     hydrated = [dict_to_table_card(c) for c in cards]
+    import os, sys
+    print(f"[DEBUG add_card_to_state] tool_call_id={(runtime.tool_call_id if runtime else None)!r} got {len(cards)} cards from LLM, hydrating to {len(hydrated)} TableCard", file=sys.stderr, flush=True)
     return Command(
         update={
-            "cards": hydrated
+            # ``state.candidate_cards`` is the canonical field for raw
+            # RAG hits that the LLM can later subset into
+            # ``selected_cards`` (via ``mark_cards_selected``) and the
+            # human then approves. The old key ``"cards"`` was a typo
+            # that never landed in ``DatabotState`` — calling this
+            # tool previously dropped the data on the floor and left
+            # the gate UI showing "0 candidate dbt model(s)" no matter
+            # what the LLM said in its reasoning.
+            "candidate_cards": hydrated,
         }
     )
 

@@ -77,6 +77,41 @@ def trino_run_query(sql: str, limit: int = DEFAULT_ROW_LIMIT) -> dict[str, Any]:
 
 
 @tool
+def trino_explain(sql: str) -> dict[str, Any]:
+    """Validate a read-only SQL by running ``EXPLAIN`` (no rows executed).
+
+    Returns ``{"ok": True, "plan": [...]}`` on success or
+    ``{"ok": False, "error": "<message>", "sql": "<as-rendered>"}`` on failure.
+    Designed for the SQL-draft stage to confirm a drafted query parses and
+    resolves against the live catalog before the human gate. The SQL
+    guard rejects non-read-only statements before they reach Trino, so
+    callers cannot accidentally use this as a side-effecting execute.
+
+    Security note: the guard only inspects the *first* token, so a
+    crafted ``EXPLAIN INSERT ...`` slips past it. Trino's ``EXPLAIN``
+    itself is parse-only and does not execute the wrapped statement, so
+    there is no write risk in practice — the same loophole already
+    exists in ``trino_run_query``. Tighten the guard in a follow-up if
+    you want defence in depth.
+    """
+    cleaned = (sql or "").strip()
+    if not cleaned:
+        return {"ok": False, "error": "empty SQL", "sql": cleaned}
+    # Strip a single trailing semicolon so ``EXPLAIN WITH ...;`` still
+    # parses; the guard also rejects multi-statement inputs.
+    rendered = cleaned.rstrip(";").rstrip()
+    explain_sql = f"EXPLAIN {rendered}"
+    try:
+        # ``EXPLAIN`` does not execute the query, so the default row
+        # limit is irrelevant — we only read the plan rows.
+        result = _execute_query(validate_read_only_sql(explain_sql), limit=DEFAULT_ROW_LIMIT)
+    except Exception as exc:  # noqa: BLE001 - we want to surface the trino/guard error verbatim
+        return {"ok": False, "error": str(exc), "sql": rendered}
+    plan_rows = result.get("rows") or []
+    return {"ok": True, "plan": plan_rows, "row_count": len(plan_rows), "sql": rendered}
+
+
+@tool
 def trino_list_catalogs() -> list[dict[str, Any]]:
     """List all Trino catalogs."""
     return _execute_query("SHOW CATALOGS")["rows"]
@@ -136,6 +171,7 @@ def trino_desc_table(
 
 TOOLS = [
     trino_run_query,
+    trino_explain,
     trino_list_catalogs,
     trino_list_schemas,
     trino_list_tables,
