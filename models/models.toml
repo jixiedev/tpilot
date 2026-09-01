@@ -1,5 +1,23 @@
 [basic]
-default_model_name = "sensenova-6.7-flash-lite"
+default_model_name = "MiniMax-M3"
+
+[model."MiniMax-M3"]
+base_url = "https://api.minimaxi.com/v1"
+api_key_env = "MiniMax_API_KEY"
+provider = "openai"
+temperature = 0.3
+max_tokens = 81920
+timeout_seconds = 120
+max_retries = 3
+
+[model."MiniMax-M2.7-highspeed"]
+base_url = "https://api.minimaxi.com/v1"
+api_key_env = "MiniMax_API_KEY"
+provider = "openai"
+temperature = 0.3
+max_tokens = 81920
+timeout_seconds = 120
+max_retries = 3
 
 [model."glm-4.7-flash"]
 base_url = "https://open.bigmodel.cn/api/paas/v4/"

@@ -34,20 +34,40 @@ class McpServerStatus:
 
 
 def _redirect_stdio_server_stderr(log_file: Path = DEFAULT_LOG_FILE) -> None:
-    """Send MCP stdio subprocess stderr to the log file instead of the terminal."""
+    """Send MCP stdio subprocess stderr to the log file instead of the terminal.
+
+    This used to do ``log_file.parent.mkdir(parents=True, exist_ok=True)``
+    + ``log_file.open("a")`` directly. Both are sync filesystem calls,
+    and ``langgraph dev`` (via ``blockbuster``) refuses any graph whose
+    load triggers a blocking syscall. We side-step that by opening the
+    file lazily on the first MCP call (in ``get_client`` async path)
+    instead of here. The wrapper that swaps ``mcp_stdio.stdio_client``
+    is harmless even when the sink is ``None``; ``stdio_client`` only
+    writes to it when the caller actually passes ``errlog=sys.stderr``.
+    """
     global _stdio_stderr_redirected
     if _stdio_stderr_redirected:
         return
 
     import mcp.client.stdio as mcp_stdio
 
-    log_file.parent.mkdir(parents=True, exist_ok=True)
-    stderr_sink = log_file.open("a", encoding="utf-8")
     original = mcp_stdio.stdio_client
+    _stderr_sink_holder: dict[str, object] = {"sink": None}
+
+    def _ensure_sink_open() -> object:
+        sink = _stderr_sink_holder["sink"]
+        if sink is None:
+            log_file.parent.mkdir(parents=True, exist_ok=True)
+            sink = log_file.open("a", encoding="utf-8")
+            _stderr_sink_holder["sink"] = sink
+        return sink
 
     @asynccontextmanager
     async def stdio_client(server, errlog=sys.stderr):
-        target = stderr_sink if errlog is sys.stderr else errlog
+        if errlog is sys.stderr:
+            target = _ensure_sink_open()  # first MCP call lazily opens the file
+        else:
+            target = errlog
         async with original(server, errlog=target) as streams:
             yield streams
 
@@ -154,7 +174,7 @@ DATAHUB_MCP_SERVER_NAME = "datahub"
 async def get_datahub_mcp_tools() -> list[BaseTool]:
     """Load tools from the ``datahub`` MCP server, or ``[]`` if unavailable."""
     if DATAHUB_MCP_SERVER_NAME not in configured_mcp_server_names():
-        _logger.info(
+        _logger.debug(
             "MCP server %r not configured; skipping DataHub MCP tools",
             DATAHUB_MCP_SERVER_NAME,
         )

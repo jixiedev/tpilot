@@ -15,11 +15,20 @@ from __future__ import annotations
 
 from typing import Any, Literal, TypedDict
 
+from langchain_core.messages import ToolMessage
 from langchain_core.tools import tool
-from langchain_protocol import Command
+from langgraph.prebuilt import ToolRuntime
+from langgraph.types import Command
 from pydantic import BaseModel
 from qdrant_client.http import models as qmodels
 
+from agent.react.databot.card_staging import (
+    apply_add_card_selections,
+    compact_staging_refs,
+    encode_tool_summary,
+    merge_staging_cards,
+    staging_entry_from_card,
+)
 from rag.store import search as qdrant_search
 
 """
@@ -139,6 +148,8 @@ class TableauDataSourceCard(TableCard):
 SemanticLayer = Literal["hive_analytics"]
 ChunkTypeFilter = Literal["any", "model+columns", "model+metrics"]
 
+_VALID_CHUNK_TYPES: frozenset[str] = frozenset({"any", "model+columns", "model+metrics"})
+
 
 class SemanticProfile(TypedDict):
     layer: SemanticLayer
@@ -149,7 +160,7 @@ class SemanticProfile(TypedDict):
 SEMANTIC_PROFILES: list[SemanticProfile] = [
     {
         "layer": "hive_analytics",
-        "collection": "dbt_hive_analytics",
+        "collection": "dbt_models",
         "description": (
             "Analytics-layer dbt semantic models in the Hive warehouse. "
             "Use for merchant, transaction, and product analytics tables; "
@@ -187,10 +198,20 @@ def _tool_description() -> str:
         "this is vector search, not JQL.\n\n"
         "Each returned dict mirrors the `TableCard` shape (name, model_type, "
         "physical_tables, cte, agg_time_dimension, columns, metrics, owner, usage) "
-        "plus the Qdrant score and the matched chunk type. After the user picks "
-        "cards, call `add_card_to_state` to commit them.\n\n"
+        "plus the Qdrant score and the matched chunk type. Each hit is saved to "
+        "``state.staging_cards`` with a ``staging_id``. To commit a card for the "
+        "human gate, call ``add_card_to_state`` with that ``staging_id`` and the "
+        "dimensions/metrics you intend to use.\n\n"
         f"Layer catalog:\n{_layer_catalog_for_tool()}"
     )
+
+
+def _normalize_chunk_type(chunk_type: str) -> ChunkTypeFilter:
+    cleaned = (chunk_type or "any").strip()
+    if cleaned not in _VALID_CHUNK_TYPES:
+        known = ", ".join(sorted(_VALID_CHUNK_TYPES))
+        raise ValueError(f"Unknown chunk_type {chunk_type!r}; choose one of: {known}")
+    return cleaned  # type: ignore[return-value]
 
 
 def _payload_filter(chunk_type: ChunkTypeFilter) -> qmodels.Filter | None:
@@ -319,27 +340,35 @@ def dict_to_table_card(card: dict[str, Any]) -> TableCard:
 @tool(description=_tool_description())
 def fetch_related_models(
     query: str,
-    layer: SemanticLayer = "hive_analytics",
+    layer: str = "hive_analytics",
     limit: int = 5,
-    chunk_type: ChunkTypeFilter = "any",
-) -> list[dict[str, Any]]:
-    """Search indexed dbt semantic models; returns candidate ``TableCard`` dicts."""
+    chunk_type: str = "any",
+    runtime: ToolRuntime = None,  # type: ignore[assignment]
+) -> Command:
+    """Search indexed dbt semantic models; stages hits under ``staging_cards``.
+
+    ``layer`` and ``chunk_type`` are plain strings (validated in-body) so
+    strict OpenAI-compatible providers (GLM, MiniMax) do not reject
+    ``Literal`` / ``Union`` tool schemas.
+    """
     cleaned = (query or "").strip()
     if not cleaned or cleaned in {"*", "**", "?", ".*"}:
         raise ValueError(
             "query must be a natural-language phrase (e.g. 'distinct merchant count'); "
             "wildcards like '*' are not supported"
         )
-    profile = _LAYER_BY_NAME.get(layer)
+    layer_name = (layer or "hive_analytics").strip()
+    profile = _LAYER_BY_NAME.get(layer_name)  # type: ignore[arg-type]
     if profile is None:
         known = ", ".join(sorted(_LAYER_BY_NAME))
         raise ValueError(f"Unknown semantic layer {layer!r}; choose one of: {known}")
+    chunk_filter = _normalize_chunk_type(chunk_type)
     limit = max(1, min(int(limit), 20))
 
     # Each model has 2 points (columns + metrics), so we over-fetch and
     # deduplicate by model_name to honor the requested `limit` of unique models.
     fetch_limit = max(limit * 2, 10)
-    query_filter = _payload_filter(chunk_type)
+    query_filter = _payload_filter(chunk_filter)
     hits = qdrant_search(
         profile["collection"],
         cleaned,
@@ -358,21 +387,88 @@ def fetch_related_models(
         cards.append(_hit_to_table_card_dict(hit))
         if len(cards) >= limit:
             break
-    return cards
+
+    new_staging = [staging_entry_from_card(c) for c in cards]
+    full_state = runtime.state if runtime is not None else {}
+    existing = (
+        list(full_state.get("staging_cards") or [])
+        if isinstance(full_state, dict)
+        else []
+    )
+    merged_staging = merge_staging_cards(existing, new_staging)
+    refs = compact_staging_refs(new_staging)
+
+    tool_call_id = (runtime.tool_call_id if runtime else None) or "missing"
+    return Command(
+        update={
+            "staging_cards": merged_staging,
+            "messages": [
+                ToolMessage(
+                    content=encode_tool_summary(
+                        {
+                            "staged": refs,
+                            "staging_total": len(merged_staging),
+                            "message": (
+                                f"Staged {len(new_staging)} model(s). "
+                                "Use staging_id in add_card_to_state."
+                            ),
+                        }
+                    ),
+                    tool_call_id=tool_call_id,
+                )
+            ],
+        }
+    )
 
 
 @tool
-def add_card_to_state(cards: list[TableCard]):
-    """Commit picked ``TableCard``s into agent state under ``cards``.
+def add_card_to_state(
+    selections: list[Any],
+    runtime: ToolRuntime = None,  # type: ignore[assignment]
+) -> Command:
+    """Commit staged cards into ``candidate_cards`` by ``staging_id``.
 
-    Call after the user has approved a subset of cards returned by
-    ``fetch_related_models`` (hydrate each dict via ``dict_to_table_card``
-    first). The cards flow into the agent state and become the working
-    set for downstream SQL generation / MetricFlow calls.
+    Pass one object per card you want the human to review::
+
+        {
+          "staging_id": "<from fetch_related_models>",
+          "selected_dimensions": ["order_date", "merchant_id"],
+          "selected_metrics": ["commission_revenue"],
+          "selection_notes": "optional one-line why"
+        }
+
+    Only cards passed here are added to ``candidate_cards``. Full card
+    bodies are resolved from ``state.staging_cards`` — do not echo the
+    entire TableCard dict.
+
+    Why ``list[Any]``: keeps the tool JSON schema provider-friendly.
     """
+    full_state = runtime.state if runtime is not None else {}
+    staging_cards = (
+        list(full_state.get("staging_cards") or [])
+        if isinstance(full_state, dict)
+        else []
+    )
+    candidate_cards = (
+        list(full_state.get("candidate_cards") or [])
+        if isinstance(full_state, dict)
+        else []
+    )
+    updated, note = apply_add_card_selections(
+        staging_cards=staging_cards,
+        candidate_cards=candidate_cards,
+        selections=selections,
+    )
+    tool_call_id = (runtime.tool_call_id if runtime else None) or "missing"
     return Command(
         update={
-            "cards": cards
+            "candidate_cards": updated,
+            "messages": [
+                ToolMessage(
+                    content=note,
+                    tool_call_id=tool_call_id,
+                )
+            ],
         }
     )
 

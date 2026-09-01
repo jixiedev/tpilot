@@ -18,6 +18,9 @@ tools/mcp/mcp.json
 # Chat transcripts
 logs/
 
+# Local dev process logs / pids (langgraph dev, next dev)
+.run/
+
 # LangGraph SQLite checkpoints
 checkpoints.sqlite
 checkpoints.sqlite-*

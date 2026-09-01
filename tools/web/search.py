@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 import urllib.error
 import urllib.parse
@@ -18,6 +19,7 @@ from config.tool_config import tool_config, web_search_api_key
 
 USER_AGENT = "TahoePilot/0.1 (+https://github.com/wish/tahoepilot)"
 DEFAULT_MAX_RESULTS = 5
+_logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -45,6 +47,9 @@ def _http_json(
     body: bytes | None = None,
     timeout: float = 20.0,
 ) -> dict[str, Any]:
+    _logger.info("request to {}, with body {}".format(url, str(body)))
+    # todo "error": "Web search failed: ('“*.extern.facebook.com” certificate name does not match input',)"}
+    # todo "error": "Web search failed: timed out"}
     request = urllib.request.Request(url, data=body, method=method, headers=headers or {})
     try:
         with urllib.request.urlopen(request, timeout=timeout) as response:

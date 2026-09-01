@@ -1,0 +1,34 @@
+{
+  "airflow_tahoe": {
+    "transport": "stdio",
+    "command": "/Users/cdpac/.local/bin/uv",
+    "args": [
+      "run",
+      "--directory",
+      "/Users/cdpac/sbox/airflow-mcp-server",
+      "airflow-mcp-server",
+      "--safe",
+      "--static-tools",
+      "--base-url",
+      "https://airflow.s.tahoe.wish.site/api/v1",
+      "--auth-token",
+      "${AIRFLOW_MCP_AUTH_TOKEN}"
+    ]
+  },
+  "airflow_legacy": {
+    "transport": "stdio",
+    "command": "/Users/cdpac/.local/bin/uv",
+    "args": [
+      "run",
+      "--directory",
+      "/Users/cdpac/sbox/airflow-mcp-server",
+      "airflow-mcp-server",
+      "--safe",
+      "--static-tools",
+      "--base-url",
+      "https://airflow.s.legacy.wish.site/api/v1",
+      "--auth-token",
+      "${AIRFLOW_LEGACY_MCP_AUTH_TOKEN}"
+    ]
+  }
+}

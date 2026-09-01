@@ -13,6 +13,7 @@ from graph.error_recovery import (
     make_handle_tool_errors,
     make_retrying_tool_wrapper,
 )
+from graph.messages import sanitize_messages_for_strict_tool_providers
 from state.state import SessionAgentState
 from tools.errors import StructuredToolError
 
@@ -148,6 +149,8 @@ def make_step_llm_node(
             messages.append(SystemMessage(content=tool_budget_exhausted_prompt))
         elif state.get("idle_rounds", 0) > 0 and idle_nudge_prompt.strip():
             messages.append(SystemMessage(content=idle_nudge_prompt))
+
+        messages = sanitize_messages_for_strict_tool_providers(messages)
 
         if on_llm_start is not None:
             on_llm_start(
