@@ -25,9 +25,9 @@ from agent.react.databot.prompt import (
     FETCH_CARDS_SYSTEM_PROMPT,
     FETCH_CARDS_TOOL_BUDGET_PROMPT,
     GENERATE_SQL_NEXT_STEP_PROMPT,
-    GENERATE_SQL_SYSTEM_PROMPT,
     GENERATE_SQL_TOOL_BUDGET_PROMPT,
     IDLE_NUDGE_PROMPT,
+    render_generate_sql_system_prompt,
 )
 from agent.react.databot.state import DatabotState
 from agent.router import CompletionToolRouter
@@ -54,20 +54,24 @@ _SQL_PROMPT_CONFIG = AgentPromptConfig(
 )
 
 
-def _stage_completion_router(
+def _stage_state_exit_router(
     *,
-    completion_tool_name: str,
     max_tool_calls: int,
     max_idle_rounds: int,
+    state_exit_keys: tuple[str, ...] = (),
 ) -> tuple:
-    """Build a ``CompletionToolRouter`` for one subgraph.
+    """Build a state-based router for one databot subgraph.
 
-    We reuse the same router the Tahoe base uses: the LLM exits a stage
-    by calling ``chat_completion``; plain text bumps the idle counter
-    and the budget governs how long the loop may run. This is what
-    fixes the "step_llm called twice in a row → 400 from the provider"
-    bug — idle rounds now properly terminate the subgraph instead of
-    looping the LLM.
+    The router is a ``CompletionToolRouter`` with
+    ``completion_tool_name=None``: the only short-circuit is
+    ``state_complete(state)``, i.e. every key in ``state_exit_keys``
+    is populated. The LLM's job is to fill the required state; it
+    does not need to remember to call ``chat_completion`` to exit.
+
+    Plain text bumps the idle counter; the budget governs how long
+    the loop may run. This is what fixes the "step_llm called twice
+    in a row → 400 from the provider" bug — idle rounds now properly
+    terminate the subgraph instead of looping the LLM.
     """
     run_config = AgentRunConfig(
         max_tool_calls=max_tool_calls,
@@ -77,11 +81,15 @@ def _stage_completion_router(
         # Subgraph has no human end-of-turn step, so the tool-end route
         # is just END.
         tool_end_outlet="__end__",
+        state_exit_keys=state_exit_keys,
     )
     router = CompletionToolRouter(
         run_config,
         router_config,
-        completion_tool_name=completion_tool_name,
+        # No completion tool — state is the only contract. The LLM can
+        # still call ``chat_completion`` if it wants a one-line
+        # summary, but it's not the exit signal.
+        completion_tool_name=None,
     )
     return router.route_after_step(), router.route_after_tools()
 
@@ -100,10 +108,14 @@ def build_fetch_cards_subgraph(
     ``datahub_get_entities``, ``add_card_to_state``, plus the four-option
     ``write_gate_reasons`` tool the LLM must call before the cards gate.
     """
-    route_step, route_tools = _stage_completion_router(
-        completion_tool_name="chat_completion",
+    route_step, route_tools = _stage_state_exit_router(
         max_tool_calls=max_tool_calls,
         max_idle_rounds=max_idle_rounds,
+        # State-based exit: when ``selected_cards`` and ``cards_reasons``
+        # are both populated, the subgraph ends. The LLM's job is to
+        # fill the state; it does not need to remember to call
+        # ``chat_completion`` to signal exit.
+        state_exit_keys=("selected_cards", "cards_reasons"),
     )
     return build_react_graph(
         model,
@@ -117,6 +129,10 @@ def build_fetch_cards_subgraph(
         idle_nudge_prompt=_FETCH_PROMPT_CONFIG.idle_nudge_prompt,
         tool_budget_exhausted_prompt=_FETCH_PROMPT_CONFIG.tool_budget_exhausted_prompt,
         max_tool_calls=max_tool_calls,
+        # Use DatabotState directly so the LLM's Command(update=...) writes
+        # to databot fields (selected_cards, cards_reasons, stage, ...)
+        # actually land in the inner state — no more silently-dropped keys.
+        state_class=DatabotState,
     )
 
 
@@ -136,16 +152,19 @@ def build_generate_sql_subgraph(
     ``propose_sql`` to write ``draft_sql`` and ``write_gate_reasons`` to
     fill the SQL-gate reason map before exiting.
     """
-    route_step, route_tools = _stage_completion_router(
-        completion_tool_name="chat_completion",
+    route_step, route_tools = _stage_state_exit_router(
         max_tool_calls=max_tool_calls,
         max_idle_rounds=max_idle_rounds,
+        # State-based exit: when ``draft_sql`` and ``sql_reasons`` are
+        # both populated, the subgraph ends. ``chat_completion`` is
+        # not required.
+        state_exit_keys=("draft_sql", "sql_reasons"),
     )
     return build_react_graph(
         model,
         tools,
         checkpointer=checkpointer,
-        system_prompt=GENERATE_SQL_SYSTEM_PROMPT,
+        system_prompt=render_generate_sql_system_prompt,
         next_step_prompt=_SQL_PROMPT_CONFIG.next_step,
         route_after_step=route_step,
         route_after_tools=route_tools,
@@ -153,4 +172,6 @@ def build_generate_sql_subgraph(
         idle_nudge_prompt=_SQL_PROMPT_CONFIG.idle_nudge_prompt,
         tool_budget_exhausted_prompt=_SQL_PROMPT_CONFIG.tool_budget_exhausted_prompt,
         max_tool_calls=max_tool_calls,
+        # Use DatabotState directly — see build_fetch_cards_subgraph.
+        state_class=DatabotState,
     )

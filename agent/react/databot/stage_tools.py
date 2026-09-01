@@ -25,6 +25,12 @@ from langgraph.types import Command
 
 from agent.react.databot.state import DatabotState, GateDecision
 from agent.react.databot.gates import GATE_OPTIONS
+from agent.react.databot.card_staging import parse_card_selection
+from agent.react.databot.ui_actions import (
+    apply_propose_sql,
+    apply_request_sql_regenerate,
+    apply_update_card_selection,
+)
 
 
 # Keys we write via Command.update. Kept here so the tool docstrings and
@@ -111,34 +117,14 @@ def mark_cards_selected(
     cards: list[Any],
     runtime: ToolRuntime = None,  # type: ignore[assignment]
 ) -> Command:
-    """Commit the LLM-picked ``TableCard`` dicts as the current selection.
+    """Commit the LLM-picked cards as the current selection for the human gate.
 
-    Call this after ``fetch_related_models`` (and any datahub glossary
-    lookups) returns candidates and you have decided which subset to
-    bring to the human for approval. Subsequent calls overwrite the
-    selection; if the cards gate returned a ``deny_feedback`` human
-    comment, the next selection should reflect that feedback.
-
-    Accepts two call shapes for resilience:
-      1. ``cards=[<full TableCard dict from fetch_related_models>, ...]``
-         - the LLM echoes the raw dicts it saw on the wire.
-      2. ``cards=[]`` - the LLM forgot to pass cards. In that case we
-         fall back to the current ``state.candidate_cards`` (whatever
-         ``add_card_to_state`` wrote earlier in this stage). This
-         keeps the human gate useful when the LLM exits the stage
-         without re-listing the raw dicts.
-      The committed cards are also stashed in the returned
-      ``ToolMessage.artifact`` so the outer graph (which uses a
-      different ``DatabotState`` than the inner subgraph's
-      ``SessionAgentState``) can recover them via
-      ``state.messages`` even when the ``Command(update=...)`` write
-      never reaches the outer state.
-
-    When the LLM does pass card names that match entries in
-    ``state.candidate_cards``, we hydrate them via
-    ``dict_to_table_card`` so downstream consumers see a uniform
-    shape. Names that don't match any candidate are dropped with a
-    note in the ToolMessage.
+    Call after ``add_card_to_state`` has populated ``candidate_cards``.
+    Pass either:
+      1. ``cards=[{"staging_id": "...", ...}, ...]`` — subset by staging id
+         (preferred; copies full card + selected dimensions/metrics).
+      2. ``cards=[]`` — auto-select all ``candidate_cards`` when you have
+         already committed the right set via ``add_card_to_state``.
     """
     tool_call_id = (runtime.tool_call_id if runtime else None) or "missing"
     full_state = runtime.state if runtime is not None else {}
@@ -147,11 +133,14 @@ def mark_cards_selected(
         if isinstance(full_state, dict)
         else []
     )
+    by_staging = {
+        str(c.get("staging_id")): c
+        for c in candidate_cards
+        if isinstance(c, dict) and c.get("staging_id")
+    }
     by_name = {c.get("name"): c for c in candidate_cards if isinstance(c, dict)}
 
     if not cards:
-        # Fallback path: LLM exited the stage without re-listing the
-        # cards. Use whatever the agent pipeline already committed.
         chosen = list(candidate_cards)
         note = (
             f"selected {len(chosen)} card(s) for the human gate "
@@ -161,26 +150,29 @@ def mark_cards_selected(
         chosen: list[dict[str, Any]] = []
         missing: list[str] = []
         for c in cards:
-            if not isinstance(c, dict):
-                # LLM passed a non-dict (e.g. a bare card name string);
-                # try to resolve it against candidate_cards by name.
-                if isinstance(c, str) and c in by_name:
-                    chosen.append(by_name[c])
+            if isinstance(c, str):
+                sid = c.strip()
+                if sid in by_staging:
+                    chosen.append(by_staging[sid])
+                elif sid in by_name:
+                    chosen.append(by_name[sid])
                 else:
-                    missing.append(str(c))
+                    missing.append(sid)
+                continue
+            if not isinstance(c, dict):
+                missing.append(str(c))
+                continue
+            parsed = parse_card_selection(c)
+            if parsed and parsed["staging_id"] in by_staging:
+                chosen.append(by_staging[parsed["staging_id"]])
                 continue
             name = c.get("name")
             if name and name in by_name:
-                # Use the hydrated candidate so downstream sees the
-                # uniform TableCard shape; the LLM's echoed dict is
-                # usually a subset of fields.
                 chosen.append(by_name[name])
+            elif name:
+                missing.append(str(name))
             else:
-                # LLM card not in candidate_cards — accept the dict
-                # as-is (add_card_to_state may not have been called
-                # first). We don't hydrate here because the fields
-                # may be incomplete.
-                chosen.append(c)
+                missing.append(str(c))
         note = (
             f"selected {len(chosen)} card(s) for the human gate"
             + (f"; dropped {len(missing)} unmatched" if missing else "")
@@ -273,13 +265,19 @@ def write_gate_reasons(
     key = (
         STATE_KEYS["gate_reasons_cards"] if gate == "cards" else STATE_KEYS["gate_reasons_sql"]
     )
+    # Advancing ``stage`` here means the inner subgraph's exit state
+    # already carries the next stage pointer — the outer state machine
+    # reads ``state.stage`` after the subgraph ends and routes
+    # straight to the corresponding gate node, with no bridge.
+    next_stage = "gate_cards" if gate == "cards" else "gate_sql"
     return Command(
         update={
             key: cleaned,
+            "stage": next_stage,
             "messages": [
                 _ok_tool_message(
                     tool_call_id,
-                    f"wrote {len(cleaned)} reason(s) for the {gate} gate",
+                    f"wrote {len(cleaned)} reason(s) for the {gate} gate; stage → {next_stage}",
                 )
             ],
         }
@@ -300,11 +298,11 @@ def propose_sql(
     to skip re-validation on the next pass.
     """
     tool_call_id = (runtime.tool_call_id if runtime else None) or "missing"
-    cleaned_sql = (sql or "").strip()
+    patch = apply_propose_sql(sql, validated=validated)
+    cleaned_sql = patch["draft_sql"]
     return Command(
         update={
-            STATE_KEYS["draft_sql"]: cleaned_sql,
-            STATE_KEYS["sql_validated"]: bool(validated),
+            **patch,
             "messages": [
                 _ok_tool_message(
                     tool_call_id,
@@ -333,31 +331,22 @@ def update_card_selection(
     stale comment.
     """
     tool_call_id = (runtime.tool_call_id if runtime else None) or "missing"
-    # ``runtime.state`` (ToolRuntime.state) is the LangGraph state at the
-    # current node — use it to look up the matching card dicts by name.
     full_state = runtime.state if runtime is not None else {}
-    candidates = list(full_state.get("candidate_cards") or []) if isinstance(full_state, dict) else []
-    by_name = {c.get("name"): c for c in candidates if isinstance(c, dict)}
-    chosen: list[dict[str, Any]] = []
-    missing: list[str] = []
-    for name in selected_card_names:
-        if name in by_name:
-            chosen.append(by_name[name])
-        else:
-            missing.append(name)
-    if missing:
-        # Surface as a ToolMessage note but still apply the partial set;
-        # the human UI already knows what it picked.
+    if not isinstance(full_state, dict):
+        full_state = {}
+    patch = apply_update_card_selection(full_state, selected_card_names)
+    chosen = patch["selected_cards"]
+    requested = len(selected_card_names)
+    if len(chosen) < requested:
         note = (
-            f"kept {len(chosen)} card(s); could not find {missing} in "
-            f"current candidate_cards — they were dropped or never fetched"
+            f"kept {len(chosen)} card(s); could not find "
+            f"{requested - len(chosen)} name(s) in current candidate_cards"
         )
     else:
         note = f"selection updated: {len(chosen)} card(s)"
     return Command(
         update={
-            STATE_KEYS["selected_cards"]: chosen,
-            "deny_feedback": "",
+            **patch,
             "messages": [_ok_tool_message(tool_call_id, note)],
         }
     )
@@ -375,11 +364,11 @@ def request_sql_regenerate(
     so the LLM must write a new one.
     """
     tool_call_id = (runtime.tool_call_id if runtime else None) or "missing"
-    cleaned = (feedback or "").strip()
+    patch = apply_request_sql_regenerate(feedback)
+    cleaned = patch["deny_feedback"]
     return Command(
         update={
-            STATE_KEYS["draft_sql"]: "",
-            "deny_feedback": cleaned,
+            **patch,
             "messages": [
                 _ok_tool_message(
                     tool_call_id,

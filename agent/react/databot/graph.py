@@ -63,6 +63,77 @@ logger = logging.getLogger(__name__)
 DEFAULT_STAGE_MAX_TOOL_CALLS = 8
 
 
+def _message_is_human(message: Any) -> bool:
+    msg_type = getattr(message, "type", None)
+    if msg_type == "human":
+        return True
+    if isinstance(message, dict):
+        role = message.get("role")
+        return role in ("user", "human") or message.get("type") == "human"
+    return False
+
+
+def _trailing_human_wants_new_turn(state: DatabotState) -> bool:
+    """True when the latest message is a new user turn (web chat follow-up).
+
+    The CLI calls ``prepare_turn_input`` with a fresh partial state each
+    time, but the CopilotKit / AG-UI path appends ``HumanMessage``s to the
+    checkpoint and re-invokes with ``stage`` still ``"done"``. Without this
+    guard the router sends those runs straight to ``end_with_summary``.
+    """
+    messages = state.get("messages") or []
+    if not messages:
+        return False
+    return _message_is_human(messages[-1])
+
+
+def _fresh_turn_state_patch() -> dict[str, Any]:
+    """Reset per-turn databot fields for a follow-up question on the same thread.
+
+    ``messages`` are intentionally preserved so each new request reruns the
+    full pipeline (fetch → gates → sql → execute) while the LLM can read
+    prior turns for context (metric corrections, entities, time range).
+    """
+    return {
+        "stage": "fetch",
+        "staging_cards": [],
+        "candidate_cards": [],
+        "selected_cards": [],
+        "approved_cards": [],
+        "metric_conflicts": [],
+        "draft_sql": "",
+        "approved_sql": "",
+        "sql_validated": False,
+        "execution_result": {},
+        "gate_decisions": [],
+        "cards_reasons": {},
+        "sql_reasons": {},
+        "dryrun": False,
+        "halt_reason": "",
+        "chart_requested": False,
+        "deny_feedback": "",
+        "tool_call_count": 0,
+        "idle_rounds": 0,
+        "failed_tools": [],
+    }
+
+
+def make_databot_entry_node(
+    system_prompt: str | Callable[[DatabotState], str],
+) -> Callable[[DatabotState], dict[str, Any]]:
+    """Inject the system prompt and reset turn fields for web follow-ups."""
+    inject = make_inject_system_prompt_node(system_prompt)
+
+    def entry(state: DatabotState) -> dict[str, Any]:
+        patch: dict[str, Any] = dict(inject(state) or {})
+        stage = state.get("stage") or "fetch"
+        if _trailing_human_wants_new_turn(state) and stage in {"done", "chart"}:
+            patch.update(_fresh_turn_state_patch())
+        return patch
+
+    return entry
+
+
 # Inner ReAct routers -------------------------------------------------------
 # Subgraphs reuse the standard ``CompletionToolRouter`` from
 # ``agent.router`` (see ``subgraphs._stage_completion_router``): the LLM
@@ -100,6 +171,8 @@ def _stage_route(state: DatabotState) -> str:
     if stage == "chart":
         return "chart_question"
     if stage == "done":
+        if _trailing_human_wants_new_turn(state):
+            return "fetch_cards"
         return "end_with_summary"
     logger.warning("databot outer graph: unknown stage %r; routing to end", stage)
     return "end_with_summary"
@@ -115,6 +188,48 @@ def _after_gate_cards(state: DatabotState) -> str:
 def _after_gate_sql(state: DatabotState) -> str:
     if state.get("halt_reason"):
         return "end_with_refusal"
+    stage = state.get("stage") or "fetch"
+    # ``deny-comments`` at the SQL gate sets ``stage="sql"`` so the
+    # generate_sql subgraph re-runs. That must NOT go through
+    # ``write_cards_artifact`` (cards were already approved).
+    if stage == "sql":
+        return "generate_sql"
+    return _stage_route(state)
+
+
+def _sql_stage_contract_met(state: DatabotState) -> bool:
+    draft = (state.get("draft_sql") or "").strip()
+    reasons = state.get("sql_reasons") or {}
+    return bool(draft) and bool(reasons)
+
+
+def _cards_stage_contract_met(state: DatabotState) -> bool:
+    cards = state.get("selected_cards") or []
+    reasons = state.get("cards_reasons") or {}
+    return bool(cards) and bool(reasons)
+
+
+def _after_fetch_cards(state: DatabotState) -> str:
+    """Break fetch↔gate loops when the subgraph exits without filling state."""
+    stage = state.get("stage") or "fetch"
+    if stage == "fetch" and not _cards_stage_contract_met(state):
+        logger.warning(
+            "fetch_cards subgraph exited without selected_cards + cards_reasons; "
+            "routing to gate_cards",
+        )
+        return "gate_cards"
+    return _stage_route(state)
+
+
+def _after_generate_sql(state: DatabotState) -> str:
+    """Break sql↔gate loops when the subgraph exits without filling state."""
+    stage = state.get("stage") or "fetch"
+    if stage == "sql" and not _sql_stage_contract_met(state):
+        logger.warning(
+            "generate_sql subgraph exited without draft_sql + sql_reasons; "
+            "routing to gate_sql",
+        )
+        return "gate_sql"
     return _stage_route(state)
 
 
@@ -153,179 +268,16 @@ def _end_with_refusal_node() -> Callable[[DatabotState], dict[str, Any]]:
 
 
 # ---------------------------------------------------------------------------
-# Subgraph → outer stage bridge nodes
+# Subgraph → outer stage bridge
 # ---------------------------------------------------------------------------
 #
-# The fetch_cards and generate_sql subgraphs are compiled against
-# ``SessionAgentState``, which does NOT declare ``stage``,
-# ``selected_cards``, ``draft_sql``, ``cards_reasons`` or ``sql_reasons``.
-# LangGraph therefore silently drops any ``Command(update=...)`` that
-# tries to write those keys from inside the subgraph. As a result, the
-# outer state machine never observes the LLM's selection of cards or its
-# draft SQL via state writes alone — the LLM has to also stash the data
-# in ``ToolMessage.artifact`` (for cards) and the SQL subgraph has to
-# rely on the same trick for SQL, but ``stage`` itself is not on
-# ``ToolMessage`` at all.
-#
-# Without a stage advance, the outer machine gets stuck: it routes
-# ``state.stage == "sql"`` to ``write_cards_artifact`` → ``generate_sql``
-# in an infinite loop, and the SQL human gate (``gate_sql``) is never
-# reached. This is the "CopilotKit UI hangs after propose_sql" symptom.
-#
-# These two bridge nodes are placed immediately after each subgraph. They
-# only advance ``stage`` when the subgraph just ran (i.e. ``stage`` still
-# holds the *sub-stage* name). When the gate has already advanced
-# ``stage`` (e.g. on a resume after ``deny-comments``), the bridge is a
-# no-op so the existing routing still wins.
-
-def _advance_stage(
-    state: DatabotState,
-    *,
-    from_stage: str,
-    to_stage: str,
-) -> dict[str, Any]:
-    if state.get("stage") == from_stage:
-        return {"stage": to_stage}
-    return {}
-
-
-def _extract_reasons_from_text(text: str) -> dict[str, str]:
-    """Best-effort fallback for ``write_gate_reasons`` LLM-side laziness.
-
-    The LLM is told to call ``write_gate_reasons`` with one short reason
-    per gate option. When it forgets (we have seen this in the wild) the
-    gate UI shows empty per-option reasons. To keep the UI useful, scan
-    the LLM's most recent assistant text for the four canonical option
-    labels and grab whatever short text follows each one.
-
-    Returns ``{}`` when nothing matches. Never raises.
-    """
-    import re
-
-    if not text:
-        return {}
-    # Match lines like ``approve: <reason>`` / ``- approve: <reason>``
-    # / backticked forms. Anchored to start-of-line so we don't pick up
-    # the LLM quoting the option name inside a longer sentence.
-    pattern = re.compile(
-        r"(?im)^\s*[-*]?\s*\*?\*?(approve|deny-comments|deny-halt|dryrun)\*?\*?\s*[:\-]\s*(.+?)\s*$"
-    )
-    out: dict[str, str] = {}
-    for match in pattern.finditer(text):
-        opt = match.group(1).strip().lower()
-        reason = match.group(2).strip()
-        if opt not in out and reason:
-            out[opt] = reason[:200]
-    return out
-
-
-def _fallback_sql_reasons(state: DatabotState) -> dict[str, str]:
-    """Populate ``sql_reasons`` from the last AI text if the LLM skipped
-    ``write_gate_reasons``."""
-    existing = state.get("sql_reasons")
-    if isinstance(existing, dict) and existing:
-        return {}
-    from langchain_core.messages import AIMessage
-
-    for msg in reversed(state.get("messages") or []):
-        if not isinstance(msg, AIMessage):
-            continue
-        content = msg.content
-        if isinstance(content, list):
-            content = "".join(
-                p.get("text", "") if isinstance(p, dict) else str(p) for p in content
-            )
-        if not isinstance(content, str):
-            continue
-        reasons = _extract_reasons_from_text(content)
-        if reasons:
-            return {"sql_reasons": reasons}
-        return {}
-    return {}
-
-
-def _fallback_cards_reasons(state: DatabotState) -> dict[str, str]:
-    """Same idea for the cards gate, in case the LLM forgets there too."""
-    existing = state.get("cards_reasons")
-    if isinstance(existing, dict) and existing:
-        return {}
-    from langchain_core.messages import AIMessage
-
-    for msg in reversed(state.get("messages") or []):
-        if not isinstance(msg, AIMessage):
-            continue
-        content = msg.content
-        if isinstance(content, list):
-            content = "".join(
-                p.get("text", "") if isinstance(p, dict) else str(p) for p in content
-            )
-        if not isinstance(content, str):
-            continue
-        reasons = _extract_reasons_from_text(content)
-        if reasons:
-            return {"cards_reasons": reasons}
-        return {}
-    return {}
-
-
-def _stage_completion_marker_present(state: DatabotState) -> bool:
-    """Return True if the most recent tool result is ``chat_completion``.
-
-    The per-stage ReAct subgraphs exit by calling the ``chat_completion``
-    tool — that is the only authoritative signal that the LLM actually
-    finished a stage. We use it here to distinguish a real stage exit
-    (advance the outer ``stage`` to the gate) from a re-entry that the
-    outer machine just routed in (e.g. a deny-comments resume that
-    re-entered ``fetch_cards`` with new feedback — the subgraph has not
-    run yet, the most recent tool message is whatever the previous turn
-    left behind, and we must NOT advance ``stage`` again or the user
-    never gets a chance to act on their feedback).
-    """
-    from langchain_core.messages import ToolMessage
-
-    for msg in reversed(state.get("messages") or []):
-        if isinstance(msg, ToolMessage):
-            if getattr(msg, "name", "") == "chat_completion":
-                return True
-            continue
-        # Stop scanning once we hit a non-ToolMessage boundary — there
-        # may be a trailing AIMessage after the completion tool result
-        # if the LLM did another round after completion (e.g. an
-        # idle round). In that case the most recent ToolMessage still
-        # tells us whether the stage actually finished.
-        return False
-    return False
-
-
-def _advance_after_fetch_node() -> Callable[[DatabotState], dict[str, Any]]:
-    def advance_after_fetch(state: DatabotState) -> dict[str, Any]:
-        if state.get("stage") != "fetch":
-            return {}
-        if not _stage_completion_marker_present(state):
-            # Re-entry without a fresh stage completion — the gate
-            # will route the next step on its own. Leave ``stage``
-            # alone so the subgraph can actually run with the new
-            # ``deny_feedback``.
-            return {}
-        update = {"stage": "gate_cards"}
-        update.update(_fallback_cards_reasons(state))
-        return update
-
-    return advance_after_fetch
-
-
-def _advance_after_sql_node() -> Callable[[DatabotState], dict[str, Any]]:
-    def advance_after_sql(state: DatabotState) -> dict[str, Any]:
-        if state.get("stage") != "sql":
-            return {}
-        if not _stage_completion_marker_present(state):
-            return {}
-        update = {"stage": "gate_sql"}
-        update.update(_fallback_sql_reasons(state))
-        return update
-
-    return advance_after_sql
-
+# As of the state-based refactor, the per-stage subgraphs are compiled
+# against ``DatabotState`` (not ``SessionAgentState``), so their
+# ``Command(update=...)`` writes to ``stage`` actually land in the
+# inner state. ``write_gate_reasons`` advances the stage pointer as
+# part of its normal work, so by the time the inner subgraph exits
+# ``state["stage"]`` already holds the next stage's name. The outer
+# machine just reads it via ``_stage_route`` — no bridge node needed.
 
 # ---------------------------------------------------------------------------
 # Tool composition
@@ -484,13 +436,11 @@ def build_databot_graph(
     )
 
     graph = StateGraph(DatabotState)
-    graph.add_node("inject_system_prompt", make_inject_system_prompt_node(system_prompt))
+    graph.add_node("inject_system_prompt", make_databot_entry_node(system_prompt))
     graph.add_node("fetch_cards", fetch_subgraph)
-    graph.add_node("advance_after_fetch", _advance_after_fetch_node())
     graph.add_node("gate_cards", make_cards_gate_node())
     graph.add_node("write_cards_artifact", make_persist_turn_artifact_node(profile_dir or Path("profiles")))
     graph.add_node("generate_sql", sql_subgraph)
-    graph.add_node("advance_after_sql", _advance_after_sql_node())
     graph.add_node("gate_sql", make_sql_gate_node())
     graph.add_node("write_sql_artifact", make_persist_turn_artifact_node(profile_dir or Path("profiles")))
     graph.add_node("execute_sql", make_execute_sql_node(trino_run_query))
@@ -518,31 +468,27 @@ def build_databot_graph(
             "end_with_refusal": "end_with_refusal",
         },
     )
-    # Each gate writes the next ``stage``; ``_stage_route`` picks the node.
-    # The halt path is the only exception (refusal branch is unconditional).
-    # The subgraphs (fetch_cards, generate_sql) run against
-    # ``SessionAgentState`` and therefore cannot write ``stage`` themselves.
-    # We bridge them with no-op advance nodes that promote ``stage`` from
-    # the sub-stage to its gate only when the gate has not already done so
-    # (e.g. on a deny-comments resume, the stage is already back to
-    # ``"fetch"`` and the bridge stays out of the way).
-    graph.add_edge("fetch_cards", "advance_after_fetch")
-    graph.add_conditional_edges(
-        "advance_after_fetch",
-        _stage_route,
-        {
-            "fetch_cards": "fetch_cards",
-            "gate_cards": "gate_cards",
-            "write_cards_artifact": "write_cards_artifact",
-            "generate_sql": "generate_sql",
-            "gate_sql": "gate_sql",
-            "write_sql_artifact": "write_sql_artifact",
-            "execute_sql": "execute_sql",
-            "chart_question": "chart_question",
-            "end_with_summary": "end_with_summary",
-            "end_with_refusal": "end_with_refusal",
-        },
-    )
+    # The inner subgraphs (``fetch_cards``, ``generate_sql``) write the
+    # next stage directly via their tools (``write_gate_reasons`` advances
+    # ``stage`` as part of its normal work), so when the subgraph ends
+    # ``state.stage`` already points at the gate. ``_stage_route`` reads
+    # it and routes — no bridge node needed. On a deny-comments re-entry
+    # the gate has already set ``stage`` back to ``"fetch"`` / ``"sql"``
+    # so the same conditional edge sends us right back into the
+    # subgraph with the new ``deny_feedback`` in messages.
+    _stage_route_map = {
+        "fetch_cards": "fetch_cards",
+        "gate_cards": "gate_cards",
+        "write_cards_artifact": "write_cards_artifact",
+        "generate_sql": "generate_sql",
+        "gate_sql": "gate_sql",
+        "write_sql_artifact": "write_sql_artifact",
+        "execute_sql": "execute_sql",
+        "chart_question": "chart_question",
+        "end_with_summary": "end_with_summary",
+        "end_with_refusal": "end_with_refusal",
+    }
+    graph.add_conditional_edges("fetch_cards", _after_fetch_cards, _stage_route_map)
     graph.add_conditional_edges(
         "gate_cards",
         _after_gate_cards,
@@ -554,23 +500,7 @@ def build_databot_graph(
         },
     )
     graph.add_edge("write_cards_artifact", "generate_sql")
-    graph.add_edge("generate_sql", "advance_after_sql")
-    graph.add_conditional_edges(
-        "advance_after_sql",
-        _stage_route,
-        {
-            "fetch_cards": "fetch_cards",
-            "gate_cards": "gate_cards",
-            "write_cards_artifact": "write_cards_artifact",
-            "generate_sql": "generate_sql",
-            "gate_sql": "gate_sql",
-            "write_sql_artifact": "write_sql_artifact",
-            "execute_sql": "execute_sql",
-            "chart_question": "chart_question",
-            "end_with_summary": "end_with_summary",
-            "end_with_refusal": "end_with_refusal",
-        },
-    )
+    graph.add_conditional_edges("generate_sql", _after_generate_sql, _stage_route_map)
     graph.add_conditional_edges(
         "gate_sql",
         _after_gate_sql,

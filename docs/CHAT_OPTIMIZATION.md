@@ -714,19 +714,35 @@ Implementation notes (behavior only): detect emits intentions + plan steps; publ
 
 ---
 
-<!-- Append the next optimization section above this line -->
+## 2026-08-29 — Databot v2 staged pipeline (state machine + per-stage ReAct)
 
-## 2026-08-30 — `models.models` is lazy; missing API keys no longer kill `langgraph dev`
-
-**Goal**: Stop `langgraph dev` from hanging silently when any single registered chat model has a missing API key. The previous behaviour eagerly instantiated every model in `models/models.toml` at import time, so a single missing `MiniMax_API_KEY` (the `default_model_name`) raised `ValueError` before the dev server could `bind()` a socket.
+**Goal**: Implement `tools/rag/semantic.py` thought 1 — parallel RAG+MCP fetch, LLM card selection, two human gates (cards, SQL), per-stage execution, optional Superset chart — instead of one free-form ReAct loop.
 
 | Optimization | Before | After |
 |--------------|--------|-------|
-| `default_model` | Eager `BaseChatModel` instance, built at module import | `None`; `get_default_model()` builds it on first call |
-| `_load_registry` | Loop over `config["model"]` and call `get_model(...)` for each (which calls `_resolve_api_key`) | Loop over `config["model"]` and stash `ModelConfig` objects only — no model is constructed at import time |
-| Missing key behaviour | Whole registry import fails; `langgraph dev` exits; `default_model_name` never resolves | `get_default_model()` tries the configured default, then walks every other registered model until one constructs; surfaces the aggregate error only if **every** model is unusable |
-| Callers | `ui.py`, `cli.py`, `observability/__main__.py` import `default_model` directly | Same callers now import `get_default_model()` / `_model_configs` / `get_model_by_name` |
-| Symptom in dev | Background `langgraph dev` process `S+` for >1 min, no `LISTEN` on `:8000`, browser shows `Failed to retrieve assistant: fetch failed` | `langgraph dev` boots in ~1s and binds `:8000` even if some API keys are missing; users with a valid key for any model can run the app |
+| Top-level topology | Single `build_react_graph` ReAct loop shared with Tahoe | Explicit state machine `agent/react/databot/graph.py`: fetch_cards → gate_cards → write_cards_artifact → generate_sql → gate_sql → write_sql_artifact → execute_sql → chart_question → end |
+| Subgraph scope | All databot tools bound to the LLM at once | Per-stage tool scoping: fetch stage sees RAG + MCP datahub only; SQL stage sees `trino_desc_table` / `hive_desc_table` only; `trino_run_query` only runs in the post-gate `execute_sql` node |
+| Human gates | None | `langgraph.types.interrupt` nodes for cards and SQL; options `approve` / `deny-comments` / `deny-halt` / `dryrun`; default `dryrun`; `deny-comments` loops back with feedback, `deny-halt` routes to refusal, approve writes a sidecar artifact |
+| Profile persistence | Static `UserProfile` only | `approved_cards` / `approved_sql` / gate audit appended to `profiles/<user>.databot_turns.jsonl` on approve (skipped on dryrun / halt); `UserProfile` schema unchanged for now |
+| Glossary / dbt-metric conflict | (no handling) | `record_metric_conflict` tool surfaces the disagreement into `metric_conflicts`; we flag, do not auto-edit dbt yml / hive models |
+| Confidence scoring | (no scoring) | `confidence` still `"unknown"`; partition-freshness step-LLM deferred to a follow-up |
+| State schema | `SessionAgentState` shared with Tahoe | New `DatabotState` (subclass of `MessagesState`) with stage pointer, candidate / selected / approved cards, draft / approved SQL, gate audit, deny feedback, dryrun flag, halt reason |
+| DatabotAgent wiring | `DatabotAgent(TahoeAgent)` reused Tahoe's `build_graph` | `DatabotAgent` composes an inner `TahoeAgent` for session/turn plumbing but builds the v2 graph itself; public `create` / `run` / `bind` API unchanged |
+
+---
+
+## 2026-08-29 — Databot stage tool lookup is name-flexible
+
+**Goal**: Stop `bind()` from crashing on machines where datahub is exposed via the native GraphQL helpers instead of legacy MCP `search` / `get_entities` tools.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| Tool resolution | `_filter_tool(all_tools, "search" / "get_entities")` raised `KeyError` when those exact names were absent (e.g. when only `datahub_list_glossary_terms` / `datahub_graphql_query` are loaded) | `_find_tool` (silent miss) + `_find_tools_by_predicate` (accepts MCP and native names, plus `datahub_list_glossary*` and `datahub_graphql_query` prefixes) |
+| `trino_run_query` availability | Graph build required it | Optional; `execute_sql` node records a "not available this turn" error and still advances to `chart` stage |
+| `chat_completion` requirement | Implicit (assumed present) | Explicitly required; raises only if missing — same as the v1 Tahoe base |
+| Stage list construction | `*tool if tool else []` for a single tool object | `if tool is not None: out.append(tool)`; previous form unpacked `StructuredTool.__iter__` and produced tuples instead of tools |
+
+---
 
 ## 2026-08-29 — `tools/mcp/mcp.py` lazy-opens the stderr sink
 
@@ -739,6 +755,8 @@ Implementation notes (behavior only): detect emits intentions + plan steps; publ
 | Symptom in `langgraph dev` logs | `BlockingError: Blocking call to os.mkdir ... would degrade performance ...` repeating per request, then `Failed to load MCP tools; continuing with Hive/Trino only` | No BlockingError; MCP tools still gracefully absent because the dev config has no `datahub` server, but the dev server no longer chokes |
 | `GET /threads/{tid}/state` | 20.9 s timeout (also caused by Node 18+ IPv6 lookup, fixed separately) | 8 ms |
 
+---
+
 ## 2026-08-29 — `LANGGRAPH_DEPLOYMENT_URL` must use `127.0.0.1`, not `localhost`
 
 **Goal**: Stop the CopilotKit v2 frontend from hanging on `POST /api/copilotkit/agent/databot/run` for 20+ seconds with "Unable to connect to LangGraph server".
@@ -750,6 +768,8 @@ Implementation notes (behavior only): detect emits intentions + plan steps; publ
 | Node 18+ fetch dual-stack | Tries `[::1]:8000` first → `ECONNREFUSED` after ~20s → falls back to IPv4 | Skips the IPv6 attempt because the hostname is already a literal IPv4 |
 | `frontend/.env.local` | did not exist | New file: `LANGGRAPH_DEPLOYMENT_URL`, `LANGSMITH_TRACING=false`, `COPILOTKIT_TELEMETRY_DISABLED=true` |
 | Symptoms in browser | "Failed to retrieve assistant: Unable to connect to LangGraph server" after 20s; POST returns 200 because the error is wrapped in a `RUN_ERROR` event | First POST resolves in a few hundred ms; interrupts fire as designed |
+
+---
 
 ## 2026-08-29 — CopilotKit v2 frontend for Databot staged pipeline
 
@@ -770,6 +790,8 @@ Implementation notes (behavior only): detect emits intentions + plan steps; publ
 | Default port for `LANGGRAPH_DEPLOYMENT_URL` | `:8123` (typo) | `:8000` (matches `langgraph dev`'s actual default) |
 | Frontend deps | `@copilotkit/*` + `next` + `react` only | + `recharts ^2.13.3` for visualization |
 
+---
+
 ## 2026-08-29 — `write_gate_reasons` accepts dict OR positional list
 
 **Goal**: Stop `write_gate_reasons` from failing with "Input should be a valid dictionary" when the LLM passes reasons as a positional list of strings (observed on the second real CLI run).
@@ -780,6 +802,8 @@ Implementation notes (behavior only): detect emits intentions + plan steps; publ
 | Parser | dict-only | `_coerce_gate_reasons`: dict form keeps keys verbatim; list form maps to `GATE_OPTIONS` by position and strips `approve: ` style prefixes |
 | Tool description | "one short string per option" (ambiguous) | Explicit dict example + note that list form is tolerated fallback |
 | Test coverage | 0 schema-coercion tests | 6 new tests in `tests/test_databot_gates.py` cover dict / list / short-list / unknown keys / None / mixed-prefix inputs |
+
+---
 
 ## 2026-08-29 — Stage tools must append a matching ToolMessage
 
@@ -792,49 +816,108 @@ Implementation notes (behavior only): detect emits intentions + plan steps; publ
 | First CLI dry run | "Expected to have a matching ToolMessage in Command.update" 400 from `api.minimaxi.com`; second `step_llm` call hit the provider contract violation | Stage tool calls round-trip cleanly; ToolMessages appear in the message history; LLM sees the success content and continues |
 | Why not `InjectedToolCallId` | Tried first; Pydantic 2 cannot generate a JSON schema for `IsInstanceSchema(InjectedToolCallId)`, so `model.bind_tools(...)` raised `PydanticInvalidForJsonSchema` | `ToolRuntime` is not exposed in the args schema (LangGraph injects it under the hood), so JSON schema generation works |
 
-## 2026-08-29 — Databot v2 staged pipeline (state machine + per-stage ReAct)
+---
 
-**Goal**: Implement `tools/rag/semantic.py` thought 1 — parallel RAG+MCP fetch, LLM card selection, two human gates (cards, SQL), per-stage execution, optional Superset chart — instead of one free-form ReAct loop.
+## 2026-08-30 — `models.models` is lazy; missing API keys no longer kill `langgraph dev`
 
-| Optimization | Before | After |
-|--------------|--------|-------|
-| Top-level topology | Single `build_react_graph` ReAct loop shared with Tahoe | Explicit state machine `agent/react/databot/graph.py`: fetch_cards → gate_cards → write_cards_artifact → generate_sql → gate_sql → write_sql_artifact → execute_sql → chart_question → end |
-| Subgraph scope | All databot tools bound to the LLM at once | Per-stage tool scoping: fetch stage sees RAG + MCP datahub only; SQL stage sees `trino_desc_table` / `hive_desc_table` only; `trino_run_query` only runs in the post-gate `execute_sql` node |
-| Human gates | None | `langgraph.types.interrupt` nodes for cards and SQL; options `approve` / `deny-comments` / `deny-halt` / `dryrun`; default `dryrun`; `deny-comments` loops back with feedback, `deny-halt` routes to refusal, approve writes a sidecar artifact |
-| Profile persistence | Static `UserProfile` only | `approved_cards` / `approved_sql` / gate audit appended to `profiles/<user>.databot_turns.jsonl` on approve (skipped on dryrun / halt); `UserProfile` schema unchanged for now |
-| Glossary / dbt-metric conflict | (no handling) | `record_metric_conflict` tool surfaces the disagreement into `metric_conflicts`; we flag, do not auto-edit dbt yml / hive models |
-| Confidence scoring | (no scoring) | `confidence` still `"unknown"`; partition-freshness step-LLM deferred to a follow-up |
-| State schema | `SessionAgentState` shared with Tahoe | New `DatabotState` (subclass of `MessagesState`) with stage pointer, candidate / selected / approved cards, draft / approved SQL, gate audit, deny feedback, dryrun flag, halt reason |
-| DatabotAgent wiring | `DatabotAgent(TahoeAgent)` reused Tahoe's `build_graph` | `DatabotAgent` composes an inner `TahoeAgent` for session/turn plumbing but builds the v2 graph itself; public `create` / `run` / `bind` API unchanged |
-
-## 2026-08-29 — Databot stage tool lookup is name-flexible
-
-**Goal**: Stop `bind()` from crashing on machines where datahub is exposed via the native GraphQL helpers instead of legacy MCP `search` / `get_entities` tools.
+**Goal**: Stop `langgraph dev` from hanging silently when any single registered chat model has a missing API key. The previous behaviour eagerly instantiated every model in `models/models.toml` at import time, so a single missing `MiniMax_API_KEY` (the `default_model_name`) raised `ValueError` before the dev server could `bind()` a socket.
 
 | Optimization | Before | After |
 |--------------|--------|-------|
-| Tool resolution | `_filter_tool(all_tools, "search" / "get_entities")` raised `KeyError` when those exact names were absent (e.g. when only `datahub_list_glossary_terms` / `datahub_graphql_query` are loaded) | `_find_tool` (silent miss) + `_find_tools_by_predicate` (accepts MCP and native names, plus `datahub_list_glossary*` and `datahub_graphql_query` prefixes) |
-| `trino_run_query` availability | Graph build required it | Optional; `execute_sql` node records a "not available this turn" error and still advances to `chart` stage |
-| `chat_completion` requirement | Implicit (assumed present) | Explicitly required; raises only if missing — same as the v1 Tahoe base |
-| Stage list construction | `*tool if tool else []` for a single tool object | `if tool is not None: out.append(tool)`; previous form unpacked `StructuredTool.__iter__` and produced tuples instead of tools |
+| `default_model` | Eager `BaseChatModel` instance, built at module import | `None`; `get_default_model()` builds it on first call |
+| `_load_registry` | Loop over `config["model"]` and call `get_model(...)` for each (which calls `_resolve_api_key`) | Loop over `config["model"]` and stash `ModelConfig` objects only — no model is constructed at import time |
+| Missing key behaviour | Whole registry import fails; `langgraph dev` exits; `default_model_name` never resolves | `get_default_model()` tries the configured default, then walks every other registered model until one constructs; surfaces the aggregate error only if **every** model is unusable |
+| Callers | `ui.py`, `cli.py`, `observability/__main__.py` import `default_model` directly | Same callers now import `get_default_model()` / `_model_configs` / `get_model_by_name` |
+| Symptom in dev | Background `langgraph dev` process `S+` for >1 min, no `LISTEN` on `:8000`, browser shows `Failed to retrieve assistant: fetch failed` | `langgraph dev` boots in ~1s and binds `:8000` even if some API keys are missing; users with a valid key for any model can run the app |
 
-## 2026-08-29 — Databot v2 staged pipeline (state machine + per-stage ReAct)
+---
 
-**Goal**: Implement `tools/rag/semantic.py` thought 1 — parallel RAG+MCP fetch, LLM card selection, two human gates (cards, SQL), per-stage execution, optional Superset chart — instead of one free-form ReAct loop.
+## 2026-08-31 — SQL gate redraft and chat_completion stall exit
+
+**Goal**: Stop the SQL-stage ReAct loop when the user rejects GMV for revenue (or any gate redraft) and the model keeps calling `chat_completion` without updating SQL.
 
 | Optimization | Before | After |
 |--------------|--------|-------|
-| Top-level topology | Single `build_react_graph` ReAct loop shared with Tahoe | Explicit state machine `agent/react/databot/graph.py`: fetch_cards → gate_cards → write_cards_artifact → generate_sql → gate_sql → write_sql_artifact → execute_sql → chart_question → end |
-| Subgraph scope | All databot tools bound to the LLM at once | Per-stage tool scoping: fetch stage sees RAG + MCP datahub only; SQL stage sees `trino_desc_table` / `hive_desc_table` only; `trino_run_query` only runs in the post-gate `execute_sql` node |
-| Human gates | None | `langgraph.types.interrupt` nodes for cards and SQL; options `approve` / `deny-comments` / `deny-halt` / `dryrun`; default `dryrun`; `deny-comments` loops back with feedback, `deny-halt` routes to refusal, approve writes a sidecar artifact |
-| Profile persistence | Static `UserProfile` only | `approved_cards` / `approved_sql` / gate audit appended to `profiles/<user>.databot_turns.jsonl` on approve (skipped on dryrun / halt); `UserProfile` schema unchanged for now |
-| Glossary / dbt-metric conflict | (no handling) | `record_metric_conflict` tool surfaces the disagreement into `metric_conflicts`; we flag, do not auto-edit dbt yml / hive models |
-| Confidence scoring | (no scoring) | `confidence` still `"unknown"`; partition-freshness step-LLM deferred to a follow-up |
-| State schema | `SessionAgentState` shared with Tahoe | New `DatabotState` (subclass of `MessagesState`) with stage pointer, candidate / selected / approved cards, draft / approved SQL, gate audit, deny feedback, dryrun flag, halt reason |
-| DatabotAgent wiring | `DatabotAgent(TahoeAgent)` reused Tahoe's `build_graph` | `DatabotAgent` composes an inner `TahoeAgent` for session/turn plumbing but builds the v2 graph itself; public `create` / `run` / `bind` API unchanged |
+| SQL gate `deny-comments` | Only set `deny_feedback`; stale `draft_sql` + `sql_reasons` made the subgraph think it was done | Clear SQL contract fields so `generate_sql` must redraft with gate feedback in the system prompt |
+| Cards gate `deny-comments` | Only set `deny_feedback` | Clear `cards_reasons` so fetch must re-fill the gate reason map |
+| Subgraph exit on stall | `chat_completion` did not end state-based subgraphs; model could loop with inner monologue | Force subgraph END after two consecutive `chat_completion` tools without the stage contract |
+| Incomplete subgraph exit | Outer graph could spin `write_cards_artifact` ↔ `generate_sql` forever | Route to the human gate when the stage contract is still empty after the subgraph ends |
 
+---
 
+## 2026-08-31 — Post-done follow-up always restarts pipeline, history for context
 
+**Goal**: After `done`, every new user message reruns fetch → gates → sql → execute, while the LLM uses chat history to interpret corrections and follow-ups.
 
+| Optimization | Before | After |
+|--------------|--------|-------|
+| `done` + follow-up chat | Sometimes short-circuited to SQL-only on correction-shaped text | Always reset turn fields to `fetch`; preserve `messages` for context |
+| Fetch / SQL prompts | No guidance on multi-turn threads | Instruct models to read prior messages for intent but still run stage tools |
 
+---
 
+## 2026-08-31 — MiniMax tool-call chain repair before LLM invoke
+
+**Goal**: Stop HTTP 400 / error 2013 (`tool call result does not follow tool call`) when Databot replays checkpoint history to MiniMax after parallel or interrupted tool batches.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| History sent to the model | Raw checkpoint messages, including assistant planning text + partial parallel tool results | Sanitize before every `step_llm`: strip assistant content on tool-call turns, synthesize missing `ToolMessage`s in call order |
+| Fetch-stage prompt | Encouraged parallel RAG + glossary tool calls in one step | One tool call per model step (provider-safe) |
+
+---
+
+## 2026-08-31 — `fetch_related_models` provider-safe tool schema
+
+**Goal**: Stop `fetch_related_models` from failing with `Cannot instantiate typing.Union` on strict OpenAI-compatible providers (GLM, MiniMax).
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| `Command` import | `langchain_protocol.Command` (a `typing.Union` alias — `Command(...)` raised at runtime) | `langgraph.types.Command` (real LangGraph command object) |
+| Return type | `Command \| list[dict]` union confused Pydantic schema generation | Always returns `Command` with staged refs in the tool message |
+| `layer` / `chunk_type` args | `Literal` types → JSON Schema `const` / `enum` | Plain `str` with in-body validation |
+| Tool schema build | `create_schema_from_function` could fail on the union return | Schema builds cleanly; no `const`/`enum` traps in the bound tool spec |
+
+---
+
+## 2026-08-31 — Databot chat: hide inspector/thinking; gate action hints
+
+**Goal**: Cleaner CopilotKit chat (no dev Inspector link or ReAct planning prose) and clear user instructions when a human gate opens.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| Chat assistant rows | Empty tool-only turns showed “View in Inspector (local only)”; LLM planning text appeared between tool calls | Custom assistant renderer hides narration and disables the inspector toolbar |
+| Reasoning rows | Model “thinking” blocks could appear in the sidebar | Reasoning message slot suppressed in the Databot message view |
+| Gate instructions | Gate UI only in the right column; checkbox vs Approve distinction unclear | Chat banner + gate panel “how to” steps; Cards/SQL tabs explain refine vs workflow buttons |
+| Gate interrupt copy | Generic “approve or halt?” question | Interrupt payload lists numbered steps (Cards tab → gate panel decision) |
+
+---
+
+## 2026-09-01 — Databot right panel: cards, gate, and tool cards
+
+**Goal**: Clearer artifact panel during fetch/gate stages and fix false-empty semantic search in chat.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| Artifact lists | Separate “Staged” / “Committed candidates” sections confused users | Single card list: `candidate_cards` when present, else `staging_cards` |
+| Card / gate chrome | Plain list rows | Accent bars, relevance score bars, chip grids; compact gate tiles with colored decision buttons |
+| Semantic search tool card | Parsed tool JSON as a bare array → “No matching models” while hits existed | `parseFetchRelatedModelsResult` reads `staged` / `staging_total`; shows “Found N models…” |
+| Gate payload | Full column/metric blobs in interrupt JSON | Slim `selected_cards` summary; full schema stays in Cards tab |
+| Cards vs gate actions | Unclear why checkboxes and Approve both exist | Hint copy: checkboxes refine selection; gate buttons advance the workflow |
+
+---
+
+## 2026-09-01 — Databot chat sidebar: user messages, gates, and New chat
+
+**Goal**: Chat shows user-facing prose (not inner monologue) alongside tool cards; gates and session reset behave predictably.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| Assistant + tool turns | Planning text or empty body; or all prose hidden when tools present | Show short user-facing status when present; hide third-person / tool-name monologue; `chat_completion` renders as an assistant reply bubble |
+| Reasoning / Inspector | Thinking rows and “View in Inspector (local only)” on tool-only turns | Reasoning slot suppressed; custom assistant message disables inspector toolbar |
+| Gate chat notice | Banner never appeared (`pendingInterrupts` unused; banner outside scroll) | Detect `gate_cards` / `gate_sql` from agent state + subscribe; banner at end of message list |
+| SQL gate feedback | Regenerate in SQL tab duplicated gate “Request changes” | Hide Regenerate while `gate_sql` is open; gate panel owns LLM rewrite feedback |
+| New chat | Empty `execution_result: {}` read as failure; `stage` stuck on Results | Reset `stage` to `fetch`, clear result; Results tab shows “No execution result yet.” |
+| Chat style prompt | “Emit ONLY tool calls” → no user-visible status | Allow one short user-facing line per turn; forbid “The user wants me to…” and tool return values in prose |
+
+<!-- Append the next optimization section above this line -->

@@ -64,6 +64,8 @@ export function AgentDebugPanel() {
   }
 
   const messages = agent.messages ?? [];
+  const recentMessages = messages.slice(-10);
+  const recentMessageOffset = messages.length - recentMessages.length;
   const state = (agent.state ?? {}) as Record<string, unknown>;
   const tools = (state.tools as Array<{ name: string; description?: string }> | undefined) ?? [];
   const pending = (agent as unknown as {
@@ -118,8 +120,11 @@ export function AgentDebugPanel() {
         <details className="agent-debug-section" open>
           <summary>messages ({messages.length})</summary>
           <ol className="agent-debug-messages">
-            {messages.slice(-10).map((m) => (
-              <li key={m.id} className={`agent-debug-message agent-debug-message--${m.role}`}>
+            {recentMessages.map((m, i) => (
+              <li
+                key={`${recentMessageOffset + i}:${m.role}:${m.id}`}
+                className={`agent-debug-message agent-debug-message--${m.role}`}
+              >
                 <span className="agent-debug-message-role">{m.role}</span>
                 <span className="agent-debug-message-id agent-debug-mono">{m.id}</span>
               </li>

@@ -1,10 +1,12 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { useAgent } from "@copilotkit/react-core/v2";
 import { ExecutionChart } from "./ExecutionChart";
 import { SqlEditor } from "./SqlEditor";
 import { TableCardList } from "./TableCardList";
+import { useDatabotActions } from "./useDatabotActions";
+import { hasExecutionResult } from "./executionResultUtils";
 import type { DatabotAgentState, DatabotStage } from "./types";
 
 // ---------------------------------------------------------------------------
@@ -15,23 +17,8 @@ import type { DatabotAgentState, DatabotStage } from "./types";
 //   2. SQL      — current draft / approved SQL with editor
 //   3. Results  — `execution_result` rendered as a Recharts chart
 //
-// The active tab is auto-selected from the current `stage` so the user
-// doesn't have to hunt for what needs their attention:
-//   fetch / gate_cards   -> Cards
-//   sql / gate_sql       -> SQL
-//   execute / chart / done -> Results
-//
-// The panel also dispatches user actions back to the backend via the
-// CopilotKit runtime:
-//   - `update_card_selection` (via the `addMissingTools` mock or a new
-//     human message that asks the LLM to update; see below for the
-//     current approach).
-//   - `propose_sql` direct save (via a new human message).
-//   - `request_sql_regenerate` (via a new human message with the
-//     feedback text).
-//
-// We dispatch through a small `useSendMessage` helper because the v2
-// `useAgent` API gives us a `.run()` / `.sendMessage()`-style call.
+// User edits dispatch to the LangGraph checkpoint via
+// ``POST /api/databot/actions`` (see ``useDatabotActions``).
 // ---------------------------------------------------------------------------
 
 type Tab = "cards" | "sql" | "results";
@@ -44,21 +31,28 @@ function stageToTab(stage: DatabotStage | undefined): Tab {
 
 export function DatabotArtifactPanel() {
   const { agent, isReady } = useAgent({ agentId: "databot" });
-  // AG-UI: backend LangGraph state is mirrored onto the agent's
-  // `state` field. ``isReady`` is true once the runtime has synced.
   const rawState = isReady ? (agent as unknown as { state: unknown }).state : undefined;
   const ds = (rawState as DatabotAgentState | undefined) ?? undefined;
   const [manualTab, setManualTab] = useState<Tab | null>(null);
   const activeTab = manualTab ?? stageToTab(ds?.stage);
 
-  // We don't yet have a `sendMessage` binding here — CopilotKit v2
-  // exposes it via `useAgent().run(...)` or via the chat. We expose
-  // callbacks that the page wires up. As a fallback, we render
-  // placeholder "send via chat" hints when interactive controls are
-  // disabled. This keeps the panel declarative and lets the page
-  // choose how to wire actions.
+  const {
+    updateCardSelection,
+    saveSqlDraft,
+    regenerateSql,
+    isPending,
+    error,
+    clearError,
+  } = useDatabotActions(isReady ? agent : undefined, isReady);
 
-  const interactive = ds?.stage === "gate_cards" || ds?.stage === "sql";
+  const interactiveCards = ds?.stage === "gate_cards";
+  const interactiveSql = ds?.stage === "sql" || ds?.stage === "gate_sql";
+  const sqlGateOpen = ds?.stage === "gate_sql";
+
+  const displayCards =
+    (ds?.candidate_cards?.length ?? 0) > 0
+      ? (ds?.candidate_cards ?? [])
+      : (ds?.staging_cards ?? []);
 
   const stageLabel = ds?.stage ?? "idle";
   const halted = Boolean(ds?.halt_reason);
@@ -82,6 +76,19 @@ export function DatabotArtifactPanel() {
             Dryrun mode — no profile writes
           </p>
         )}
+        {error && (
+          <p className="action-error" role="alert">
+            {error}{" "}
+            <button type="button" className="btn btn-ghost" onClick={clearError}>
+              dismiss
+            </button>
+          </p>
+        )}
+        {isPending && (
+          <p className="action-pending" role="status">
+            Saving…
+          </p>
+        )}
       </header>
 
       <nav className="artifact-tabs" role="tablist">
@@ -89,7 +96,7 @@ export function DatabotArtifactPanel() {
           tab="cards"
           active={activeTab === "cards"}
           onClick={() => setManualTab("cards")}
-          count={(ds?.candidate_cards?.length ?? 0) || (ds?.selected_cards?.length ?? 0)}
+          count={displayCards.length || (ds?.selected_cards?.length ?? 0)}
           label="Cards"
         />
         <TabButton
@@ -103,42 +110,50 @@ export function DatabotArtifactPanel() {
           tab="results"
           active={activeTab === "results"}
           onClick={() => setManualTab("results")}
-          count={ds?.execution_result ? 1 : 0}
+          count={hasExecutionResult(ds?.execution_result) ? 1 : 0}
           label="Results"
         />
       </nav>
 
       <main className="artifact-body">
+        {activeTab === "cards" && interactiveCards && (
+          <p className="artifact-gate-hint" role="status">
+            Gate is open: adjust checkboxes here, then use the <strong>gate panel</strong>{" "}
+            above to Approve or Request changes.
+          </p>
+        )}
         {activeTab === "cards" && (
           <TableCardList
-            candidates={ds?.candidate_cards ?? []}
+            candidates={displayCards}
             selected={ds?.selected_cards ?? []}
             metricConflicts={ds?.metric_conflicts ?? []}
-            mode={ds?.stage === "gate_cards" ? "interactive" : "readonly"}
-            onChange={() => {
-              // The CopilotKit UI currently doesn't expose a generic
-              // "call backend tool" binding for the v2 AG-UI runtime,
-              // so the human-driven edit path is to send a follow-up
-              // message ("drop X, add Y"). The page-level handler below
-              // wires that. We no-op here.
+            mode={interactiveCards ? "interactive" : "readonly"}
+            disabled={isPending}
+            onChange={(names) => {
+              void updateCardSelection(names).catch(() => undefined);
             }}
           />
+        )}
+        {activeTab === "sql" && sqlGateOpen && (
+          <p className="artifact-gate-hint" role="status">
+            SQL gate is open: edit and <strong>Save draft</strong> here if you want to fix SQL
+            yourself. To ask the agent to rewrite, use <strong>Request changes</strong> in the gate
+            panel — not Regenerate here.
+          </p>
         )}
         {activeTab === "sql" && (
           <SqlEditor
             draft={ds?.draft_sql ?? ""}
             approved={ds?.approved_sql ?? ""}
             validated={ds?.sql_validated ?? false}
-            mode={interactive ? "interactive" : "readonly"}
-            onSaveDraft={() => {
-              // v2: human can save the draft by sending a follow-up
-              // message. The chat composer supports that without extra
-              // wiring; the dedicated `propose_sql` tool is owned by
-              // the LLM. We treat any direct user edit as
-              // documentation; the official flow is via the gate.
+            mode={interactiveSql ? "interactive" : "readonly"}
+            disabled={isPending}
+            allowRegenerate={interactiveSql && !sqlGateOpen}
+            onSaveDraft={(sql) => {
+              void saveSqlDraft(sql).catch(() => undefined);
             }}
-            onRegenerate={() => {
-              // Same as above: human asks via the chat composer.
+            onRegenerate={(feedback) => {
+              void regenerateSql(feedback).catch(() => undefined);
             }}
           />
         )}

@@ -223,6 +223,7 @@ class DatabotAgent(BaseAgent):
         # Initialize stage-machine fields if this is a fresh thread.
         defaults: dict[str, Any] = {
             "stage": "fetch",
+            "staging_cards": [],
             "candidate_cards": [],
             "selected_cards": [],
             "approved_cards": [],

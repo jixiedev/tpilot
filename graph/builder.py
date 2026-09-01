@@ -9,7 +9,7 @@ from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import SystemMessage
 from langchain_core.tools import BaseTool
 from langgraph.checkpoint.base import BaseCheckpointSaver
-from langgraph.graph import END, START, StateGraph
+from langgraph.graph import END, START, MessagesState, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import RetryPolicy
 
@@ -30,6 +30,13 @@ from state.state import SessionAgentState
 # Static prompt string, or a callable that renders from the current state (e.g. user profile).
 SystemPromptSpec = str | Callable[[SessionAgentState], str]
 StateNode = Callable[[SessionAgentState], dict[str, Any]]
+# Any MessagesState subclass works as the inner ReAct subgraph's state
+# schema — the builder only adds ``messages`` and a couple of ReAct
+# bookkeeping keys. Databot subgraphs pass ``DatabotState`` so they
+# can write to the staged pipeline's fields (``selected_cards``,
+# ``cards_reasons``, ``stage``, etc.) directly via ``Command(update=...)``
+# without LangGraph silently dropping unknown keys.
+InnerStateClass = type[MessagesState]
 
 
 def _resolve_system_prompt(system_prompt: SystemPromptSpec, state: SessionAgentState) -> str:
@@ -80,6 +87,7 @@ def build_react_graph(
     on_tool_result: ToolResultListener | None = None,
     on_llm_start: LlmStartListener | None = None,
     on_llm_step: LlmStepListener | None = None,
+    state_class: InnerStateClass = SessionAgentState,
 ) -> CompiledStateGraph:
     """Compile inject_system_prompt → step_llm ↔ step_tools.
 
@@ -90,10 +98,18 @@ def build_react_graph(
 
     When ``refine_user_profile_node`` is set, agents should route turn completion
     to ``refine_user_profile``, which then ends the turn.
+
+    ``state_class`` is the ``MessagesState`` subclass used as the
+    subgraph's state schema. The default ``SessionAgentState`` works
+    for Tahoe base. Databot subgraphs pass ``DatabotState`` so that
+    ``Command(update=...)`` writes to databot fields (``selected_cards``,
+    ``cards_reasons``, ``stage``, etc.) actually land in the inner
+    state instead of being silently dropped by LangGraph 1.2 because
+    the key is not in the schema.
     """
     model_with_tools = model.bind_tools(tools)
 
-    graph = StateGraph(SessionAgentState)
+    graph = StateGraph(state_class)
     if compressor:
         graph.add_node("compress_on_start", compressor)
         graph.add_node("compress_after_tools", compressor)

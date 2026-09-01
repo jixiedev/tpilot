@@ -60,10 +60,17 @@ def test_parse_resume_preserves_freeform_text_as_comments() -> None:
 
 
 def test_parse_resume_handles_non_string_payload() -> None:
-    # Non-string, non-JSON payload should fall back to default + nothing.
     decision, comments = _parse_resume(42)  # type: ignore[arg-type]
     assert decision == "dryrun"
     assert comments == "42"  # coerced to string
+
+
+def test_parse_resume_accepts_dict_payload() -> None:
+    decision, comments = _parse_resume(
+        {"decision": "deny-comments", "comments": "use dt not payment_received_time"},
+    )
+    assert decision == "deny-comments"
+    assert comments == "use dt not payment_received_time"
 
 
 def test_gate_options_includes_all_thought1_verdicts() -> None:

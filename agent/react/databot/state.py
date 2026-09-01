@@ -35,6 +35,8 @@ from typing import Any, Literal, TypedDict
 
 from langgraph.graph import MessagesState
 
+from state.state import SessionAgentState
+
 # Outer state machine stages. Each human gate lives between two stages and
 # ``stage`` is what the next conditional edge uses to pick the next node.
 DatabotStage = Literal[
@@ -61,23 +63,29 @@ class GateAuditEntry(TypedDict):
     reasons: dict[str, str]
 
 
-class DatabotState(MessagesState):
+class DatabotState(SessionAgentState):
     """Per-turn state for the Databot v2 staged pipeline.
 
-    Inherits ``messages`` and ReAct bookkeeping (``tool_call_count``,
-    ``idle_rounds``, ``failed_tools``) from ``MessagesState`` / the runtime
-    contract used by the rest of the codebase. The keys below are only read
-    and written by nodes in ``agent/react/databot/graph.py`` and the
-    per-stage subgraph builders.
+    Extends ``SessionAgentState`` to inherit session id, ReAct
+    bookkeeping (``tool_call_count``, ``idle_rounds``, ``failed_tools``),
+    and ``messages``. The databot fields below are only read and
+    written by nodes in ``agent/react/databot/graph.py`` and the
+    per-stage subgraph builders. Using the same class for the outer
+    graph and the inner subgraphs lets the LLM's
+    ``Command(update=...)`` writes land directly — no more silently
+    dropped keys, no more bridge nodes to recover lost data.
     """
 
     # Outer stage-machine pointer.
     stage: DatabotStage
 
     # fetch stage ------------------------------------------------------------
-    # Raw RAG / MCP hits the parallel fetch produced. Each entry is the
-    # ``TableCard``-shaped dict that ``fetch_related_models`` and the MCP
-    # datahub search return (no hydration yet).
+    # Every ``fetch_related_models`` hit, each with a unique ``staging_id``.
+    # The LLM references these ids in ``add_card_to_state``; unstaged rows
+    # stay here until committed or the turn resets.
+    staging_cards: list[dict[str, Any]]
+    # Cards committed via ``add_card_to_state`` (subset of staging with
+    # ``selected_dimensions`` / ``selected_metrics`` annotated by the LLM).
     candidate_cards: list[dict[str, Any]]
     # The subset of candidate_cards the LLM picked. The LLM must always write
     # here before the cards gate fires; ``selected_cards`` is what the human

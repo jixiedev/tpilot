@@ -42,3 +42,12 @@ class RouterConfig:
     step_end_outlet: str = "__end__"
     tool_step_outlet: str = "step_llm"
     tool_end_outlet: str = "__end__"
+    # State-based exit: when every name in this tuple maps to a
+    # truthy value in the run's state, the router forces
+    # ``tool_end_outlet`` (or ``step_end_outlet``) immediately. This
+    # replaces the older "wait for chat_completion ToolMessage" exit
+    # signal — state itself is the contract, the LLM's job is just to
+    # fill it. If a stage only needs ``chat_completion`` for the
+    # user-facing one-line summary, it can still be in the tool list;
+    # it's just no longer the exit gate.
+    state_exit_keys: tuple[str, ...] = ()

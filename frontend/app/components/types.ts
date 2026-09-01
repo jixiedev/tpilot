@@ -52,6 +52,7 @@ export interface TableCardMetric {
 }
 
 export interface TableCard {
+  staging_id?: string;
   name: string;
   model_type?: "native" | "derived";
   physical_tables?: string[];
@@ -68,6 +69,10 @@ export interface TableCard {
   score?: number;
   yml_path?: string;
   sql_path?: string;
+  /** LLM-annotated subset for this question (from add_card_to_state). */
+  selected_dimensions?: string[];
+  selected_metrics?: string[];
+  selection_notes?: string;
 }
 
 export interface ExecutionResult {
@@ -82,6 +87,7 @@ export interface ExecutionResult {
 
 export interface DatabotAgentState {
   stage?: DatabotStage;
+  staging_cards?: TableCard[];
   candidate_cards?: TableCard[];
   selected_cards?: TableCard[];
   approved_cards?: TableCard[];

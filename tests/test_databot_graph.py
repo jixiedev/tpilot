@@ -96,6 +96,7 @@ def _seed(stage: str, **overrides) -> DatabotState:
         "autonomous_compact_requested": False,
         "failed_tools": [],
         "stage": stage,  # type: ignore[typeddict-item]
+        "staging_cards": [],
         "candidate_cards": [],
         "selected_cards": [{"name": "orders_daily"}],
         "approved_cards": [],
@@ -232,4 +233,137 @@ async def test_cards_gate_deny_with_comments_loops_back(compiled_graph):
         and entry.get("comments") == "use daily_orders instead"
         for entry in audit
     )
+
+
+def test_stage_done_follow_up_always_restarts_fetch():
+    from agent.react.databot.graph import make_databot_entry_node, _stage_route
+    from langchain_core.messages import AIMessage, HumanMessage
+
+    state = {
+        "stage": "done",
+        "approved_cards": [{"name": "daily_rev_tahoe"}],
+        "selected_cards": [{"name": "daily_rev_tahoe"}],
+        "execution_result": {"ok": True, "rows": [[1, 2]]},
+        "messages": [
+            HumanMessage(content="wish上个月订单数和revenue"),
+            AIMessage(content="done"),
+            HumanMessage(content="我要的是revenue，你给我的是gmv"),
+        ],
+    }
+    patch = make_databot_entry_node("")(state)  # type: ignore[arg-type]
+    assert patch.get("stage") == "fetch"
+    assert patch.get("approved_cards") == []
+    assert patch.get("execution_result") == {}
+    assert len(state["messages"]) == 3
+    merged = {**state, **patch}
+    assert _stage_route(merged) == "fetch_cards"
+
+
+def test_stage_done_new_question_still_starts_fetch():
+    from agent.react.databot.graph import make_databot_entry_node, _stage_route
+    from langchain_core.messages import AIMessage, HumanMessage
+
+    state = {
+        "stage": "done",
+        "execution_result": {"ok": True},
+        "messages": [
+            HumanMessage(content="wish上个月订单数"),
+            AIMessage(content="done"),
+            HumanMessage(content="wish上个月的gmv是多少"),
+        ],
+    }
+    patch = make_databot_entry_node("")(state)  # type: ignore[arg-type]
+    assert patch.get("stage") == "fetch"
+    merged = {**state, **patch}
+    assert _stage_route(merged) == "fetch_cards"
+
+
+def test_stage_done_with_trailing_human_starts_new_fetch():
+    from agent.react.databot.graph import _stage_route, make_databot_entry_node
+    from langchain_core.messages import AIMessage, HumanMessage
+
+    state = {
+        "stage": "done",
+        "messages": [
+            HumanMessage(content="first"),
+            AIMessage(content="done"),
+            HumanMessage(content="second"),
+        ],
+    }
+    patch = make_databot_entry_node("")(state)  # type: ignore[arg-type]
+    assert patch.get("stage") == "fetch"
+    merged = {**state, **patch}
+    assert _stage_route(merged) == "fetch_cards"
+
+
+def test_stage_done_without_trailing_human_ends_turn():
+    from agent.react.databot.graph import _stage_route
+    from langchain_core.messages import AIMessage, HumanMessage
+
+    state = {
+        "stage": "done",
+        "messages": [HumanMessage(content="first"), AIMessage(content="done")],
+    }
+    assert _stage_route(state) == "end_with_summary"
+
+
+def test_after_gate_sql_deny_comments_routes_to_generate_sql():
+    from agent.react.databot.graph import _after_gate_sql
+
+    state = {
+        "stage": "sql",
+        "deny_feedback": "use commission_revenue not gmv",
+    }
+    assert _after_gate_sql(state) == "generate_sql"
+
+
+def test_after_gate_sql_approve_routes_to_write_sql_artifact():
+    from agent.react.databot.graph import _after_gate_sql
+
+    state = {"stage": "execute", "approved_sql": "SELECT 1"}
+    assert _after_gate_sql(state) == "write_sql_artifact"
+
+
+async def test_sql_gate_deny_comments_clears_sql_contract(compiled_graph):
+    graph, _ = compiled_graph
+    config = {"configurable": {"thread_id": "sql-deny"}, "recursion_limit": 50}
+    seed = _seed(
+        "gate_sql",
+        approved_cards=[{"name": "orders_daily"}],
+        draft_sql="SELECT sum(gmv) FROM orders_daily",
+        sql_validated=True,
+    )
+    await graph.ainvoke(seed, config=config)
+    r2 = await graph.ainvoke(
+        Command(
+            resume='{"decision":"deny-comments","comments":"use commission_revenue not gmv"}'
+        ),
+        config=config,
+    )
+    assert r2.get("deny_feedback") == "use commission_revenue not gmv"
+    assert r2.get("draft_sql") == ""
+    assert r2.get("sql_reasons") == {}
+    assert "__interrupt__" in r2
+    interrupt_obj = r2["__interrupt__"][0]
+    raw_message = getattr(interrupt_obj, "value", interrupt_obj)
+    if isinstance(raw_message, str):
+        import json
+        payload = json.loads(raw_message)
+    elif isinstance(raw_message, dict) and "message" in raw_message:
+        import json
+        payload = json.loads(raw_message["message"])
+    else:
+        payload = raw_message
+    assert payload["gate"] == "sql"
+
+
+async def test_chart_question_does_not_interrupt(compiled_graph):
+    graph, _ = compiled_graph
+    result = await graph.ainvoke(
+        _seed("chart", execution_result={"ok": True}),
+        config={"configurable": {"thread_id": "chart-no-block"}},
+    )
+    assert "__interrupt__" not in result
+    assert result.get("stage") == "done"
+    assert result.get("chart_requested") is False
 

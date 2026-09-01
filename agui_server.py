@@ -56,8 +56,9 @@ if not hasattr(typing, "_tpilot_typed_dict_shim_applied"):
     typing._tpilot_typed_dict_shim_applied = True  # type: ignore[attr-defined]
 
 import aiosqlite
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import StreamingResponse
+from pydantic import BaseModel, Field
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 
 from agent.registry import get_agent
@@ -391,6 +392,71 @@ async def agui_endpoint(input_data: RunAgentInput, request: "Request"):
 @app.get(f"{AGUI_PATH.rstrip('/')}/health")
 def agui_health() -> dict:
     return {"status": "ok", "agent": {"name": _agent.name}}
+
+
+# ---------------------------------------------------------------------------
+# UI action endpoint — direct state patches from the artifact panel
+# ---------------------------------------------------------------------------
+
+
+class DatabotUiActionBody(BaseModel):
+    thread_id: str = Field(min_length=1)
+    action: str
+    selected_card_names: list[str] | None = None
+    sql: str | None = None
+    validated: bool = False
+    feedback: str | None = None
+
+
+@app.post(f"{AGUI_PATH.rstrip('/')}/actions")
+async def databot_ui_action(body: DatabotUiActionBody) -> dict:
+    """Apply a human UI edit directly to the LangGraph checkpoint."""
+    from agent.react.databot.ui_actions import (
+        DatabotUiAction,
+        build_ui_action_patch,
+        databot_state_subset,
+    )
+
+    await _ensure_built()
+    if _compiled_graph is None:
+        raise HTTPException(status_code=503, detail="graph not ready")
+
+    action = body.action
+    if action not in {
+        "update_card_selection",
+        "propose_sql",
+        "request_sql_regenerate",
+    }:
+        raise HTTPException(status_code=400, detail=f"unknown action: {action}")
+
+    config = {"configurable": {"thread_id": body.thread_id}}
+    snapshot = await _compiled_graph.aget_state(config)  # type: ignore[attr-defined]
+    state = dict(snapshot.values or {}) if snapshot else {}
+
+    try:
+        patch = build_ui_action_patch(
+            action,  # type: ignore[arg-type]
+            state,
+            selected_card_names=body.selected_card_names,
+            sql=body.sql,
+            validated=body.validated,
+            feedback=body.feedback,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    await _compiled_graph.aupdate_state(config, patch)  # type: ignore[attr-defined]
+    updated = await _compiled_graph.aget_state(config)  # type: ignore[attr-defined]
+    merged = dict(state)
+    merged.update(patch)
+    if updated and updated.values:
+        merged.update(updated.values)
+
+    return {
+        "ok": True,
+        "action": action,
+        "state": databot_state_subset(merged),
+    }
 
 
 # The official AG-UI endpoint. Mounted at ``/agui`` so Next.js's

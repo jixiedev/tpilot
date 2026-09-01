@@ -30,6 +30,11 @@ from typing import Any, Literal
 
 from langgraph.types import interrupt
 
+from agent.react.databot.ui_actions import (
+    apply_cards_gate_redraft,
+    apply_sql_gate_redraft,
+)
+
 from agent.react.databot.state import (
     DatabotState,
     GateAuditEntry,
@@ -60,11 +65,18 @@ def _parse_resume(payload: Any) -> tuple[GateDecision, str]:
 
     Accepts:
     - bare token string: "approve" / "deny-comments" / "deny-halt" / "dryrun"
-    - JSON object: {"decision": "...", "comments": "..."}
+    - JSON object string: {"decision": "...", "comments": "..."}
+    - dict payload (AG-UI / CopilotKit resume objects)
     - None or empty → default (``dryrun``)
     """
     if payload is None:
         return DEFAULT_GATE_DECISION, ""
+    if isinstance(payload, dict):
+        decision = str(payload.get("decision") or "").strip().lower()
+        comments = str(payload.get("comments") or "").strip()
+        if decision in GATE_OPTIONS:
+            return decision, comments  # type: ignore[return-value]
+        return DEFAULT_GATE_DECISION, comments
     text = str(payload).strip()
     if not text:
         return DEFAULT_GATE_DECISION, ""
@@ -216,18 +228,17 @@ def _gate_prompt(state: DatabotState, gate: Literal["cards", "sql"]) -> dict[str
             card_summaries.append(
                 {
                     "name": c.get("name", ""),
-                    "catalog": (
-                        c.get("physical_tables", [None])[0]
-                        if isinstance(c.get("physical_tables"), list) and c.get("physical_tables")
-                        else c.get("catalog", c.get("database", ""))
-                    ),
-                    "schema": c.get("schema", ""),
-                    "description": (c.get("description", "") or "")[:200],
+                    "description": (c.get("description", "") or "")[:280],
+                    "physical_tables": list(c.get("physical_tables") or [])[:6],
+                    "selection_notes": (c.get("selection_notes") or "")[:240],
                 }
             )
         question = (
-            f"Databot picked {len(cards)} candidate dbt model(s). "
-            "Approve, request changes, halt, or preview-only (dryrun)?"
+            f"Databot picked {len(cards)} candidate dbt model(s).\n\n"
+            "What I need from you:\n"
+            "1. Open the Cards tab on the right — adjust checkboxes if the model set looks wrong.\n"
+            "2. In the gate panel, choose Approve (continue to SQL), Request changes "
+            "(tell me what to fix), Halt, or Dry-run (preview only)."
         )
     else:
         # ``draft_sql`` is normally written by the ``propose_sql`` tool
@@ -244,8 +255,12 @@ def _gate_prompt(state: DatabotState, gate: Literal["cards", "sql"]) -> dict[str
             sql_preview = _extract_sql_from_recent_message(state)
         snippet = sql_preview if len(sql_preview) <= 280 else sql_preview[:277] + "..."
         question = (
-            "Databot drafted the SQL below. Approve, request changes, halt, "
-            f"or preview-only (dryrun)?\n\n```sql\n{snippet}\n```"
+            "Databot drafted the SQL below.\n\n"
+            "What I need from you:\n"
+            "1. Open the SQL tab on the right — read or edit the query if needed.\n"
+            "2. In the gate panel, choose Approve (run the query), Request changes "
+            "(describe fixes in the feedback box), Halt, or Dry-run.\n\n"
+            f"```sql\n{snippet}\n```"
         )
     payload: dict[str, Any] = {
         "question": question,
@@ -406,8 +421,7 @@ def make_cards_gate_node() -> Callable[[DatabotState], dict[str, Any]]:
         if decision == "deny-comments":
             return {
                 "gate_decisions": audit,
-                "stage": "fetch",
-                "deny_feedback": comments,
+                **apply_cards_gate_redraft(comments),
             }
 
         # approve | dryrun: keep selected_cards, advance to SQL stage.
@@ -461,8 +475,7 @@ def make_sql_gate_node() -> Callable[[DatabotState], dict[str, Any]]:
         if decision == "deny-comments":
             return {
                 "gate_decisions": audit,
-                "stage": "sql",
-                "deny_feedback": comments,
+                **apply_sql_gate_redraft(comments),
             }
 
         # approve | dryrun: lock in the SQL. dryrun still executes (read-only
@@ -488,14 +501,10 @@ def make_chart_question_node() -> Callable[[DatabotState], dict[str, Any]]:
     """
 
     def chart_question(state: DatabotState) -> dict[str, Any]:
-        kwargs = _gate_interrupt_kwargs(state, "chart")
-        resume = interrupt(kwargs)
-        decision, _ = _parse_resume(resume)
-        # Map the AG-UI decision back to chart semantics: anything that
-        # isn't a clean "approve" (= "yes, generate a chart") ends the
-        # turn without emitting. The chart emit itself is still TODO.
-        if decision == "approve":
-            return {"stage": "done", "chart_requested": True}
+        # Superset chart emit is not wired yet. An interrupt here blocks the
+        # AG-UI client from accepting follow-up chat messages until the user
+        # resolves the chart gate, which looks like the UI has frozen after
+        # results are already visible in the artifact panel.
         return {"stage": "done", "chart_requested": False}
 
     return chart_question

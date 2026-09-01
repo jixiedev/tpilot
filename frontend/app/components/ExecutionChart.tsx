@@ -17,6 +17,7 @@ import {
   YAxis,
 } from "recharts";
 import type { ExecutionResult } from "./types";
+import { hasExecutionResult } from "./executionResultUtils";
 
 // ---------------------------------------------------------------------------
 // ExecutionChart
@@ -162,7 +163,7 @@ export function ExecutionChart({ result }: { result: ExecutionResult | undefined
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [result?.columns?.join(","), result?.rows?.length, result?.error]);
 
-  if (!result) {
+  if (!hasExecutionResult(result)) {
     return <p className="muted">No execution result yet.</p>;
   }
 

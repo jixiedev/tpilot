@@ -23,6 +23,9 @@ export interface SqlEditorProps {
   approved: string;
   validated?: boolean;
   mode?: SqlEditorMode;
+  disabled?: boolean;
+  /** When false, hides “Regenerate with feedback” (e.g. during SQL gate). */
+  allowRegenerate?: boolean;
   onSaveDraft?: (sql: string) => void;
   onRegenerate?: (feedback: string) => void;
 }
@@ -34,6 +37,8 @@ export function SqlEditor({
   approved,
   validated = false,
   mode = "readonly",
+  disabled = false,
+  allowRegenerate = true,
   onSaveDraft,
   onRegenerate,
 }: SqlEditorProps) {
@@ -72,6 +77,7 @@ export function SqlEditor({
         <textarea
           className="sql-textarea"
           value={localDraft}
+          disabled={disabled}
           onChange={(e) => setLocalDraft(e.target.value)}
           spellCheck={false}
           rows={Math.max(4, Math.min(20, localDraft.split("\n").length + 1))}
@@ -87,11 +93,13 @@ export function SqlEditor({
             type="button"
             className="btn btn-primary"
             onClick={handleSave}
-            disabled={localDraft === draft || localDraft.trim().length === 0}
+            disabled={
+              disabled || localDraft === draft || localDraft.trim().length === 0
+            }
           >
             Save draft
           </button>
-          {onRegenerate && (
+          {allowRegenerate && onRegenerate && (
             <details className="sql-regen">
               <summary className="btn btn-secondary">Regenerate with feedback</summary>
               <textarea
@@ -105,7 +113,7 @@ export function SqlEditor({
               <button
                 type="button"
                 className="btn btn-warn"
-                disabled={feedback.trim().length === 0}
+                disabled={disabled || feedback.trim().length === 0}
                 onClick={() => {
                   onRegenerate(feedback.trim());
                   setFeedback("");
