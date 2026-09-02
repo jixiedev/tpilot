@@ -24,6 +24,8 @@ def get_client() -> HMSClient:
 
 
 @bind_tool_to_agent("databot,default")
+@bind_tool_to_agent("diagnostic,default")
+@bind_tool_to_agent("data_analysis,default")
 @tool
 @alternative_tool("trino_list_tables")
 def hive_list_tables(database: str) -> list[str]:
@@ -33,6 +35,8 @@ def hive_list_tables(database: str) -> list[str]:
 
 @bind_tool_to_agent("databot,default")
 @bind_tool_to_agent("databot,sql")
+@bind_tool_to_agent("diagnostic,default")
+@bind_tool_to_agent("data_analysis,default")
 @tool
 @alternative_tool("trino_desc_table")
 def hive_desc_table(database: str, table: str):

@@ -263,7 +263,7 @@ def build_databot_graph(
     model: BaseChatModel,
     *,
     checkpointer: BaseCheckpointSaver,
-    system_prompt: SystemPromptSpec = DATABOT_SYSTEM_PROMPT,
+    system_prompt: str | SystemPromptSpec = DATABOT_SYSTEM_PROMPT,
     max_tool_calls: int = DEFAULT_STAGE_MAX_TOOL_CALLS,
     profile_dir: Path | None = None,
 ) -> CompiledStateGraph:

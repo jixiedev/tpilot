@@ -9,13 +9,7 @@ from langchain_core.tools import BaseTool
 from agent.config import AgentPromptConfig, AgentRunConfig, RouterConfig
 from agent.listener import ReactAgentListener
 from agent.react.knowledge.tool_scopes import knowledge_react_tools
-from agent.react.knowledge.prompt import (
-    IDLE_CHAT_COMPLETION_PROMPT,
-    NEXT_STEP_PROMPT,
-    REFINE_USER_PROFILE_PROMPT,
-    TOOL_BUDGET_EXHAUSTED_PROMPT,
-    KnowledgeSystemPrompt,
-)
+from agent.react.knowledge.prompt import KnowledgeSystemPrompt
 from agent.react.tahoe.tahoe_agent import (
     DEFAULT_MAX_IDLE_ROUNDS,
     DEFAULT_MAX_TOOL_CALLS,
@@ -47,20 +41,11 @@ class KnowledgeAgent(TahoeAgent):
             profile_store=profile_store,
             tools=tools,
             agent_run_config=agent_run_config,
-            agent_prompt_config=agent_prompt_config or self.default_prompt_config(),
+            agent_prompt_config=agent_prompt_config,
             router_config=router_config,
             react_listener=react_listener,
             system_prompt=system_prompt,
             prompt_assembler=prompt_assembler,
-        )
-
-    @classmethod
-    def default_prompt_config(cls) -> AgentPromptConfig:
-        return AgentPromptConfig(
-            next_step=NEXT_STEP_PROMPT,
-            idle_nudge_prompt=IDLE_CHAT_COMPLETION_PROMPT,
-            tool_budget_exhausted_prompt=TOOL_BUDGET_EXHAUSTED_PROMPT,
-            refine_user_profile_prompt=REFINE_USER_PROFILE_PROMPT,
         )
 
     @classmethod

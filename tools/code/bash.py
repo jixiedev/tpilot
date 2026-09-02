@@ -207,6 +207,7 @@ def _strip_trailing_newline(text: str) -> str:
 @bind_tool_to_agent("tahoe,react")
 @bind_tool_to_agent("databot,default")
 @bind_tool_to_agent("knowledge,default")
+@bind_tool_to_agent("swe,default")
 @tool(description=DESCRIPTION)
 def bash(command: str, restart: bool = False) -> str:
     """Execute a bash command in a persistent terminal session.

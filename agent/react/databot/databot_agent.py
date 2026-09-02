@@ -21,16 +21,7 @@ from agent.react.databot.graph import (
     build_databot_graph,
 )
 from agent.react.databot.state import fresh_turn_state_defaults
-from agent.react.databot.prompts.idle import (
-    IDLE_CHAT_COMPLETION_PROMPT,
-    NEXT_STEP_PROMPT,
-    REFINE_USER_PROFILE_PROMPT,
-    TOOL_BUDGET_EXHAUSTED_PROMPT,
-)
-from agent.react.databot.prompts.system import (
-    SYSTEM_PROMPT as DATABOT_SYSTEM_PROMPT,
-    DatabotSystemPrompt,
-)
+from agent.react.databot.prompts.system import DatabotSystemPrompt
 from agent.react.tahoe.tahoe_agent import (
     DEFAULT_MAX_IDLE_ROUNDS,
     DEFAULT_MAX_TOOL_CALLS,
@@ -76,7 +67,7 @@ class DatabotAgent(BaseAgent, RegistryScopedTools):
             max_tool_calls=DEFAULT_MAX_TOOL_CALLS,
             max_idle_rounds=DEFAULT_MAX_IDLE_ROUNDS,
         )
-        self.agent_prompt_config = agent_prompt_config or self.default_prompt_config()
+        self.agent_prompt_config = agent_prompt_config or AgentPromptConfig.default_prompt_config()
         self.router_config = router_config or RouterConfig()
         self.prompt_assembler = prompt_assembler or DatabotSystemPrompt()
         self.completion_tool_name = type(self).completion_tool_name
@@ -90,22 +81,13 @@ class DatabotAgent(BaseAgent, RegistryScopedTools):
             agent_prompt_config=self.agent_prompt_config,
             router_config=self.router_config,
             react_listener=self.react_listener,
-            system_prompt=system_prompt or DATABOT_SYSTEM_PROMPT,
+            system_prompt=system_prompt,
             prompt_assembler=self.prompt_assembler,
         )
-        self.system_prompt = system_prompt or self._tahoe.render_system_prompt
+        self.system_prompt = self._tahoe.system_prompt
         self.session = self._tahoe.session
         self._graph: CompiledStateGraph | None = None
         self.session_state: Any = None
-
-    @classmethod
-    def default_prompt_config(cls) -> AgentPromptConfig:
-        return AgentPromptConfig(
-            next_step=NEXT_STEP_PROMPT,
-            idle_nudge_prompt=IDLE_CHAT_COMPLETION_PROMPT,
-            tool_budget_exhausted_prompt=TOOL_BUDGET_EXHAUSTED_PROMPT,
-            refine_user_profile_prompt=REFINE_USER_PROFILE_PROMPT,
-        )
 
     @classmethod
     def default_profile_store(cls, root: Path | None = None) -> ProfileStore:
@@ -128,7 +110,7 @@ class DatabotAgent(BaseAgent, RegistryScopedTools):
         graph = build_databot_graph(
             model,
             checkpointer=checkpointer,
-            system_prompt=self._tahoe.render_system_prompt,
+            system_prompt=self.system_prompt,
             max_tool_calls=self.agent_run_config.max_tool_calls or DEFAULT_STAGE_MAX_TOOL_CALLS,
             profile_dir=self.default_profile_dir,
         )

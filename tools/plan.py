@@ -228,6 +228,8 @@ def run_planning(
 @bind_tool_to_agent("tahoe,react")
 @bind_tool_to_agent("databot,default")
 @bind_tool_to_agent("knowledge,default")
+@bind_tool_to_agent("data_analysis,default")
+@bind_tool_to_agent("swe,default")
 @tool(description=DESCRIPTION)
 def planning(
     command: str,

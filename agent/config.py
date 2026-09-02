@@ -34,6 +34,22 @@ class AgentPromptConfig:
         if not self.idle_step:
             self.idle_step = self.idle_nudge_prompt
 
+    @classmethod
+    def default_prompt_config(cls) -> AgentPromptConfig:
+        from agent.react.tahoe.prompt import (
+            IDLE_CHAT_COMPLETION_PROMPT,
+            NEXT_STEP_PROMPT,
+            REFINE_USER_PROFILE_PROMPT,
+            TOOL_BUDGET_EXHAUSTED_PROMPT,
+        )
+
+        return cls(
+            next_step=NEXT_STEP_PROMPT,
+            idle_nudge_prompt=IDLE_CHAT_COMPLETION_PROMPT,
+            tool_budget_exhausted_prompt=TOOL_BUDGET_EXHAUSTED_PROMPT,
+            refine_user_profile_prompt=REFINE_USER_PROFILE_PROMPT,
+        )
+
 
 @dataclass
 class RouterConfig:

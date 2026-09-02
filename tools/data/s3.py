@@ -127,6 +127,8 @@ def _client_error_code(exc: Exception) -> str:
 
 @bind_tool_to_agent("databot,default")
 @bind_tool_to_agent("knowledge,default")
+@bind_tool_to_agent("diagnostic,default")
+@bind_tool_to_agent("data_analysis,default")
 @tool
 def s3_list_objects(
     bucket: str,
@@ -167,6 +169,8 @@ def s3_list_objects(
 
 @bind_tool_to_agent("databot,default")
 @bind_tool_to_agent("knowledge,default")
+@bind_tool_to_agent("diagnostic,default")
+@bind_tool_to_agent("data_analysis,default")
 @tool
 def s3_get_object(
     bucket: str,
@@ -198,6 +202,8 @@ def s3_get_object(
 
 @bind_tool_to_agent("databot,default")
 @bind_tool_to_agent("knowledge,default")
+@bind_tool_to_agent("diagnostic,default")
+@bind_tool_to_agent("data_analysis,default")
 @tool
 def s3_head_object(bucket: str, key: str) -> dict[str, Any]:
     """Read S3 object metadata (size, etag, content type, last modified) without downloading the body."""

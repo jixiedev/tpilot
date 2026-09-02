@@ -59,6 +59,30 @@ async def _create_knowledge_agent(**kwargs: Any) -> BaseAgent:
     return await KnowledgeAgent.create(**kwargs)
 
 
+async def _create_diagnostic_agent(**kwargs: Any) -> BaseAgent:
+    from agent.react.dignostic.diagnostic_agent import DiagnosticAgent
+
+    return await DiagnosticAgent.create(**kwargs)
+
+
+async def _create_data_analysis_agent(**kwargs: Any) -> BaseAgent:
+    from agent.react.data_analysis.data_analysis_agent import DataAnalysisAgent
+
+    return await DataAnalysisAgent.create(**kwargs)
+
+
+async def _create_swe_agent(**kwargs: Any) -> BaseAgent:
+    from agent.react.swe.swe_agent import SWEAgent
+
+    return await SWEAgent.create(**kwargs)
+
+
+async def _create_plan_agent(**kwargs: Any) -> BaseAgent:
+    from agent.react.plan.plan_agent import PlanAgent
+
+    return await PlanAgent.create(**kwargs)
+
+
 async def _create_intent_agent(**kwargs: Any) -> BaseAgent:
     from agent.intent.orchestrator import IntentOrchestrator
 
@@ -103,6 +127,35 @@ KNOWLEDGE = AgentSpec(
     ),
 )
 
+DIAGNOSTIC = AgentSpec(
+    name="diagnostic",
+    description=(
+        "Production diagnostics specialist (K8s, S3, Hive/Trino, Airflow MCP, and other infra tools)"
+    ),
+    create_agent=_create_diagnostic_agent,
+    accepted_mcp={
+        "default": ("airflow_tahoe", "airflow_legacy"),
+    },
+)
+
+DATA_ANALYSIS = AgentSpec(
+    name="data_analysis",
+    description="Exploratory data analysis specialist (SQL, Python, charts)",
+    create_agent=_create_data_analysis_agent,
+)
+
+SWE = AgentSpec(
+    name="swe",
+    description="Software engineering specialist (edit files, shell, Python scripts)",
+    create_agent=_create_swe_agent,
+)
+
+PLAN = AgentSpec(
+    name="plan",
+    description="Plan-and-execute orchestrator (decompose tasks, delegate to specialists)",
+    create_agent=_create_plan_agent,
+)
+
 INTENT = AgentSpec(
     name="intent",
     description="Intent orchestrator (plan intentions → specialist AgentChain)",
@@ -113,6 +166,10 @@ AGENTS: dict[str, AgentSpec] = {
     TAHOE.name: TAHOE,
     DATABOT.name: DATABOT,
     KNOWLEDGE.name: KNOWLEDGE,
+    DIAGNOSTIC.name: DIAGNOSTIC,
+    DATA_ANALYSIS.name: DATA_ANALYSIS,
+    SWE.name: SWE,
+    PLAN.name: PLAN,
     INTENT.name: INTENT,
 }
 

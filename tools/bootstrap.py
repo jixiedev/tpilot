@@ -15,6 +15,7 @@ def ensure_tools_registered() -> None:
         return
 
     import agent.react.databot.stage_tools  # noqa: F401
+    import agent.react.plan.stage_tools  # noqa: F401
     import agent.react.tahoe.tools  # noqa: F401
     import memory.tools  # noqa: F401
     import tools.code  # noqa: F401

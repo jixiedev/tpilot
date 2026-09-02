@@ -26,6 +26,10 @@ def configure_offload_tools(store: OffloadStore) -> None:
 @bind_tool_to_agent("tahoe,react")
 @bind_tool_to_agent("databot,default")
 @bind_tool_to_agent("knowledge,default")
+@bind_tool_to_agent("diagnostic,default")
+@bind_tool_to_agent("data_analysis,default")
+@bind_tool_to_agent("swe,default")
+@bind_tool_to_agent("plan,default")
 @tool
 def read_offloaded_file(path: str) -> str:
     """Read a previously offloaded tool result or archive from disk by path."""
@@ -38,6 +42,10 @@ def read_offloaded_file(path: str) -> str:
 @bind_tool_to_agent("tahoe,react")
 @bind_tool_to_agent("databot,default")
 @bind_tool_to_agent("knowledge,default")
+@bind_tool_to_agent("diagnostic,default")
+@bind_tool_to_agent("data_analysis,default")
+@bind_tool_to_agent("swe,default")
+@bind_tool_to_agent("plan,default")
 @tool
 def compact_context(reason: str = "") -> str:
     """

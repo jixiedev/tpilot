@@ -10,14 +10,7 @@ from langchain_core.tools import BaseTool
 from agent.react.react import BaseReactAgent
 from agent.config import AgentPromptConfig, AgentRunConfig, RouterConfig
 from agent.listener import CliReactListener, ReactAgentListener
-from agent.react.tahoe.prompt import (
-    IDLE_CHAT_COMPLETION_PROMPT,
-    NEXT_STEP_PROMPT,
-    REFINE_USER_PROFILE_PROMPT,
-    SESSION_TURN_BOUNDARY,
-    TOOL_BUDGET_EXHAUSTED_PROMPT,
-    TahoeSystemPrompt,
-)
+from agent.react.tahoe.prompt import SESSION_TURN_BOUNDARY, TahoeSystemPrompt
 from agent.react.tahoe.tool_scopes import REGISTRY_NAME, TOOL_ID_REACT
 from agent.react.tahoe.tools import CHAT_COMPLETION_TOOL_NAME
 from agent.scoped_tools import RegistryScopedTools
@@ -66,7 +59,7 @@ class TahoeAgent(BaseReactAgent, RegistryScopedTools):
             max_tool_calls=DEFAULT_MAX_TOOL_CALLS,
             max_idle_rounds=DEFAULT_MAX_IDLE_ROUNDS,
         )
-        prompt_config = agent_prompt_config or self.default_prompt_config()
+        prompt_config = agent_prompt_config or AgentPromptConfig.default_prompt_config()
         if router_config is None:
             refine_enabled = bool(prompt_config.refine_user_profile_prompt.strip())
             router_config = RouterConfig(
@@ -82,15 +75,6 @@ class TahoeAgent(BaseReactAgent, RegistryScopedTools):
             react_listener=react_listener
             or CliReactListener(completion_tool_name=self.completion_tool_name),
             prompt_assembler=prompt_assembler,
-        )
-
-    @classmethod
-    def default_prompt_config(cls) -> AgentPromptConfig:
-        return AgentPromptConfig(
-            next_step=NEXT_STEP_PROMPT,
-            idle_nudge_prompt=IDLE_CHAT_COMPLETION_PROMPT,
-            tool_budget_exhausted_prompt=TOOL_BUDGET_EXHAUSTED_PROMPT,
-            refine_user_profile_prompt=REFINE_USER_PROFILE_PROMPT,
         )
 
     @classmethod

@@ -561,3 +561,4 @@ TOOLS = [
 
 for _k8s_tool in TOOLS:
     register_tool_binding("knowledge,default", _k8s_tool)
+    register_tool_binding("diagnostic,default", _k8s_tool)

@@ -260,6 +260,7 @@ def _format_hits(hits: list[WebSearchHit]) -> list[dict[str, str]]:
 @bind_tool_to_agent("tahoe,react")
 @bind_tool_to_agent("databot,default")
 @bind_tool_to_agent("knowledge,default")
+@bind_tool_to_agent("swe,default")
 @tool
 def web_search(query: str, num_results: int = DEFAULT_MAX_RESULTS) -> dict[str, Any]:
     """Search the public web for up-to-date information. Use for facts, news, company

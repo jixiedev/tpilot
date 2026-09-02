@@ -69,6 +69,8 @@ def _execute_query(sql: str, limit: int = DEFAULT_ROW_LIMIT) -> dict[str, Any]:
 
 @bind_tool_to_agent("databot,default")
 @bind_tool_to_agent("databot,execute")
+@bind_tool_to_agent("diagnostic,default")
+@bind_tool_to_agent("data_analysis,default")
 @tool
 def trino_run_query(sql: str, limit: int = DEFAULT_ROW_LIMIT) -> dict[str, Any]:
     """Execute a read-only Trino SQL query and return rows (may truncate).
@@ -80,6 +82,8 @@ def trino_run_query(sql: str, limit: int = DEFAULT_ROW_LIMIT) -> dict[str, Any]:
 
 @bind_tool_to_agent("databot,default")
 @bind_tool_to_agent("databot,sql")
+@bind_tool_to_agent("diagnostic,default")
+@bind_tool_to_agent("data_analysis,default")
 @tool
 def trino_explain(sql: str) -> dict[str, Any]:
     """Validate a read-only SQL by running ``EXPLAIN`` (no rows executed).
@@ -116,6 +120,8 @@ def trino_explain(sql: str) -> dict[str, Any]:
 
 
 @bind_tool_to_agent("databot,default")
+@bind_tool_to_agent("diagnostic,default")
+@bind_tool_to_agent("data_analysis,default")
 @tool
 def trino_list_catalogs() -> list[dict[str, Any]]:
     """List all Trino catalogs."""
@@ -123,6 +129,8 @@ def trino_list_catalogs() -> list[dict[str, Any]]:
 
 
 @bind_tool_to_agent("databot,default")
+@bind_tool_to_agent("diagnostic,default")
+@bind_tool_to_agent("data_analysis,default")
 @tool
 def trino_list_schemas(catalog: str = "") -> list[dict[str, Any]]:
     """List schemas in a Trino catalog (defaults to ``[trino].catalog`` in tools.toml)."""
@@ -132,6 +140,8 @@ def trino_list_schemas(catalog: str = "") -> list[dict[str, Any]]:
 
 
 @bind_tool_to_agent("databot,default")
+@bind_tool_to_agent("diagnostic,default")
+@bind_tool_to_agent("data_analysis,default")
 @tool
 @alternative_tool("hive_list_tables")
 def trino_list_tables(catalog: str = "", schema_name: str = "") -> list[dict[str, Any]]:
@@ -153,6 +163,8 @@ def trino_list_tables(catalog: str = "", schema_name: str = "") -> list[dict[str
 
 @bind_tool_to_agent("databot,default")
 @bind_tool_to_agent("databot,sql")
+@bind_tool_to_agent("diagnostic,default")
+@bind_tool_to_agent("data_analysis,default")
 @tool
 @alternative_tool("hive_desc_table")
 def trino_desc_table(
