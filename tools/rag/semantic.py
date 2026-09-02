@@ -5,7 +5,7 @@ agents use to find candidate dbt models for a user query. Each retrieved
 model is returned as a ``TableCard``-shaped dict (the LLM-friendly
 projection of ``TableCard``); downstream code can hydrate it into a full
 ``TableCard`` instance via ``dict_to_table_card`` and feed it to
-``add_card_to_state``.
+``commit_cards``.
 
 Databot's canonical flow: fetch TableCard → human approve → state →
 SQL. Knowledge uses it to explain "which dbt model holds X".
@@ -25,11 +25,11 @@ from qdrant_client.http import models as qmodels
 from agent.react.databot.card_staging import (
     apply_add_card_selections,
     compact_staging_refs,
-    encode_tool_summary,
     merge_staging_cards,
     staging_entry_from_card,
 )
 from rag.store import search as qdrant_search
+from tools.common import bind_tool_to_agent, encode_tool_summary
 
 """
 thought 1:
@@ -200,7 +200,7 @@ def _tool_description() -> str:
         "physical_tables, cte, agg_time_dimension, columns, metrics, owner, usage) "
         "plus the Qdrant score and the matched chunk type. Each hit is saved to "
         "``state.staging_cards`` with a ``staging_id``. To commit a card for the "
-        "human gate, call ``add_card_to_state`` with that ``staging_id`` and the "
+        "human gate, call ``commit_cards`` with that ``staging_id`` and the "
         "dimensions/metrics you intend to use.\n\n"
         f"Layer catalog:\n{_layer_catalog_for_tool()}"
     )
@@ -279,7 +279,7 @@ def _hit_to_table_card_dict(hit: dict[str, Any]) -> dict[str, Any]:
 
 def dict_to_table_card(card: dict[str, Any]) -> TableCard:
     """Hydrate a ``TableCard``-shaped dict (from ``fetch_related_models``) into a real
-    ``TableCard`` instance, ready to feed to ``add_card_to_state``.
+    ``TableCard`` instance, ready to feed to ``commit_cards``.
     """
     columns: list[Column] = []
     for c in card.get("columns", []) or []:
@@ -337,6 +337,9 @@ def dict_to_table_card(card: dict[str, Any]) -> TableCard:
     )
 
 
+@bind_tool_to_agent("databot,default")
+@bind_tool_to_agent("databot,rag")
+@bind_tool_to_agent("databot,fetch")
 @tool(description=_tool_description())
 def fetch_related_models(
     query: str,
@@ -410,7 +413,7 @@ def fetch_related_models(
                             "staging_total": len(merged_staging),
                             "message": (
                                 f"Staged {len(new_staging)} model(s). "
-                                "Use staging_id in add_card_to_state."
+                                "Use staging_id in commit_cards."
                             ),
                         }
                     ),
@@ -421,12 +424,15 @@ def fetch_related_models(
     )
 
 
+@bind_tool_to_agent("databot,default")
+@bind_tool_to_agent("databot,rag")
+@bind_tool_to_agent("databot,fetch")
 @tool
-def add_card_to_state(
+def commit_cards(
     selections: list[Any],
     runtime: ToolRuntime = None,  # type: ignore[assignment]
 ) -> Command:
-    """Commit staged cards into ``candidate_cards`` by ``staging_id``.
+    """Commit staged cards into ``committed_cards`` by ``staging_id``.
 
     Pass one object per card you want the human to review::
 
@@ -437,7 +443,7 @@ def add_card_to_state(
           "selection_notes": "optional one-line why"
         }
 
-    Only cards passed here are added to ``candidate_cards``. Full card
+    Only cards passed here are added to ``committed_cards``. Full card
     bodies are resolved from ``state.staging_cards`` — do not echo the
     entire TableCard dict.
 
@@ -449,20 +455,20 @@ def add_card_to_state(
         if isinstance(full_state, dict)
         else []
     )
-    candidate_cards = (
-        list(full_state.get("candidate_cards") or [])
+    committed_cards = (
+        list(full_state.get("committed_cards") or [])
         if isinstance(full_state, dict)
         else []
     )
     updated, note = apply_add_card_selections(
         staging_cards=staging_cards,
-        candidate_cards=candidate_cards,
+        committed_cards=committed_cards,
         selections=selections,
     )
     tool_call_id = (runtime.tool_call_id if runtime else None) or "missing"
     return Command(
         update={
-            "candidate_cards": updated,
+            "committed_cards": updated,
             "messages": [
                 ToolMessage(
                     content=note,
@@ -473,4 +479,4 @@ def add_card_to_state(
     )
 
 
-TOOLS = [fetch_related_models, add_card_to_state]
+TOOLS = [fetch_related_models, commit_cards]

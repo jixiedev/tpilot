@@ -12,6 +12,13 @@ from typing import Any, Literal
 
 from langchain_core.messages import HumanMessage
 
+from agent.react.databot._constants import (
+    STAGE_FETCH,
+    STAGE_GATE_CARDS,
+    STAGE_GATE_SQL,
+    STAGE_SQL,
+)
+
 DatabotUiAction = Literal[
     "update_card_selection",
     "propose_sql",
@@ -19,16 +26,16 @@ DatabotUiAction = Literal[
 ]
 
 ACTION_ALLOWED_STAGES: dict[DatabotUiAction, frozenset[str]] = {
-    "update_card_selection": frozenset({"gate_cards"}),
-    "propose_sql": frozenset({"sql", "gate_sql"}),
-    "request_sql_regenerate": frozenset({"sql"}),
+    "update_card_selection": frozenset({STAGE_GATE_CARDS}),
+    "propose_sql": frozenset({STAGE_SQL, STAGE_GATE_SQL}),
+    "request_sql_regenerate": frozenset({STAGE_SQL}),
 }
 
 DATABOT_STATE_KEYS: tuple[str, ...] = (
     "stage",
     "staging_cards",
-    "candidate_cards",
-    "selected_cards",
+    "committed_cards",
+    "review_cards",
     "approved_cards",
     "metric_conflicts",
     "draft_sql",
@@ -54,8 +61,8 @@ def apply_update_card_selection(
     state: Mapping[str, Any],
     selected_card_names: list[str],
 ) -> dict[str, Any]:
-    """Replace ``selected_cards`` with a human-curated subset."""
-    candidates = list(state.get("candidate_cards") or [])
+    """Replace ``review_cards`` with a human-curated subset."""
+    candidates = list(state.get("committed_cards") or [])
     by_name = {
         c.get("name"): c for c in candidates if isinstance(c, dict) and c.get("name")
     }
@@ -65,7 +72,7 @@ def apply_update_card_selection(
         if card is not None:
             chosen.append(card)
     return {
-        "selected_cards": chosen,
+        "review_cards": chosen,
         "deny_feedback": "",
     }
 
@@ -118,7 +125,7 @@ def apply_cards_gate_redraft(feedback: str) -> dict[str, Any]:
     """Reset card-gate outputs so the fetch subgraph must re-run."""
     cleaned = (feedback or "").strip()
     return {
-        "stage": "fetch",
+        "stage": STAGE_FETCH,
         "deny_feedback": cleaned,
         "cards_reasons": {},
         **_subgraph_redraft_counters(),
@@ -130,7 +137,7 @@ def apply_sql_gate_redraft(feedback: str) -> dict[str, Any]:
     """Reset SQL-gate outputs so the generate_sql subgraph must re-run."""
     cleaned = (feedback or "").strip()
     return {
-        "stage": "sql",
+        "stage": STAGE_SQL,
         **apply_request_sql_regenerate(cleaned),
         **_subgraph_redraft_counters(),
         **_feedback_human_message(cleaned, gate="SQL"),

@@ -105,13 +105,13 @@ class BaseReactAgent(BaseAgent):
         profile = self.profile_store.load(user_id)
         return self.prompt_assembler.with_profile(profile).build()
 
-    def route_after_step(self) -> Callable[[StateLike], str]:
-        """Conditional edge after ``step_llm``; see ``CompletionToolRouter.route_after_step``."""
-        return self.router.route_after_step()
+    def route_after_reason(self) -> Callable[[StateLike], str]:
+        """Conditional edge after ``step_llm``; see ``CompletionToolRouter.route_after_reason``."""
+        return self.router.route_after_reason()
 
-    def route_after_tools(self) -> Callable[[StateLike], str]:
-        """Conditional edge after tools; see ``CompletionToolRouter.route_after_tools``."""
-        return self.router.route_after_tools()
+    def route_after_action(self) -> Callable[[StateLike], str]:
+        """Conditional edge after tools; see ``CompletionToolRouter.route_after_action``."""
+        return self.router.route_after_action()
 
     @staticmethod
     def graph_config(session: str) -> dict:
@@ -195,9 +195,10 @@ class BaseReactAgent(BaseAgent):
             checkpointer=checkpointer,
             system_prompt=self.system_prompt,
             next_step_prompt=self.agent_prompt.next_step,
-            route_after_step=self.route_after_step(),
-            route_after_tools=self.route_after_tools(),
+            route_after_reason=self.route_after_reason(),
+            route_after_action=self.route_after_action(),
             compressor=compressor,
+            include_profile_refinement=refine_user_profile_node is not None,
             refine_user_profile_node=refine_user_profile_node,
             idle_nudge_prompt=self.agent_prompt.idle_nudge_prompt,
             tool_budget_exhausted_prompt=self.agent_prompt.tool_budget_exhausted_prompt,

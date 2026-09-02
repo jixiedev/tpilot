@@ -13,6 +13,7 @@ from typing import Any
 from langchain.tools import tool
 
 from config.tool_config import K8sToolConfig, k8s_config_file, tool_config
+from tools.common import register_tool_binding
 from tools.errors import ToolErrorType, register_exception
 
 log = logging.getLogger(__name__)
@@ -557,3 +558,6 @@ TOOLS = [
     k8s_get_custom_object,
     k8s_list_spark_applications,
 ]
+
+for _k8s_tool in TOOLS:
+    register_tool_binding("knowledge,default", _k8s_tool)

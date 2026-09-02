@@ -1,20 +1,4 @@
-"""Persist per-turn Databot artifacts (approved cards, SQL) to a sidecar JSON.
-
-The thought-1 spec says "add to user profile (a knowledge field), then
-... (a sql field)". ``UserProfile`` does not yet have a generic
-``knowledge`` / ``sql`` field, so we avoid expanding the schema here.
-Instead we write one JSON sidecar per turn under the profile directory:
-
-    profiles/<user_id>.databot_turns.jsonl
-
-Each line is a single ``GateAuditEntry``-shaped record with the
-approved cards and SQL attached. The existing ``refine_user_profile``
-node can pick these up later if/when the profile schema gains a
-``databot_history`` field.
-
-This module is a no-op when the gate decision was ``dryrun`` (so
-preview-only runs do not leave artifacts).
-"""
+"""Persist per-turn Databot artifacts (approved cards, SQL) to a sidecar JSONL."""
 
 from __future__ import annotations
 

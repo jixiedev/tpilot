@@ -108,19 +108,24 @@ main.py → cli.py (REPL, --agent, --session)
               ↓
     LangGraph AsyncSqliteSaver (thread_id = --session)
               ↓
-    tools/loader.py → Hive / Trino / MCP (optional)
+    tools/loader.py → registry lookup (Hive / Trino / MCP optional)
 ```
+
+Tools register at import via `@bind_tool_to_agent("agent,identifier")` on each tool (see `tools/common.py`). Agents resolve lists with `get_agent_tools` / `get_all_registered_tools` in `agent/registry.py`; MCP tools register at startup through `tools/dynamic.py`.
 
 | Path | Role |
 |------|------|
 | `cli.py` | Interactive loop; dispatches to registered agents |
-| `agent/registry.py` | `AgentSpec` registry and `--agent` lookup |
-| `agent/chatbot/` | Chatbot app: prompts, `chat_completion`, routes, graph, display |
+| `agent/registry.py` | `AgentSpec` registry, `get_agent_tools`, and `--agent` lookup |
+| `agent/react/tahoe/` | Tahoe base ReAct agent (`tahoe,react` tools) |
 | `graph/builder.py` | Generic `build_react_graph` (tools and routes injected) |
 | `graph/node.py` | Step LLM node and tool execution with per-turn counter |
 | `graph/edge.py` | Shared routing helpers (`tool_call_count`, `limited_tools_condition`) |
 | `state/state.py` | `SessionAgentState` schema and helpers |
-| `tools/loader.py` | Load shared data tools (Hive, Trino, MCP) |
+| `tools/common.py` | `bind_tool_to_agent` decorator and registration helpers |
+| `tools/bootstrap.py` | One-shot import of tool modules to populate the registry |
+| `tools/dynamic.py` | Async MCP tool binding |
+| `tools/loader.py` | Legacy helpers that read from the registry |
 | `tools/hive.py` | Hive HMS metadata tools |
 | `tools/trino.py` | Trino query and metadata tools |
 | `tools/mcp/mcp.py` | MCP client and tool loader |

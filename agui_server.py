@@ -301,7 +301,7 @@ async def agui_endpoint(input_data: RunAgentInput, request: "Request"):
     request_agent = _agent.clone()
 
     # Debug: log which state keys LangGraph thinks the graph has. If
-    # ``selected_cards`` / ``candidate_cards`` are missing from the
+    # ``review_cards`` / ``committed_cards`` are missing from the
     # output schema, the AG-UI runtime filters them out of the
     # ``STATE_SNAPSHOT`` event and the human gate UI can't see what
     # the LLM picked.

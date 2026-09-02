@@ -8,6 +8,7 @@ from langchain_core.tools import BaseTool
 
 from agent.config import AgentPromptConfig, AgentRunConfig, RouterConfig
 from agent.listener import ReactAgentListener
+from agent.react.knowledge.tool_scopes import knowledge_react_tools
 from agent.react.knowledge.prompt import (
     IDLE_CHAT_COMPLETION_PROMPT,
     NEXT_STEP_PROMPT,
@@ -22,7 +23,7 @@ from agent.react.tahoe.tahoe_agent import (
 )
 from graph.builder import SystemPromptSpec
 from memory.profile_store import ProfileStore
-from tools.loader import load_knowledge_tools
+from tools.dynamic import register_dynamic_tool_bindings
 
 
 class KnowledgeAgent(TahoeAgent):
@@ -76,11 +77,13 @@ class KnowledgeAgent(TahoeAgent):
         router_config: RouterConfig | None = None,
     ) -> KnowledgeAgent:
         store = profile_store or cls.default_profile_store()
-        knowledge_tools = await load_knowledge_tools()
-        tools: list[BaseTool] = [
-            *knowledge_tools,
-            *cls.base_tools(enable_compression_tools=enable_compression_tools),
-        ]
+        await register_dynamic_tool_bindings()
+        tools = knowledge_react_tools()
+        if not enable_compression_tools:
+            from memory.tools import COMPACT_CONTEXT_TOOL_NAME, READ_OFFLOADED_FILE_TOOL_NAME
+
+            skip = {COMPACT_CONTEXT_TOOL_NAME, READ_OFFLOADED_FILE_TOOL_NAME}
+            tools = [tool for tool in tools if getattr(tool, "name", "") not in skip]
         return cls(
             profile_store=store,
             tools=tools,

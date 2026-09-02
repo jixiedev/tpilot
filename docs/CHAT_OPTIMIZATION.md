@@ -899,10 +899,10 @@ Implementation notes (behavior only): detect emits intentions + plan steps; publ
 
 | Optimization | Before | After |
 |--------------|--------|-------|
-| Artifact lists | Separate “Staged” / “Committed candidates” sections confused users | Single card list: `candidate_cards` when present, else `staging_cards` |
+| Artifact lists | Separate “Staged” / “Committed candidates” sections confused users | Single card list: `committed_cards` when present, else `staging_cards` |
 | Card / gate chrome | Plain list rows | Accent bars, relevance score bars, chip grids; compact gate tiles with colored decision buttons |
 | Semantic search tool card | Parsed tool JSON as a bare array → “No matching models” while hits existed | `parseFetchRelatedModelsResult` reads `staged` / `staging_total`; shows “Found N models…” |
-| Gate payload | Full column/metric blobs in interrupt JSON | Slim `selected_cards` summary; full schema stays in Cards tab |
+| Gate payload | Full column/metric blobs in interrupt JSON | Slim `review_cards` summary; full schema stays in Cards tab |
 | Cards vs gate actions | Unclear why checkboxes and Approve both exist | Hint copy: checkboxes refine selection; gate buttons advance the workflow |
 
 ---
@@ -920,4 +920,75 @@ Implementation notes (behavior only): detect emits intentions + plan steps; publ
 | New chat | Empty `execution_result: {}` read as failure; `stage` stuck on Results | Reset `stage` to `fetch`, clear result; Results tab shows “No execution result yet.” |
 | Chat style prompt | “Emit ONLY tool calls” → no user-visible status | Allow one short user-facing line per turn; forbid “The user wants me to…” and tool return values in prose |
 
+## 2026-09-02 — Databot turn-end summary
+
+**Goal**: Give users a closing message that summarizes how their data question was answered.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| Turn completion | `end_with_summary` only set `stage=done` with no user-visible reply | One LLM call synthesizes models, SQL, results, and conflicts into a final assistant message |
+
+## 2026-09-02 — Rename `add_card_to_state` → `commit_cards`
+
+**Goal**: Tool name should reflect that it writes `committed_cards`, not generic “state”.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| Fetch-stage commit tool | `add_card_to_state` (ambiguous vs `staging_cards`) | `commit_cards` (staging → `committed_cards`) |
+
+## 2026-09-02 — Cards gate prep as outer-graph nodes
+
+**Goal**: Fetch subgraph only commits models; selection and gate reasons are deterministic graph steps.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| Fetch stage tools | LLM called `mark_cards_selected` and `write_gate_reasons` inside subgraph | `prepare_cards_for_gate` after `fetch_cards` (copy candidates + gate reasons with full message history) |
+
+## 2026-09-02 — Merge cards gate prep into one node with full history
+
+**Goal**: One prep step before the cards gate; gate-reason LLM sees the same conversation as the fetch stage.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| Cards gate prep | Two nodes; reasons from a JSON snapshot only | Single `prepare_cards_for_gate`; `model.invoke` on full `state.messages` plus an ephemeral instruction |
+
+| Cards state naming | `candidate_cards` / `selected_cards` (sounded like browse vs pick) | `committed_cards` (LLM commit) / `review_cards` (human gate); tool `commit_cards` |
+
+## 2026-09-02 — Remove chart_question no-op node
+
+**Goal**: After SQL execution, end the turn directly instead of routing through an unused chart step.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| Post-execute flow | `execute_sql` → `chart_question` → `end_with_summary` | `execute_sql` → `end_with_summary`; `execute` stage sets `done` |
+
+## 2026-09-02 — Split Databot prompts by stage
+
+**Goal:** Keep stage-specific prompt text maintainable as Databot v2 grows.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| Prompt layout | One 450+ line `prompt.py` mixed system, idle, fetch, SQL, gate-prep, and turn-summary text | `prompts/` package with `system.py`, `idle.py`, `fetch.py`, `sql.py`, `gate_prep.py`, `turn_summary.py`; `prompt.py` re-exports for compatibility |
+
+## 2026-09-02 — Databot graph node and stage constants
+
+**Goal:** Catch typos in LangGraph routing at import time instead of at runtime.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| Node / stage names | Bare strings repeated across routing dicts and `add_node` calls | `agent/react/databot/_constants.py` with `NODE_*`, `STAGE_*`, and shared route maps |
+
 <!-- Append the next optimization section above this line -->
+
+
+## 2026-09-02 — Agent-scoped tool registry (`bind_tool_to_agent`)
+
+**Goal**: Declare which agent (and subgraph identifier) owns each tool; agents resolve tools from the registry instead of ad-hoc loaders.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| Tool ownership | `tools/loader.py` assembled per-agent lists by hand | `@bind_tool_to_agent("agent,identifier")` registers tools on `AgentSpec.register_tools` at import |
+| Agent startup | Databot/Knowledge called `load_data_tools` / `load_knowledge_tools` | `register_dynamic_tool_bindings()` for MCP, then `get_agent_tools` / `get_all_registered_tools` |
+| Databot stages | `graph._build_stage_tool_lists` filtered a flat tool bag by name | Fetch / SQL / execute stages read identifiers `fetch`, `sql`, `execute` directly |
+| Knowledge catalog | Loader chose MCP DataHub or native GraphQL inline | Native tools bind to `knowledge,catalog`; MCP replaces that bucket when the DataHub MCP server is up |
+| Agent tool scopes | `get_all_registered_tools` / manual merges | `tool_scopes.py` + `RegistryScopedTools.tools_for_scope`; not on `BaseAgent` / `BaseReactAgent` |

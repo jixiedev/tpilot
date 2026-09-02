@@ -21,9 +21,9 @@ import typing
 # ``PydanticUserError: Please use typing_extensions.TypedDict`` when
 # LangGraph introspects ``DatabotState`` to build the input/output
 # JSON schemas, and the schema introspection falls back to an empty
-# key set — which means ``selected_cards`` / ``candidate_cards`` /
+# key set — which means ``review_cards`` / ``committed_cards`` /
 # ``draft_sql`` are *invisible* to the state snapshot, and
-# ``Command(update={"selected_cards": ...})`` updates are silently
+# ``Command(update={"review_cards": ...})`` updates are silently
 # dropped because the graph doesn't know those fields exist.
 if not hasattr(typing, "_tpilot_typed_dict_shim_applied"):
     import typing_extensions
@@ -35,21 +35,28 @@ from typing import Any, Literal, TypedDict
 
 from langgraph.graph import MessagesState
 
+from agent.react.databot._constants import (
+    STAGE_DONE,
+    STAGE_EXECUTE,
+    STAGE_FETCH,
+    STAGE_GATE_CARDS,
+    STAGE_GATE_SQL,
+    STAGE_SQL,
+)
 from state.state import SessionAgentState
 
 # Outer state machine stages. Each human gate lives between two stages and
 # ``stage`` is what the next conditional edge uses to pick the next node.
 DatabotStage = Literal[
-    "fetch",        # fetch_cards_subgraph: parallel RAG + MCP, then LLM picks cards
-    "gate_cards",   # human approves the card selection
-    "sql",          # generate_sql_subgraph: draft SQL from approved cards
-    "gate_sql",     # human approves the SQL
-    "execute",      # execute_sql_node: run approved_sql via trino_run_query
-    "chart",        # chart_question_node: ask whether to emit a chart
-    "done",         # terminal
+    STAGE_FETCH,        # fetch_cards_subgraph: parallel RAG + MCP, then LLM picks cards
+    STAGE_GATE_CARDS,   # human approves the card selection
+    STAGE_SQL,          # generate_sql_subgraph: draft SQL from approved cards
+    STAGE_GATE_SQL,     # human approves the SQL
+    STAGE_EXECUTE,      # execute_sql_node: run approved_sql via trino_run_query
+    STAGE_DONE,         # terminal
 ]
 
-# Human gate verdicts. Matches thought 1 from tools/rag/semantic.py.
+# Human gate verdicts.
 GateDecision = Literal["approve", "deny-comments", "deny-halt", "dryrun"]
 
 
@@ -81,16 +88,14 @@ class DatabotState(SessionAgentState):
 
     # fetch stage ------------------------------------------------------------
     # Every ``fetch_related_models`` hit, each with a unique ``staging_id``.
-    # The LLM references these ids in ``add_card_to_state``; unstaged rows
+    # The LLM references these ids in ``commit_cards``; unstaged rows
     # stay here until committed or the turn resets.
     staging_cards: list[dict[str, Any]]
-    # Cards committed via ``add_card_to_state`` (subset of staging with
-    # ``selected_dimensions`` / ``selected_metrics`` annotated by the LLM).
-    candidate_cards: list[dict[str, Any]]
-    # The subset of candidate_cards the LLM picked. The LLM must always write
-    # here before the cards gate fires; ``selected_cards`` is what the human
-    # actually reviews.
-    selected_cards: list[dict[str, Any]]
+    # LLM-committed cards (dims/metrics annotated) via ``commit_cards``.
+    committed_cards: list[dict[str, Any]]
+    # Cards shown at the human cards gate (copied from ``committed_cards`` by
+    # ``prepare_cards_for_gate``; UI may edit via ``update_card_selection``).
+    review_cards: list[dict[str, Any]]
     # Cards the human approved. Hydrated to ``TableCard`` objects; downstream
     # SQL generation reads this set as the "working schema" for the query.
     approved_cards: list[dict[str, Any]]
@@ -121,3 +126,43 @@ class DatabotState(SessionAgentState):
     halt_reason: str
     chart_requested: bool
     deny_feedback: str
+
+
+# Per-turn databot fields reset at the start of each new question (CLI
+# ``prepare_turn_input`` and web entry-node follow-ups). ``messages`` and
+# session-scoped fields are intentionally omitted.
+FRESH_TURN_STATE_DEFAULTS: dict[str, Any] = {
+    "stage": STAGE_FETCH,
+    "staging_cards": [],
+    "committed_cards": [],
+    "review_cards": [],
+    "approved_cards": [],
+    "metric_conflicts": [],
+    "draft_sql": "",
+    "approved_sql": "",
+    "sql_validated": False,
+    "execution_result": {},
+    "gate_decisions": [],
+    "cards_reasons": {},
+    "sql_reasons": {},
+    "dryrun": False,
+    "halt_reason": "",
+    "chart_requested": False,
+    "deny_feedback": "",
+    "tool_call_count": 0,
+    "idle_rounds": 0,
+    "failed_tools": [],
+}
+
+
+def fresh_turn_state_defaults() -> dict[str, Any]:
+    """Return per-turn reset defaults with fresh list/dict instances."""
+    fresh: dict[str, Any] = {}
+    for key, value in FRESH_TURN_STATE_DEFAULTS.items():
+        if isinstance(value, list):
+            fresh[key] = []
+        elif isinstance(value, dict):
+            fresh[key] = {}
+        else:
+            fresh[key] = value
+    return fresh

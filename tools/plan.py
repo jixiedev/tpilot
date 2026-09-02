@@ -7,6 +7,7 @@ from enum import Enum
 
 from langchain.tools import tool
 
+from tools.common import bind_tool_to_agent
 from tools.errors import ToolErrorType, register_exception
 
 DESCRIPTION = """\
@@ -224,6 +225,9 @@ def run_planning(
     raise PlanToolError(f"Unknown command: {command}")
 
 
+@bind_tool_to_agent("tahoe,react")
+@bind_tool_to_agent("databot,default")
+@bind_tool_to_agent("knowledge,default")
 @tool(description=DESCRIPTION)
 def planning(
     command: str,

@@ -2,11 +2,16 @@
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
+from collections.abc import Awaitable, Callable, Mapping
+from dataclasses import dataclass, field
 from typing import Any
 
+from langchain_core.tools import BaseTool
+
 from agent.agent import BaseAgent
+
+# ``accepted_mcp`` server list token: load tools from every server in mcp.json.
+MCP_ALL_SERVERS = "*"
 
 
 @dataclass(frozen=True)
@@ -15,11 +20,23 @@ class AgentSpec:
 
     Set ``intention`` to make this agent a routable specialist for IntentOrchestrator.
     Leave it ``None`` for entrypoints that are not intention targets (e.g. tahoe, intent).
+
+    ``accepted_mcp`` maps tool identifiers (same keys as ``register_tools``) to MCP
+    server names from ``tools/mcp/mcp.json``. On startup, every tool from those
+    servers is registered under that identifier. Use ``MCP_ALL_SERVERS`` (``"*"``)
+    to accept tools from all configured servers.
+
+    ``mcp_replace_identifiers`` lists identifiers whose static tool bucket is
+    cleared before MCP tools are registered (e.g. native DataHub GraphQL replaced
+    by the DataHub MCP server).
     """
 
     name: str
     description: str
     create_agent: Callable[..., Awaitable[BaseAgent]]
+    register_tools: dict[str, list[BaseTool]] = field(default_factory=dict)
+    accepted_mcp: Mapping[str, tuple[str, ...]] = field(default_factory=dict)
+    mcp_replace_identifiers: frozenset[str] = frozenset()
     intention: str | None = None
     intention_description: str = ""
 
@@ -58,6 +75,10 @@ DATABOT = AgentSpec(
     name="databot",
     description="Data-retrieval specialist (glossary-first → SQL → evidenced answer)",
     create_agent=_create_databot_agent,
+    accepted_mcp={
+        "default": (MCP_ALL_SERVERS,),
+        "fetch": ("datahub",),
+    },
     intention="DATA",
     intention_description=(
         "data retrieval or analysis — find tables, metrics/glossary definitions, "
@@ -70,6 +91,11 @@ KNOWLEDGE = AgentSpec(
     name="knowledge",
     description="Tahoe team knowledge specialist (code, docs, wikis, Jira)",
     create_agent=_create_knowledge_agent,
+    accepted_mcp={
+        "catalog": ("datahub",),
+        "default": ("datahub",),
+    },
+    mcp_replace_identifiers=frozenset({"catalog"}),
     intention="KNOWLEDGE",
     intention_description=(
         "team knowledge — Tahoe codebase, architecture docs, Google Docs, "
@@ -99,6 +125,46 @@ def get_agent(name: str) -> AgentSpec:
     except KeyError as exc:
         available = ", ".join(sorted(AGENTS))
         raise SystemExit(f"Unknown agent {name!r}; available: {available}") from exc
+
+
+def get_agent_tools(agent_name: str, identifier: str) -> list[BaseTool]:
+    """Return tools registered for one agent identifier (empty when unset)."""
+    from tools.bootstrap import ensure_tools_registered
+
+    ensure_tools_registered()
+    spec = get_agent(agent_name)
+    return list(spec.register_tools.get(identifier, []))
+
+
+def get_all_registered_tools(agent_name: str) -> list[BaseTool]:
+    """Return every tool registered for an agent, de-duplicated by tool name."""
+    from tools.bootstrap import ensure_tools_registered
+
+    ensure_tools_registered()
+    spec = get_agent(agent_name)
+    seen: set[str] = set()
+    out: list[BaseTool] = []
+    for tools in spec.register_tools.values():
+        for tool in tools:
+            name = getattr(tool, "name", "") or repr(id(tool))
+            if name in seen:
+                continue
+            seen.add(name)
+            out.append(tool)
+    return out
+
+
+def dedupe_tools(tools: list[BaseTool]) -> list[BaseTool]:
+    """De-duplicate a tool list by ``tool.name`` (first occurrence wins)."""
+    seen: set[str] = set()
+    out: list[BaseTool] = []
+    for tool in tools:
+        name = getattr(tool, "name", "") or repr(id(tool))
+        if name in seen:
+            continue
+        seen.add(name)
+        out.append(tool)
+    return out
 
 
 def intention_routes() -> dict[str, AgentSpec]:

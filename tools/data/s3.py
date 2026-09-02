@@ -16,6 +16,7 @@ from config.tool_config import (
     tool_config,
 )
 from tools.errors import ToolErrorType, register_exception
+from tools.common import bind_tool_to_agent
 
 DEFAULT_MAX_KEYS = 100
 MAX_ALLOWED_KEYS = 1000
@@ -124,6 +125,8 @@ def _client_error_code(exc: Exception) -> str:
     return ""
 
 
+@bind_tool_to_agent("databot,default")
+@bind_tool_to_agent("knowledge,default")
 @tool
 def s3_list_objects(
     bucket: str,
@@ -162,6 +165,8 @@ def s3_list_objects(
     }
 
 
+@bind_tool_to_agent("databot,default")
+@bind_tool_to_agent("knowledge,default")
 @tool
 def s3_get_object(
     bucket: str,
@@ -191,6 +196,8 @@ def s3_get_object(
     }
 
 
+@bind_tool_to_agent("databot,default")
+@bind_tool_to_agent("knowledge,default")
 @tool
 def s3_head_object(bucket: str, key: str) -> dict[str, Any]:
     """Read S3 object metadata (size, etag, content type, last modified) without downloading the body."""

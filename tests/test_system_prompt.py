@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from agent.react.databot.prompt import (
+from agent.react.databot.prompts.idle import NEXT_STEP_PROMPT as DATABOT_NEXT_STEP_PROMPT
+from agent.react.databot.prompts.system import (
     DATA_RETRIEVAL_SYSTEM_PROMPT,
-    NEXT_STEP_PROMPT as DATABOT_NEXT_STEP_PROMPT,
     SYSTEM_PROMPT as DATABOT_SYSTEM_PROMPT,
     DatabotSystemPrompt,
     DataRetrievalSystemPrompt,
@@ -110,6 +110,20 @@ def test_subclass_can_append_extra_section() -> None:
     assert "partition pruning" in text
     assert "Data retrieval practices:" in text
     assert text.rfind("Session message layout:") > text.rfind("Custom notes:")
+
+
+def test_stage_user_facing_output_style_matches_chat_audience_rules() -> None:
+    from agent.react.databot.prompts.system import (
+        DATABOT_CHAT_STYLE_RULES,
+        DatabotSystemPrompt,
+        STAGE_USER_FACING_OUTPUT_STYLE,
+        _STATUS_LINE_BAD,
+    )
+
+    assert _STATUS_LINE_BAD in STAGE_USER_FACING_OUTPUT_STYLE
+    assert DatabotSystemPrompt().chat_audience_rules() == list(DATABOT_CHAT_STYLE_RULES)
+    for rule in DATABOT_CHAT_STYLE_RULES:
+        assert rule in STAGE_USER_FACING_OUTPUT_STYLE
 
 
 def test_render_databot_system_prompt_uses_profile_store(tmp_path: Path) -> None:

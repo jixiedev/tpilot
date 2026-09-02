@@ -6,7 +6,7 @@ from hmsclient import HMSClient
 from langchain.tools import tool
 
 from config.tool_config import tool_config
-from tools.common import alternative_tool
+from tools.common import alternative_tool, bind_tool_to_agent
 
 _thread_local = local()
 
@@ -23,6 +23,7 @@ def get_client() -> HMSClient:
     return client
 
 
+@bind_tool_to_agent("databot,default")
 @tool
 @alternative_tool("trino_list_tables")
 def hive_list_tables(database: str) -> list[str]:
@@ -30,6 +31,8 @@ def hive_list_tables(database: str) -> list[str]:
     return get_client().get_all_tables(database)
 
 
+@bind_tool_to_agent("databot,default")
+@bind_tool_to_agent("databot,sql")
 @tool
 @alternative_tool("trino_desc_table")
 def hive_desc_table(database: str, table: str):

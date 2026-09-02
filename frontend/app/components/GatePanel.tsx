@@ -71,7 +71,7 @@ export function GatePanel() {
       return (
         <HumanGate
           value={value}
-          liveSelectedCards={liveState?.selected_cards}
+          liveSelectedCards={liveState?.review_cards}
           liveDraftSql={liveState?.draft_sql}
           onChoose={(decision, comments) => {
             const payload =
@@ -150,7 +150,7 @@ function HumanGate({
   onChoose,
 }: {
   value: GateInterruptValue;
-  liveSelectedCards?: DatabotAgentState["selected_cards"];
+  liveSelectedCards?: DatabotAgentState["review_cards"];
   liveDraftSql?: string;
   onChoose: (decision: GateDecision, comments: string) => void;
 }) {
@@ -162,7 +162,7 @@ function HumanGate({
   const selectedCards: TableCard[] | undefined =
     value.gate === "cards" && liveSelectedCards && liveSelectedCards.length > 0
       ? liveSelectedCards
-      : value.selected_cards?.map((c) => {
+      : value.review_cards?.map((c) => {
           const card = c as {
             name?: string;
             description?: string;

@@ -7,6 +7,7 @@ from typing import Any, Literal, TypedDict
 from langchain_core.tools import tool
 
 from rag.store import search as qdrant_search
+from tools.common import bind_tool_to_agent
 
 JiraProject = Literal["tahoe", "core", "de", "ds", "sqd"]
 
@@ -148,6 +149,7 @@ def _format_hit(hit: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+@bind_tool_to_agent("knowledge,default")
 @tool(description=_tool_description())
 def fetch_related_jira_tickets(
     query: str,

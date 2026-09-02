@@ -2,14 +2,13 @@
 
 ``fetch_related_models`` writes full ``TableCard`` dicts into
 ``state.staging_cards`` (each with a unique ``staging_id``). The LLM
-commits a subset via ``add_card_to_state`` using ``staging_id`` plus
+commits a subset via ``commit_cards`` using ``staging_id`` plus
 ``selected_dimensions`` / ``selected_metrics``; only then do cards land in
-``candidate_cards`` for ``mark_cards_selected`` and the human gate.
+``committed_cards``; the outer graph copies them to ``review_cards`` before the gate.
 """
 
 from __future__ import annotations
 
-import json
 import re
 import uuid
 from typing import Any
@@ -81,7 +80,7 @@ def compact_staging_refs(staging_cards: list[dict[str, Any]]) -> list[dict[str, 
 
 
 def parse_card_selection(item: Any) -> dict[str, Any] | None:
-    """Normalize one ``add_card_to_state`` selection from the LLM."""
+    """Normalize one ``commit_cards`` selection from the LLM."""
     if isinstance(item, str):
         text = item.strip()
         if not text:
@@ -141,14 +140,14 @@ def _staging_index(cards: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
 def apply_add_card_selections(
     *,
     staging_cards: list[dict[str, Any]],
-    candidate_cards: list[dict[str, Any]],
+    committed_cards: list[dict[str, Any]],
     selections: list[Any],
 ) -> tuple[list[dict[str, Any]], str]:
-    """Resolve selections against staging and merge into ``candidate_cards``."""
+    """Resolve selections against staging and merge into ``committed_cards``."""
     by_id = _staging_index(staging_cards)
-    by_id.update(_staging_index(candidate_cards))
+    by_id.update(_staging_index(committed_cards))
 
-    updated = list(candidate_cards or [])
+    updated = list(committed_cards or [])
     index_by_id = {
         str(c.get("staging_id")): i
         for i, c in enumerate(updated)
@@ -183,14 +182,14 @@ def apply_add_card_selections(
             index_by_id[sid] = len(updated) - 1
         committed += 1
 
-    note = f"committed {committed} card(s) to candidate_cards"
+    note = f"committed {committed} card(s) to committed_cards"
     if issues:
         note += f"; {'; '.join(issues)}"
     return updated, note
 
 
 def selections_from_tool_payload(cards: list[Any]) -> list[Any]:
-    """Accept legacy full-card payloads or new selection objects."""
+    """Normalize ``commit_cards`` selection payloads from the LLM."""
     if not cards:
         return []
     out: list[Any] = []
@@ -201,11 +200,5 @@ def selections_from_tool_payload(cards: list[Any]) -> list[Any]:
             out.append(item)
         elif isinstance(item, str):
             out.append(item)
-        elif isinstance(item, dict) and item.get("name"):
-            # Legacy: full card dict without staging_id — cannot resolve.
-            out.append(item)
+        # Full card dicts without a staging id cannot be resolved — skip them.
     return out
-
-
-def encode_tool_summary(payload: Any) -> str:
-    return json.dumps(payload, ensure_ascii=False)

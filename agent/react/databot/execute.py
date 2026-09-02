@@ -13,6 +13,7 @@ import logging
 from collections.abc import Callable
 from typing import Any
 
+from agent.react.databot._constants import STAGE_DONE
 from agent.react.databot.state import DatabotState
 
 logger = logging.getLogger(__name__)
@@ -27,8 +28,8 @@ def make_execute_sql_node(
     """Build the post-gate SQL execution node.
 
     ``trino_run_query`` is optional — if Trino is not configured the
-    node records a no-warehouse error and still moves on to the
-    ``chart`` stage so the rest of the pipeline keeps working.
+    node records a no-warehouse error and still moves on so the rest of
+    the pipeline keeps working.
     """
 
     def execute_sql(state: DatabotState) -> dict[str, Any]:
@@ -40,7 +41,7 @@ def make_execute_sql_node(
                     "ok": False,
                     "error": "no approved SQL in state",
                 },
-                "stage": "chart",
+                "stage": STAGE_DONE,
             }
         if trino_run_query is None:
             return {
@@ -49,7 +50,7 @@ def make_execute_sql_node(
                     "error": "trino_run_query tool not available this turn",
                     "sql": sql,
                 },
-                "stage": "chart",
+                "stage": STAGE_DONE,
             }
         try:
             result = trino_run_query.invoke(
@@ -63,13 +64,13 @@ def make_execute_sql_node(
                     "error": str(exc),
                     "sql": sql,
                 },
-                "stage": "chart",
+                "stage": STAGE_DONE,
             }
         if not isinstance(result, dict):
             result = {"ok": True, "raw": result}
         return {
             "execution_result": {**result, "ok": True, "sql": sql},
-            "stage": "chart",
+            "stage": STAGE_DONE,
         }
 
     return execute_sql

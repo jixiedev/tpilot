@@ -133,7 +133,7 @@ def make_step_llm_node(
     ``on_llm_start`` runs immediately before the model call so the CLI can show
     progress while waiting on the provider. After the model responds, append the
     AI message to history. Reset ``idle_rounds`` when there are tool calls;
-    otherwise increment it. Downstream ``route_after_step`` uses tool calls,
+    otherwise increment it. Downstream ``route_after_reason`` uses tool calls,
     idle rounds, and budget to choose ``step_tools``, another ``step_llm``, or end.
     """
 
@@ -168,7 +168,7 @@ def make_step_llm_node(
         if response.tool_calls:
             update["idle_rounds"] = 0
         else:
-            # Plain text: count as an idle round for route_after_step / nudge logic.
+            # Plain text: count as an idle round for route_after_reason / nudge logic.
             update["idle_rounds"] = state.get("idle_rounds", 0) + 1
         return update
 

@@ -15,14 +15,14 @@ from agent.react.databot.ui_actions import (
 
 def test_apply_update_card_selection_resolves_candidates() -> None:
     state = {
-        "candidate_cards": [
+        "committed_cards": [
             {"name": "fct_orders", "description": "orders"},
             {"name": "dim_users", "description": "users"},
         ],
-        "selected_cards": [{"name": "fct_orders"}],
+        "review_cards": [{"name": "fct_orders"}],
     }
     patch = apply_update_card_selection(state, ["dim_users", "missing"])
-    assert [c["name"] for c in patch["selected_cards"]] == ["dim_users"]
+    assert [c["name"] for c in patch["review_cards"]] == ["dim_users"]
     assert patch["deny_feedback"] == ""
 
 
@@ -63,11 +63,11 @@ def test_build_ui_action_patch_rejects_wrong_stage() -> None:
 def test_build_ui_action_patch_allows_gate_cards_selection() -> None:
     state = {
         "stage": "gate_cards",
-        "candidate_cards": [{"name": "fct_orders"}],
+        "committed_cards": [{"name": "fct_orders"}],
     }
     patch = build_ui_action_patch(
         "update_card_selection",
         state,
         selected_card_names=["fct_orders"],
     )
-    assert patch["selected_cards"][0]["name"] == "fct_orders"
+    assert patch["review_cards"][0]["name"] == "fct_orders"

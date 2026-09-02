@@ -26,7 +26,7 @@ def _route(*, max_tool_steps: int = 10, max_idle_rounds: int = 3):
         RouterConfig(),
         completion_tool_name=CHAT_COMPLETION_TOOL_NAME,
     )
-    return router.route_after_step()
+    return router.route_after_reason()
 
 
 def test_budget_exhausted_with_data_tools_routes_to_step_llm() -> None:

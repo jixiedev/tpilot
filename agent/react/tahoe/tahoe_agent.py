@@ -18,11 +18,12 @@ from agent.react.tahoe.prompt import (
     TOOL_BUDGET_EXHAUSTED_PROMPT,
     TahoeSystemPrompt,
 )
-from agent.react.tahoe.tools import CHAT_COMPLETION_TOOL_NAME, TOOLS as TAHOE_TOOLS
+from agent.react.tahoe.tool_scopes import REGISTRY_NAME, TOOL_ID_REACT
+from agent.react.tahoe.tools import CHAT_COMPLETION_TOOL_NAME
+from agent.scoped_tools import RegistryScopedTools
 from graph.builder import SystemPromptSpec
 from memory import COMPRESSION_TOOLS
 from memory.profile_store import ProfileStore
-from tools.loader import load_general_tools
 
 DEFAULT_MAX_TOOL_CALLS = 10
 # One plain-text reply ends the turn (no multi-minute idle retries for local models).
@@ -30,7 +31,12 @@ DEFAULT_MAX_IDLE_ROUNDS = 1
 DEFAULT_PROFILE_DIR = Path(__file__).resolve().parents[2] / "profiles"
 
 
-class TahoeAgent(BaseReactAgent):
+_COMPRESSION_TOOL_NAMES = frozenset(
+    {getattr(tool, "name", "") for tool in COMPRESSION_TOOLS}
+)
+
+
+class TahoeAgent(BaseReactAgent, RegistryScopedTools):
     """Base agent for Tahoe team products.
 
     Provides session turns, chat_completion gating, compression tools, and the
@@ -38,6 +44,7 @@ class TahoeAgent(BaseReactAgent):
     their own tools and prompts.
     """
 
+    registry_name = REGISTRY_NAME
     completion_tool_name = CHAT_COMPLETION_TOOL_NAME
     turn_boundary = SESSION_TURN_BOUNDARY
     default_profile_dir = DEFAULT_PROFILE_DIR
@@ -63,7 +70,7 @@ class TahoeAgent(BaseReactAgent):
         if router_config is None:
             refine_enabled = bool(prompt_config.refine_user_profile_prompt.strip())
             router_config = RouterConfig(
-                tool_end_outlet="refine_user_profile" if refine_enabled else "__end__",
+                action_end_outlet="refine_user_profile" if refine_enabled else "__end__",
             )
         super().__init__(
             system_prompt=system_prompt,
@@ -89,11 +96,13 @@ class TahoeAgent(BaseReactAgent):
     @classmethod
     def base_tools(cls, *, enable_compression_tools: bool = True) -> list[BaseTool]:
         """Tools shared by all Tahoe team agents (no warehouse/MCP data tools)."""
-        tools: list[BaseTool] = []
-        if enable_compression_tools:
-            tools.extend(COMPRESSION_TOOLS)
-        tools.extend(load_general_tools())
-        tools.extend(TAHOE_TOOLS)
+        tools = cls.tools_for_scope(TOOL_ID_REACT)
+        if not enable_compression_tools:
+            tools = [
+                tool
+                for tool in tools
+                if getattr(tool, "name", "") not in _COMPRESSION_TOOL_NAMES
+            ]
         return tools
 
     @classmethod

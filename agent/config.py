@@ -37,14 +37,14 @@ class AgentPromptConfig:
 
 @dataclass
 class RouterConfig:
-    step_idle_outlet: str = "step_llm"
-    step_tools_outlet: str = "step_tools"
-    step_end_outlet: str = "__end__"
-    tool_step_outlet: str = "step_llm"
-    tool_end_outlet: str = "__end__"
+    reason_idle_outlet: str = "step_llm"
+    reason_action_outlet: str = "step_tools"
+    reason_end_outlet: str = "__end__"
+    action_reason_outlet: str = "step_llm"
+    action_end_outlet: str = "__end__"
     # State-based exit: when every name in this tuple maps to a
     # truthy value in the run's state, the router forces
-    # ``tool_end_outlet`` (or ``step_end_outlet``) immediately. This
+    # ``action_end_outlet`` (or ``reason_end_outlet``) immediately. This
     # replaces the older "wait for chat_completion ToolMessage" exit
     # signal — state itself is the contract, the LLM's job is just to
     # fill it. If a stage only needs ``chat_completion`` for the

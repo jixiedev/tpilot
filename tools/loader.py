@@ -1,47 +1,41 @@
-"""Shared tool loading for data-plane integrations."""
+"""Shared tool loading for data-plane integrations.
+
+Legacy helpers that resolve tools from ``AgentSpec.register_tools`` by scope
+identifier after static registration and optional MCP binding.
+"""
 
 from __future__ import annotations
 
 from langchain_core.tools import BaseTool
 
-from tools.code import TOOLS as code_tools
-from tools.data.hive import TOOLS as hive_tools
-from tools.data.s3 import TOOLS as s3_tools
-from tools.data.trino import TOOLS as trino_tools
-from tools.external.datahub import TOOLS as datahub_tools
-from tools.mcp.mcp import get_datahub_mcp_tools, get_mcp_tools
-from tools.plan import TOOLS as plan_tools
-from tools.web.search import tools_if_enabled as web_search_tools
+from agent.react.databot.tool_scopes import REGISTRY_NAME as DATABOT_REGISTRY
+from agent.react.databot.tool_scopes import TOOL_ID_DEFAULT as DATABOT_DEFAULT
+from agent.react.knowledge.tool_scopes import knowledge_react_tools
+from agent.react.tahoe.tool_scopes import TOOL_ID_REACT, tahoe_tools
+from agent.scoped_tools import tools_for_scope
+from tools.dynamic import register_dynamic_tool_bindings
+
+_GENERAL_TOOL_NAMES = frozenset(
+    {"bash", "python_execute", "str_replace_editor", "web_search", "planning"}
+)
 
 
 def load_general_tools() -> list[BaseTool]:
     """Local coding / search / planning tools shared by Tahoe team agents."""
-    return [*code_tools, *web_search_tools(), *plan_tools]
+    return [
+        tool
+        for tool in tahoe_tools(TOOL_ID_REACT)
+        if getattr(tool, "name", "") in _GENERAL_TOOL_NAMES
+    ]
 
 
 async def load_data_tools() -> list[BaseTool]:
-    """Tools for the data-retrieval agent (MCP / DataHub / Hive / Trino / S3 / dbt RAG).
-
-    RAG tools (``fetch_related_models`` + ``add_card_to_state``) are also
-    exposed to KnowledgeAgent via ``load_knowledge_tools``; they live here
-    because the canonical workflow (fetch TableCard → human approve → state
-    → SQL) is the Databot path.
-    """
-    from tools.rag import TOOLS as rag_tools
-
-    mcp_tools = await get_mcp_tools()
-    return [*mcp_tools, *datahub_tools, *hive_tools, *trino_tools, *s3_tools, *rag_tools]
+    """Tools registered for the Databot ``default`` scope."""
+    await register_dynamic_tool_bindings()
+    return tools_for_scope(DATABOT_REGISTRY, DATABOT_DEFAULT)
 
 
 async def load_knowledge_tools() -> list[BaseTool]:
-    """Tools for knowledge-oriented agents (DataHub MCP + K8s + indexed docs/Jira).
-
-    Prefers the configured ``datahub`` MCP server. Falls back to native GraphQL
-    DataHub tools when MCP is not configured or fails to load.
-    """
-    from tools.k8s import TOOLS as k8s_tools
-    from tools.rag import TOOLS as rag_tools
-
-    mcp_datahub = await get_datahub_mcp_tools()
-    catalog_tools = mcp_datahub if mcp_datahub else datahub_tools
-    return [*catalog_tools, *k8s_tools, *s3_tools, *rag_tools]
+    """Tools for the Knowledge main ReAct scope (``default`` + ``catalog``)."""
+    await register_dynamic_tool_bindings()
+    return knowledge_react_tools()

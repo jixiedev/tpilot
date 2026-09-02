@@ -1,32 +1,27 @@
-"""Per-stage subgraphs for the Databot v2 state machine.
-
-Each stage is a self-contained ReAct loop built on top of
-``graph.builder.build_react_graph``. The outer state machine composes them
-in order and inserts human-gate nodes between them.
-
-Why subgraphs instead of one mega-ReAct: the thought-1 pipeline has hard
-gates between stages and a strict per-stage tool scope (the SQL stage
-should not be able to fire off another RAG call mid-loop, etc.). A state
-machine between stages + ReAct inside stages gets both.
-"""
+"""Per-stage ReAct subgraphs for the Databot state machine."""
 
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from typing import Any
+
+from agent.config import StateLike
 
 from langchain_core.language_models import BaseChatModel
 from langchain_core.tools import BaseTool
 from langgraph.graph.state import CompiledStateGraph
 
 from agent.config import AgentPromptConfig, AgentRunConfig, RouterConfig
-from agent.react.databot.prompt import (
+from agent.react.databot.prompts.fetch import (
     FETCH_CARDS_NEXT_STEP_PROMPT,
     FETCH_CARDS_SYSTEM_PROMPT,
     FETCH_CARDS_TOOL_BUDGET_PROMPT,
+)
+from agent.react.databot.prompts.idle import IDLE_NUDGE_PROMPT
+from agent.react.databot.prompts.sql import (
     GENERATE_SQL_NEXT_STEP_PROMPT,
     GENERATE_SQL_TOOL_BUDGET_PROMPT,
-    IDLE_NUDGE_PROMPT,
     render_generate_sql_system_prompt,
 )
 from agent.react.databot.state import DatabotState
@@ -43,7 +38,7 @@ _FETCH_PROMPT_CONFIG = AgentPromptConfig(
     next_step=FETCH_CARDS_NEXT_STEP_PROMPT,
     idle_nudge_prompt=IDLE_NUDGE_PROMPT,
     tool_budget_exhausted_prompt=FETCH_CARDS_TOOL_BUDGET_PROMPT,
-    refine_user_profile_prompt="",  # subgraphs do not refine the profile
+    refine_user_profile_prompt="",
 )
 
 _SQL_PROMPT_CONFIG = AgentPromptConfig(
@@ -59,39 +54,22 @@ def _stage_state_exit_router(
     max_tool_calls: int,
     max_idle_rounds: int,
     state_exit_keys: tuple[str, ...] = (),
-) -> tuple:
-    """Build a state-based router for one databot subgraph.
-
-    The router is a ``CompletionToolRouter`` with
-    ``completion_tool_name=None``: the only short-circuit is
-    ``state_complete(state)``, i.e. every key in ``state_exit_keys``
-    is populated. The LLM's job is to fill the required state; it
-    does not need to remember to call ``chat_completion`` to exit.
-
-    Plain text bumps the idle counter; the budget governs how long
-    the loop may run. This is what fixes the "step_llm called twice
-    in a row → 400 from the provider" bug — idle rounds now properly
-    terminate the subgraph instead of looping the LLM.
-    """
+) -> tuple[Callable[[StateLike], str], Callable[[StateLike], str]]:
+    """Router for one subgraph: exit when ``state_exit_keys`` are populated."""
     run_config = AgentRunConfig(
         max_tool_calls=max_tool_calls,
         max_idle_rounds=max_idle_rounds,
     )
     router_config = RouterConfig(
-        # Subgraph has no human end-of-turn step, so the tool-end route
-        # is just END.
-        tool_end_outlet="__end__",
+        action_end_outlet="__end__",
         state_exit_keys=state_exit_keys,
     )
     router = CompletionToolRouter(
         run_config,
         router_config,
-        # No completion tool — state is the only contract. The LLM can
-        # still call ``chat_completion`` if it wants a one-line
-        # summary, but it's not the exit signal.
         completion_tool_name=None,
     )
-    return router.route_after_step(), router.route_after_tools()
+    return router.route_after_reason(), router.route_after_action()
 
 
 def build_fetch_cards_subgraph(
@@ -105,17 +83,13 @@ def build_fetch_cards_subgraph(
     """Subgraph for the fetch stage.
 
     Tools: ``fetch_related_models``, MCP datahub ``search`` (glossary-only),
-    ``datahub_get_entities``, ``add_card_to_state``, plus the four-option
-    ``write_gate_reasons`` tool the LLM must call before the cards gate.
+    ``datahub_get_entities``, ``commit_cards``, ``record_metric_conflict``.
+    Card selection and gate reasons run in outer-graph nodes after this subgraph.
     """
-    route_step, route_tools = _stage_state_exit_router(
+    route_reason, route_action = _stage_state_exit_router(
         max_tool_calls=max_tool_calls,
         max_idle_rounds=max_idle_rounds,
-        # State-based exit: when ``selected_cards`` and ``cards_reasons``
-        # are both populated, the subgraph ends. The LLM's job is to
-        # fill the state; it does not need to remember to call
-        # ``chat_completion`` to signal exit.
-        state_exit_keys=("selected_cards", "cards_reasons"),
+        state_exit_keys=("committed_cards",),
     )
     return build_react_graph(
         model,
@@ -123,15 +97,11 @@ def build_fetch_cards_subgraph(
         checkpointer=checkpointer,
         system_prompt=FETCH_CARDS_SYSTEM_PROMPT,
         next_step_prompt=_FETCH_PROMPT_CONFIG.next_step,
-        route_after_step=route_step,
-        route_after_tools=route_tools,
-        refine_user_profile_node=None,  # explicit: no profile write inside subgraph
+        route_after_reason=route_reason,
+        route_after_action=route_action,
         idle_nudge_prompt=_FETCH_PROMPT_CONFIG.idle_nudge_prompt,
         tool_budget_exhausted_prompt=_FETCH_PROMPT_CONFIG.tool_budget_exhausted_prompt,
         max_tool_calls=max_tool_calls,
-        # Use DatabotState directly so the LLM's Command(update=...) writes
-        # to databot fields (selected_cards, cards_reasons, stage, ...)
-        # actually land in the inner state — no more silently-dropped keys.
         state_class=DatabotState,
     )
 
@@ -147,17 +117,14 @@ def build_generate_sql_subgraph(
     """Subgraph for the SQL-draft stage.
 
     Tools: read-only schema introspection (``trino_desc_table``,
-    ``hive_desc_table``), the ``add_card_to_state`` is intentionally
+    ``hive_desc_table``), ``commit_cards`` is intentionally
     omitted — cards are already pinned by the gate. The LLM must call
     ``propose_sql`` to write ``draft_sql`` and ``write_gate_reasons`` to
     fill the SQL-gate reason map before exiting.
     """
-    route_step, route_tools = _stage_state_exit_router(
+    route_reason, route_action = _stage_state_exit_router(
         max_tool_calls=max_tool_calls,
         max_idle_rounds=max_idle_rounds,
-        # State-based exit: when ``draft_sql`` and ``sql_reasons`` are
-        # both populated, the subgraph ends. ``chat_completion`` is
-        # not required.
         state_exit_keys=("draft_sql", "sql_reasons"),
     )
     return build_react_graph(
@@ -166,12 +133,10 @@ def build_generate_sql_subgraph(
         checkpointer=checkpointer,
         system_prompt=render_generate_sql_system_prompt,
         next_step_prompt=_SQL_PROMPT_CONFIG.next_step,
-        route_after_step=route_step,
-        route_after_tools=route_tools,
-        refine_user_profile_node=None,
+        route_after_reason=route_reason,
+        route_after_action=route_action,
         idle_nudge_prompt=_SQL_PROMPT_CONFIG.idle_nudge_prompt,
         tool_budget_exhausted_prompt=_SQL_PROMPT_CONFIG.tool_budget_exhausted_prompt,
         max_tool_calls=max_tool_calls,
-        # Use DatabotState directly — see build_fetch_cards_subgraph.
         state_class=DatabotState,
     )

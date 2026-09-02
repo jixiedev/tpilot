@@ -33,7 +33,7 @@ StateNode = Callable[[SessionAgentState], dict[str, Any]]
 # Any MessagesState subclass works as the inner ReAct subgraph's state
 # schema — the builder only adds ``messages`` and a couple of ReAct
 # bookkeeping keys. Databot subgraphs pass ``DatabotState`` so they
-# can write to the staged pipeline's fields (``selected_cards``,
+# can write to the staged pipeline's fields (``review_cards``,
 # ``cards_reasons``, ``stage``, etc.) directly via ``Command(update=...)``
 # without LangGraph silently dropping unknown keys.
 InnerStateClass = type[MessagesState]
@@ -75,9 +75,10 @@ def build_react_graph(
     checkpointer: BaseCheckpointSaver,
     system_prompt: SystemPromptSpec,
     next_step_prompt: str,
-    route_after_step: Callable[[SessionAgentState], str],
-    route_after_tools: Callable[[SessionAgentState], str],
+    route_after_reason: Callable[[SessionAgentState], str],
+    route_after_action: Callable[[SessionAgentState], str],
     compressor: StateNode | None = None,
+    include_profile_refinement: bool = False,
     refine_user_profile_node: StateNode | None = None,
     idle_nudge_prompt: str = "",
     tool_budget_exhausted_prompt: str = "",
@@ -96,13 +97,15 @@ def build_react_graph(
 
     When ``compressor`` is set, it runs at turn start and after every tool batch.
 
-    When ``refine_user_profile_node`` is set, agents should route turn completion
-    to ``refine_user_profile``, which then ends the turn.
+    When ``include_profile_refinement`` is True and ``refine_user_profile_node``
+    is supplied, agents should route turn completion to ``refine_user_profile``,
+    which then ends the turn. Subgraphs and other inner ReAct loops default to
+    ``include_profile_refinement=False``.
 
     ``state_class`` is the ``MessagesState`` subclass used as the
     subgraph's state schema. The default ``SessionAgentState`` works
     for Tahoe base. Databot subgraphs pass ``DatabotState`` so that
-    ``Command(update=...)`` writes to databot fields (``selected_cards``,
+    ``Command(update=...)`` writes to databot fields (``review_cards``,
     ``cards_reasons``, ``stage``, etc.) actually land in the inner
     state instead of being silently dropped by LangGraph 1.2 because
     the key is not in the schema.
@@ -136,22 +139,22 @@ def build_react_graph(
         retry_policy=tool_retry_policy or default_tool_retry_policy(),
         error_handler=make_step_tools_error_handler(),
     )
-    if refine_user_profile_node is not None:
+    if include_profile_refinement and refine_user_profile_node is not None:
         graph.add_node("refine_user_profile", refine_user_profile_node)
 
     if compressor:
         graph.add_edge(START, "compress_on_start")
         graph.add_edge("compress_on_start", "inject_system_prompt")
         graph.add_edge("step_tools", "compress_after_tools")
-        graph.add_conditional_edges("compress_after_tools", route_after_tools)
+        graph.add_conditional_edges("compress_after_tools", route_after_action)
     else:
         graph.add_edge(START, "inject_system_prompt")
-        graph.add_conditional_edges("step_tools", route_after_tools)
+        graph.add_conditional_edges("step_tools", route_after_action)
 
     graph.add_edge("inject_system_prompt", "step_llm")
 
-    if refine_user_profile_node is not None:
+    if include_profile_refinement and refine_user_profile_node is not None:
         graph.add_edge("refine_user_profile", END)
 
-    graph.add_conditional_edges("step_llm", route_after_step)
+    graph.add_conditional_edges("step_llm", route_after_reason)
     return graph.compile(checkpointer=checkpointer)
