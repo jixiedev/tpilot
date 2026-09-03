@@ -43,7 +43,7 @@ def limited_tools_condition(
     max_steps: int = 10,
     default_outlet: str = "__end__",
     no_tool_outlet: str = "__end__",
-    tools_outlet: str = "step_tools",
+    tools_outlet: str = "step_action",
 ) -> Callable[[Union[list[AnyMessage], dict[str, Any], BaseModel]], str]:
     """Route to tools while under budget; otherwise end the graph turn."""
 

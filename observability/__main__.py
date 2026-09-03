@@ -1,4 +1,4 @@
-"""CLI: python -m observability --agent tahoe --groups general"""
+"""CLI: python -m observability --agent databot --groups databot"""
 
 from __future__ import annotations
 
@@ -12,11 +12,10 @@ from langchain_core.language_models import BaseChatModel
 
 load_dotenv(Path(__file__).resolve().parents[1] / ".env")
 
-EVAL_AGENTS = ("tahoe", "databot", "knowledge", "intent")
+EVAL_AGENTS = ("databot", "knowledge", "intent")
 DEFAULT_GROUPS: dict[str, list[str]] = {
-    "tahoe": ["general", "tahoe"],
     "databot": ["databot"],
-    "knowledge": ["knowledge"],
+    "knowledge": ["knowledge", "general", "tahoe"],
     "intent": ["intent"],
 }
 
@@ -28,9 +27,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "-a",
         "--agent",
-        default="tahoe",
+        default="databot",
         choices=EVAL_AGENTS,
-        help="agent to evaluate (default: tahoe)",
+        help="agent to evaluate (default: databot)",
     )
     parser.add_argument(
         "-g",
@@ -78,7 +77,7 @@ async def create_eval_agent(agent_name: str, model_name: str):
 
     from agent.listener import ReactAgentListener
     from agent.registry import get_agent
-    from agent.react.tahoe.tahoe_agent import TahoeAgent
+    from agent.runtime.tahoe_runtime_helper import default_profile_store
     from memory import CompressionConfig
 
     model = resolve_eval_model(model_name)
@@ -89,7 +88,7 @@ async def create_eval_agent(agent_name: str, model_name: str):
         return agent
 
     agent = await spec.create_agent(
-        profile_store=TahoeAgent.default_profile_store(),
+        profile_store=default_profile_store(),
         react_listener=ReactAgentListener(),
     )
     await agent.bind(

@@ -10,10 +10,10 @@ from typing_extensions import TypedDict
 from agent.agent import BaseAgent
 from agent.chain import (
     AgentChain,
-    PlannedAgentChain,
     StaticAgentChain,
     StatusRoutedAgentChain,
 )
+from graph.builder import static_system_prompt
 from agent.turn import extract_turn_output
 
 
@@ -27,7 +27,7 @@ class _State(TypedDict, total=False):
 
 class _StubAgent(BaseAgent):
     def __init__(self, name: str, *, payload: dict[str, Any] | None = None) -> None:
-        super().__init__(system_prompt="stub")
+        super().__init__(system_prompt=static_system_prompt("stub"))
         self.name = name
         self.payload = payload or {}
         self.calls: list[str] = []
@@ -124,45 +124,6 @@ async def test_status_routed_chain_stops_when_not_published() -> None:
     assert result.ok
     assert [step.agent_id for step in result.steps] == [0]
     assert databot.calls == []
-
-
-async def test_planned_chain_passes_upstream_and_downstream_context() -> None:
-    knowledge = await _bound(_StubAgent("knowledge", payload={"value": "GMV=gross merchandise value"}))
-    databot = await _bound(_StubAgent("databot", payload={"value": "final:42"}))
-
-    chain = PlannedAgentChain.from_execution_plan(
-        [
-            {
-                "agent": "knowledge",
-                "intention": "KNOWLEDGE",
-                "task": "Define GMV from docs",
-            },
-            {
-                "agent": "databot",
-                "intention": "DATA",
-                "task": "Query GMV using the definition",
-            },
-        ],
-        user_question="What was GMV yesterday?",
-    )
-    chain.register_agent(0, knowledge)
-    chain.register_agent(1, databot)
-
-    result = await chain.execute(session="s-plan", print_output=False)
-    assert result.ok
-    assert [step.agent_name for step in result.steps] == ["knowledge", "databot"]
-    assert "Task background" in knowledge.calls[0]
-    assert "Define GMV from docs" in knowledge.calls[0]
-    assert "You are the first step" in knowledge.calls[0] or "none" in knowledge.calls[0].lower()
-    assert "Next agent: databot" in knowledge.calls[0]
-
-    assert "Upstream result" in databot.calls[0]
-    assert "GMV=gross merchandise value" in databot.calls[0]
-    assert "last step" in databot.calls[0].lower()
-    assert result.last_output == "final:42"
-
-    # Ephemeral sessions: two distinct thread prefixes, not a shared specialist history id.
-    assert knowledge.calls and databot.calls
 
 
 async def test_extract_turn_output_prefers_value() -> None:

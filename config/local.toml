@@ -1,0 +1,16 @@
+[paths]
+# Machine-local runtime data. Paths may be absolute or relative to the project root.
+# Leave a field empty to use the default under data_dir.
+data_dir = ".local"
+checkpoint_db = ""
+profiles_dir = ""
+offload_dir = ""
+logs_dir = ""
+log_file = ""
+
+data_dir_env = "TAHOEPILOT_LOCAL_DIR"
+checkpoint_db_env = "TAHOEPILOT_CHECKPOINT_DB"
+profiles_dir_env = "TAHOEPILOT_PROFILE_DIR"
+offload_dir_env = "TAHOEPILOT_OFFLOAD_DIR"
+logs_dir_env = "TAHOEPILOT_LOGS_DIR"
+log_file_env = "TAHOEPILOT_LOG_FILE"

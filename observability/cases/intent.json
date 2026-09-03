@@ -56,8 +56,7 @@
         "DATA"
       ],
       "expected_routes": [
-        "knowledge",
-        "databot"
+        "plan"
       ]
     },
     {

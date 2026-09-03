@@ -17,7 +17,8 @@ from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 load_dotenv(Path(__file__).resolve().parent / ".env")
 
 from agent.registry import AGENTS, DEFAULT_AGENT, get_agent
-from agent.react.tahoe.tahoe_agent import TahoeAgent
+from agent.runtime.tahoe_runtime_helper import default_profile_store
+from config.local_config import ensure_local_dirs, get_local_paths
 from config.logging_config import configure_logging
 from graph.error_recovery import format_turn_failure
 from memory import CompressionConfig
@@ -27,8 +28,6 @@ from tools.mcp.mcp import check_mcp_servers, format_mcp_startup_lines
 logger = logging.getLogger(__name__)
 
 _EXIT_COMMANDS = frozenset({"quit", "exit", "q", ":q"})
-_DEFAULT_CHECKPOINT_DB = Path(__file__).resolve().parent / "checkpoints.sqlite"
-_DEFAULT_PROFILE_DIR = Path(__file__).resolve().parent / "profiles"
 
 
 def resolve_cli_user_id(explicit: str | None = None) -> str:
@@ -71,7 +70,7 @@ async def run_repl(
     verbose: bool = False,
 ) -> None:
     spec = get_agent(agent_name)
-    profile_store = TahoeAgent.default_profile_store(profile_dir)
+    profile_store = default_profile_store(profile_dir)
     print("TahoePilot — type 'quit' to exit")
     print(f"Agent: {spec.name}")
     print(f"Model: {default_model_name}")
@@ -151,12 +150,12 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--checkpoint-db",
         default=None,
-        help="SQLite path for LangGraph checkpoints (default: ./checkpoints.sqlite)",
+        help="SQLite path for LangGraph checkpoints (default: from config/local.toml)",
     )
     parser.add_argument(
         "--profile-dir",
         default=None,
-        help="Directory for per-user profile JSON files (default: ./profiles)",
+        help="Directory for per-user profile JSON files (default: from config/local.toml)",
     )
     parser.add_argument(
         "-v",
@@ -170,18 +169,11 @@ def build_arg_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> None:
     args = build_arg_parser().parse_args(argv)
     configure_logging(verbose=args.verbose)
+    ensure_local_dirs()
     session = args.session or str(uuid.uuid4())
     user_id = resolve_cli_user_id(args.user_id)
-    checkpoint_db = Path(
-        args.checkpoint_db
-        or os.getenv("TAHOEPILOT_CHECKPOINT_DB")
-        or _DEFAULT_CHECKPOINT_DB
-    )
-    profile_dir = Path(
-        args.profile_dir
-        or os.getenv("TAHOEPILOT_PROFILE_DIR")
-        or _DEFAULT_PROFILE_DIR
-    )
+    checkpoint_db = Path(args.checkpoint_db) if args.checkpoint_db else get_local_paths().checkpoint_db
+    profile_dir = Path(args.profile_dir) if args.profile_dir else get_local_paths().profiles_dir
     asyncio.run(
         run_repl(
             agent_name=args.agent,

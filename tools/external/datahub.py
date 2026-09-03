@@ -17,6 +17,7 @@ from typing import Any, Literal
 from langchain.tools import tool
 
 from config.tool_config import DataHubToolConfig, datahub_graphql_url, datahub_token, tool_config
+from tools.common import register_tool_binding
 from tools.errors import ToolErrorType, register_exception
 
 _MUTATION_RE = re.compile(r"\b(mutation|subscription)\b", re.IGNORECASE)
@@ -1509,3 +1510,13 @@ TOOLS = [
     datahub_list_schema_fields,
     datahub_graphql_query,
 ]
+
+_FETCH_DATAHUB_NATIVE_NAMES = frozenset(
+    {"datahub_list_glossary_terms", "datahub_graphql_query"}
+)
+
+for _datahub_tool in TOOLS:
+    register_tool_binding("databot,default", _datahub_tool)
+    register_tool_binding("knowledge,catalog", _datahub_tool)
+    if getattr(_datahub_tool, "name", "") in _FETCH_DATAHUB_NATIVE_NAMES:
+        register_tool_binding("databot,fetch", _datahub_tool)

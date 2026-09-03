@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from collections.abc import Callable
 from typing import Any
 
 from langchain_core.language_models import BaseChatModel
@@ -10,7 +11,7 @@ from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph.state import CompiledStateGraph
 
 from agent.turn import AgentTurnResult, OnInterrupt, ainvoke_resolving_interrupts
-from graph.builder import SystemPromptSpec
+from state.state import SessionAgentState
 
 
 class BaseAgent(ABC):
@@ -25,11 +26,11 @@ class BaseAgent(ABC):
 
     def __init__(
         self,
-        system_prompt: str | SystemPromptSpec | None = None,
+        system_prompt: Callable[[SessionAgentState], str] | None = None,
         *args: Any,
         **kwargs: Any,
     ) -> None:
-        self.system_prompt: str | SystemPromptSpec = (
+        self.system_prompt: Callable[[SessionAgentState], str] = (
             system_prompt if system_prompt is not None else self.render_system_prompt
         )
         self.session_state: Any = None
@@ -90,7 +91,7 @@ class BaseAgent(ABC):
     ) -> Any:
         raise NotImplementedError
 
-    def print_turn_output(self, state: Any) -> None:
+    def on_turn_output(self, state: Any) -> None:
         return None
 
     def render_system_prompt(self, state: Any) -> str:
@@ -121,5 +122,5 @@ class BaseAgent(ABC):
         if result.cancelled:
             return result
         if print_output:
-            self.print_turn_output(result.state)
+            self.on_turn_output(result.state)
         return result

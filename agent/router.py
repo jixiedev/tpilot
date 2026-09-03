@@ -7,7 +7,7 @@ from collections.abc import Callable
 
 from langchain_core.messages import AIMessage, ToolMessage
 
-from agent.config import AgentRunConfig, RouterConfig, StateLike
+from agent.config import AgentRunContext, RouterConfig, StateLike
 from graph.edge import idle_rounds, latest_message, tool_call_count
 
 logger = logging.getLogger(__name__)
@@ -29,18 +29,18 @@ class CompletionToolRouter:
     empty) the router becomes a pure state-based router: the only
     short-circuit is ``state_complete(state)``. This is what the
     databot subgraphs use — they have a well-defined state contract
-    (``selected_cards`` / ``cards_reasons`` etc.) and no longer want
+    (``review_cards`` / ``cards_reasons`` etc.) and no longer want
     the LLM to remember to call ``chat_completion`` to exit.
     """
 
     def __init__(
         self,
-        run_config: AgentRunConfig,
+        run_context: AgentRunContext,
         router_config: RouterConfig,
         *,
         completion_tool_name: str | None = "chat_completion",
     ) -> None:
-        self.run_config = run_config
+        self.run_context = run_context
         self.router_config = router_config
         self.completion_tool_name = (completion_tool_name or "").strip() or None
 
@@ -52,7 +52,7 @@ class CompletionToolRouter:
         )
 
     def tool_budget_exhausted(self, state: StateLike) -> bool:
-        return tool_call_count(state) >= int(self.run_config.max_tool_steps or 0)
+        return tool_call_count(state) >= int(self.run_context.max_tool_steps or 0)
 
     def completion_executed(self, state: StateLike) -> bool:
         """Return True if the completion tool fired in the most recent round.
@@ -68,7 +68,7 @@ class CompletionToolRouter:
         this guard, every chat_completion call is followed by a fresh
         ``AIMessage`` (the final-answer chunk), which the previous
         implementation treated as "no completion yet" and routed back
-        to ``step_llm`` — an infinite loop where the LLM keeps
+        to ``step_reason`` — an infinite loop where the LLM keeps
         re-asserting "I should call chat_completion next" forever and
         the subgraph never advances.
         """
@@ -110,26 +110,26 @@ class CompletionToolRouter:
                 break
         return stall >= _COMPLETION_STALL_LIMIT
 
-    def route_after_step(self) -> Callable[[StateLike], str]:
-        """Return the conditional edge used after ``step_llm``.
+    def route_after_reason(self) -> Callable[[StateLike], str]:
+        """Return the conditional edge used after ``step_reason``.
 
         Inspects the latest AI message and chooses the next node:
-        - State-based exit keys all populated → ``step_end_outlet`` (state contract met).
-        - Completion tool already ran → ``step_end_outlet`` (legacy exit signal).
-        - Has tool calls and budget remains → ``step_tools`` (run tools).
-        - Budget exhausted but calls are only ``completion_tool_name`` → ``step_tools``
+        - State-based exit keys all populated → ``reason_end_outlet`` (state contract met).
+        - Completion tool already ran → ``reason_end_outlet`` (legacy exit signal).
+        - Has tool calls and budget remains → ``step_action`` (run tools / action).
+        - Budget exhausted but calls are only ``completion_tool_name`` → ``step_action``
           (allow the final user-visible reply).
-        - Budget exhausted with other tools → ``step_llm`` (nudge toward completion).
-        - Plain text (no tool calls) → ``step_llm`` (idle retry with nudge).
+        - Budget exhausted with other tools → ``step_reason`` (nudge toward completion).
+        - Plain text (no tool calls) → ``step_reason`` (idle retry with nudge).
         - Plain text and idle rounds hit the cap → ``__end__`` (last-resort stop).
 
         Plain assistant text alone never ends a normal turn; completion must go
-        through the completion tool (then ``route_after_tools``).
+        through the completion tool (then ``route_after_action``).
         """
-        max_idle = self.run_config.max_idle_rounds
-        idle_outlet = self.router_config.step_idle_outlet
-        tools_outlet = self.router_config.step_tools_outlet
-        end_outlet = self.router_config.step_end_outlet
+        max_idle = self.run_context.max_idle_rounds
+        idle_outlet = self.router_config.reason_idle_outlet
+        action_outlet = self.router_config.reason_action_outlet
+        end_outlet = self.router_config.reason_end_outlet
 
         def route(state: StateLike) -> str:
             if self.state_complete(state):
@@ -164,25 +164,25 @@ class CompletionToolRouter:
             if budget_exhausted and not self.tool_calls_are_completion_only(tool_calls):
                 logger.warning(
                     "reached maximum tool steps (%s); routing to %s for %s",
-                    self.run_config.max_tool_steps,
+                    self.run_context.max_tool_steps,
                     idle_outlet,
                     self.completion_tool_name,
                 )
                 return idle_outlet
 
-            return tools_outlet
+            return action_outlet
 
         return route
 
-    def route_after_tools(self) -> Callable[[StateLike], str]:
-        """Return the conditional edge used after tool execution.
+    def route_after_action(self) -> Callable[[StateLike], str]:
+        """Return the conditional edge used after tool execution (action).
 
-        - State-based exit keys all populated → ``tool_end_outlet`` (state contract met).
-        - Completion tool already ran → ``tool_end_outlet`` (legacy exit signal).
-        - Otherwise → ``step_llm`` for another ReAct iteration.
+        - State-based exit keys all populated → ``action_end_outlet`` (state contract met).
+        - Completion tool already ran → ``action_end_outlet`` (legacy exit signal).
+        - Otherwise → ``step_reason`` for another ReAct iteration.
         """
-        step_outlet = self.router_config.tool_step_outlet
-        end_outlet = self.router_config.tool_end_outlet
+        reason_outlet = self.router_config.action_reason_outlet
+        end_outlet = self.router_config.action_end_outlet
 
         def route(state: StateLike) -> str:
             if self.state_complete(state):
@@ -196,7 +196,7 @@ class CompletionToolRouter:
                     end_outlet,
                 )
                 return end_outlet
-            return step_outlet
+            return reason_outlet
 
         return route
 

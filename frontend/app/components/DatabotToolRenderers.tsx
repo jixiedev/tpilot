@@ -69,6 +69,66 @@ function GlossaryToolCard({
  * Registers CopilotKit tool-call UI: custom cards for Databot pipeline
  * tools, plus the built-in default card for everything else.
  */
+function CommitCardsToolRender({
+  status,
+  parameters,
+  result,
+}: {
+  status: "inProgress" | "executing" | "complete";
+  parameters: { selections?: unknown[] };
+  result?: unknown;
+}) {
+  const selections = parameters.selections ?? [];
+  const lines = selections
+    .filter((s): s is Record<string, unknown> => typeof s === "object" && s !== null)
+    .map((s) => {
+      const sid = String(s.staging_id ?? s.card_id ?? s.id ?? "?");
+      const dims = Array.isArray(s.selected_dimensions)
+        ? s.selected_dimensions.join(", ")
+        : "";
+      const metrics = Array.isArray(s.selected_metrics)
+        ? s.selected_metrics.join(", ")
+        : "";
+      return { sid, dims, metrics };
+    });
+  return (
+    <ToolCallCard
+      title="Models for review"
+      subtitle={
+        lines.length > 0
+          ? `${lines.length} model(s) shortlisted`
+          : "Shortlisting models"
+      }
+      status={status}
+      variant="cards"
+    >
+      {status === "complete" && lines.length > 0 ? (
+        <ul className="tool-call-selection-list">
+          {lines.map((line) => (
+            <li key={line.sid}>
+              <code>{line.sid}</code>
+              {line.metrics && (
+                <span className="tool-call-pick">
+                  metrics: <code>{line.metrics}</code>
+                </span>
+              )}
+              {line.dims && (
+                <span className="tool-call-pick">
+                  dims: <code>{line.dims}</code>
+                </span>
+              )}
+            </li>
+          ))}
+        </ul>
+      ) : status !== "complete" ? (
+        <p className="tool-call-muted">Staging → committed_cards…</p>
+      ) : (
+        <p className="tool-call-muted">{formatToolResult(result)}</p>
+      )}
+    </ToolCallCard>
+  );
+}
+
 export function DatabotToolRenderers() {
   useDefaultRenderTool();
 
@@ -142,60 +202,44 @@ export function DatabotToolRenderers() {
     },
   });
 
+  const commitCardsParams = z.object({
+    selections: z.array(z.unknown()).optional(),
+  });
+
+  useRenderTool({
+    name: "commit_cards",
+    parameters: commitCardsParams,
+    render: ({ status, parameters, result }) => (
+      <CommitCardsToolRender
+        status={status}
+        parameters={parameters}
+        result={result}
+      />
+    ),
+  });
+
+  useRenderTool({
+    name: "commit_candidate_cards",
+    parameters: commitCardsParams,
+    render: ({ status, parameters, result }) => (
+      <CommitCardsToolRender
+        status={status}
+        parameters={parameters}
+        result={result}
+      />
+    ),
+  });
+
   useRenderTool({
     name: "add_card_to_state",
-    parameters: z.object({ selections: z.array(z.unknown()).optional() }),
-    render: ({ status, parameters, result }) => {
-      const selections = parameters.selections ?? [];
-      const lines = selections
-        .filter((s): s is Record<string, unknown> => typeof s === "object" && s !== null)
-        .map((s) => {
-          const sid = String(s.staging_id ?? s.card_id ?? s.id ?? "?");
-          const dims = Array.isArray(s.selected_dimensions)
-            ? s.selected_dimensions.join(", ")
-            : "";
-          const metrics = Array.isArray(s.selected_metrics)
-            ? s.selected_metrics.join(", ")
-            : "";
-          return { sid, dims, metrics };
-        });
-      return (
-        <ToolCallCard
-          title="Models for review"
-          subtitle={
-            lines.length > 0
-              ? `${lines.length} model(s) shortlisted`
-              : "Shortlisting models"
-          }
-          status={status}
-          variant="cards"
-        >
-          {status === "complete" && lines.length > 0 ? (
-            <ul className="tool-call-selection-list">
-              {lines.map((line) => (
-                <li key={line.sid}>
-                  <code>{line.sid}</code>
-                  {line.metrics && (
-                    <span className="tool-call-pick">
-                      metrics: <code>{line.metrics}</code>
-                    </span>
-                  )}
-                  {line.dims && (
-                    <span className="tool-call-pick">
-                      dims: <code>{line.dims}</code>
-                    </span>
-                  )}
-                </li>
-              ))}
-            </ul>
-          ) : status !== "complete" ? (
-            <p className="tool-call-muted">Staging → candidate_cards…</p>
-          ) : (
-            <p className="tool-call-muted">{formatToolResult(result)}</p>
-          )}
-        </ToolCallCard>
-      );
-    },
+    parameters: commitCardsParams,
+    render: ({ status, parameters, result }) => (
+      <CommitCardsToolRender
+        status={status}
+        parameters={parameters}
+        result={result}
+      />
+    ),
   });
 
   useRenderTool({

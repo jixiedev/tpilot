@@ -25,7 +25,7 @@ type Tab = "cards" | "sql" | "results";
 
 function stageToTab(stage: DatabotStage | undefined): Tab {
   if (stage === "sql" || stage === "gate_sql") return "sql";
-  if (stage === "execute" || stage === "chart" || stage === "done") return "results";
+  if (stage === "execute" || stage === "done") return "results";
   return "cards";
 }
 
@@ -50,8 +50,8 @@ export function DatabotArtifactPanel() {
   const sqlGateOpen = ds?.stage === "gate_sql";
 
   const displayCards =
-    (ds?.candidate_cards?.length ?? 0) > 0
-      ? (ds?.candidate_cards ?? [])
+    (ds?.committed_cards?.length ?? 0) > 0
+      ? (ds?.committed_cards ?? [])
       : (ds?.staging_cards ?? []);
 
   const stageLabel = ds?.stage ?? "idle";
@@ -96,7 +96,7 @@ export function DatabotArtifactPanel() {
           tab="cards"
           active={activeTab === "cards"}
           onClick={() => setManualTab("cards")}
-          count={displayCards.length || (ds?.selected_cards?.length ?? 0)}
+          count={displayCards.length || (ds?.review_cards?.length ?? 0)}
           label="Cards"
         />
         <TabButton
@@ -125,7 +125,7 @@ export function DatabotArtifactPanel() {
         {activeTab === "cards" && (
           <TableCardList
             candidates={displayCards}
-            selected={ds?.selected_cards ?? []}
+            selected={ds?.review_cards ?? []}
             metricConflicts={ds?.metric_conflicts ?? []}
             mode={interactiveCards ? "interactive" : "readonly"}
             disabled={isPending}

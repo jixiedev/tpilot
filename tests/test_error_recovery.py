@@ -15,7 +15,7 @@ from graph.error_recovery import (
     make_async_retrying_tool_wrapper,
     make_handle_tool_errors,
     make_retrying_tool_wrapper,
-    make_step_tools_error_handler,
+    make_step_action_error_handler,
     transient_llm_retry_on,
     transient_retry_on,
 )
@@ -318,10 +318,10 @@ async def test_async_retrying_wrapper_does_not_retry_syntax_errors() -> None:
     assert attempts["count"] == 1
 
 
-def test_step_tools_node_registers_async_tool_wrapper() -> None:
-    from graph.node import StepToolsNode
+def test_step_action_node_registers_async_tool_wrapper() -> None:
+    from graph.node import StepActionNode
 
-    node = StepToolsNode([])
+    node = StepActionNode([])
 
     assert node._awrap_tool_call is not None
     assert node._wrap_tool_call is not None
@@ -401,8 +401,8 @@ def test_retrying_wrapper_suppresses_plan_b_when_peer_already_failed() -> None:
     assert "already failed this turn" in parsed.hint
 
 
-def test_step_tools_collects_failed_tools() -> None:
-    from graph.node import StepToolsNode
+def test_step_action_collects_failed_tools() -> None:
+    from graph.node import StepActionNode
 
     state = {"failed_tools": ["hive_list_tables"], "tool_call_count": 0}
     error = StructuredToolError.from_exception(
@@ -419,13 +419,13 @@ def test_step_tools_collects_failed_tools() -> None:
         ]
     }
 
-    failed = StepToolsNode._collect_failed_tools(state, result)
+    failed = StepActionNode._collect_failed_tools(state, result)
 
     assert failed == ["hive_list_tables", "trino_list_tables"]
 
 
-def test_step_tools_removes_tool_from_failed_on_success() -> None:
-    from graph.node import StepToolsNode
+def test_step_action_removes_tool_from_failed_on_success() -> None:
+    from graph.node import StepActionNode
 
     state = {
         "failed_tools": ["hive_list_tables", "trino_list_tables"],
@@ -441,16 +441,16 @@ def test_step_tools_removes_tool_from_failed_on_success() -> None:
         ]
     }
 
-    failed = StepToolsNode._collect_failed_tools(state, result)
+    failed = StepActionNode._collect_failed_tools(state, result)
 
     assert failed == ["trino_list_tables"]
 
 
-def test_step_tools_error_handler_routes_back_to_llm() -> None:
-    handler = make_step_tools_error_handler(goto="step_llm")
-    command = handler({"messages": []}, NodeError("step_tools", RuntimeError("boom")))
+def test_step_action_error_handler_routes_back_to_reason() -> None:
+    handler = make_step_action_error_handler(goto="step_reason")
+    command = handler({"messages": []}, NodeError("step_action", RuntimeError("boom")))
 
-    assert command.goto == "step_llm"
+    assert command.goto == "step_reason"
     assert command.update is not None
     assert "TOOL ERROR" in command.update["messages"][0].content
 

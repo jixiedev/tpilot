@@ -2,11 +2,16 @@
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
+from collections.abc import Awaitable, Callable, Mapping
+from dataclasses import dataclass, field
 from typing import Any
 
+from langchain_core.tools import BaseTool
+
 from agent.agent import BaseAgent
+
+# ``accepted_mcp`` server list token: load tools from every server in mcp.json.
+MCP_ALL_SERVERS = "*"
 
 
 @dataclass(frozen=True)
@@ -14,32 +19,62 @@ class AgentSpec:
     """Registered agent application.
 
     Set ``intention`` to make this agent a routable specialist for IntentOrchestrator.
-    Leave it ``None`` for entrypoints that are not intention targets (e.g. tahoe, intent).
+    Leave it ``None`` for entrypoints that are not intention targets (e.g. intent, plan).
+
+    ``accepted_mcp`` maps tool identifiers (same keys as ``register_tools``) to MCP
+    server names from ``tools/mcp/mcp.json``. On startup, every tool from those
+    servers is registered under that identifier. Use ``MCP_ALL_SERVERS`` (``"*"``)
+    to accept tools from all configured servers.
+
+    ``mcp_replace_identifiers`` lists identifiers whose static tool bucket is
+    cleared before MCP tools are registered (e.g. native DataHub GraphQL replaced
+    by the DataHub MCP server).
     """
 
     name: str
     description: str
     create_agent: Callable[..., Awaitable[BaseAgent]]
+    register_tools: dict[str, list[BaseTool]] = field(default_factory=dict)
+    accepted_mcp: Mapping[str, tuple[str, ...]] = field(default_factory=dict)
+    mcp_replace_identifiers: frozenset[str] = frozenset()
     intention: str | None = None
     intention_description: str = ""
 
 
-async def _create_tahoe_agent(**kwargs: Any) -> BaseAgent:
-    from agent.react.tahoe.tahoe_agent import TahoeAgent
-
-    return await TahoeAgent.create(**kwargs)
-
-
 async def _create_databot_agent(**kwargs: Any) -> BaseAgent:
-    from agent.react.databot.databot_agent import DatabotAgent
+    from agent.specialists.databot.databot_agent import DatabotAgent
 
     return await DatabotAgent.create(**kwargs)
 
 
 async def _create_knowledge_agent(**kwargs: Any) -> BaseAgent:
-    from agent.react.knowledge.knowledge_agent import KnowledgeAgent
+    from agent.specialists.knowledge.knowledge_agent import KnowledgeAgent
 
     return await KnowledgeAgent.create(**kwargs)
+
+
+async def _create_diagnostic_agent(**kwargs: Any) -> BaseAgent:
+    from agent.specialists.diagnostic.diagnostic_agent import DiagnosticAgent
+
+    return await DiagnosticAgent.create(**kwargs)
+
+
+async def _create_data_analysis_agent(**kwargs: Any) -> BaseAgent:
+    from agent.specialists.data_analysis.data_analysis_agent import DataAnalysisAgent
+
+    return await DataAnalysisAgent.create(**kwargs)
+
+
+async def _create_swe_agent(**kwargs: Any) -> BaseAgent:
+    from agent.specialists.swe.swe_agent import SWEAgent
+
+    return await SWEAgent.create(**kwargs)
+
+
+async def _create_plan_agent(**kwargs: Any) -> BaseAgent:
+    from agent.plan.plan_agent import PlanAgent
+
+    return await PlanAgent.create(**kwargs)
 
 
 async def _create_intent_agent(**kwargs: Any) -> BaseAgent:
@@ -48,16 +83,14 @@ async def _create_intent_agent(**kwargs: Any) -> BaseAgent:
     return await IntentOrchestrator.create(**kwargs)
 
 
-TAHOE = AgentSpec(
-    name="tahoe",
-    description="Tahoe interactive ReAct agent",
-    create_agent=_create_tahoe_agent,
-)
-
 DATABOT = AgentSpec(
     name="databot",
     description="Data-retrieval specialist (glossary-first → SQL → evidenced answer)",
     create_agent=_create_databot_agent,
+    accepted_mcp={
+        "default": (MCP_ALL_SERVERS,),
+        "fetch": ("datahub",),
+    },
     intention="DATA",
     intention_description=(
         "data retrieval or analysis — find tables, metrics/glossary definitions, "
@@ -70,6 +103,11 @@ KNOWLEDGE = AgentSpec(
     name="knowledge",
     description="Tahoe team knowledge specialist (code, docs, wikis, Jira)",
     create_agent=_create_knowledge_agent,
+    accepted_mcp={
+        "catalog": ("datahub",),
+        "default": ("datahub",),
+    },
+    mcp_replace_identifiers=frozenset({"catalog"}),
     intention="KNOWLEDGE",
     intention_description=(
         "team knowledge — Tahoe codebase, architecture docs, Google Docs, "
@@ -77,20 +115,52 @@ KNOWLEDGE = AgentSpec(
     ),
 )
 
+DIAGNOSTIC = AgentSpec(
+    name="diagnostic",
+    description=(
+        "Production diagnostics specialist (K8s, S3, Hive/Trino, Airflow MCP, and other infra tools)"
+    ),
+    create_agent=_create_diagnostic_agent,
+    accepted_mcp={
+        "default": ("airflow_tahoe", "airflow_legacy"),
+    },
+)
+
+DATA_ANALYSIS = AgentSpec(
+    name="data_analysis",
+    description="Exploratory data analysis specialist (SQL, Python, charts)",
+    create_agent=_create_data_analysis_agent,
+)
+
+SWE = AgentSpec(
+    name="swe",
+    description="Software engineering specialist (edit files, shell, Python scripts)",
+    create_agent=_create_swe_agent,
+)
+
+PLAN = AgentSpec(
+    name="plan",
+    description="Plan-and-execute orchestrator (decompose tasks, delegate to specialists)",
+    create_agent=_create_plan_agent,
+)
+
 INTENT = AgentSpec(
     name="intent",
-    description="Intent orchestrator (plan intentions → specialist AgentChain)",
+    description="Intent router (classify → single specialist or Plan handoff)",
     create_agent=_create_intent_agent,
 )
 
 AGENTS: dict[str, AgentSpec] = {
-    TAHOE.name: TAHOE,
     DATABOT.name: DATABOT,
     KNOWLEDGE.name: KNOWLEDGE,
+    DIAGNOSTIC.name: DIAGNOSTIC,
+    DATA_ANALYSIS.name: DATA_ANALYSIS,
+    SWE.name: SWE,
+    PLAN.name: PLAN,
     INTENT.name: INTENT,
 }
 
-DEFAULT_AGENT = TAHOE.name
+DEFAULT_AGENT = INTENT.name
 
 
 def get_agent(name: str) -> AgentSpec:
@@ -99,6 +169,46 @@ def get_agent(name: str) -> AgentSpec:
     except KeyError as exc:
         available = ", ".join(sorted(AGENTS))
         raise SystemExit(f"Unknown agent {name!r}; available: {available}") from exc
+
+
+def get_agent_tools(agent_name: str, identifier: str) -> list[BaseTool]:
+    """Return tools registered for one agent identifier (empty when unset)."""
+    from tools.bootstrap import ensure_tools_registered
+
+    ensure_tools_registered()
+    spec = get_agent(agent_name)
+    return list(spec.register_tools.get(identifier, []))
+
+
+def get_all_registered_tools(agent_name: str) -> list[BaseTool]:
+    """Return every tool registered for an agent, de-duplicated by tool name."""
+    from tools.bootstrap import ensure_tools_registered
+
+    ensure_tools_registered()
+    spec = get_agent(agent_name)
+    seen: set[str] = set()
+    out: list[BaseTool] = []
+    for tools in spec.register_tools.values():
+        for tool in tools:
+            name = getattr(tool, "name", "") or repr(id(tool))
+            if name in seen:
+                continue
+            seen.add(name)
+            out.append(tool)
+    return out
+
+
+def dedupe_tools(tools: list[BaseTool]) -> list[BaseTool]:
+    """De-duplicate a tool list by ``tool.name`` (first occurrence wins)."""
+    seen: set[str] = set()
+    out: list[BaseTool] = []
+    for tool in tools:
+        name = getattr(tool, "name", "") or repr(id(tool))
+        if name in seen:
+            continue
+        seen.add(name)
+        out.append(tool)
+    return out
 
 
 def intention_routes() -> dict[str, AgentSpec]:
@@ -166,43 +276,10 @@ def get_routable_agent(name: str) -> AgentSpec:
 
 
 def published_route_target(state: Any) -> str:
-    """Extract first specialist agent name from a finished intent orchestrator state."""
+    """Extract the published agent name from a finished intent orchestrator state."""
     if not isinstance(state, dict):
         return ""
     if (state.get("status") or "").strip().lower() != "published":
         return ""
-    targets = state.get("route_targets")
-    if isinstance(targets, list) and targets:
-        first = str(targets[0] or "").strip()
-        if first:
-            return first
     return str(state.get("route_target") or "").strip()
 
-
-def published_execution_plan(state: Any) -> list[dict[str, Any]]:
-    """Return the published specialist plan, or a single-step fallback from route_target."""
-    if not isinstance(state, dict):
-        return []
-    if (state.get("status") or "").strip().lower() != "published":
-        return []
-    plan = state.get("execution_plan")
-    if isinstance(plan, list) and plan:
-        return [dict(item) for item in plan if isinstance(item, dict)]
-    target = str(state.get("route_target") or "").strip()
-    if not target:
-        return []
-    intention = str(state.get("user_intention") or "").strip().upper()
-    question = str(state.get("user_question") or "").strip()
-    return [
-        {
-            "step_index": 0,
-            "intention": intention,
-            "agent": target,
-            "task": question or f"Handle the {intention or target} request.",
-        }
-    ]
-
-
-def specialist_session_id(session: str, agent_name: str) -> str:
-    """Isolate specialist checkpoints from the intent-router thread."""
-    return f"{session}:{agent_name}"

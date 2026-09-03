@@ -8,6 +8,7 @@ from langchain.tools import tool
 
 from memory.config import CompressionConfig
 from memory.offload import OffloadStore
+from tools.common import bind_tool_to_agent
 
 COMPACT_CONTEXT_TOOL_NAME = "compact_context"
 READ_OFFLOADED_FILE_TOOL_NAME = "read_offloaded_file"
@@ -22,6 +23,12 @@ def configure_offload_tools(store: OffloadStore) -> None:
     _DEFAULT_STORE = store
 
 
+@bind_tool_to_agent("databot,default")
+@bind_tool_to_agent("knowledge,default")
+@bind_tool_to_agent("diagnostic,default")
+@bind_tool_to_agent("data_analysis,default")
+@bind_tool_to_agent("swe,default")
+@bind_tool_to_agent("plan,default")
 @tool
 def read_offloaded_file(path: str) -> str:
     """Read a previously offloaded tool result or archive from disk by path."""
@@ -31,6 +38,12 @@ def read_offloaded_file(path: str) -> str:
         return f"Failed to read offloaded file {path!r}: {exc}"
 
 
+@bind_tool_to_agent("databot,default")
+@bind_tool_to_agent("knowledge,default")
+@bind_tool_to_agent("diagnostic,default")
+@bind_tool_to_agent("data_analysis,default")
+@bind_tool_to_agent("swe,default")
+@bind_tool_to_agent("plan,default")
 @tool
 def compact_context(reason: str = "") -> str:
     """

@@ -21,7 +21,7 @@ from observability.intent_case import (
     format_intent_case_result,
     run_intent_cases,
 )
-from observability.observe import CaseScore, Observer, ToolCallRecord, ToolResultRecord
+from observability.observe import CaseScore, EvalReactListener, ToolCallRecord, ToolResultRecord
 
 __all__ = [
     "CaseAggregate",
@@ -30,7 +30,7 @@ __all__ = [
     "IntentCaseAggregate",
     "IntentCaseResult",
     "IntentRouterCase",
-    "Observer",
+    "EvalReactListener",
     "ToolCallCase",
     "ToolCallRecord",
     "ToolResultRecord",

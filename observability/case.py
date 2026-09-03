@@ -9,10 +9,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from agent.react.react import BaseReactAgent
+from agent.react import BaseReactAgent
 from agent.turn import AgentTurnResult, extract_turn_output
 from observability.answer_match import score_answer
-from observability.observe import CaseScore, Observer
+from observability.observe import CaseScore, EvalReactListener
 
 CASES_DIR = Path(__file__).resolve().parent / "cases"
 
@@ -73,9 +73,9 @@ class ToolCallCase:
         self.models = list(models)
 
     async def run(self, agent: BaseReactAgent, *, model_name: str = "") -> CaseResult:
-        observer = Observer(completion_tool_name=agent.completion_tool_name)
-        agent.clear_observers()
-        agent.register_observer(observer)
+        eval_listener = EvalReactListener(completion_tool_name=agent.completion_tool_name)
+        agent.clear_secondaries()
+        agent.register_secondary(eval_listener)
         session = f"eval-{self.case_group}-{self.name}-{uuid.uuid4().hex[:8]}"
         result: AgentTurnResult = await agent.run(
             self.query,
@@ -84,19 +84,19 @@ class ToolCallCase:
             print_output=False,
         )
         try:
-            case_result = self.score(result, observer)
+            case_result = self.score(result, eval_listener)
             case_result.model_name = model_name
             return case_result
         finally:
-            agent.clear_observers()
+            agent.clear_secondaries()
 
-    def score(self, result: AgentTurnResult, observer: Observer) -> CaseResult:
+    def score(self, result: AgentTurnResult, eval_listener: EvalReactListener) -> CaseResult:
         reply = extract_turn_output(
             result.state,
-            completion_tool_name=observer.completion_tool_name,
+            completion_tool_name=eval_listener.completion_tool_name,
         )
-        tool_score, tool_details = self._score_tools(observer)
-        round_score, round_details = self._score_rounds(observer)
+        tool_score, tool_details = self._score_tools(eval_listener)
+        round_score, round_details = self._score_rounds(eval_listener)
         answer_score, answer_details = self._score_answer(reply)
         case_score = CaseScore(
             tool_score=tool_score,
@@ -115,8 +115,8 @@ class ToolCallCase:
             cancelled=result.cancelled,
         )
 
-    def _score_tools(self, observer: Observer) -> tuple[float, dict[str, Any]]:
-        actual = observer.tool_names(include_completion=False)
+    def _score_tools(self, eval_listener: EvalReactListener) -> tuple[float, dict[str, Any]]:
+        actual = eval_listener.tool_names(include_completion=False)
         expected = list(self.expected_tools)
         details: dict[str, Any] = {"expected": expected, "actual": actual}
         if not expected:
@@ -138,8 +138,8 @@ class ToolCallCase:
         details["overlap"] = sorted(overlap)
         return score, details
 
-    def _score_rounds(self, observer: Observer) -> tuple[float, dict[str, Any]]:
-        actual_rounds = observer.llm_round_count
+    def _score_rounds(self, eval_listener: EvalReactListener) -> tuple[float, dict[str, Any]]:
+        actual_rounds = eval_listener.reason_round_count
         expected = max(1, self.total_rounds)
         details = {"expected": expected, "actual": actual_rounds}
         if actual_rounds <= 0:
@@ -309,9 +309,9 @@ async def run_cases(
         for model_name in case.models:
             if model_name not in agents:
                 agent = await agent_factory(model_name)
-                if not hasattr(agent, "register_observer"):
+                if not hasattr(agent, "register_secondary"):
                     raise TypeError(
-                        f"{type(agent).__name__} does not support observers; "
+                        f"{type(agent).__name__} does not support secondary listeners; "
                         "use a BaseReactAgent (tahoe / databot / knowledge)"
                     )
                 agents[model_name] = agent

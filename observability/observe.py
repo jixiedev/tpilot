@@ -1,4 +1,4 @@
-"""Turn observers for eval and monitoring."""
+"""Eval listeners and scoring types for observability."""
 
 from __future__ import annotations
 
@@ -23,8 +23,8 @@ class ToolResultRecord:
     content: Any
 
 
-class Observer(ReactAgentListener):
-    """Records LLM steps and tool traffic for a single eval turn."""
+class EvalReactListener(ReactAgentListener):
+    """Records reason steps and tool traffic for a single eval turn."""
 
     def __init__(
         self,
@@ -34,38 +34,25 @@ class Observer(ReactAgentListener):
         self.completion_tool_name = completion_tool_name
         self.tool_calls: list[ToolCallRecord] = []
         self.tool_results: list[ToolResultRecord] = []
-        self.llm_steps: list[AIMessage] = []
+        self.reason_steps: list[AIMessage] = []
         self.turn_output: str | None = None
 
     def reset(self) -> None:
         self.tool_calls.clear()
         self.tool_results.clear()
-        self.llm_steps.clear()
+        self.reason_steps.clear()
         self.turn_output = None
 
-    def on_llm_request(self, llm_request: Any, **kwargs: Any) -> None:
-        """Optional hook for request-level monitoring (unused by the graph today)."""
-        return None
+    def on_tool_call(self, name: str, args: dict) -> None:
+        self.tool_calls.append(ToolCallRecord(name=name, args=dict(args or {})))
 
-    def on_llm_respond(self, llm_response: AIMessage, **kwargs: Any) -> None:
-        self.llm_steps.append(llm_response)
+    def on_tool_result(self, name: str, content: Any) -> None:
+        self.tool_results.append(ToolResultRecord(name=name, content=content))
 
-    def on_tool_invoke(self, tool_name: str, tool_params: dict[str, Any], **kwargs: Any) -> None:
-        self.tool_calls.append(ToolCallRecord(name=tool_name, args=dict(tool_params or {})))
+    def on_reason_step(self, message: AIMessage) -> None:
+        self.reason_steps.append(message)
 
-    def on_tool_completion(self, tool_name: str, tool_result: Any, **kwargs: Any) -> None:
-        self.tool_results.append(ToolResultRecord(name=tool_name, content=tool_result))
-
-    def print_tool_call(self, name: str, args: dict) -> None:
-        self.on_tool_invoke(name, args)
-
-    def print_tool_result(self, name: str, content: Any) -> None:
-        self.on_tool_completion(name, content)
-
-    def print_llm_step(self, message: AIMessage) -> None:
-        self.on_llm_respond(message)
-
-    def print_turn_output(self, state: SessionAgentState) -> None:
+    def on_turn_output(self, state: SessionAgentState) -> None:
         return None
 
     def tool_names(self, *, include_completion: bool = False) -> list[str]:
@@ -77,10 +64,10 @@ class Observer(ReactAgentListener):
         return names
 
     @property
-    def llm_round_count(self) -> int:
-        """Count model steps that issued at least one tool call."""
+    def reason_round_count(self) -> int:
+        """Count reason steps that issued at least one tool call."""
         count = 0
-        for message in self.llm_steps:
+        for message in self.reason_steps:
             if getattr(message, "tool_calls", None):
                 count += 1
         return count

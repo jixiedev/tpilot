@@ -7,42 +7,15 @@ CLI internals — callers register already-bound agents.
 
 from __future__ import annotations
 
-import uuid
 from abc import ABC, abstractmethod
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
 from agent.agent import BaseAgent
+from agent.session import specialist_session_id
 from agent.turn import AgentTurnResult, OnInterrupt, extract_turn_output
 from state.state import latest_human_text
-
-
-@dataclass(frozen=True)
-class PlanStep:
-    """One specialist step in an Intent-produced execution plan."""
-
-    agent_name: str
-    intention: str
-    task: str
-    step_index: int = 0
-
-    @classmethod
-    def from_mapping(cls, raw: Mapping[str, Any], *, step_index: int = 0) -> PlanStep:
-        agent = str(raw.get("agent") or raw.get("agent_name") or "").strip()
-        intention = str(raw.get("intention") or "").strip().upper()
-        task = str(raw.get("task") or "").strip()
-        if not agent:
-            raise ValueError(f"plan step {step_index} missing agent name")
-        if not task:
-            task = f"Handle the {intention or agent} portion of the user request."
-        idx = int(raw.get("step_index", step_index))
-        return cls(
-            agent_name=agent,
-            intention=intention or agent.upper(),
-            task=task,
-            step_index=idx,
-        )
 
 
 @dataclass
@@ -139,10 +112,6 @@ class AgentChain(ABC):
             "no output, user_question, or human message in state"
         )
 
-    def chain_session_id(self, session: str, agent_id: int) -> str:
-        """Isolate checkpoints per chain node (same idea as specialist sessions)."""
-        return f"{session}:chain:{agent_id}"
-
     async def call_next_agent(
         self,
         last_agent_id: int,
@@ -173,7 +142,7 @@ class AgentChain(ABC):
         agent = self.get_agent(next_agent_id)
         result = await agent.run(
             prompt,
-            session=self.chain_session_id(session, next_agent_id),
+            session=specialist_session_id(session, next_agent_id, kind="chain"),
             user_id=user_id,
             on_interrupt=on_interrupt,
             print_output=print_output,
@@ -200,7 +169,7 @@ class AgentChain(ABC):
         entry = self.get_agent(entry_agent_id)
         first = await entry.run(
             user_prompt,
-            session=self.chain_session_id(session, entry_agent_id),
+            session=specialist_session_id(session, entry_agent_id, kind="chain"),
             user_id=user_id,
             on_interrupt=on_interrupt,
             print_output=print_output,
@@ -286,161 +255,3 @@ class StatusRoutedAgentChain(AgentChain):
         if not key:
             return None
         return self.targets.get(key)
-
-
-class PlannedAgentChain(AgentChain):
-    """Execute an ordered Intent plan: upstream output feeds the next specialist.
-
-    Specialists do not share the Intent conversation thread. Each step uses an
-    ephemeral checkpoint id under the parent session prefix so workers stay
-    stateless across turns; Intent retains multi-turn memory.
-    """
-
-    def __init__(
-        self,
-        plan: Sequence[PlanStep | Mapping[str, Any]],
-        *,
-        user_question: str,
-    ) -> None:
-        super().__init__()
-        steps: list[PlanStep] = []
-        for index, item in enumerate(plan):
-            if isinstance(item, PlanStep):
-                steps.append(
-                    PlanStep(
-                        agent_name=item.agent_name,
-                        intention=item.intention,
-                        task=item.task,
-                        step_index=index,
-                    )
-                )
-            else:
-                steps.append(PlanStep.from_mapping(item, step_index=index))
-        if not steps:
-            raise ValueError("execution plan is empty")
-        self.plan_steps: list[PlanStep] = steps
-        self.user_question = (user_question or "").strip()
-        self._run_id: str = ""
-
-    @classmethod
-    def from_execution_plan(
-        cls,
-        execution_plan: Sequence[Mapping[str, Any]],
-        *,
-        user_question: str,
-    ) -> PlannedAgentChain:
-        return cls(execution_plan, user_question=user_question)
-
-    def determine_next_agent(self, last_agent_id: int) -> int | None:
-        nxt = last_agent_id + 1
-        if nxt < len(self.plan_steps):
-            return nxt
-        return None
-
-    def chain_session_id(self, session: str, agent_id: int) -> str:
-        run = self._run_id or "pending"
-        return f"{session}:plan:{run}:step:{agent_id}"
-
-    def build_step_prompt(
-        self,
-        step_index: int,
-        *,
-        upstream_output: str = "",
-    ) -> str:
-        """Tell the specialist background, assignment, upstream result, and downstream."""
-        step = self.plan_steps[step_index]
-        background = self.user_question or "(no user question recorded)"
-        upstream = (upstream_output or "").strip() or (
-            "(none — you are the first step in the plan)"
-        )
-        if step_index + 1 < len(self.plan_steps):
-            nxt = self.plan_steps[step_index + 1]
-            downstream = (
-                f"Next agent: {nxt.agent_name} ({nxt.intention}). "
-                f"It will use your output to: {nxt.task} "
-                "Produce intermediate findings that agent can consume; "
-                "do not assume you are answering the end user alone."
-            )
-        else:
-            downstream = (
-                "You are the last step in the plan. "
-                "Produce the complete final answer for the end user."
-            )
-        return (
-            "## Task background\n"
-            f"{background}\n\n"
-            "## Your assignment\n"
-            f"{step.task}\n\n"
-            "## Upstream result\n"
-            f"{upstream}\n\n"
-            "## Downstream\n"
-            f"{downstream}"
-        )
-
-    def build_next_user_prompt(
-        self,
-        last_agent_id: int,
-        last_agent_state: Mapping[str, Any],
-    ) -> str:
-        next_id = self.determine_next_agent(last_agent_id)
-        if next_id is None:
-            raise ValueError(f"no next step after agent id {last_agent_id}")
-        return self.build_step_prompt(
-            next_id,
-            upstream_output=extract_turn_output(last_agent_state),
-        )
-
-    async def execute(
-        self,
-        *,
-        session: str,
-        user_id: str | None = None,
-        on_interrupt: OnInterrupt | None = None,
-        print_output: bool = True,
-    ) -> ChainRunResult:
-        """Run every plan step in order; workflow result is the last step's output."""
-        missing = [i for i in range(len(self.plan_steps)) if i not in self.agent_map]
-        if missing:
-            raise KeyError(
-                "plan agents not registered for step ids: "
-                + ", ".join(str(i) for i in missing)
-            )
-
-        self._run_id = uuid.uuid4().hex[:12]
-        self.agent_status.clear()
-        steps: list[ChainStepResult] = []
-        upstream = ""
-
-        for index, plan_step in enumerate(self.plan_steps):
-            prompt = self.build_step_prompt(index, upstream_output=upstream)
-            agent = self.get_agent(index)
-            if print_output:
-                print(
-                    f"Status> Running specialist: {plan_step.agent_name}…",
-                    flush=True,
-                )
-                print(
-                    f"Plan> step {index + 1}/{len(self.plan_steps)} "
-                    f"→ {plan_step.agent_name} ({plan_step.intention})",
-                    flush=True,
-                )
-            result = await agent.run(
-                prompt,
-                session=self.chain_session_id(session, index),
-                user_id=user_id,
-                on_interrupt=on_interrupt,
-                print_output=print_output,
-            )
-            steps.append(
-                ChainStepResult(
-                    agent_id=index,
-                    result=result,
-                    agent_name=plan_step.agent_name,
-                )
-            )
-            if result.cancelled:
-                return ChainRunResult(steps=steps, cancelled=True)
-            self.receive_agent_status(index, result.state)
-            upstream = extract_turn_output(result.state)
-
-        return ChainRunResult(steps=steps, cancelled=False)

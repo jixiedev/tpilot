@@ -10,6 +10,8 @@ from pathlib import Path
 
 from langchain.tools import tool
 
+from tools.common import bind_tool_to_agent
+
 from tools.errors import ToolErrorType, register_exception
 
 DESCRIPTION = """\
@@ -202,6 +204,9 @@ def _strip_trailing_newline(text: str) -> str:
     return text
 
 
+@bind_tool_to_agent("databot,default")
+@bind_tool_to_agent("knowledge,default")
+@bind_tool_to_agent("swe,default")
 @tool(description=DESCRIPTION)
 def bash(command: str, restart: bool = False) -> str:
     """Execute a bash command in a persistent terminal session.

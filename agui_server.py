@@ -63,6 +63,7 @@ from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 
 from agent.registry import get_agent
 from ag_ui_langgraph import LangGraphAgent  # add_langgraph_fastapi_endpoint no longer used
+from config.local_config import ensure_local_dirs, get_local_paths
 from memory import CompressionConfig
 from models.models import get_default_model
 
@@ -73,14 +74,8 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname
 # Configuration
 # ---------------------------------------------------------------------------
 
-# Path to the SQLite checkpoint DB. Defaults to the repo-root
-# ``checkpoints.sqlite`` so the AG-UI server, the CLI, and ``langgraph
-# dev`` Studio all share the same thread store. Override with
-# ``AGUI_CHECKPOINT_DB`` if you want isolation (e.g. during tests).
-CHECKPOINT_DB = os.environ.get(
-    "AGUI_CHECKPOINT_DB",
-    str(Path(__file__).resolve().parent / "checkpoints.sqlite"),
-)
+# Path to the SQLite checkpoint DB (``config/local.toml`` + env overrides).
+CHECKPOINT_DB = str(get_local_paths().checkpoint_db)
 
 # AG-UI mount path. Frontend's ``CopilotKit runtimeUrl`` resolves to
 # ``/api/copilotkit``, which the Next.js route handler proxies to
@@ -193,6 +188,7 @@ _compiled_graph: "object | None" = None  # type: ignore[assignment]
 
 @asynccontextmanager
 async def _lifespan(_app: FastAPI) -> AsyncIterator[None]:
+    ensure_local_dirs()
     # Eagerly build the graph so the first AG-UI request doesn't pay
     # the MCP / RAG / Trino tool-loading cost. Errors here are
     # surfaced as a startup failure rather than a per-request 500.
@@ -301,7 +297,7 @@ async def agui_endpoint(input_data: RunAgentInput, request: "Request"):
     request_agent = _agent.clone()
 
     # Debug: log which state keys LangGraph thinks the graph has. If
-    # ``selected_cards`` / ``candidate_cards`` are missing from the
+    # ``review_cards`` / ``committed_cards`` are missing from the
     # output schema, the AG-UI runtime filters them out of the
     # ``STATE_SNAPSHOT`` event and the human gate UI can't see what
     # the LLM picked.
@@ -411,7 +407,7 @@ class DatabotUiActionBody(BaseModel):
 @app.post(f"{AGUI_PATH.rstrip('/')}/actions")
 async def databot_ui_action(body: DatabotUiActionBody) -> dict:
     """Apply a human UI edit directly to the LangGraph checkpoint."""
-    from agent.react.databot.ui_actions import (
+    from agent.specialists.databot.ui_actions import (
         DatabotUiAction,
         build_ui_action_patch,
         databot_state_subset,

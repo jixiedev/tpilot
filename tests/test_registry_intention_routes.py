@@ -11,11 +11,9 @@ from agent.registry import (
     intention_catalog,
     intention_routes,
     is_routable_intention,
-    published_execution_plan,
     published_route_target,
     resolve_route_target,
     routable_intentions,
-    specialist_session_id,
 )
 
 
@@ -24,7 +22,6 @@ def test_specialists_declare_intentions() -> None:
     assert KNOWLEDGE.intention == "KNOWLEDGE"
     assert AGENTS["databot"].intention == "DATA"
     assert AGENTS["knowledge"].intention == "KNOWLEDGE"
-    assert AGENTS["tahoe"].intention is None
     assert AGENTS["intent"].intention is None
 
 
@@ -62,7 +59,7 @@ def test_intention_catalog_for_prompts() -> None:
 def test_get_routable_agent_requires_intention() -> None:
     assert get_routable_agent("databot") is DATABOT
     with pytest.raises(SystemExit, match="not a routable specialist"):
-        get_routable_agent("tahoe")
+        get_routable_agent("plan")
 
 
 def test_published_route_target() -> None:
@@ -76,33 +73,14 @@ def test_published_route_target() -> None:
         published_route_target(
             {
                 "status": "published",
-                "route_targets": ["knowledge", "databot"],
-                "route_target": "knowledge",
+                "route_target": "plan",
+                "user_intention": "KNOWLEDGE → DATA",
             }
         )
-        == "knowledge"
+        == "plan"
     )
     assert published_route_target({"status": "rejected", "route_target": "databot"}) == ""
     assert published_route_target({"status": "published", "route_target": ""}) == ""
-
-
-def test_published_execution_plan() -> None:
-    plan = [
-        {"step_index": 0, "intention": "KNOWLEDGE", "agent": "knowledge", "task": "a"},
-        {"step_index": 1, "intention": "DATA", "agent": "databot", "task": "b"},
-    ]
-    assert published_execution_plan({"status": "published", "execution_plan": plan}) == plan
-    fallback = published_execution_plan(
-        {
-            "status": "published",
-            "route_target": "databot",
-            "user_intention": "DATA",
-            "user_question": "gmv?",
-        }
-    )
-    assert fallback[0]["agent"] == "databot"
-    assert fallback[0]["task"] == "gmv?"
-    assert published_execution_plan({"status": "rejected", "execution_plan": plan}) == []
 
 
 def test_duplicate_intention_raises(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -126,6 +104,3 @@ def test_duplicate_intention_raises(monkeypatch: pytest.MonkeyPatch) -> None:
     with pytest.raises(ValueError, match="Duplicate intention"):
         intention_routes()
 
-
-def test_specialist_session_id() -> None:
-    assert specialist_session_id("abc", "databot") == "abc:databot"

@@ -16,6 +16,7 @@ from urllib.parse import parse_qs, unquote, urlparse
 from langchain.tools import tool
 
 from config.tool_config import tool_config, web_search_api_key
+from tools.common import bind_tool_to_agent
 
 USER_AGENT = "TahoePilot/0.1 (+https://github.com/wish/tahoepilot)"
 DEFAULT_MAX_RESULTS = 5
@@ -256,6 +257,9 @@ def _format_hits(hits: list[WebSearchHit]) -> list[dict[str, str]]:
     return [{"title": hit.title, "url": hit.url, "snippet": hit.snippet} for hit in hits]
 
 
+@bind_tool_to_agent("databot,default")
+@bind_tool_to_agent("knowledge,default")
+@bind_tool_to_agent("swe,default")
 @tool
 def web_search(query: str, num_results: int = DEFAULT_MAX_RESULTS) -> dict[str, Any]:
     """Search the public web for up-to-date information. Use for facts, news, company

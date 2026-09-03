@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-from agent.react.databot.card_staging import (
+from agent.specialists.databot.card_staging import (
     apply_add_card_selections,
     merge_staging_cards,
     new_staging_id,
     parse_card_selection,
+    selections_from_tool_payload,
     staging_entry_from_card,
 )
 
@@ -32,7 +33,7 @@ def test_add_card_selections_resolves_from_staging() -> None:
     ]
     updated, note = apply_add_card_selections(
         staging_cards=staging,
-        candidate_cards=[],
+        committed_cards=[],
         selections=[
             {
                 "staging_id": sid,
@@ -55,6 +56,21 @@ def test_merge_staging_appends() -> None:
     second = staging_entry_from_card({"name": "b"})
     merged = merge_staging_cards([first], [second])
     assert len(merged) == 2
+
+
+def test_selections_from_tool_payload_skips_legacy_card_dict() -> None:
+    sid = new_staging_id("fct_orders")
+    selections = selections_from_tool_payload(
+        [
+            {"staging_id": sid, "selected_metrics": ["gmv"]},
+            {"name": "fct_orders", "metrics": [{"name": "gmv"}]},
+            "legacy_staging_id_string",
+        ]
+    )
+    assert selections == [
+        {"staging_id": sid, "selected_metrics": ["gmv"]},
+        "legacy_staging_id_string",
+    ]
 
 
 def test_parse_card_selection_accepts_aliases() -> None:

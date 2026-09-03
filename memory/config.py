@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from config.local_config import get_local_paths
+
 # Tools whose large arguments are safe to evict after the write has persisted.
 DEFAULT_WRITE_TOOLS: frozenset[str] = frozenset(
     {
@@ -36,7 +38,7 @@ class CompressionConfig:
     fill_trigger: float = 0.85
     recent_messages_keep: float = 0.10
     preview_lines: int = 10
-    offload_dir: Path = field(default_factory=lambda: Path("offload_store"))
+    offload_dir: Path = field(default_factory=lambda: get_local_paths().offload_dir)
     write_tools: frozenset[str] = DEFAULT_WRITE_TOOLS
     never_offload_tools: frozenset[str] = DEFAULT_NEVER_OFFLOAD_TOOLS
     # Drop prior-turn tool trajectories; keep Human + chat_completion Q&A only.

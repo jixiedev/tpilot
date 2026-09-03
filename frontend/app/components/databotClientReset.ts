@@ -5,8 +5,8 @@ import type { DatabotAgentState } from "./types";
 export const EMPTY_DATABOT_STATE: DatabotAgentState = {
   stage: "fetch",
   staging_cards: [],
-  candidate_cards: [],
-  selected_cards: [],
+  committed_cards: [],
+  review_cards: [],
   approved_cards: [],
   metric_conflicts: [],
   draft_sql: "",

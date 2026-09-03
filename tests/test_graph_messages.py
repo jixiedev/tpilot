@@ -4,7 +4,13 @@ from __future__ import annotations
 
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
-from graph.messages import sanitize_messages_for_strict_tool_providers
+from graph.messages import message_content_to_str, sanitize_messages_for_strict_tool_providers
+
+
+def test_message_content_to_str_plain_and_multimodal() -> None:
+    assert message_content_to_str("  hello  ") == "hello"
+    assert message_content_to_str([{"type": "text", "text": "a"}, {"type": "text", "text": "b"}]) == "ab"
+    assert message_content_to_str(42) == "42"
 
 
 def test_strips_assistant_content_when_tool_calls_present() -> None:

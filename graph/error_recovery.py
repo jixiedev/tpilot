@@ -315,16 +315,16 @@ def format_turn_failure(exc: BaseException) -> str:
     return f"Request failed ({name}: {short}). See logs for details."
 
 
-def make_step_tools_error_handler(
+def make_step_action_error_handler(
     *,
     recovery_prompt: str = _TOOL_RECOVERY_PROMPT,
-    goto: str = "step_llm",
+    goto: str = "step_reason",
 ) -> Callable[[dict[str, Any], NodeError], Command]:
-    """Recover when the tools node fails after retries are exhausted."""
+    """Recover when the action step fails after retries are exhausted."""
 
-    def step_tools_error_handler(state: dict[str, Any], error: NodeError) -> Command:
+    def step_action_error_handler(state: dict[str, Any], error: NodeError) -> Command:
         logger.exception(
-            "step_tools node failed after retries node=%s",
+            "step_action node failed after retries node=%s",
             error.node,
             exc_info=error.error,
         )
@@ -333,4 +333,4 @@ def make_step_tools_error_handler(
             goto=goto,
         )
 
-    return step_tools_error_handler
+    return step_action_error_handler

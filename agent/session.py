@@ -3,11 +3,34 @@
 from __future__ import annotations
 
 import getpass
+from typing import Literal
 
 from langchain_core.messages import HumanMessage, SystemMessage
 from langgraph.graph.state import CompiledStateGraph
 
 from state.state import SessionAgentState, has_prior_turns
+
+SpecialistSessionKind = Literal["specialist", "chain", "plan", "route"]
+
+
+def specialist_session_id(
+    parent: str,
+    agent_name: str | int,
+    *,
+    kind: SpecialistSessionKind = "specialist",
+    run: str | None = None,
+) -> str:
+    """Derive an isolated checkpoint thread id for a child agent."""
+    if kind == "specialist":
+        return f"{parent}:{agent_name}"
+    if kind == "chain":
+        return f"{parent}:chain:{agent_name}"
+    if kind == "route":
+        return f"{parent}:route:{agent_name}"
+    if kind == "plan":
+        run_id = run or "pending"
+        return f"{parent}:plan:{run_id}:step:{agent_name}"
+    raise ValueError(f"unknown session kind: {kind!r}")
 
 
 class SessionTurnBuilder:

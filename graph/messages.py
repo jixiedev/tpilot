@@ -14,6 +14,21 @@ _MISSING_TOOL_RESULT = (
 )
 
 
+def message_content_to_str(content: Any) -> str:
+    """Normalize LangChain message content (str or multimodal parts) to plain text."""
+    if isinstance(content, str):
+        return content.strip()
+    if isinstance(content, list):
+        parts: list[str] = []
+        for part in content:
+            if isinstance(part, dict) and part.get("type") == "text":
+                parts.append(str(part.get("text", "")))
+            else:
+                parts.append(str(part))
+        return "".join(parts).strip()
+    return str(content).strip()
+
+
 def _tool_call_ids(tool_calls: list[dict[str, Any]]) -> list[str]:
     return [str(call.get("id") or "") for call in tool_calls if call.get("id")]
 

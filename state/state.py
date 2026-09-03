@@ -81,9 +81,8 @@ class SessionAgentState(MessagesState):
 class IntentionState(MessagesState):
     """State for the intent-routing graph.
 
-    ``user_intentions`` is always the canonical list (length 1 for simple tasks).
-    ``user_intention`` / ``route_target`` mirror the first plan step for display.
-    ``execution_plan`` is the ordered specialist plan published for AgentChain.
+    ``user_intentions`` lists detected labels (length 1 for simple tasks).
+    Composite requests route to the Plan agent; ``route_target`` is the agent name.
     """
 
     user_id: str
@@ -94,7 +93,4 @@ class IntentionState(MessagesState):
     need_clarification: str
     status: IntentionStatus
     route_target: str
-    route_targets: list[str]
-    plan_draft: list[dict[str, Any]]
-    execution_plan: list[dict[str, Any]]
     clarification_rounds: int

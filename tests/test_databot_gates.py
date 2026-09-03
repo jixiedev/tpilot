@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import pytest
 
-from agent.react.databot.gates import (
+from agent.specialists.databot.gates import (
     DEFAULT_GATE_DECISION,
     GATE_OPTIONS,
     _parse_resume,
@@ -78,12 +78,42 @@ def test_gate_options_includes_all_thought1_verdicts() -> None:
     assert set(GATE_OPTIONS) == {"approve", "deny-comments", "deny-halt", "dryrun"}
 
 
+def test_gate_prompt_sql_uses_default_reasons_when_state_empty() -> None:
+    from agent.specialists.databot.gate_defaults import DEFAULT_SQL_GATE_REASONS
+    from agent.specialists.databot.gates import _gate_prompt
+
+    payload = _gate_prompt(
+        {
+            "draft_sql": "SELECT 1",
+            "sql_reasons": {},
+        },
+        "sql",
+    )
+    reasons_by_id = {opt["id"]: opt["reason"] for opt in payload["options"]}
+    assert reasons_by_id == DEFAULT_SQL_GATE_REASONS
+
+
+def test_gate_prompt_cards_preserves_llm_reasons_over_defaults() -> None:
+    from agent.specialists.databot.gates import _gate_prompt
+
+    payload = _gate_prompt(
+        {
+            "review_cards": [{"name": "orders_daily"}],
+            "cards_reasons": {"approve": "custom approve reason"},
+        },
+        "cards",
+    )
+    reasons_by_id = {opt["id"]: opt["reason"] for opt in payload["options"]}
+    assert reasons_by_id["approve"] == "custom approve reason"
+    assert reasons_by_id["dryrun"]
+
+
 # ---------------------------------------------------------------------------
 # Stage tool schema coercion (regression: LLM passed reasons as a list
 # instead of a dict; the tool now accepts both shapes).
 # ---------------------------------------------------------------------------
 
-from agent.react.databot.stage_tools import _coerce_gate_reasons  # noqa: E402
+from agent.specialists.databot.stage_tools import _coerce_gate_reasons  # noqa: E402
 
 
 def test_coerce_gate_reasons_dict_form() -> None:

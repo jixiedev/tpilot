@@ -8,6 +8,8 @@ from typing import Any
 
 from langchain.tools import tool
 
+from tools.common import bind_tool_to_agent
+
 DEFAULT_TIMEOUT_SECONDS = 30
 MAX_TIMEOUT_SECONDS = 120
 
@@ -57,6 +59,10 @@ def run_python(code: str, timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS) -> dic
     return {"observation": output, "success": completed.returncode == 0}
 
 
+@bind_tool_to_agent("databot,default")
+@bind_tool_to_agent("knowledge,default")
+@bind_tool_to_agent("data_analysis,default")
+@bind_tool_to_agent("swe,default")
 @tool
 def python_execute(code: str, timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS) -> dict[str, Any]:
     """Executes Python code string. Note: Only print outputs are visible, function return values

@@ -7,7 +7,7 @@ export interface GateInterruptValue {
   options: { id: string; label: string; reason: string }[];
   default: string;
   gate: GateKind;
-  selected_cards?: unknown[];
+  review_cards?: unknown[];
 }
 
 export function parseGateInterruptMessage(message: unknown): GateInterruptValue | null {
@@ -39,7 +39,6 @@ export function parseGateInterruptMessage(message: unknown): GateInterruptValue 
 export function gateKindFromStage(stage: string | undefined): GateKind | null {
   if (stage === "gate_cards") return "cards";
   if (stage === "gate_sql") return "sql";
-  if (stage === "chart") return "chart";
   return null;
 }
 

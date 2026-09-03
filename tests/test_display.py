@@ -3,7 +3,7 @@ from __future__ import annotations
 from langchain_core.messages import AIMessage
 
 from agent.listener import CliReactListener
-from agent.react.tahoe.tools import CHAT_COMPLETION_TOOL_NAME
+from agent.runtime.tahoe_runtime_helper import CHAT_COMPLETION_TOOL_NAME
 
 
 def _listener() -> CliReactListener:
@@ -44,71 +44,71 @@ def test_message_reasoning_from_blocks_and_kwargs() -> None:
     assert "from block" in reasoning
 
 
-def test_format_llm_step_skips_empty_content() -> None:
+def test_format_reason_step_skips_empty_content() -> None:
     listener = _listener()
-    assert listener.format_llm_step(AIMessage(content="")) is None
-    assert listener.format_llm_step(AIMessage(content=[], tool_calls=[])) is None
+    assert listener.format_reason_step(AIMessage(content="")) is None
+    assert listener.format_reason_step(AIMessage(content=[], tool_calls=[])) is None
 
 
-def test_format_llm_step_skips_plain_text_without_tools() -> None:
+def test_format_reason_step_skips_plain_text_without_tools() -> None:
     listener = _listener()
     message = AIMessage(content="I am Knowledge, a specialist.")
-    assert listener.format_llm_step(message) is None
+    assert listener.format_reason_step(message) is None
 
 
-def test_format_llm_step_renders_text_with_tool_calls() -> None:
+def test_format_reason_step_renders_text_with_tool_calls() -> None:
     listener = _listener()
     message = AIMessage(
         content="Search glossary for GMV first.",
         tool_calls=[_TOOL_CALL],
     )
-    assert listener.format_llm_step(message) == "LLM> Search glossary for GMV first."
+    assert listener.format_reason_step(message) == "LLM> Search glossary for GMV first."
 
 
-def test_format_llm_step_includes_reason_with_tool_calls() -> None:
+def test_format_reason_step_includes_reason_with_tool_calls() -> None:
     listener = _listener()
     message = AIMessage(
         content="Search glossary for GMV first.",
         additional_kwargs={"reasoning": "Need glossary before answering."},
         tool_calls=[_TOOL_CALL],
     )
-    assert listener.format_llm_step(message) == (
+    assert listener.format_reason_step(message) == (
         "Reason> Need glossary before answering.\n"
         "LLM> Search glossary for GMV first."
     )
 
 
-def test_format_llm_step_reason_only_with_tool_calls() -> None:
+def test_format_reason_step_reason_only_with_tool_calls() -> None:
     listener = _listener()
     message = AIMessage(
         content="",
         additional_kwargs={"reasoning_content": "Call Jira search."},
         tool_calls=[_TOOL_CALL],
     )
-    assert listener.format_llm_step(message) == "Reason> Call Jira search."
+    assert listener.format_reason_step(message) == "Reason> Call Jira search."
 
 
-def test_format_llm_start_includes_budget() -> None:
+def test_format_reason_start_includes_budget() -> None:
     listener = _listener()
-    assert listener.format_llm_start(
+    assert listener.format_reason_start(
         tool_call_count=3,
         max_tool_calls=30,
         idle_rounds=1,
     ) == "Status> LLM thinking (tools=3/30, idle=1)"
 
 
-def test_print_llm_start_writes_to_stdout(capsys) -> None:
-    _listener().print_llm_start(tool_call_count=0, max_tool_calls=10, idle_rounds=0)
+def test_on_reason_start_writes_to_stdout(capsys) -> None:
+    _listener().on_reason_start(tool_call_count=0, max_tool_calls=10, idle_rounds=0)
     assert capsys.readouterr().out == "Status> LLM thinking (tools=0/10, idle=0)\n"
 
 
-def test_print_status_writes_to_stdout(capsys) -> None:
-    _listener().print_status("Intent routing…")
+def test_on_status_writes_to_stdout(capsys) -> None:
+    _listener().on_status("Intent routing…")
     assert capsys.readouterr().out == "Status> Intent routing…\n"
 
 
-def test_print_llm_step_writes_to_stdout(capsys) -> None:
-    _listener().print_llm_step(
+def test_on_reason_step_writes_to_stdout(capsys) -> None:
+    _listener().on_reason_step(
         AIMessage(
             content="Next: list tables.",
             tool_calls=[
@@ -124,8 +124,8 @@ def test_print_llm_step_writes_to_stdout(capsys) -> None:
     assert capsys.readouterr().out == "LLM> Next: list tables.\n"
 
 
-def test_print_llm_step_silent_without_tools(capsys) -> None:
-    _listener().print_llm_step(AIMessage(content="plain idle answer"))
+def test_on_reason_step_silent_without_tools(capsys) -> None:
+    _listener().on_reason_step(AIMessage(content="plain idle answer"))
     assert capsys.readouterr().out == ""
 
 
@@ -142,8 +142,8 @@ def test_format_tool_result_preview_and_silent_completion() -> None:
     assert "more chars)" in rendered
 
 
-def test_print_tool_result_writes_to_stdout(capsys) -> None:
-    _listener().print_tool_result("hive_list_tables", '["a","b"]')
+def test_on_tool_result_writes_to_stdout(capsys) -> None:
+    _listener().on_tool_result("hive_list_tables", '["a","b"]')
     assert capsys.readouterr().out == 'Result> hive_list_tables: ["a","b"]\n'
 
 
@@ -183,7 +183,7 @@ def test_last_completion_reply_ignores_prior_turn(capsys) -> None:
         ]
     }
     assert listener.last_completion_reply(state) is None
-    listener.print_turn_output(state)
+    listener.on_turn_output(state)
     assert capsys.readouterr().out == "Assistant> plain idle answer this turn\n"
 
 
@@ -210,7 +210,7 @@ def test_last_completion_reply_uses_current_turn_only() -> None:
     assert listener.last_completion_reply(state) == "new answer"
 
 
-def test_print_turn_output_without_current_reply(capsys) -> None:
+def test_on_turn_output_without_current_reply(capsys) -> None:
     from langchain_core.messages import HumanMessage, ToolMessage
 
     listener = _listener()
@@ -225,7 +225,7 @@ def test_print_turn_output_without_current_reply(capsys) -> None:
             HumanMessage(content="new question"),
         ]
     }
-    listener.print_turn_output(state)
+    listener.on_turn_output(state)
     assert (
         capsys.readouterr().out
         == f"Assistant> (no reply; expected {CHAT_COMPLETION_TOOL_NAME})\n"

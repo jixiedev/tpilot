@@ -1,4 +1,4 @@
-"""Intent orchestrator: classify intentions, plan a specialist chain, execute it."""
+"""Intent orchestrator: classify intentions and route to one specialist or Plan."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ import getpass
 import json
 import logging
 import re
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Sequence
 from typing import Any
 
 from langchain_core.language_models import BaseChatModel
@@ -18,8 +18,8 @@ from langgraph.types import interrupt
 from pydantic import BaseModel, Field, field_validator, model_validator, ValidationError
 
 from agent.agent import BaseAgent
-from agent.chain import PlanStep, PlannedAgentChain
 from agent.intent.prompt import build_intention_system_prompt, default_clarification_question
+from agent.session import specialist_session_id
 from agent.turn import AgentTurnResult, OnInterrupt
 from graph.error_recovery import invoke_with_transient_retry
 from memory.profile_store import ProfileStore
@@ -32,31 +32,15 @@ from state.state import (
 
 logger = logging.getLogger(__name__)
 
-
-class PlanStepResponse(BaseModel):
-    """One planned specialist assignment from the intent model."""
-
-    intention: str
-    task: str = ""
-
-    @field_validator("intention")
-    @classmethod
-    def _normalize_intention(cls, value: str) -> str:
-        return str(value).strip().upper()
-
-    @field_validator("task")
-    @classmethod
-    def _normalize_task(cls, value: str) -> str:
-        return str(value or "").strip()
+PLAN_AGENT_NAME = "plan"
 
 
 class IntentionResponse(BaseModel):
-    """Structured LLM output for intent detection and planning."""
+    """Structured LLM output for intent detection."""
 
     user_intentions: list[str] = Field(default_factory=list)
     confidence: float = Field(default=1.0, ge=0.0, le=1.0)
     need_clarification: str = ""
-    plan: list[PlanStepResponse] = Field(default_factory=list)
 
     @model_validator(mode="before")
     @classmethod
@@ -151,75 +135,6 @@ def coerce_intention_response(
     return result
 
 
-def normalize_plan_steps(
-    intentions: Sequence[str],
-    plan: Sequence[PlanStepResponse] | Sequence[Mapping[str, Any]] | None,
-    *,
-    user_question: str,
-) -> list[PlanStepResponse]:
-    """Ensure plan length/order align with intentions; synthesize tasks if missing."""
-    labels = [str(item).strip().upper() for item in intentions if str(item).strip()]
-    if not labels:
-        return []
-
-    raw_steps: list[PlanStepResponse] = []
-    for item in plan or []:
-        if isinstance(item, PlanStepResponse):
-            raw_steps.append(item)
-        else:
-            raw_steps.append(PlanStepResponse.model_validate(item))
-
-    if len(raw_steps) == len(labels) and all(
-        step.intention == label for step, label in zip(raw_steps, labels)
-    ):
-        steps = list(raw_steps)
-    elif len(raw_steps) == len(labels):
-        steps = [
-            PlanStepResponse(intention=label, task=step.task)
-            for label, step in zip(labels, raw_steps)
-        ]
-    else:
-        steps = [PlanStepResponse(intention=label, task="") for label in labels]
-
-    question = (user_question or "").strip()
-    filled: list[PlanStepResponse] = []
-    for index, step in enumerate(steps):
-        task = step.task.strip()
-        if not task:
-            if len(steps) == 1:
-                task = question or f"Handle the {step.intention} request."
-            else:
-                task = (
-                    f"Complete the {step.intention} portion of the request"
-                    + (f" ({question})" if question else "")
-                    + f" (step {index + 1}/{len(steps)})."
-                )
-        filled.append(PlanStepResponse(intention=step.intention, task=task))
-    return filled
-
-
-def build_execution_plan(
-    plan_steps: Sequence[PlanStepResponse],
-) -> list[dict[str, Any]]:
-    """Resolve plan steps to registry agent names for AgentChain."""
-    from agent.registry import resolve_route_target
-
-    execution: list[dict[str, Any]] = []
-    for index, step in enumerate(plan_steps):
-        agent = resolve_route_target(step.intention)
-        if not agent:
-            return []
-        execution.append(
-            {
-                "step_index": index,
-                "intention": step.intention,
-                "agent": agent,
-                "task": step.task,
-            }
-        )
-    return execution
-
-
 def intentions_from_state(state: IntentionState | dict[str, Any]) -> list[str]:
     raw = state.get("user_intentions")
     if isinstance(raw, list) and raw:
@@ -228,6 +143,18 @@ def intentions_from_state(state: IntentionState | dict[str, Any]) -> list[str]:
     if single and single != DEFAULT_USER_INTENTION:
         return [single]
     return []
+
+
+def resolve_publish_target(intentions: Sequence[str]) -> str:
+    """Map detected intentions to a single agent name (Plan for composite requests)."""
+    from agent.registry import resolve_route_target
+
+    labels = [str(item).strip().upper() for item in intentions if str(item).strip()]
+    if not labels:
+        return ""
+    if len(labels) > 1:
+        return PLAN_AGENT_NAME
+    return resolve_route_target(labels[0])
 
 
 def make_route_after_review(
@@ -268,34 +195,25 @@ def review_node(state: IntentionState) -> dict[str, Any]:
 
 def publish_node(state: IntentionState) -> dict[str, Any]:
     intentions = intentions_from_state(state)
-    question = str(state.get("user_question") or "").strip()
-    draft = state.get("plan_draft")
-    plan_steps = normalize_plan_steps(
-        intentions,
-        draft if isinstance(draft, list) else None,
-        user_question=question,
-    )
-    execution_plan = build_execution_plan(plan_steps)
-    if not execution_plan:
+    route_target = resolve_publish_target(intentions)
+    if not route_target:
         return {
             "user_intention": DEFAULT_USER_INTENTION,
             "user_intentions": [],
             "status": "rejected",
             "route_target": "",
-            "route_targets": [],
-            "plan_draft": [],
-            "execution_plan": [],
         }
 
-    primary = execution_plan[0]
+    if len(intentions) == 1:
+        display_intention = intentions[0]
+    else:
+        display_intention = " → ".join(intentions)
+
     return {
-        "user_intention": str(primary.get("intention") or intentions[0]),
+        "user_intention": display_intention,
         "user_intentions": intentions,
         "status": "published",
-        "route_target": str(primary.get("agent") or ""),
-        "route_targets": [str(item.get("agent") or "") for item in execution_plan],
-        "plan_draft": [],
-        "execution_plan": execution_plan,
+        "route_target": route_target,
         "need_clarification": "",
     }
 
@@ -306,9 +224,6 @@ def reject_node(state: IntentionState) -> dict[str, Any]:
         "user_intentions": [],
         "status": "rejected",
         "route_target": "",
-        "route_targets": [],
-        "plan_draft": [],
-        "execution_plan": [],
     }
 
 
@@ -337,7 +252,7 @@ def clarify_node(state: IntentionState) -> dict[str, Any]:
 
 
 class IntentOrchestrator(BaseAgent):
-    """Detect intentions, publish an execution plan, run specialists via AgentChain."""
+    """Detect intentions, publish a route target, hand off to one agent."""
 
     CLARIFICATION_THRESHOLD = 0.85
     MAX_CLARIFICATION_ROUNDS = 2
@@ -366,12 +281,11 @@ class IntentOrchestrator(BaseAgent):
         self._intention_catalog = catalog
         self._handoff_profile_store: ProfileStore | None = None
         self._handoff_max_tool_calls: int = 30
-        self._specialists: dict[str, BaseAgent] = {}
+        self._targets: dict[str, BaseAgent] = {}
         self._print_progress = False
 
     @classmethod
     async def create(cls, **kwargs: Any) -> IntentOrchestrator:
-        # Accept ReAct-oriented kwargs for specialist handoff; ignore the rest.
         system_prompt = kwargs.pop("system_prompt", None)
         clarification_threshold = kwargs.pop(
             "clarification_threshold",
@@ -387,7 +301,7 @@ class IntentOrchestrator(BaseAgent):
             "max_idle_rounds",
             "enable_compression_tools",
             "react_listener",
-            "agent_prompt_config",
+            "run_context",
             "router_config",
         ):
             kwargs.pop(key, None)
@@ -400,26 +314,27 @@ class IntentOrchestrator(BaseAgent):
         agent._handoff_max_tool_calls = max_tool_calls
         return agent
 
-    async def _get_specialist(self, agent_name: str) -> BaseAgent:
-        from agent.registry import get_routable_agent
+    async def _get_target_agent(self, agent_name: str) -> BaseAgent:
+        from agent.registry import get_agent
 
-        if agent_name in self._specialists:
-            return self._specialists[agent_name]
+        name = agent_name.strip().lower()
+        if name in self._targets:
+            return self._targets[name]
         if self._model is None or self._checkpointer is None:
             raise RuntimeError(
                 "IntentOrchestrator.bind() must be called before specialist handoff"
             )
 
-        spec = get_routable_agent(agent_name)
+        spec = get_agent(name)
         specialist = await spec.create_agent(
             profile_store=self._handoff_profile_store,
             max_tool_calls=self._handoff_max_tool_calls,
         )
         await specialist.bind(self._model, self._checkpointer, **self._bind_kwargs)
-        self._specialists[agent_name] = specialist
+        self._targets[name] = specialist
         return specialist
 
-    async def _execute_plan(
+    async def _handoff(
         self,
         intent_state: dict[str, Any],
         *,
@@ -428,38 +343,32 @@ class IntentOrchestrator(BaseAgent):
         on_interrupt: OnInterrupt | None,
         print_output: bool,
     ) -> AgentTurnResult:
-        plan = list(intent_state.get("execution_plan") or [])
-        if not plan:
+        route_target = str(intent_state.get("route_target") or "").strip()
+        if not route_target:
             return AgentTurnResult(state=intent_state, cancelled=False)
 
         question = str(intent_state.get("user_question") or "").strip()
-        chain = PlannedAgentChain.from_execution_plan(plan, user_question=question)
-        for index, step in enumerate(chain.plan_steps):
-            specialist = await self._get_specialist(step.agent_name)
-            chain.register_agent(index, specialist)
+        target = await self._get_target_agent(route_target)
 
         if print_output:
-            agents = " → ".join(step.agent_name for step in chain.plan_steps)
-            print(f"Plan> {agents}", flush=True)
+            print(f"Status> Handing off to {route_target}…", flush=True)
 
-        chain_result = await chain.execute(
-            session=session,
+        result = await target.run(
+            question,
+            session=specialist_session_id(session, route_target, kind="route"),
             user_id=user_id,
             on_interrupt=on_interrupt,
             print_output=print_output,
         )
-        if chain_result.cancelled:
-            return AgentTurnResult(state=chain_result.last_state or intent_state, cancelled=True)
+        if result.cancelled:
+            return AgentTurnResult(state=result.state or intent_state, cancelled=True)
 
-        # Workflow result is the last specialist's state; keep plan metadata for callers.
-        final_state = dict(chain_result.last_state)
+        final_state = dict(result.state)
         final_state["user_question"] = question
         final_state["user_intention"] = intent_state.get("user_intention")
         final_state["user_intentions"] = list(intent_state.get("user_intentions") or [])
         final_state["status"] = intent_state.get("status")
-        final_state["route_target"] = intent_state.get("route_target")
-        final_state["route_targets"] = list(intent_state.get("route_targets") or [])
-        final_state["execution_plan"] = plan
+        final_state["route_target"] = route_target
         final_state["confidence"] = intent_state.get("confidence")
         return AgentTurnResult(state=final_state, cancelled=False)
 
@@ -471,9 +380,12 @@ class IntentOrchestrator(BaseAgent):
         user_id: str | None = None,
         on_interrupt: OnInterrupt | None = None,
         print_output: bool = True,
-        execute_plan: bool = True,
+        handoff: bool = True,
+        execute_plan: bool | None = None,
     ) -> AgentTurnResult:
-        """Detect intentions, publish a plan, then optionally execute specialists."""
+        """Detect intentions, publish a route, then optionally hand off to the target agent."""
+        if execute_plan is not None:
+            handoff = execute_plan
         self._print_progress = print_output
         try:
             result = await super().run(
@@ -483,15 +395,15 @@ class IntentOrchestrator(BaseAgent):
                 on_interrupt=on_interrupt,
                 print_output=print_output,
             )
-            if result.cancelled or not execute_plan:
+            if result.cancelled or not handoff:
                 return result
 
             status = str(result.state.get("status") or "").strip().lower()
-            plan = list(result.state.get("execution_plan") or [])
-            if status != "published" or not plan:
+            route_target = str(result.state.get("route_target") or "").strip()
+            if status != "published" or not route_target:
                 return result
 
-            return await self._execute_plan(
+            return await self._handoff(
                 result.state,
                 session=session,
                 user_id=user_id,
@@ -544,8 +456,7 @@ class IntentOrchestrator(BaseAgent):
                     "confidence": 0.0,
                     "need_clarification": "",
                     "status": DEFAULT_INTENTION_STATUS,
-                    "plan_draft": [],
-                    "execution_plan": [],
+                    "route_target": "",
                 }
 
             messages: list = [SystemMessage(content=system_prompt)]
@@ -568,26 +479,17 @@ class IntentOrchestrator(BaseAgent):
                     "confidence": 0.0,
                     "need_clarification": clarify_fallback,
                     "status": DEFAULT_INTENTION_STATUS,
-                    "plan_draft": [],
-                    "execution_plan": [],
+                    "route_target": "",
                 }
 
             clarification = (result.need_clarification or "").strip()
             if result.confidence >= self.clarification_threshold:
                 clarification = ""
 
-            plan_steps = normalize_plan_steps(
-                result.user_intentions,
-                result.plan,
-                user_question=user_text,
-            )
-            draft = [step.model_dump() for step in plan_steps]
-
             logger.info(
-                "detected intentions=%s confidence=%.2f steps=%d clarification=%s",
+                "detected intentions=%s confidence=%.2f clarification=%s",
                 result.user_intentions,
                 result.confidence,
-                len(plan_steps),
                 bool(clarification),
             )
             return {
@@ -597,8 +499,7 @@ class IntentOrchestrator(BaseAgent):
                 "need_clarification": clarification,
                 "user_question": user_text,
                 "status": DEFAULT_INTENTION_STATUS,
-                "plan_draft": draft,
-                "execution_plan": [],
+                "route_target": "",
             }
 
         return detect_node
@@ -659,15 +560,12 @@ class IntentOrchestrator(BaseAgent):
             "need_clarification": "",
             "status": DEFAULT_INTENTION_STATUS,
             "route_target": "",
-            "route_targets": [],
-            "plan_draft": [],
-            "execution_plan": [],
             "clarification_rounds": 0,
         }
         self.session_state = turn_input
         return turn_input
 
-    def print_turn_output(self, state: IntentionState) -> None:
+    def on_turn_output(self, state: IntentionState) -> None:
         status = state.get("status") or DEFAULT_INTENTION_STATUS
         intentions = intentions_from_state(state)
         intention = (
@@ -676,14 +574,8 @@ class IntentOrchestrator(BaseAgent):
             else (state.get("user_intention") or DEFAULT_USER_INTENTION)
         )
         confidence = float(state.get("confidence") or 0.0)
-        plan = list(state.get("execution_plan") or [])
+        route = (state.get("route_target") or "").strip()
         if status == "published":
-            if plan:
-                route = " → ".join(
-                    f"{item.get('agent')}({item.get('intention')})" for item in plan
-                )
-            else:
-                route = (state.get("route_target") or "").strip()
             suffix = f" → {route}" if route else ""
             print(f"Intent> {intention} (confidence={confidence:.2f}){suffix}", flush=True)
             return
@@ -702,14 +594,13 @@ class IntentOrchestrator(BaseAgent):
 __all__ = [
     "IntentOrchestrator",
     "IntentionResponse",
-    "PlanStep",
-    "PlanStepResponse",
-    "build_execution_plan",
+    "PLAN_AGENT_NAME",
     "coerce_intention_response",
+    "intentions_from_state",
     "make_route_after_review",
-    "normalize_plan_steps",
     "publish_node",
     "reject_node",
     "review_node",
     "clarify_node",
+    "resolve_publish_target",
 ]

@@ -57,7 +57,7 @@ Last touched: 2026-08-29.
    `_find_tools_by_predicate` that accept both legacy MCP names
    (`search` / `get_entities`) and the native datahub helpers
    (`datahub_list_glossary_terms` / `datahub_graphql_query`).
-2. Subgraph `route_after_step` originally returned `step_llm` whenever
+2. Subgraph `route_after_reason` originally returned `step_llm` whenever
    the LLM didn't call a tool; the second `step_llm` call sent a
    repeated AI message to the provider, which then complained
    "tool call result does not follow tool call" (400 from

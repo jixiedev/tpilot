@@ -1,176 +1,109 @@
 # TahoePilot
 
-An AI agent platform for data teams: multi-turn CLI chat with Hive, Trino, and optional MCP tools. Built on LangGraph and LangChain.
+面向数据团队的 AI Agent 平台：多轮 CLI 对话，连接 Hive、Trino 及可选 MCP 工具。基于 LangGraph / LangChain 构建。
 
-**Version:** 0.1.0 · **Python:** 3.11+
+**版本** 0.1.0 · **Python** 3.11+
 
-## Features
+## 能做什么
 
-- **Multi-turn CLI** — REPL with session-scoped conversation history (`--session`)
-- **Pluggable agents** — select an agent application with `--agent` (default: `chatbot`)
-- **Dual prompts** — session system rules injected once; per-step tool guidance on each LLM call in the tool loop
-- **ReAct agent** — LangGraph loop: `step_llm` ↔ tool execution (configurable tool-step budget per turn)
-- **Hive HMS** — `hive_list_tables`, `hive_desc_table` via Hive Metastore
-- **Trino** — catalog/schema exploration and read-only SQL (`trino_run_query`, row limit 100 by default)
-- **MCP** — optional tools from configured MCP servers; startup degrades gracefully if MCP is unavailable
-- **Verbose mode** — `-v` prints tool calls and result previews for debugging
+- **多轮对话** — CLI REPL，会话历史持久化（`--session`）
+- **多 Agent** — 数据检索、知识问答、诊断、分析、开发等，用 `--agent` 切换
+- **意图路由** — `intent` Agent 自动识别问题并分派给对应专家
+- **数据工具** — Hive 元数据、Trino 只读 SQL、DataHub / Airflow 等 MCP 工具
+- **可恢复** — SQLite checkpoint，重启后接着聊
 
-## Quick start
+## 快速开始
 
-### 1. Install
+### 安装
 
 ```bash
-# with uv (recommended)
-uv sync
-
-# or pip
+uv sync          # 推荐
+# 或
 pip install -e .
 ```
 
-### 2. Configure the LLM
+可选扩展（按需安装）：
 
-Set the API key (see `models/models.toml` for provider and model name):
+| Extra | 用途 |
+|-------|------|
+| `web` | CopilotKit Web UI（`agui_server.py`） |
+| `k8s` | Kubernetes 只读工具 |
+| `rag` | Qdrant 向量检索、Knowledge Agent |
 
 ```bash
-# Linux / macOS
-export GLM_API_KEY="your-key"
-
-# Windows PowerShell
-$env:GLM_API_KEY = "your-key"
+pip install 'tahoepilot[web,k8s,rag]'
 ```
 
-Models are defined in `models/models.toml`. The default model is selected via `[basic].default_model_name`. Secrets are read from environment variables (`api_key_env`), not stored in the repo.
+### 配置
 
-### 3. Configure data tools
+1. **LLM** — 设置 API Key（模型定义见 `models/models.toml`）：
 
-Edit `config/tools.toml` for Hive HMS and Trino connectivity:
+   ```bash
+   export GLM_API_KEY="your-key"
+   ```
 
-| Section | Purpose |
-|---------|---------|
-| `[hive]` | HMS host and port |
-| `[trino]` | Trino coordinator, user, catalog, schema, HTTP scheme |
+2. **数据连接** — 编辑 `config/tools.toml`，配置 Hive HMS 和 Trino。
 
-These endpoints must be reachable from your network (e.g. internal Consul / VPN).
+3. **MCP（可选）** — 复制 `tools/mcp/mcp.json.example` 为 `tools/mcp/mcp.json` 并填写服务地址。缺失或连接失败时自动降级，仅使用内置工具。
 
-### 4. Run
+### 运行
 
 ```bash
-python main.py
-# or
 tahoepilot
+# 或
+python main.py
 
-# select agent application (default: chatbot)
-python main.py --agent chatbot
+# 指定 Agent
+python main.py --agent databot
 
-# separate history per user / tenant (persisted in SQLite)
+# 固定会话（跨重启续聊）
 python main.py -s alice
 
-# custom checkpoint database path
-python main.py -s alice --checkpoint-db ./data/alice.sqlite
-
-# show tool call trace
+# 调试模式（显示工具调用）
 python main.py -v
 ```
 
-At the `You>` prompt, ask questions in natural language. Type `quit`, `exit`, `q`, or `:q` to leave.
+在 `You>` 提示符下输入问题，输入 `quit` 退出。
 
-Conversation state is stored in SQLite (`./checkpoints.sqlite` by default, or `TAHOEPILOT_CHECKPOINT_DB` / `--checkpoint-db`). The same `-s` session id resumes history across process restarts.
+## Agent 一览
 
-**Example prompts**
+| Agent | 说明 |
+|-------|------|
+| `intent` | 意图识别 + 自动路由到专家（**默认**） |
+| `databot` | 数据检索：术语表 → 元数据/血缘 → SQL → 结果 |
+| `knowledge` | 团队知识：代码、文档、Jira、DataHub |
+| `diagnostic` | 生产诊断：K8s、S3、Airflow 等 |
+| `data_analysis` | 探索性数据分析（SQL、Python、图表） |
+| `swe` | 软件工程：编辑文件、Shell、脚本 |
+| `plan` | 任务分解，编排多个专家 Agent |
 
-- List tables in a Hive database
-- Describe a table schema
-- Run a Trino SQL query and summarize the results
+## 示例问题
 
-## Optional: MCP tools
+- 列出某个 Hive 库下的表
+- 查一张表的 schema
+- 用 Trino 跑 SQL 并总结结果
+- 某个指标在术语表里怎么定义的？
 
-1. Copy the example config:
-   ```bash
-   cp tools/mcp/mcp.json.example tools/mcp/mcp.json
-   ```
-2. Edit `tools/mcp/mcp.json` with your MCP server definitions.
-3. Environment variables in the JSON can use `${VAR_NAME}` placeholders.
-
-If `mcp.json` is missing or servers fail to connect, TahoePilot starts with Hive and Trino tools only.
-
-## Architecture
-
-```
-main.py → cli.py (REPL, --agent, --session)
-              ↓
-         agent/registry.py  →  AgentSpec (build_graph, prepare_turn_input, display)
-              ↓
-         agent/chatbot/     →  prompts, routes, tools, graph assembly
-              ↓
-         graph/builder.py   →  generic build_react_graph
-              ↓
-    inject_system_prompt → step_llm ↔ step_tools
-              ↓
-    LangGraph AsyncSqliteSaver (thread_id = --session)
-              ↓
-    tools/loader.py → Hive / Trino / MCP (optional)
-```
-
-| Path | Role |
-|------|------|
-| `cli.py` | Interactive loop; dispatches to registered agents |
-| `agent/registry.py` | `AgentSpec` registry and `--agent` lookup |
-| `agent/chatbot/` | Chatbot app: prompts, `chat_completion`, routes, graph, display |
-| `graph/builder.py` | Generic `build_react_graph` (tools and routes injected) |
-| `graph/node.py` | Step LLM node and tool execution with per-turn counter |
-| `graph/edge.py` | Shared routing helpers (`tool_call_count`, `limited_tools_condition`) |
-| `state/state.py` | `SessionAgentState` schema and helpers |
-| `tools/loader.py` | Load shared data tools (Hive, Trino, MCP) |
-| `tools/hive.py` | Hive HMS metadata tools |
-| `tools/trino.py` | Trino query and metadata tools |
-| `tools/mcp/mcp.py` | MCP client and tool loader |
-| `models/models.py` | LLM factory from TOML config |
-| `config/tools.toml` | Hive / Trino connection settings |
-
-### Adding a new agent
-
-1. Create `agent/<name>/` with app-specific prompts, routes, tools, and `build_<name>_graph`.
-2. Register an `AgentSpec` in `agent/registry.py`.
-3. Run with `python main.py --agent <name>`.
-
-Shared infrastructure (`graph/`, `state/`, `tools/loader.py`, `models/`, `config/`) stays agent-agnostic.
-
-## Project layout
+## 项目结构
 
 ```
-tahoepilot/
-├── main.py              # Entry point (loads .env, delegates to cli)
-├── cli.py               # REPL and argument parsing
-├── agent/
-│   ├── registry.py      # Agent registry
-│   └── chatbot/         # Chatbot agent application
-│       ├── prompt.py
-│       ├── tools.py     # chat_completion
-│       ├── routes.py
-│       ├── graph.py
-│       ├── session.py
-│       └── display.py
-├── graph/               # Generic LangGraph builder, nodes, edges
-├── state/               # SessionAgentState schema
-├── tools/               # Hive, Trino, MCP integrations
-├── models/              # LLM configuration
-├── config/              # Tool connection settings
-└── docs/
-    ├── ROADMAP.md       # Project roadmap (中文)
-    ├── ROADMAP.en.md    # Project roadmap (English)
-    └── CHAT_OPTIMIZATION.md
+agent/
+├── registry.py          # Agent 注册表、意图路由
+├── agent.py, turn.py, chain.py, session.py, router.py, …  # 核心基础设施
+├── react.py, refine_profile.py  # ReAct 框架（BaseReactAgent）
+├── runtime/             # 团队共享：prompt、chat_completion、TahoeRuntimeHelper
+├── specialists/         # 专家 agent（knowledge、swe、data_analysis、diagnostic、databot）
+├── plan/                # Plan agent（编排 specialist）
+└── intent/              # 意图编排入口（默认 CLI agent）
 ```
 
-## Documentation
+## 更多文档
 
-- [Roadmap (中文)](docs/ROADMAP.md) · [Roadmap (English)](docs/ROADMAP.en.md)
-- [Optimization log](docs/CHAT_OPTIMIZATION.md)
-- [RAG ingest (Qdrant / Jira / Google Drive)](rag/README.md)
+- [路线图（中文）](docs/ROADMAP.md) · [Roadmap (English)](docs/ROADMAP.en.md)
+- [优化记录](docs/CHAT_OPTIMIZATION.md)
+- [RAG 数据导入](rag/README.md)
+- [前端](frontend/README.md)
 
-## Tech stack
+## 技术栈
 
-Python 3.11+ · LangGraph · LangChain · OpenAI-compatible LLM APIs · Hive HMS · Trino · MCP
-
-## License
-
-Not specified.
+Python 3.11+ · LangGraph · LangChain · Hive HMS · Trino · MCP · Qdrant

@@ -11,7 +11,6 @@ export type DatabotStage =
   | "sql"
   | "gate_sql"
   | "execute"
-  | "chart"
   | "done";
 
 export type GateDecision =
@@ -69,7 +68,7 @@ export interface TableCard {
   score?: number;
   yml_path?: string;
   sql_path?: string;
-  /** LLM-annotated subset for this question (from add_card_to_state). */
+  /** LLM-annotated subset for this question (from commit_cards). */
   selected_dimensions?: string[];
   selected_metrics?: string[];
   selection_notes?: string;
@@ -88,8 +87,8 @@ export interface ExecutionResult {
 export interface DatabotAgentState {
   stage?: DatabotStage;
   staging_cards?: TableCard[];
-  candidate_cards?: TableCard[];
-  selected_cards?: TableCard[];
+  committed_cards?: TableCard[];
+  review_cards?: TableCard[];
   approved_cards?: TableCard[];
   metric_conflicts?: MetricConflict[];
   draft_sql?: string;
