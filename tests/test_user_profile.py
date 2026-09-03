@@ -157,19 +157,22 @@ class _FakeGraph:
 
 async def test_prepare_turn_input_sets_user_id_only(monkeypatch) -> None:
     import memory.profile as profile_mod
-    from agent.react.tahoe.tahoe_agent import TahoeAgent
+    from agent.runtime import TahoeRuntimeHelper, TahoeSystemPrompt, default_profile_store
 
     monkeypatch.setattr(profile_mod.getpass, "getuser", lambda: "os_user")
     monkeypatch.setattr("agent.session.getpass.getuser", lambda: "os_user")
 
-    agent = TahoeAgent(profile_store=TahoeAgent.default_profile_store(), tools=[])
+    runtime = TahoeRuntimeHelper(
+        profile_store=default_profile_store(),
+        prompt_assembler=TahoeSystemPrompt(),
+    )
     graph = _FakeGraph()
-    first = await agent.prepare_turn_input(graph, "s1", "hello")
+    first = await runtime.prepare_turn_input(graph, "s1", "hello")
     assert first["user_id"] == "os_user"
     assert "user_profile" not in first
 
     graph = _FakeGraph({"messages": [], "user_id": "erin"})
-    second = await agent.prepare_turn_input(graph, "s1", "next")
+    second = await runtime.prepare_turn_input(graph, "s1", "next")
     assert second["user_id"] == "erin"
     assert "user_profile" not in second
 
@@ -195,7 +198,7 @@ class _FakeChatModel:
 def test_refine_user_profile_node_persists_to_store(tmp_path: Path) -> None:
     from langchain_core.messages import HumanMessage, ToolMessage
 
-    from agent.react.refine_profile import make_refine_user_profile_node
+    from agent.refine_profile import make_refine_user_profile_node
 
     store = FileProfileStore(tmp_path)
     store.save("alice", UserProfile(user_id="alice", role="analyst", language="zh-CN"))
@@ -244,7 +247,7 @@ class _LooseFenceProfileModel:
 def test_refine_user_profile_node_falls_back_to_fenced_json(tmp_path: Path) -> None:
     from langchain_core.messages import HumanMessage, ToolMessage
 
-    from agent.react.refine_profile import make_refine_user_profile_node
+    from agent.refine_profile import make_refine_user_profile_node
 
     store = FileProfileStore(tmp_path)
     store.save("alice", UserProfile(user_id="alice", role="analyst"))
@@ -270,7 +273,7 @@ def test_refine_user_profile_node_falls_back_to_fenced_json(tmp_path: Path) -> N
 def test_refine_user_profile_node_skips_without_failing_turn(tmp_path: Path) -> None:
     from langchain_core.messages import HumanMessage, ToolMessage
 
-    from agent.react.refine_profile import make_refine_user_profile_node
+    from agent.refine_profile import make_refine_user_profile_node
 
     store = FileProfileStore(tmp_path)
     store.save("alice", UserProfile(user_id="alice", role="analyst", language="zh-CN"))

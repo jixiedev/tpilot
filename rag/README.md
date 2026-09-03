@@ -4,7 +4,9 @@ Index Jira CSV exports and Google Drive folder downloads into local Qdrant for K
 
 ## Prerequisites
 
-1. Start Qdrant:
+1. Start Qdrant (dev only — not bundled in the PyPI wheel):
+
+**Recommended:** Docker Compose (official image):
 
 ```bash
 cd docker/qdrant
@@ -14,6 +16,15 @@ docker compose up -d
 - REST: `http://localhost:6333`
 - Dashboard: http://localhost:6333/dashboard
 - Data volume: `docker/qdrant/qdrant_storage/` (gitignored)
+
+`docker/qdrant/bin/` may contain a local Qdrant binary download (`dist-qdrant.zip`, runtime `storage/`) for offline dev. That directory is **dev-only** — it is gitignored / not shipped in the published package. Use Docker Compose or your own Qdrant deployment for production.
+
+Install RAG Python deps:
+
+```bash
+pip install 'tahoepilot[rag]'
+# or from the repo: uv sync --extra rag
+```
 
 2. Configure embeddings in `config/rag.toml` (defaults to local **BAAI/bge-m3**).
 
@@ -57,7 +68,7 @@ export EMBEDDING_VECTOR_SIZE="1536"
 3. From the repo root (with the project venv / `uv`):
 
 ```bash
-uv sync
+uv sync --extra rag
 ```
 
 ## CLI

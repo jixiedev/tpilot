@@ -59,7 +59,6 @@ def run_python(code: str, timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS) -> dic
     return {"observation": output, "success": completed.returncode == 0}
 
 
-@bind_tool_to_agent("tahoe,react")
 @bind_tool_to_agent("databot,default")
 @bind_tool_to_agent("knowledge,default")
 @bind_tool_to_agent("data_analysis,default")

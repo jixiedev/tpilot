@@ -8,6 +8,7 @@ from langgraph.graph import END, START, StateGraph
 from typing_extensions import TypedDict
 
 from agent.agent import BaseAgent
+from graph.builder import static_system_prompt
 from agent.intent.orchestrator import IntentOrchestrator, IntentionResponse
 from agent.turn import AgentTurnResult, ainvoke_resolving_interrupts, interrupt_question
 from langgraph.types import interrupt
@@ -90,8 +91,8 @@ async def test_intent_orchestrator_run_publishes_without_handoff_target_when_rej
     assert result.state["status"] == "rejected"
 
 
-async def test_intent_orchestrator_run_executes_plan_and_returns_last_output() -> None:
-    from agent.intent.orchestrator import PlanStepResponse
+async def test_intent_orchestrator_run_hands_off_composite_to_plan() -> None:
+    from langgraph.graph import END, START, StateGraph
 
     class _Model:
         def with_structured_output(self, _schema):
@@ -101,24 +102,16 @@ async def test_intent_orchestrator_run_executes_plan_and_returns_last_output() -
             return IntentionResponse(
                 user_intentions=["KNOWLEDGE", "DATA"],
                 confidence=0.95,
-                plan=[
-                    PlanStepResponse(intention="KNOWLEDGE", task="Define metric"),
-                    PlanStepResponse(intention="DATA", task="Query metric"),
-                ],
             )
 
-    class _Worker(BaseAgent):
-        def __init__(self, name: str, reply: str) -> None:
-            super().__init__(system_prompt="w")
-            self.name = name
-            self.reply = reply
+    class _PlanWorker(BaseAgent):
+        def __init__(self) -> None:
+            super().__init__(system_prompt=static_system_prompt("plan"))
             self.prompts: list[str] = []
 
         async def build_graph(self, model, checkpointer, **_kwargs):
-            reply = self.reply
-
             def node(state: _State) -> dict[str, Any]:
-                return {"value": reply}
+                return {"value": "planned"}
 
             g = StateGraph(_State)
             g.add_node("n", node)
@@ -130,18 +123,17 @@ async def test_intent_orchestrator_run_executes_plan_and_returns_last_output() -
             self.prompts.append(user_prompt)
             return {"messages": [HumanMessage(content=user_prompt)], "value": ""}
 
-    knowledge = _Worker("knowledge", "def=GMV")
-    databot = _Worker("databot", "answer=100")
-    await knowledge.bind(object(), MemorySaver())  # type: ignore[arg-type]
-    await databot.bind(object(), MemorySaver())  # type: ignore[arg-type]
+    plan = _PlanWorker()
+    await plan.bind(object(), MemorySaver())  # type: ignore[arg-type]
 
     agent = await IntentOrchestrator.create()
     await agent.bind(_Model(), MemorySaver())
 
-    async def _get_specialist(name: str) -> BaseAgent:
-        return knowledge if name == "knowledge" else databot
+    async def _get_target_agent(name: str) -> BaseAgent:
+        assert name == "plan"
+        return plan
 
-    agent._get_specialist = _get_specialist  # type: ignore[method-assign]
+    agent._get_target_agent = _get_target_agent  # type: ignore[method-assign]
 
     result = await agent.run(
         "GMV yesterday with official definition",
@@ -150,11 +142,9 @@ async def test_intent_orchestrator_run_executes_plan_and_returns_last_output() -
         print_output=False,
     )
     assert result.ok
-    assert result.state["value"] == "answer=100"
-    assert result.state["execution_plan"]
-    assert "Define metric" in knowledge.prompts[0]
-    assert "def=GMV" in databot.prompts[0]
-    assert "last step" in databot.prompts[0].lower()
+    assert result.state["value"] == "planned"
+    assert result.state["route_target"] == "plan"
+    assert plan.prompts == ["GMV yesterday with official definition"]
 
 
 async def test_base_agent_run_requires_bind() -> None:

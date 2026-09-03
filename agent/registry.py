@@ -19,7 +19,7 @@ class AgentSpec:
     """Registered agent application.
 
     Set ``intention`` to make this agent a routable specialist for IntentOrchestrator.
-    Leave it ``None`` for entrypoints that are not intention targets (e.g. tahoe, intent).
+    Leave it ``None`` for entrypoints that are not intention targets (e.g. intent, plan).
 
     ``accepted_mcp`` maps tool identifiers (same keys as ``register_tools``) to MCP
     server names from ``tools/mcp/mcp.json``. On startup, every tool from those
@@ -41,44 +41,38 @@ class AgentSpec:
     intention_description: str = ""
 
 
-async def _create_tahoe_agent(**kwargs: Any) -> BaseAgent:
-    from agent.react.tahoe.tahoe_agent import TahoeAgent
-
-    return await TahoeAgent.create(**kwargs)
-
-
 async def _create_databot_agent(**kwargs: Any) -> BaseAgent:
-    from agent.react.databot.databot_agent import DatabotAgent
+    from agent.specialists.databot.databot_agent import DatabotAgent
 
     return await DatabotAgent.create(**kwargs)
 
 
 async def _create_knowledge_agent(**kwargs: Any) -> BaseAgent:
-    from agent.react.knowledge.knowledge_agent import KnowledgeAgent
+    from agent.specialists.knowledge.knowledge_agent import KnowledgeAgent
 
     return await KnowledgeAgent.create(**kwargs)
 
 
 async def _create_diagnostic_agent(**kwargs: Any) -> BaseAgent:
-    from agent.react.dignostic.diagnostic_agent import DiagnosticAgent
+    from agent.specialists.diagnostic.diagnostic_agent import DiagnosticAgent
 
     return await DiagnosticAgent.create(**kwargs)
 
 
 async def _create_data_analysis_agent(**kwargs: Any) -> BaseAgent:
-    from agent.react.data_analysis.data_analysis_agent import DataAnalysisAgent
+    from agent.specialists.data_analysis.data_analysis_agent import DataAnalysisAgent
 
     return await DataAnalysisAgent.create(**kwargs)
 
 
 async def _create_swe_agent(**kwargs: Any) -> BaseAgent:
-    from agent.react.swe.swe_agent import SWEAgent
+    from agent.specialists.swe.swe_agent import SWEAgent
 
     return await SWEAgent.create(**kwargs)
 
 
 async def _create_plan_agent(**kwargs: Any) -> BaseAgent:
-    from agent.react.plan.plan_agent import PlanAgent
+    from agent.plan.plan_agent import PlanAgent
 
     return await PlanAgent.create(**kwargs)
 
@@ -88,12 +82,6 @@ async def _create_intent_agent(**kwargs: Any) -> BaseAgent:
 
     return await IntentOrchestrator.create(**kwargs)
 
-
-TAHOE = AgentSpec(
-    name="tahoe",
-    description="Tahoe interactive ReAct agent",
-    create_agent=_create_tahoe_agent,
-)
 
 DATABOT = AgentSpec(
     name="databot",
@@ -158,12 +146,11 @@ PLAN = AgentSpec(
 
 INTENT = AgentSpec(
     name="intent",
-    description="Intent orchestrator (plan intentions → specialist AgentChain)",
+    description="Intent router (classify → single specialist or Plan handoff)",
     create_agent=_create_intent_agent,
 )
 
 AGENTS: dict[str, AgentSpec] = {
-    TAHOE.name: TAHOE,
     DATABOT.name: DATABOT,
     KNOWLEDGE.name: KNOWLEDGE,
     DIAGNOSTIC.name: DIAGNOSTIC,
@@ -173,7 +160,7 @@ AGENTS: dict[str, AgentSpec] = {
     INTENT.name: INTENT,
 }
 
-DEFAULT_AGENT = TAHOE.name
+DEFAULT_AGENT = INTENT.name
 
 
 def get_agent(name: str) -> AgentSpec:
@@ -289,43 +276,10 @@ def get_routable_agent(name: str) -> AgentSpec:
 
 
 def published_route_target(state: Any) -> str:
-    """Extract first specialist agent name from a finished intent orchestrator state."""
+    """Extract the published agent name from a finished intent orchestrator state."""
     if not isinstance(state, dict):
         return ""
     if (state.get("status") or "").strip().lower() != "published":
         return ""
-    targets = state.get("route_targets")
-    if isinstance(targets, list) and targets:
-        first = str(targets[0] or "").strip()
-        if first:
-            return first
     return str(state.get("route_target") or "").strip()
 
-
-def published_execution_plan(state: Any) -> list[dict[str, Any]]:
-    """Return the published specialist plan, or a single-step fallback from route_target."""
-    if not isinstance(state, dict):
-        return []
-    if (state.get("status") or "").strip().lower() != "published":
-        return []
-    plan = state.get("execution_plan")
-    if isinstance(plan, list) and plan:
-        return [dict(item) for item in plan if isinstance(item, dict)]
-    target = str(state.get("route_target") or "").strip()
-    if not target:
-        return []
-    intention = str(state.get("user_intention") or "").strip().upper()
-    question = str(state.get("user_question") or "").strip()
-    return [
-        {
-            "step_index": 0,
-            "intention": intention,
-            "agent": target,
-            "task": question or f"Handle the {intention or target} request.",
-        }
-    ]
-
-
-def specialist_session_id(session: str, agent_name: str) -> str:
-    """Isolate specialist checkpoints from the intent-router thread."""
-    return f"{session}:{agent_name}"

@@ -98,7 +98,7 @@ def _s3_client():
         from botocore.config import Config
     except ImportError as exc:
         raise S3ToolError(
-            "boto3 is required for S3 tools; install with `uv add boto3`"
+            "boto3 is required for S3 tools; install with `pip install 'tahoepilot[rag]'`"
         ) from exc
 
     kwargs = s3_connection_kwargs()

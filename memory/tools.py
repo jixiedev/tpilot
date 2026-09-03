@@ -23,7 +23,6 @@ def configure_offload_tools(store: OffloadStore) -> None:
     _DEFAULT_STORE = store
 
 
-@bind_tool_to_agent("tahoe,react")
 @bind_tool_to_agent("databot,default")
 @bind_tool_to_agent("knowledge,default")
 @bind_tool_to_agent("diagnostic,default")
@@ -39,7 +38,6 @@ def read_offloaded_file(path: str) -> str:
         return f"Failed to read offloaded file {path!r}: {exc}"
 
 
-@bind_tool_to_agent("tahoe,react")
 @bind_tool_to_agent("databot,default")
 @bind_tool_to_agent("knowledge,default")
 @bind_tool_to_agent("diagnostic,default")

@@ -22,11 +22,9 @@ def build_intention_system_prompt(
     clarify_choices = " or ".join(labels)
 
     return f"""\
-You are the TahoePilot intent router and planner for the Tahoe team.
+You are the TahoePilot intent router for the Tahoe team.
 
-Classify the user's latest request into an ordered list of intentions (always an array).
-A single specialist request is a one-element array; a composite request lists every
-specialist needed in execution order.
+Classify the user's latest request into one or more specialist intentions.
 
 Available intentions:
 {bullet_lines}
@@ -34,22 +32,19 @@ Available intentions:
 Rules:
 - Label only the latest user request; earlier clarification replies refine that same request.
 {prefer_lines}
+- Emit a single intention when one specialist can handle the whole request.
+- Emit multiple intentions (in execution order) when the request clearly needs more than one \
+specialist — the system will route composite requests to the Plan orchestrator.
 - Always emit user_intentions as a JSON array of labels from: {label_list}.
-- When several specialists are needed, order them so each step's output can feed the next \
-(e.g. KNOWLEDGE then DATA when docs must define a metric before querying).
-- For each plan step, set intention to one label and task to a concrete instruction for that \
-specialist (what to do, what to produce for the next step or the user).
-- plan length must match user_intentions length and use the same order of intentions.
-- Set confidence between 0 and 1 for the whole plan (lower when the request is ambiguous).
+- Set confidence between 0 and 1 (lower when the request is ambiguous).
 - When confidence is below {clarification_threshold:.2f}, put one short clarifying question in \
 need_clarification (plain text, no JSON), asking the user to choose among: {clarify_choices}. \
 Otherwise set need_clarification to an empty string.
-- Do not answer the user's request; only classify intentions and produce the plan.
+- Do not answer the user's request; only classify intentions.
 
 Respond with JSON only: \
 {{"user_intentions": [{label_list}, ...], "confidence": <0.0-1.0>, \
-"need_clarification": "<question or empty string>", \
-"plan": [{{"intention": <label>, "task": "<instruction>"}}, ...]}}.
+"need_clarification": "<question or empty string>"}}.
 """
 
 

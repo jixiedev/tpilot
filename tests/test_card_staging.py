@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from agent.react.databot.card_staging import (
+from agent.specialists.databot.card_staging import (
     apply_add_card_selections,
     merge_staging_cards,
     new_staging_id,

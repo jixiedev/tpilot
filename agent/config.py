@@ -1,4 +1,4 @@
-"""Shared configuration types for ReAct agents."""
+"""Shared types for ReAct agent runtime."""
 
 from __future__ import annotations
 
@@ -12,7 +12,14 @@ StateLike = Union[list[AnyMessage], dict[str, Any], BaseModel]
 
 
 @dataclass
-class AgentRunConfig:
+class AgentRunContext:
+    """Per-run prompts and loop limits for a ReAct agent."""
+
+    next_step: str = ""
+    idle_nudge_prompt: str = ""
+    tool_budget_exhausted_prompt: str = ""
+    refine_user_profile_prompt: str = ""
+    idle_step: str = ""
     max_tool_calls: int = 10
     max_idle_rounds: int = 1
     max_tool_steps: int | None = None
@@ -20,23 +27,12 @@ class AgentRunConfig:
     def __post_init__(self) -> None:
         if self.max_tool_steps is None:
             self.max_tool_steps = self.max_tool_calls
-
-
-@dataclass
-class AgentPromptConfig:
-    next_step: str
-    idle_nudge_prompt: str
-    tool_budget_exhausted_prompt: str
-    refine_user_profile_prompt: str
-    idle_step: str = ""
-
-    def __post_init__(self) -> None:
         if not self.idle_step:
             self.idle_step = self.idle_nudge_prompt
 
     @classmethod
-    def default_prompt_config(cls) -> AgentPromptConfig:
-        from agent.react.tahoe.prompt import (
+    def default(cls) -> AgentRunContext:
+        from agent.runtime.prompt import (
             IDLE_CHAT_COMPLETION_PROMPT,
             NEXT_STEP_PROMPT,
             REFINE_USER_PROFILE_PROMPT,
@@ -53,11 +49,13 @@ class AgentPromptConfig:
 
 @dataclass
 class RouterConfig:
-    reason_idle_outlet: str = "step_llm"
-    reason_action_outlet: str = "step_tools"
+    reason_idle_outlet: str = "step_reason"
+    reason_action_outlet: str = "step_action"
     reason_end_outlet: str = "__end__"
-    action_reason_outlet: str = "step_llm"
+    action_reason_outlet: str = "step_reason"
     action_end_outlet: str = "__end__"
+    refine_user_profile_outlet: str = "refine_user_profile"
+    inject_completion_outlet: str = "inject_completion_as_ai"
     # State-based exit: when every name in this tuple maps to a
     # truthy value in the run's state, the router forces
     # ``action_end_outlet`` (or ``reason_end_outlet``) immediately. This

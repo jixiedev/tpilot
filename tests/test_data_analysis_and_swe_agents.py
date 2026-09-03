@@ -3,10 +3,10 @@ from __future__ import annotations
 import pytest
 
 from agent.registry import AGENTS, get_agent_tools
-from agent.react.data_analysis.data_analysis_agent import DataAnalysisAgent
-from agent.react.data_analysis.prompt import DataAnalysisSystemPrompt
-from agent.react.swe.prompt import SWESystemPrompt
-from agent.react.swe.swe_agent import SWEAgent
+from agent.specialists.data_analysis.data_analysis_agent import DataAnalysisAgent
+from agent.specialists.data_analysis.prompt import DataAnalysisSystemPrompt
+from agent.specialists.swe.prompt import SWESystemPrompt
+from agent.specialists.swe.swe_agent import SWEAgent
 
 
 def test_data_analysis_agent_registered() -> None:

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from agent.react.tahoe.tools import CHAT_COMPLETION_TOOL_NAME, chat_completion
+from agent.runtime.tahoe_runtime_helper import CHAT_COMPLETION_TOOL_NAME, chat_completion
 
 
 def test_chat_completion_returns_reply() -> None:

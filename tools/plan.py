@@ -225,7 +225,6 @@ def run_planning(
     raise PlanToolError(f"Unknown command: {command}")
 
 
-@bind_tool_to_agent("tahoe,react")
 @bind_tool_to_agent("databot,default")
 @bind_tool_to_agent("knowledge,default")
 @bind_tool_to_agent("data_analysis,default")

@@ -278,7 +278,6 @@ def run_editor(
     )
 
 
-@bind_tool_to_agent("tahoe,react")
 @bind_tool_to_agent("databot,default")
 @bind_tool_to_agent("knowledge,default")
 @bind_tool_to_agent("swe,default")

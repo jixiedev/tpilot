@@ -8,10 +8,11 @@ from __future__ import annotations
 
 from langchain_core.tools import BaseTool
 
-from agent.react.databot.tool_scopes import REGISTRY_NAME as DATABOT_REGISTRY
-from agent.react.databot.tool_scopes import TOOL_ID_DEFAULT as DATABOT_DEFAULT
-from agent.react.knowledge.tool_scopes import knowledge_react_tools
-from agent.react.tahoe.tool_scopes import TOOL_ID_REACT, tahoe_tools
+from agent.specialists.databot.tool_scopes import REGISTRY_NAME as DATABOT_REGISTRY
+from agent.specialists.databot.tool_scopes import TOOL_ID_DEFAULT as DATABOT_DEFAULT
+from agent.specialists.knowledge.tool_scopes import knowledge_react_tools
+from agent.specialists.swe.tool_scopes import REGISTRY_NAME as SWE_REGISTRY
+from agent.specialists.swe.tool_scopes import TOOL_ID_DEFAULT as SWE_DEFAULT
 from agent.scoped_tools import tools_for_scope
 from tools.dynamic import register_dynamic_tool_bindings
 
@@ -24,7 +25,7 @@ def load_general_tools() -> list[BaseTool]:
     """Local coding / search / planning tools shared by Tahoe team agents."""
     return [
         tool
-        for tool in tahoe_tools(TOOL_ID_REACT)
+        for tool in tools_for_scope(SWE_REGISTRY, SWE_DEFAULT)
         if getattr(tool, "name", "") in _GENERAL_TOOL_NAMES
     ]
 

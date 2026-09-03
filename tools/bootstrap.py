@@ -14,9 +14,9 @@ def ensure_tools_registered() -> None:
     if _REGISTERED:
         return
 
-    import agent.react.databot.stage_tools  # noqa: F401
-    import agent.react.plan.stage_tools  # noqa: F401
-    import agent.react.tahoe.tools  # noqa: F401
+    import agent.specialists.databot.stage_tools  # noqa: F401
+    import agent.plan.stage_tools  # noqa: F401
+    import agent.runtime.tahoe_runtime_helper  # noqa: F401
     import memory.tools  # noqa: F401
     import tools.code  # noqa: F401
     import tools.data.hive  # noqa: F401
@@ -25,7 +25,11 @@ def ensure_tools_registered() -> None:
     import tools.external.datahub  # noqa: F401
     import tools.k8s  # noqa: F401
     import tools.plan  # noqa: F401
-    import tools.rag  # noqa: F401
+    try:
+        import tools.rag  # noqa: F401
+    except ImportError:
+        # Optional: pip install tahoepilot[rag]
+        pass
     import tools.web.search  # noqa: F401
 
     from agent.registry import AGENTS

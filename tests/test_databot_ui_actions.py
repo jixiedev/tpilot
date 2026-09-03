@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from agent.react.databot.ui_actions import (
+from agent.specialists.databot.ui_actions import (
     apply_propose_sql,
     apply_request_sql_regenerate,
     apply_sql_gate_redraft,

@@ -5,8 +5,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from agent.registry import AGENTS, get_agent_tools
-from agent.react.dignostic.diagnostic_agent import DiagnosticAgent
-from agent.react.dignostic.prompt import DiagnosticSystemPrompt
+from agent.specialists.diagnostic.diagnostic_agent import DiagnosticAgent
+from agent.specialists.diagnostic.prompt import DiagnosticSystemPrompt
 from tools.dynamic import register_dynamic_tool_bindings, reset_dynamic_tool_bindings
 
 

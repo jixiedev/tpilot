@@ -257,7 +257,6 @@ def _format_hits(hits: list[WebSearchHit]) -> list[dict[str, str]]:
     return [{"title": hit.title, "url": hit.url, "snippet": hit.snippet} for hit in hits]
 
 
-@bind_tool_to_agent("tahoe,react")
 @bind_tool_to_agent("databot,default")
 @bind_tool_to_agent("knowledge,default")
 @bind_tool_to_agent("swe,default")

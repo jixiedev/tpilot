@@ -81,7 +81,7 @@ class IntentRouterCase:
             session=session,
             user_id="case_bot",
             print_output=False,
-            execute_plan=False,
+            handoff=False,
         )
         case_result = self.score(result)
         case_result.model_name = model_name
@@ -176,11 +176,8 @@ def extract_routing_outcome(state: Mapping[str, Any] | None) -> dict[str, Any]:
 
     status = str(state.get("status") or "").strip().lower()
     if status == "published":
-        routes = [str(item).strip() for item in state.get("route_targets") or [] if str(item).strip()]
-        if not routes:
-            route_target = str(state.get("route_target") or "").strip()
-            if route_target:
-                routes = [route_target]
+        route_target = str(state.get("route_target") or "").strip()
+        routes = [route_target] if route_target else []
         return {
             "status": "published",
             "intentions": [_normalize_label(item) for item in state.get("user_intentions") or []],

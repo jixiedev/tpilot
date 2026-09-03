@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import pytest
 
-from agent.react.databot.gates import (
+from agent.specialists.databot.gates import (
     DEFAULT_GATE_DECISION,
     GATE_OPTIONS,
     _parse_resume,
@@ -79,8 +79,8 @@ def test_gate_options_includes_all_thought1_verdicts() -> None:
 
 
 def test_gate_prompt_sql_uses_default_reasons_when_state_empty() -> None:
-    from agent.react.databot.gate_defaults import DEFAULT_SQL_GATE_REASONS
-    from agent.react.databot.gates import _gate_prompt
+    from agent.specialists.databot.gate_defaults import DEFAULT_SQL_GATE_REASONS
+    from agent.specialists.databot.gates import _gate_prompt
 
     payload = _gate_prompt(
         {
@@ -94,7 +94,7 @@ def test_gate_prompt_sql_uses_default_reasons_when_state_empty() -> None:
 
 
 def test_gate_prompt_cards_preserves_llm_reasons_over_defaults() -> None:
-    from agent.react.databot.gates import _gate_prompt
+    from agent.specialists.databot.gates import _gate_prompt
 
     payload = _gate_prompt(
         {
@@ -113,7 +113,7 @@ def test_gate_prompt_cards_preserves_llm_reasons_over_defaults() -> None:
 # instead of a dict; the tool now accepts both shapes).
 # ---------------------------------------------------------------------------
 
-from agent.react.databot.stage_tools import _coerce_gate_reasons  # noqa: E402
+from agent.specialists.databot.stage_tools import _coerce_gate_reasons  # noqa: E402
 
 
 def test_coerce_gate_reasons_dict_form() -> None:

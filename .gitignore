@@ -15,21 +15,11 @@ wheels/
 # Local MCP server config (may contain secrets)
 tools/mcp/mcp.json
 
-# Chat transcripts
-logs/
-
 # Local dev process logs / pids (langgraph dev, next dev)
 .run/
 
-# LangGraph SQLite checkpoints
-checkpoints.sqlite
-checkpoints.sqlite-*
-
-# Per-user profile JSON files
-profiles/
-
-# Context compression offload store
-offload_store/
+# Machine-local runtime data (checkpoints, profiles, logs, offload store)
+.local/
 
 .idea/
 

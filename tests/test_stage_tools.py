@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from agent.react.databot.stage_tools import record_metric_conflict
+from agent.specialists.databot.stage_tools import record_metric_conflict
 
 
 def test_record_metric_conflict_appends() -> None:

@@ -1,4 +1,4 @@
-"""CLI-oriented ReAct listener (formatting + stdout)."""
+"""ReAct turn listeners for CLI, UI, and eval hooks."""
 
 from __future__ import annotations
 
@@ -19,12 +19,12 @@ _WRAPPED_COMPLETION_RE = re.compile(
 
 
 class ReactAgentListener:
-    """Hooks for CLI / UI feedback during a ReAct turn."""
+    """Hooks for CLI / UI / eval feedback during a ReAct turn."""
 
-    def print_status(self, message: str) -> None:
+    def on_status(self, message: str) -> None:
         return None
 
-    def print_llm_start(
+    def on_reason_start(
         self,
         tool_call_count: int = 0,
         max_tool_calls: int = 0,
@@ -32,78 +32,78 @@ class ReactAgentListener:
     ) -> None:
         return None
 
-    def print_tool_call(self, name: str, args: dict) -> None:
+    def on_tool_call(self, name: str, args: dict) -> None:
         return None
 
-    def print_tool_result(self, name: str, content: Any) -> None:
+    def on_tool_result(self, name: str, content: Any) -> None:
         return None
 
-    def print_llm_step(self, message: AIMessage) -> None:
+    def on_reason_step(self, message: AIMessage) -> None:
         return None
 
-    def print_turn_output(self, state: SessionAgentState) -> None:
+    def on_turn_output(self, state: SessionAgentState) -> None:
         return None
 
 
 class ListenerHub(ReactAgentListener):
-    """Fan-out listener: primary UI hooks plus optional eval/monitoring observers.
+    """Fan-out listener: a primary hook plus optional secondary listeners.
 
-    Graph callbacks close over this instance at bind time, so observers can be
+    Graph callbacks close over this instance at bind time, so secondaries can be
     registered or cleared between turns without rebuilding the graph.
     """
 
     def __init__(self, primary: ReactAgentListener | None = None) -> None:
         self.primary = primary or ReactAgentListener()
-        self._observers: list[ReactAgentListener] = []
+        self._secondaries: list[ReactAgentListener] = []
 
-    def register(self, listener: ReactAgentListener) -> None:
+    def register_secondary(self, listener: ReactAgentListener) -> None:
         if listener is self or listener is self.primary:
             return
-        if listener not in self._observers:
-            self._observers.append(listener)
+        if listener not in self._secondaries:
+            self._secondaries.append(listener)
 
-    def unregister(self, listener: ReactAgentListener) -> None:
-        self._observers = [item for item in self._observers if item is not listener]
+    def unregister_secondary(self, listener: ReactAgentListener) -> None:
+        self._secondaries = [item for item in self._secondaries if item is not listener]
 
-    def clear_observers(self) -> None:
-        self._observers.clear()
+    def clear_secondaries(self) -> None:
+        self._secondaries.clear()
 
     def _fan_out(self, method: str, *args: Any, **kwargs: Any) -> None:
         getattr(self.primary, method)(*args, **kwargs)
-        for observer in list(self._observers):
-            getattr(observer, method)(*args, **kwargs)
+        for listener in list(self._secondaries):
+            getattr(listener, method)(*args, **kwargs)
 
-    def print_status(self, message: str) -> None:
-        self._fan_out("print_status", message)
+    def on_status(self, message: str) -> None:
+        self._fan_out("on_status", message)
 
-    def print_llm_start(
+    def on_reason_start(
         self,
         tool_call_count: int = 0,
         max_tool_calls: int = 0,
         idle_rounds: int = 0,
     ) -> None:
         self._fan_out(
-            "print_llm_start",
+            "on_reason_start",
             tool_call_count,
             max_tool_calls,
             idle_rounds,
         )
 
-    def print_tool_call(self, name: str, args: dict) -> None:
-        self._fan_out("print_tool_call", name, args)
+    def on_tool_call(self, name: str, args: dict) -> None:
+        self._fan_out("on_tool_call", name, args)
 
-    def print_tool_result(self, name: str, content: Any) -> None:
-        self._fan_out("print_tool_result", name, content)
+    def on_tool_result(self, name: str, content: Any) -> None:
+        self._fan_out("on_tool_result", name, content)
 
-    def print_llm_step(self, message: AIMessage) -> None:
-        self._fan_out("print_llm_step", message)
+    def on_reason_step(self, message: AIMessage) -> None:
+        self._fan_out("on_reason_step", message)
 
-    def print_turn_output(self, state: SessionAgentState) -> None:
-        self._fan_out("print_turn_output", state)
+    def on_turn_output(self, state: SessionAgentState) -> None:
+        self._fan_out("on_turn_output", state)
 
 
 class CliReactListener(ReactAgentListener):
-    """Print tool / LLM / turn output for a CLI ReAct loop."""
+    """CLI implementation: format ReAct hooks and write to stdout."""
 
     def __init__(
         self,
@@ -172,7 +172,7 @@ class CliReactListener(ReactAgentListener):
         text = message.strip() or "working"
         return f"Status> {text}"
 
-    def format_llm_start(
+    def format_reason_start(
         self,
         tool_call_count: int = 0,
         max_tool_calls: int = 0,
@@ -182,17 +182,17 @@ class CliReactListener(ReactAgentListener):
             f"LLM thinking (tools={tool_call_count}/{max_tool_calls}, idle={idle_rounds})"
         )
 
-    def print_status(self, message: str) -> None:
+    def on_status(self, message: str) -> None:
         print(self.format_status(message), flush=True)
 
-    def print_llm_start(
+    def on_reason_start(
         self,
         tool_call_count: int = 0,
         max_tool_calls: int = 0,
         idle_rounds: int = 0,
     ) -> None:
         print(
-            self.format_llm_start(
+            self.format_reason_start(
                 tool_call_count=tool_call_count,
                 max_tool_calls=max_tool_calls,
                 idle_rounds=idle_rounds,
@@ -225,7 +225,7 @@ class CliReactListener(ReactAgentListener):
             text = f"{text[:limit]}\n... ({omitted} more chars)"
         return f"Result> {name}: {text}"
 
-    def format_llm_step_lines(self, message: AIMessage) -> list[str]:
+    def format_reason_step_lines(self, message: AIMessage) -> list[str]:
         # Intermediate ReAct traces only: plain-text idle retries stay quiet.
         if not (getattr(message, "tool_calls", None) or []):
             return []
@@ -238,8 +238,8 @@ class CliReactListener(ReactAgentListener):
             lines.append(f"LLM> {text}")
         return lines
 
-    def format_llm_step(self, message: AIMessage) -> str | None:
-        lines = self.format_llm_step_lines(message)
+    def format_reason_step(self, message: AIMessage) -> str | None:
+        lines = self.format_reason_step_lines(message)
         if not lines:
             return None
         return "\n".join(lines)
@@ -267,21 +267,21 @@ class CliReactListener(ReactAgentListener):
             return match.group("body")
         return reply
 
-    def print_tool_call(self, name: str, args: dict) -> None:
+    def on_tool_call(self, name: str, args: dict) -> None:
         line = self.format_tool_call(name, args)
         if line:
             print(line)
 
-    def print_tool_result(self, name: str, content: Any) -> None:
+    def on_tool_result(self, name: str, content: Any) -> None:
         line = self.format_tool_result(name, content)
         if line:
             print(line)
 
-    def print_llm_step(self, message: AIMessage) -> None:
-        for line in self.format_llm_step_lines(message):
+    def on_reason_step(self, message: AIMessage) -> None:
+        for line in self.format_reason_step_lines(message):
             print(line)
 
-    def print_turn_output(self, state: SessionAgentState) -> None:
+    def on_turn_output(self, state: SessionAgentState) -> None:
         reply = self.last_completion_reply(state)
         if reply is None:
             fallback = last_ai_message(current_turn_messages(state))

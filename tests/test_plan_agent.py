@@ -3,9 +3,9 @@ from __future__ import annotations
 import pytest
 
 from agent.registry import AGENTS, get_agent_tools
-from agent.react.plan.plan_agent import PlanAgent
-from agent.react.plan.prompt import PlanSystemPrompt, render_agent_cards
-from agent.react.plan.tool_scopes import (
+from agent.plan.plan_agent import PlanAgent
+from agent.plan.prompt import PlanSystemPrompt, render_agent_cards
+from agent.plan.tool_scopes import (
     TOOL_ID_ADJUST,
     TOOL_ID_CREATE,
     TOOL_ID_DEFAULT,

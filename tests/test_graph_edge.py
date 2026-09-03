@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from langchain_core.messages import AIMessage
 
-from agent.config import AgentRunConfig, RouterConfig
+from agent.config import AgentRunContext, RouterConfig
 from agent.router import CompletionToolRouter
-from agent.react.tahoe.tools import CHAT_COMPLETION_TOOL_NAME
+from agent.runtime.tahoe_runtime_helper import CHAT_COMPLETION_TOOL_NAME
 
 
 def _state(
@@ -22,24 +22,24 @@ def _state(
 
 def _route(*, max_tool_steps: int = 10, max_idle_rounds: int = 3):
     router = CompletionToolRouter(
-        AgentRunConfig(max_tool_calls=max_tool_steps, max_idle_rounds=max_idle_rounds),
+        AgentRunContext(max_tool_calls=max_tool_steps, max_idle_rounds=max_idle_rounds),
         RouterConfig(),
         completion_tool_name=CHAT_COMPLETION_TOOL_NAME,
     )
     return router.route_after_reason()
 
 
-def test_budget_exhausted_with_data_tools_routes_to_step_llm() -> None:
+def test_budget_exhausted_with_data_tools_routes_to_step_reason() -> None:
     route = _route(max_tool_steps=10)
     state = _state(
         tool_call_count=10,
         tool_calls=[{"name": "trino_run_query", "args": {"sql": "SELECT 1"}, "id": "1"}],
     )
 
-    assert route(state) == "step_llm"
+    assert route(state) == "step_reason"
 
 
-def test_budget_exhausted_with_chat_completion_routes_to_tools() -> None:
+def test_budget_exhausted_with_chat_completion_routes_to_action() -> None:
     route = _route(max_tool_steps=10)
     state = _state(
         tool_call_count=10,
@@ -52,24 +52,24 @@ def test_budget_exhausted_with_chat_completion_routes_to_tools() -> None:
         ],
     )
 
-    assert route(state) == "step_tools"
+    assert route(state) == "step_action"
 
 
-def test_budget_exhausted_without_tools_routes_to_step_llm() -> None:
+def test_budget_exhausted_without_tools_routes_to_step_reason() -> None:
     route = _route(max_tool_steps=10)
     state = _state(tool_call_count=10, idle_rounds=1)
 
-    assert route(state) == "step_llm"
+    assert route(state) == "step_reason"
 
 
-def test_under_budget_with_tools_routes_to_tools() -> None:
+def test_under_budget_with_tools_routes_to_action() -> None:
     route = _route(max_tool_steps=10)
     state = _state(
         tool_call_count=3,
         tool_calls=[{"name": "hive_list_tables", "args": {"database": "default"}, "id": "1"}],
     )
 
-    assert route(state) == "step_tools"
+    assert route(state) == "step_action"
 
 
 def test_idle_limit_without_budget_routes_to_end() -> None:
@@ -83,7 +83,7 @@ def test_first_plain_text_below_idle_cap_retries() -> None:
     route = _route(max_tool_steps=10, max_idle_rounds=1)
     state = _state(idle_rounds=0)
 
-    assert route(state) == "step_llm"
+    assert route(state) == "step_reason"
 
 
 def test_idle_limit_with_budget_exhausted_routes_to_end() -> None:

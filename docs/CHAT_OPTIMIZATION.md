@@ -920,66 +920,32 @@ Implementation notes (behavior only): detect emits intentions + plan steps; publ
 | New chat | Empty `execution_result: {}` read as failure; `stage` stuck on Results | Reset `stage` to `fetch`, clear result; Results tab shows “No execution result yet.” |
 | Chat style prompt | “Emit ONLY tool calls” → no user-visible status | Allow one short user-facing line per turn; forbid “The user wants me to…” and tool return values in prose |
 
-## 2026-09-02 — Databot turn-end summary
+---
 
-**Goal**: Give users a closing message that summarizes how their data question was answered.
+## 2026-09-02 — Databot cards gate, turn completion, and graph cleanup
 
-| Optimization | Before | After |
-|--------------|--------|-------|
-| Turn completion | `end_with_summary` only set `stage=done` with no user-visible reply | One LLM call synthesizes models, SQL, results, and conflicts into a final assistant message |
-
-## 2026-09-02 — Rename `add_card_to_state` → `commit_cards`
-
-**Goal**: Tool name should reflect that it writes `committed_cards`, not generic “state”.
+**Goal**: Simplify the cards gate path, end turns with a user-visible summary, and drop unused graph stages.
 
 | Optimization | Before | After |
 |--------------|--------|-------|
+| Turn completion | `end_with_summary` only set `stage=done` with no reply | LLM synthesizes models, SQL, results, and conflicts into a final assistant message |
 | Fetch-stage commit tool | `add_card_to_state` (ambiguous vs `staging_cards`) | `commit_cards` (staging → `committed_cards`) |
-
-## 2026-09-02 — Cards gate prep as outer-graph nodes
-
-**Goal**: Fetch subgraph only commits models; selection and gate reasons are deterministic graph steps.
-
-| Optimization | Before | After |
-|--------------|--------|-------|
-| Fetch stage tools | LLM called `mark_cards_selected` and `write_gate_reasons` inside subgraph | `prepare_cards_for_gate` after `fetch_cards` (copy candidates + gate reasons with full message history) |
-
-## 2026-09-02 — Merge cards gate prep into one node with full history
-
-**Goal**: One prep step before the cards gate; gate-reason LLM sees the same conversation as the fetch stage.
-
-| Optimization | Before | After |
-|--------------|--------|-------|
-| Cards gate prep | Two nodes; reasons from a JSON snapshot only | Single `prepare_cards_for_gate`; `model.invoke` on full `state.messages` plus an ephemeral instruction |
-
-| Cards state naming | `candidate_cards` / `selected_cards` (sounded like browse vs pick) | `committed_cards` (LLM commit) / `review_cards` (human gate); tool `commit_cards` |
-
-## 2026-09-02 — Remove chart_question no-op node
-
-**Goal**: After SQL execution, end the turn directly instead of routing through an unused chart step.
-
-| Optimization | Before | After |
-|--------------|--------|-------|
+| Cards gate prep | LLM called `mark_cards_selected` / `write_gate_reasons` inside fetch subgraph; two prep nodes with JSON-only reasons | Single outer `prepare_cards_for_gate`; `model.invoke` on full `state.messages` plus an ephemeral instruction |
+| Cards state naming | `candidate_cards` / `selected_cards` | `committed_cards` (LLM commit) / `review_cards` (human gate) |
 | Post-execute flow | `execute_sql` → `chart_question` → `end_with_summary` | `execute_sql` → `end_with_summary`; `execute` stage sets `done` |
 
-## 2026-09-02 — Split Databot prompts by stage
+---
 
-**Goal:** Keep stage-specific prompt text maintainable as Databot v2 grows.
+## 2026-09-02 — Databot prompts and routing constants
+
+**Goal**: Keep stage-specific prompt text and graph wiring maintainable as Databot v2 grows.
 
 | Optimization | Before | After |
 |--------------|--------|-------|
 | Prompt layout | One 450+ line `prompt.py` mixed system, idle, fetch, SQL, gate-prep, and turn-summary text | `prompts/` package with `system.py`, `idle.py`, `fetch.py`, `sql.py`, `gate_prep.py`, `turn_summary.py`; `prompt.py` re-exports for compatibility |
-
-## 2026-09-02 — Databot graph node and stage constants
-
-**Goal:** Catch typos in LangGraph routing at import time instead of at runtime.
-
-| Optimization | Before | After |
-|--------------|--------|-------|
 | Node / stage names | Bare strings repeated across routing dicts and `add_node` calls | `agent/react/databot/_constants.py` with `NODE_*`, `STAGE_*`, and shared route maps |
 
-<!-- Append the next optimization section above this line -->
-
+---
 
 ## 2026-09-02 — Agent-scoped tool registry (`bind_tool_to_agent`)
 
@@ -992,3 +958,31 @@ Implementation notes (behavior only): detect emits intentions + plan steps; publ
 | Databot stages | `graph._build_stage_tool_lists` filtered a flat tool bag by name | Fetch / SQL / execute stages read identifiers `fetch`, `sql`, `execute` directly |
 | Knowledge catalog | Loader chose MCP DataHub or native GraphQL inline | Native tools bind to `knowledge,catalog`; MCP replaces that bucket when the DataHub MCP server is up |
 | Agent tool scopes | `get_all_registered_tools` / manual merges | `tool_scopes.py` + `RegistryScopedTools.tools_for_scope`; not on `BaseAgent` / `BaseReactAgent` |
+
+---
+
+## 2026-09-03 — Lean installs and unified local runtime paths
+
+**Goal**: Slim the default install and consolidate machine-local state (checkpoints, profiles, logs, offload) under one configurable tree.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| Default `pip install` | Pulled torch, Qdrant client, K8s client, CopilotKit stack, and ingest parsers | Core CLI + Hive/Trino/MCP only; opt-in `tahoepilot[web]`, `[k8s]`, `[rag]` |
+| Local Qdrant binary | Unclear whether `docker/qdrant/bin/` ships with the package | Documented as dev-only; PyPI wheel excludes it; Docker Compose is the supported path |
+| Local data layout | `checkpoints.sqlite`, `profiles/`, `logs/`, `offload_store/` at repo root | Single `.local/` tree; paths in `config/local.toml` `[paths]` with `TAHOEPILOT_*` / `AGUI_CHECKPOINT_DB` env overrides |
+| Path resolution | Scattered per entry point; CLI used repo-root `profiles/` while some agents used `agent/profiles/` | `config/local_config.py` builds one `LocalPaths` snapshot for CLI, AG-UI, agents, and compression |
+
+---
+
+## 2026-09-03 — Intent router: single handoff; composite → Plan
+
+**Goal**: Stop Intent from duplicating Plan's multi-step orchestration; keep Intent as a fast classifier and router.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| Intent role | Classify, build per-step plan, run `PlannedAgentChain` | Classify, publish one `route_target`, hand off with the original user question |
+| Composite requests | Ordered specialist chain inside Intent | Route to `plan`; Plan owns decomposition and delegation |
+| State / prompt | `execution_plan`, `plan_draft`, per-step tasks | `route_target` only; prompt asks for intention labels, not step instructions |
+| Agent chain | `PlannedAgentChain` in Intent path | Removed; `StatusRoutedAgentChain` / `StaticAgentChain` remain for other callers |
+
+<!-- Append the next optimization section above this line -->

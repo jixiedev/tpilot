@@ -5,8 +5,8 @@ from __future__ import annotations
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from langchain_core.language_models.fake_chat_models import FakeMessagesListChatModel
 
-from agent.react.databot._constants import STAGE_GATE_CARDS
-from agent.react.databot.stage_prep import make_prepare_cards_for_gate_node
+from agent.specialists.databot._constants import STAGE_GATE_CARDS
+from agent.specialists.databot.stage_prep import make_prepare_cards_for_gate_node
 
 
 def test_prepare_cards_for_gate_copies_candidates_and_reasons() -> None:

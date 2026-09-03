@@ -22,7 +22,7 @@ from observability.case import (
     resolve_group_path,
     run_cases,
 )
-from observability.observe import CaseScore, Observer
+from observability.observe import CaseScore, EvalReactListener
 
 
 def _case(**overrides) -> ToolCallCase:
@@ -39,14 +39,14 @@ def _case(**overrides) -> ToolCallCase:
     return ToolCallCase(**defaults)
 
 
-def _observer_with_tools(*names: str) -> Observer:
-    observer = Observer()
+def _eval_listener_with_tools(*names: str) -> EvalReactListener:
+    eval_listener = EvalReactListener()
     for index, name in enumerate(names):
-        observer.on_tool_invoke(name, {"step": index})
-        observer.on_llm_respond(
+        eval_listener.on_tool_call(name, {"step": index})
+        eval_listener.on_reason_step(
             AIMessage(content="", tool_calls=[{"name": name, "args": {}, "id": str(index)}])
         )
-    return observer
+    return eval_listener
 
 
 def test_is_subsequence() -> None:
@@ -58,40 +58,40 @@ def test_is_subsequence() -> None:
 
 def test_score_tools_ordered_match() -> None:
     case = _case(expected_tools=["planning", "bash"])
-    observer = _observer_with_tools("planning", "bash")
-    score, details = case._score_tools(observer)
+    eval_listener = _eval_listener_with_tools("planning", "bash")
+    score, details = case._score_tools(eval_listener)
     assert score == 1.0
     assert details["reason"] == "ordered match"
 
 
 def test_score_tools_unexpected_calls() -> None:
     case = _case(expected_tools=[])
-    observer = _observer_with_tools("planning")
-    score, details = case._score_tools(observer)
+    eval_listener = _eval_listener_with_tools("planning")
+    score, details = case._score_tools(eval_listener)
     assert score == 0.0
     assert details["reason"] == "no tools expected"
 
 
 def test_score_tools_unordered_partial_credit() -> None:
     case = _case(expected_tools=["planning", "bash"])
-    observer = _observer_with_tools("bash", "planning")
-    score, details = case._score_tools(observer)
+    eval_listener = _eval_listener_with_tools("bash", "planning")
+    score, details = case._score_tools(eval_listener)
     assert score == 0.5
     assert details["reason"] == "unordered partial"
 
 
 def test_score_rounds_within_budget() -> None:
     case = _case(total_rounds=2)
-    observer = _observer_with_tools("planning", "bash")
-    score, details = case._score_rounds(observer)
+    eval_listener = _eval_listener_with_tools("planning", "bash")
+    score, details = case._score_rounds(eval_listener)
     assert score == 1.0
     assert details["actual"] == 2
 
 
 def test_score_rounds_overshoot_penalty() -> None:
     case = _case(total_rounds=1)
-    observer = _observer_with_tools("planning", "bash", "web_search")
-    score, _details = case._score_rounds(observer)
+    eval_listener = _eval_listener_with_tools("planning", "bash", "web_search")
+    score, _details = case._score_rounds(eval_listener)
     assert score == pytest.approx(0.0)
 
 
@@ -115,8 +115,8 @@ def test_score_answer_json_missing_or_invalid() -> None:
 
 def test_score_cancelled_turn() -> None:
     case = _case(answer={"x": "1"})
-    observer = Observer()
-    result = case.score(AgentTurnResult(cancelled=True), observer)
+    eval_listener = EvalReactListener()
+    result = case.score(AgentTurnResult(cancelled=True), eval_listener)
     assert result.cancelled
     assert "CANCELLED" in format_case_result(result)
 
@@ -215,8 +215,8 @@ async def test_run_cases_averages_across_models(tmp_path: Path) -> None:
 
     async def factory(model_name: str):
         agent = AsyncMock()
-        agent.register_observer = lambda _o: None
-        agent.clear_observers = lambda: None
+        agent.register_secondary = lambda _o: None
+        agent.clear_secondaries = lambda: None
         return agent
 
     async def fake_run(self, agent, *, model_name: str = ""):

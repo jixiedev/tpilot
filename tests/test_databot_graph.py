@@ -15,7 +15,7 @@ from langchain_core.tools import tool
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.types import Command
 
-from agent.react.databot._constants import (
+from agent.specialists.databot._constants import (
     NODE_END_WITH_SUMMARY,
     NODE_FETCH_CARDS,
     NODE_GENERATE_SQL,
@@ -27,9 +27,10 @@ from agent.react.databot._constants import (
     STAGE_GATE_SQL,
     STAGE_SQL,
 )
-from agent.react.databot.graph import build_databot_graph
-from agent.react.databot.state import DatabotState
-from agent.react.databot.tool_scopes import (
+from agent.specialists.databot.graph import build_databot_graph
+from agent.specialists.databot.state import DatabotState
+from graph.builder import static_system_prompt
+from agent.specialists.databot.tool_scopes import (
     REGISTRY_NAME,
     TOOL_ID_EXECUTE,
     TOOL_ID_FETCH,
@@ -43,7 +44,7 @@ class _ExitStageModel(FakeMessagesListChatModel):
     """Stub model that always emits a ``chat_completion`` tool call.
 
     This lets each per-stage ReAct subgraph exit on the very first
-    ``step_llm`` → ``step_tools`` cycle, so the test can drive the
+    ``step_reason`` → ``step_action`` cycle, so the test can drive the
     outer state machine without depending on real LLM behavior.
     """
 
@@ -252,7 +253,7 @@ async def test_cards_gate_deny_with_comments_loops_back(compiled_graph):
 
 
 def test_stage_done_follow_up_always_restarts_fetch():
-    from agent.react.databot.graph import make_databot_entry_node, _stage_route
+    from agent.specialists.databot.graph import make_databot_entry_node, _stage_route
     from langchain_core.messages import AIMessage, HumanMessage
 
     state = {
@@ -266,7 +267,7 @@ def test_stage_done_follow_up_always_restarts_fetch():
             HumanMessage(content="我要的是revenue，你给我的是gmv"),
         ],
     }
-    patch = make_databot_entry_node("")(state)  # type: ignore[arg-type]
+    patch = make_databot_entry_node(static_system_prompt(""))(state)
     assert patch.get("stage") == STAGE_FETCH
     assert patch.get("approved_cards") == []
     assert patch.get("execution_result") == {}
@@ -276,7 +277,7 @@ def test_stage_done_follow_up_always_restarts_fetch():
 
 
 def test_stage_done_new_question_still_starts_fetch():
-    from agent.react.databot.graph import make_databot_entry_node, _stage_route
+    from agent.specialists.databot.graph import make_databot_entry_node, _stage_route
     from langchain_core.messages import AIMessage, HumanMessage
 
     state = {
@@ -288,14 +289,14 @@ def test_stage_done_new_question_still_starts_fetch():
             HumanMessage(content="wish上个月的gmv是多少"),
         ],
     }
-    patch = make_databot_entry_node("")(state)  # type: ignore[arg-type]
+    patch = make_databot_entry_node(static_system_prompt(""))(state)
     assert patch.get("stage") == STAGE_FETCH
     merged = {**state, **patch}
     assert _stage_route(merged) == NODE_FETCH_CARDS
 
 
 def test_stage_done_with_trailing_human_starts_new_fetch():
-    from agent.react.databot.graph import _stage_route, make_databot_entry_node
+    from agent.specialists.databot.graph import _stage_route, make_databot_entry_node
     from langchain_core.messages import AIMessage, HumanMessage
 
     state = {
@@ -306,14 +307,14 @@ def test_stage_done_with_trailing_human_starts_new_fetch():
             HumanMessage(content="second"),
         ],
     }
-    patch = make_databot_entry_node("")(state)  # type: ignore[arg-type]
+    patch = make_databot_entry_node(static_system_prompt(""))(state)
     assert patch.get("stage") == STAGE_FETCH
     merged = {**state, **patch}
     assert _stage_route(merged) == NODE_FETCH_CARDS
 
 
 def test_stage_done_without_trailing_human_ends_turn():
-    from agent.react.databot.graph import _stage_route
+    from agent.specialists.databot.graph import _stage_route
     from langchain_core.messages import AIMessage, HumanMessage
 
     state = {
@@ -324,7 +325,7 @@ def test_stage_done_without_trailing_human_ends_turn():
 
 
 def test_stage_done_with_trailing_tool_after_human_starts_new_fetch():
-    from agent.react.databot.graph import _stage_route, make_databot_entry_node
+    from agent.specialists.databot.graph import _stage_route, make_databot_entry_node
     from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
     state = {
@@ -336,14 +337,14 @@ def test_stage_done_with_trailing_tool_after_human_starts_new_fetch():
             ToolMessage(content="{}", tool_call_id="tc-1"),
         ],
     }
-    patch = make_databot_entry_node("")(state)  # type: ignore[arg-type]
+    patch = make_databot_entry_node(static_system_prompt(""))(state)
     assert patch.get("stage") == STAGE_FETCH
     merged = {**state, **patch}
     assert _stage_route(merged) == NODE_FETCH_CARDS
 
 
 def test_stage_done_with_replayed_human_does_not_start_new_fetch():
-    from agent.react.databot.graph import _stage_route, make_databot_entry_node
+    from agent.specialists.databot.graph import _stage_route, make_databot_entry_node
     from langchain_core.messages import AIMessage, HumanMessage
 
     state = {
@@ -357,14 +358,14 @@ def test_stage_done_with_replayed_human_does_not_start_new_fetch():
             ),
         ],
     }
-    patch = make_databot_entry_node("")(state)  # type: ignore[arg-type]
+    patch = make_databot_entry_node(static_system_prompt(""))(state)
     assert patch.get("stage") is None
     merged = {**state, **patch}
     assert _stage_route(merged) == NODE_END_WITH_SUMMARY
 
 
 def test_stage_done_with_trailing_remove_does_not_start_new_fetch():
-    from agent.react.databot.graph import _stage_route
+    from agent.specialists.databot.graph import _stage_route
     from langchain_core.messages import AIMessage, HumanMessage, RemoveMessage
 
     state = {
@@ -379,7 +380,7 @@ def test_stage_done_with_trailing_remove_does_not_start_new_fetch():
 
 
 def test_after_gate_sql_deny_comments_routes_to_generate_sql():
-    from agent.react.databot.graph import _after_gate_sql
+    from agent.specialists.databot.graph import _after_gate_sql
 
     state = {
         "stage": STAGE_SQL,
@@ -389,7 +390,7 @@ def test_after_gate_sql_deny_comments_routes_to_generate_sql():
 
 
 def test_after_gate_sql_approve_routes_to_write_sql_artifact():
-    from agent.react.databot.graph import _after_gate_sql
+    from agent.specialists.databot.graph import _after_gate_sql
 
     state = {"stage": STAGE_EXECUTE, "approved_sql": "SELECT 1"}
     assert _after_gate_sql(state) == NODE_WRITE_SQL_ARTIFACT
@@ -447,7 +448,7 @@ async def test_execute_sql_routes_to_turn_summary(compiled_graph):
 
 
 def test_turn_summary_node_writes_assistant_message():
-    from agent.react.databot.turn_summary import make_turn_summary_node
+    from agent.specialists.databot.turn_summary import make_turn_summary_node
 
     model = FakeMessagesListChatModel(
         responses=[AIMessage(content="Orders yesterday: 1,234 rows returned.")]

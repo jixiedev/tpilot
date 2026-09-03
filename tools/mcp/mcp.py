@@ -13,7 +13,7 @@ from langchain_core.tools import BaseTool
 from langchain_mcp_adapters.client import MultiServerMCPClient
 from langchain_mcp_adapters.tools import load_mcp_tools
 
-from config.logging_config import DEFAULT_LOG_FILE
+from config.local_config import get_local_paths
 
 _CONFIG_PATH = Path(__file__).resolve().parent / "mcp.json"
 _ENV_VAR_RE = re.compile(r"\$\{([^}]+)\}")
@@ -33,7 +33,7 @@ class McpServerStatus:
     error: str = ""
 
 
-def _redirect_stdio_server_stderr(log_file: Path = DEFAULT_LOG_FILE) -> None:
+def _redirect_stdio_server_stderr(log_file: Path | None = None) -> None:
     """Send MCP stdio subprocess stderr to the log file instead of the terminal.
 
     This used to do ``log_file.parent.mkdir(parents=True, exist_ok=True)``
@@ -49,6 +49,8 @@ def _redirect_stdio_server_stderr(log_file: Path = DEFAULT_LOG_FILE) -> None:
     if _stdio_stderr_redirected:
         return
 
+    resolved = log_file or get_local_paths().log_file
+
     import mcp.client.stdio as mcp_stdio
 
     original = mcp_stdio.stdio_client
@@ -57,8 +59,8 @@ def _redirect_stdio_server_stderr(log_file: Path = DEFAULT_LOG_FILE) -> None:
     def _ensure_sink_open() -> object:
         sink = _stderr_sink_holder["sink"]
         if sink is None:
-            log_file.parent.mkdir(parents=True, exist_ok=True)
-            sink = log_file.open("a", encoding="utf-8")
+            resolved.parent.mkdir(parents=True, exist_ok=True)
+            sink = resolved.open("a", encoding="utf-8")
             _stderr_sink_holder["sink"] = sink
         return sink
 

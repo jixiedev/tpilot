@@ -4,13 +4,13 @@ from __future__ import annotations
 
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
-from agent.config import AgentRunConfig, RouterConfig
+from agent.config import AgentRunContext, RouterConfig
 from agent.router import CompletionToolRouter
 
 
 def _router() -> CompletionToolRouter:
     return CompletionToolRouter(
-        AgentRunConfig(max_tool_calls=20, max_idle_rounds=1),
+        AgentRunContext(max_tool_calls=20, max_idle_rounds=1),
         RouterConfig(state_exit_keys=("draft_sql", "sql_reasons")),
         completion_tool_name=None,
     )

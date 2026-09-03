@@ -33,13 +33,13 @@ def test_extract_routing_outcome_published() -> None:
         {
             "status": "published",
             "user_intentions": ["KNOWLEDGE", "DATA"],
-            "route_targets": ["knowledge", "databot"],
+            "route_target": "plan",
         }
     )
     assert outcome == {
         "status": "published",
         "intentions": ["KNOWLEDGE", "DATA"],
-        "routes": ["knowledge", "databot"],
+        "routes": ["plan"],
     }
 
 
@@ -62,12 +62,12 @@ def test_score_status_and_routes() -> None:
     case = _intent_case(
         expected_status="published",
         expected_intentions=["KNOWLEDGE", "DATA"],
-        expected_routes=["knowledge", "databot"],
+        expected_routes=["plan"],
     )
     outcome = {
         "status": "published",
         "intentions": ["KNOWLEDGE", "DATA"],
-        "routes": ["knowledge", "databot"],
+        "routes": ["plan"],
     }
     status_score, _ = case._score_status(outcome)
     route_score, route_details = case._score_routes(outcome)
@@ -90,17 +90,17 @@ def test_score_reject_case() -> None:
 def test_score_unordered_route_partial_credit() -> None:
     case = _intent_case(
         expected_intentions=["KNOWLEDGE", "DATA"],
-        expected_routes=["knowledge", "databot"],
+        expected_routes=["plan"],
     )
     outcome = {
         "status": "published",
         "intentions": ["DATA", "KNOWLEDGE"],
-        "routes": ["databot", "knowledge"],
+        "routes": ["databot"],
     }
     intention_score, _ = case._score_intentions(outcome)
     route_score, route_details = case._score_routes(outcome)
     assert intention_score == 0.5
-    assert route_score == 0.5
+    assert route_score == 0.0
     assert route_details["reason"] == "unordered partial"
 
 
