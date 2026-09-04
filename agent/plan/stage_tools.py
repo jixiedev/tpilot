@@ -16,7 +16,7 @@ from agent.plan._constants import STAGE_ADJUST, STAGE_EXECUTE
 from agent.plan.prompt import DELEGATABLE_AGENTS
 from agent.session import specialist_session_id
 from tools.common import bind_tool_to_agent
-from tools.plan import PlanToolError, run_planning
+from tools.plan import PlanToolError, run_planning, snapshot_for
 
 
 def _ok_tool_message(tool_call_id: str, text: str) -> ToolMessage:
@@ -58,6 +58,7 @@ def create_plan(
         update={
             "plan_id": key,
             "stage": STAGE_EXECUTE,
+            "plan_snapshot": snapshot_for(key),
             "messages": [_ok_tool_message(tool_call_id, text)],
         }
     )
@@ -110,6 +111,8 @@ def planning(
     if isinstance(full_state, dict):
         stage = str(full_state.get("stage") or "")
     cmd = (command or "").strip().lower()
+    if cmd in {"create", "update", "mark_step", "delete"}:
+        update["plan_snapshot"] = snapshot_for(plan_id or active_plan_id)
     if stage == STAGE_ADJUST and cmd in {"update", "mark_step"}:
         update["adjust_had_tool_calls"] = True
         update["stage"] = STAGE_EXECUTE
