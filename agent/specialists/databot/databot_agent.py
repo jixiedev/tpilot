@@ -22,6 +22,7 @@ from agent.specialists.databot.graph import (
 )
 from agent.specialists.databot.state import fresh_turn_state_defaults
 from agent.specialists.databot.prompts.system import DatabotSystemPrompt
+from agent.plan.stage_tools import SpecialistRunner
 from agent.runtime import (
     DEFAULT_MAX_IDLE_ROUNDS,
     DEFAULT_MAX_TOOL_CALLS,
@@ -79,11 +80,45 @@ class DatabotAgent(BaseAgent, RegistryScopedTools):
         self.system_prompt = self._runtime.system_prompt
         self.session = self._runtime.session
         self._graph: CompiledStateGraph | None = None
+        self._model: BaseChatModel | None = None
+        self._checkpointer: BaseCheckpointSaver | None = None
+        self._bind_kwargs: dict[str, Any] = {}
+        self._specialists: dict[str, BaseAgent] = {}
         self.session_state: Any = None
 
     @classmethod
     def default_profile_store(cls, root: Path | None = None) -> ProfileStore:
         return default_profile_store(root or cls.default_profile_dir)
+
+    async def _get_specialist(self, agent_name: str) -> BaseAgent:
+        from agent.registry import get_agent
+
+        name = agent_name.strip().lower()
+        if name in self._specialists:
+            return self._specialists[name]
+        if self._model is None or self._checkpointer is None:
+            raise RuntimeError("DatabotAgent.bind() must be called before specialist delegation")
+        spec = get_agent(name)
+        specialist = await spec.create_agent(
+            profile_store=self.profile_store,
+            max_tool_calls=self.run_context.max_tool_calls,
+            max_idle_rounds=self.run_context.max_idle_rounds,
+        )
+        await specialist.bind(self._model, self._checkpointer, **self._bind_kwargs)
+        self._specialists[name] = specialist
+        return specialist
+
+    async def bind(
+        self,
+        model: BaseChatModel,
+        checkpointer: BaseCheckpointSaver,
+        **build_kwargs: Any,
+    ) -> DatabotAgent:
+        self._model = model
+        self._checkpointer = checkpointer
+        self._bind_kwargs = dict(build_kwargs)
+        self._specialists.clear()
+        return await super().bind(model, checkpointer, **build_kwargs)
 
     async def build_graph(
         self,
@@ -100,6 +135,7 @@ class DatabotAgent(BaseAgent, RegistryScopedTools):
         graph = build_databot_graph(
             model,
             checkpointer=checkpointer,
+            runner=SpecialistRunner(get_specialist=self._get_specialist),
             system_prompt=self.system_prompt,
             max_tool_calls=self.run_context.max_tool_calls or DEFAULT_STAGE_MAX_TOOL_CALLS,
             profile_dir=self.default_profile_dir,

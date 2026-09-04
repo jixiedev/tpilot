@@ -127,6 +127,12 @@ class DatabotState(SessionAgentState):
     chart_requested: bool
     deny_feedback: str
 
+    # follow-up routing ------------------------------------------------------
+    # Set when a web/CLI follow-up arrives after ``stage`` was ``done``.
+    follow_up_turn: bool
+    # ``knowledge`` (clarify prior answer) vs ``requery`` (new fetch pipeline).
+    follow_up_intention: str
+
 
 # Per-turn databot fields reset at the start of each new question (CLI
 # ``prepare_turn_input`` and web entry-node follow-ups). ``messages`` and
@@ -149,6 +155,8 @@ FRESH_TURN_STATE_DEFAULTS: dict[str, Any] = {
     "halt_reason": "",
     "chart_requested": False,
     "deny_feedback": "",
+    "follow_up_turn": False,
+    "follow_up_intention": "",
     "tool_call_count": 0,
     "idle_rounds": 0,
     "failed_tools": [],
@@ -166,3 +174,49 @@ def fresh_turn_state_defaults() -> dict[str, Any]:
         else:
             fresh[key] = value
     return fresh
+
+
+# Pipeline fields cleared when a **new data-retrieval query** starts (requery
+# after follow-up classification, or CLI ``prepare_turn_input``). Not cleared
+# on knowledge follow-ups — cards / SQL / results stay visible in the UI.
+FRESH_PIPELINE_STATE_KEYS: tuple[str, ...] = (
+    "stage",
+    "staging_cards",
+    "committed_cards",
+    "review_cards",
+    "approved_cards",
+    "metric_conflicts",
+    "draft_sql",
+    "approved_sql",
+    "sql_validated",
+    "execution_result",
+    "gate_decisions",
+    "cards_reasons",
+    "sql_reasons",
+    "dryrun",
+    "halt_reason",
+    "chart_requested",
+    "deny_feedback",
+    "tool_call_count",
+    "idle_rounds",
+    "failed_tools",
+)
+
+
+def fresh_pipeline_state_defaults(*, stage: str = STAGE_FETCH) -> dict[str, Any]:
+    """Reset staged pipeline artifacts for a new warehouse query."""
+    full = fresh_turn_state_defaults()
+    patch = {key: full[key] for key in FRESH_PIPELINE_STATE_KEYS if key in full}
+    patch["stage"] = stage
+    return patch
+
+
+def fresh_follow_up_entry_defaults() -> dict[str, Any]:
+    """Bookkeeping reset when a follow-up message arrives; keeps pipeline artifacts."""
+    return {
+        "follow_up_turn": True,
+        "follow_up_intention": "",
+        "tool_call_count": 0,
+        "idle_rounds": 0,
+        "failed_tools": [],
+    }
