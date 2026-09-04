@@ -1,0 +1,19 @@
+{
+  "user_id": "jixie",
+  "role": "Senior Software Engineer",
+  "department": "Infrastructure - Data Platform",
+  "region": "",
+  "allowed_tables": [],
+  "forbidden_columns": [],
+  "language": "Chinese",
+  "timezone": "",
+  "default_time_granularity": "",
+  "preferred_currency": "USD",
+  "favorite_metrics": [
+    "Total Records",
+    "GMV"
+  ],
+  "favorite_dimensions": [
+    "Partition Date"
+  ]
+}

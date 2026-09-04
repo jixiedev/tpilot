@@ -13,7 +13,10 @@
       "https://airflow.s.tahoe.wish.site/api/v1",
       "--auth-token",
       "${AIRFLOW_MCP_AUTH_TOKEN}"
-    ]
+    ],
+    "env": {
+      "SSL_CERT_FILE": "/Users/cdpac/wbox/tpilot/tools/mcp/ssl/cacert.pem"
+    }
   },
   "airflow_legacy": {
     "transport": "stdio",
@@ -29,6 +32,9 @@
       "https://airflow.s.legacy.wish.site/api/v1",
       "--auth-token",
       "${AIRFLOW_LEGACY_MCP_AUTH_TOKEN}"
-    ]
+    ],
+    "env": {
+      "SSL_CERT_FILE": "/Users/cdpac/wbox/tpilot/tools/mcp/ssl/cacert.pem"
+    }
   }
 }

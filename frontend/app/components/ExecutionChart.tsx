@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import {
   Bar,
   BarChart,
@@ -156,12 +156,15 @@ const CHART_KIND_LABEL: Record<ChartKind, string> = {
 export function ExecutionChart({ result }: { result: ExecutionResult | undefined | null }) {
   const [override, setOverride] = useState<ChartKind | null>(null);
 
-  const shape = useMemo(() => {
-    if (!result || !result.columns || !result.rows) return null;
-    if (result.rows.length === 0) return null;
-    return inferShape(result.columns, result.rows);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [result?.columns?.join(","), result?.rows?.length, result?.error]);
+  // No memoization on purpose: the previous dependency list (column names +
+  // row count) could not see a change in the sampled row values, so a second
+  // query with the same columns would keep the previous chart kind. Shape
+  // inference only looks at one sample per column, so it is cheap enough to
+  // recompute on every render.
+  const shape =
+    result && result.columns && result.rows && result.rows.length > 0
+      ? inferShape(result.columns, result.rows)
+      : null;
 
   if (!hasExecutionResult(result)) {
     return <p className="muted">No execution result yet.</p>;

@@ -13,6 +13,20 @@ from state.state import SessionAgentState, has_prior_turns
 SpecialistSessionKind = Literal["specialist", "chain", "plan", "route"]
 
 
+def config_thread_id() -> str:
+    """Thread id for the active LangGraph run, or empty outside a run."""
+    try:
+        from langgraph.config import get_config
+
+        cfg = get_config()
+    except Exception:
+        return ""
+    configurable = cfg.get("configurable") if isinstance(cfg, dict) else None
+    if not isinstance(configurable, dict):
+        return ""
+    return str(configurable.get("thread_id") or "").strip()
+
+
 def specialist_session_id(
     parent: str,
     agent_name: str | int,

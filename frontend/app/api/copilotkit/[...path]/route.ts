@@ -22,18 +22,41 @@ import {
 // frontend's chat panel re-render.
 // ---------------------------------------------------------------------------
 
+// AG-UI backend base URL. Points at the shared ``/agui`` prefix on the
+// FastAPI process; each registered agent gets a sub-path under it
+// (``/agui/databot``, ``/agui/plan``). Override via the env var to
+// point at a remote deployment — the value MUST include the ``/agui``
+// prefix (or whatever ``AGUI_AGENT_PATH`` was set to on the backend).
+//
+// The default uses ``127.0.0.1`` rather than ``localhost`` on purpose:
+// ``localhost`` resolves to ``::1`` first on many hosts, and anything
+// already bound to the IPv6 loopback port (a ``kubectl port-forward`` to
+// JupyterHub, for example) then swallows the request — the runtime then
+// receives an HTML login page instead of AG-UI events and fails with
+// ``HTTP 403`` / ``INCOMPLETE_STREAM``. ``127.0.0.1`` can only ever be the
+// IPv4 loopback, where ``langgraph dev`` actually listens.
 const AGUI_BACKEND_URL =
-  process.env.AGUI_BACKEND_URL || "http://localhost:8000/agui";
+  process.env.AGUI_BACKEND_URL || "http://127.0.0.1:8000/agui";
 
 const runtime = new CopilotRuntime({
   agents: {
     // One HttpAgent per logical agent name. The CopilotKit runtime keys
     // its agent registry on this name; the frontend's ``useAgent`` and
     // the ``<CopilotKit agent="...">`` prop must use the same string.
+    //
+    // Each agent runs at ``{AGUI_BACKEND_URL}/{agent_name}``; the AG-UI
+    // server (``agui_server.py``) mounts one endpoint per registered
+    // agent under the shared ``/agui`` prefix. Adding a new specialist
+    // here is the only frontend change required to expose it.
     databot: new HttpAgent({
-      url: AGUI_BACKEND_URL,
+      url: `${AGUI_BACKEND_URL}/databot`,
       description:
         "Databot — staged data retrieval pipeline (RAG → human-gated SQL → execute).",
+    }),
+    plan: new HttpAgent({
+      url: `${AGUI_BACKEND_URL}/plan`,
+      description:
+        "Plan — decompose a request into ordered steps and delegate to specialists.",
     }),
   },
   // SSE mode. The real conversation state lives in checkpoints.sqlite

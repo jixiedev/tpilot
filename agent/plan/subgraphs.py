@@ -78,6 +78,7 @@ def build_create_plan_subgraph(
         route_after_reason=route_reason,
         route_after_action=route_action,
         max_tool_calls=max_tool_calls,
+        persist_plain_text=False,
         state_class=PlanState,
     )
 
@@ -112,6 +113,7 @@ def build_run_subagent_subgraph(
         max_tool_calls=max_tool_calls,
         on_tool_call=on_tool_call,
         on_tool_result=on_tool_result,
+        persist_plain_text=False,
         state_class=PlanState,
     )
 
@@ -138,5 +140,6 @@ def build_adjust_plan_subgraph(
         route_after_reason=route_reason,
         route_after_action=route_action,
         max_tool_calls=max_tool_calls,
+        persist_plain_text=False,
         state_class=PlanState,
     )

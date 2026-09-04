@@ -69,6 +69,38 @@
   gap: 0.85rem;
   flex-shrink: 0;
 }
+.databot-topbar-nav {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.18rem;
+  border-radius: 999px;
+  background: var(--db-fill);
+  border: 1px solid var(--db-border);
+}
+.databot-nav-link {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--db-muted);
+  text-decoration: none;
+  padding: 0.32rem 0.85rem;
+  border-radius: 999px;
+  transition: background 120ms ease, color 120ms ease;
+}
+.databot-nav-link:hover {
+  color: var(--db-text);
+  background: color-mix(in srgb, var(--db-surface) 75%, transparent);
+}
+.databot-nav-link--active {
+  color: var(--db-text);
+  background: var(--db-surface);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
+}
+@media (max-width: 900px) {
+  .databot-topbar-nav {
+    display: none;
+  }
+}
 .databot-new-chat-btn {
   flex-shrink: 0;
   font-size: 0.8rem;
@@ -213,6 +245,15 @@
 .databot-chat-column .databot-chat {
   flex: 1;
   min-height: 0;
+  height: 100%;
+  max-height: 100%;
+  overflow: hidden;
+}
+/* Keep the transcript inside the column. A growing scrollport paints over
+   the top bar and the composer. */
+.databot-chat-column [class*="overflow-y-auto"] {
+  min-height: 0;
+  max-height: 100%;
 }
 
 .databot-right-column {
@@ -1122,6 +1163,18 @@
 }
 .sql-regen > summary.btn {
   display: inline-flex;
+}
+.sql-conflict {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  font-size: 0.8rem;
+  padding: 0.5rem 0.6rem;
+  border-radius: 6px;
+  background: rgba(245, 158, 11, 0.12);
+  border: 1px solid rgba(245, 158, 11, 0.35);
+  color: var(--foreground);
 }
 
 /* -------------------------------------------------------------------------
@@ -2168,6 +2221,16 @@
   font-size: 0.75rem;
 }
 .tool-call-reason-list li {
+  margin: 0.2rem 0;
+}
+.tool-call-step-list {
+  margin: 0;
+  padding-left: 1.15rem;
+  color: var(--db-text);
+  font-size: 0.8rem;
+  line-height: 1.45;
+}
+.tool-call-step-list li {
   margin: 0.2rem 0;
 }
 .tool-call-badge {

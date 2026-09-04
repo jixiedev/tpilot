@@ -32,6 +32,9 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 ../docs/.env.local
+# local overrides for the AG-UI backend URL (AGUI_BACKEND_URL)
+/.env.local
+/.env.development.local
 
 # vercel
 .vercel

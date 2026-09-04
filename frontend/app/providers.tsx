@@ -5,7 +5,7 @@ import {
   useCallback,
   useContext,
   useLayoutEffect,
-  useState,
+  useSyncExternalStore,
 } from "react";
 import { CopilotKit } from "@copilotkit/react-core/v2";
 
@@ -20,6 +20,9 @@ type ColorSchemeContextValue = {
 
 const ColorSchemeContext = createContext<ColorSchemeContextValue | null>(null);
 
+/** Fired when this tab changes the stored preference, so every store re-reads. */
+const COLOR_SCHEME_EVENT = "tahoepilot-color-scheme-change";
+
 function readStoredTheme(): ColorScheme | null {
   try {
     const stored = localStorage.getItem(COLOR_SCHEME_STORAGE_KEY);
@@ -33,9 +36,28 @@ function systemTheme(): ColorScheme {
   return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
 }
 
+/** The effective theme: the explicit choice wins, otherwise follow the OS. */
+function currentTheme(): ColorScheme {
+  return readStoredTheme() ?? systemTheme();
+}
+
 function applyTheme(theme: ColorScheme) {
   document.documentElement.classList.toggle("dark", theme === "dark");
   document.documentElement.style.colorScheme = theme;
+}
+
+function subscribeToColorScheme(onChange: () => void) {
+  const media = window.matchMedia("(prefers-color-scheme: dark)");
+  // An explicit choice pins the theme; only follow the OS while unset.
+  const onMediaChange = () => {
+    if (!readStoredTheme()) onChange();
+  };
+  media.addEventListener("change", onMediaChange);
+  window.addEventListener(COLOR_SCHEME_EVENT, onChange);
+  return () => {
+    media.removeEventListener("change", onMediaChange);
+    window.removeEventListener(COLOR_SCHEME_EVENT, onChange);
+  };
 }
 
 export function useColorScheme(): ColorSchemeContextValue {
@@ -47,24 +69,20 @@ export function useColorScheme(): ColorSchemeContextValue {
 }
 
 function ColorSchemeProvider({ children }: { children: React.ReactNode }) {
-  const [theme, setThemeState] = useState<ColorScheme>("light");
+  // The theme lives in localStorage + the OS preference — external state.
+  // Reading it through useSyncExternalStore keeps React in sync without a
+  // "setState inside an effect" cascade, and gives us a correct server
+  // snapshot for hydration.
+  const theme = useSyncExternalStore(
+    subscribeToColorScheme,
+    currentTheme,
+    () => "light" as ColorScheme,
+  );
 
+  // Paint the resolved theme onto <html> before the browser paints.
   useLayoutEffect(() => {
-    const stored = readStoredTheme();
-    const next = stored ?? systemTheme();
-    applyTheme(next);
-    setThemeState(next);
-
-    const media = window.matchMedia("(prefers-color-scheme: dark)");
-    const onChange = () => {
-      if (readStoredTheme()) return;
-      const system = media.matches ? "dark" : "light";
-      applyTheme(system);
-      setThemeState(system);
-    };
-    media.addEventListener("change", onChange);
-    return () => media.removeEventListener("change", onChange);
-  }, []);
+    applyTheme(theme);
+  }, [theme]);
 
   const setTheme = useCallback((next: ColorScheme) => {
     try {
@@ -73,7 +91,7 @@ function ColorSchemeProvider({ children }: { children: React.ReactNode }) {
       // Private mode can reject storage; the class still updates this visit.
     }
     applyTheme(next);
-    setThemeState(next);
+    window.dispatchEvent(new Event(COLOR_SCHEME_EVENT));
   }, []);
 
   return (
@@ -103,7 +121,12 @@ export function ColorSchemeToggle() {
 
 export function Providers({ children }: { children: React.ReactNode }) {
   return (
-    <CopilotKit runtimeUrl="/api/copilotkit" agent="databot" useSingleEndpoint={false}>
+    <CopilotKit
+      runtimeUrl="/api/copilotkit"
+      agent="databot"
+      useSingleEndpoint={false}
+      enableInspector={false}
+    >
       <ColorSchemeProvider>{children}</ColorSchemeProvider>
     </CopilotKit>
   );

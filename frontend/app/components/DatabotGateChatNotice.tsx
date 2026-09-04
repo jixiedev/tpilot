@@ -1,20 +1,32 @@
 "use client";
 
 import { useAgent } from "@copilotkit/react-core/v2";
-import type { DatabotAgentState } from "./types";
-import { gateKindFromStage } from "./databotGateUtils";
+import {
+  selectGateInterrupt,
+  type GateKind,
+} from "./databotGateUtils";
 import { GateHelpPopover } from "./GateHelpPopover";
 import { useAgentRefresh } from "./useAgentRefresh";
 
-/** Compact chat notice while a human gate is pending. */
+/**
+ * Compact chat notice while a human gate is pending.
+ *
+ * The gate is detected from the pending interrupt rather than from the
+ * agent's ``stage``: the SQL subgraph flips ``stage`` to ``gate_sql`` as soon
+ * as the model writes the gate reasons, which is before the gate actually
+ * interrupts. Announcing "action required" that early would send the human
+ * looking for a decision that is not on the screen yet.
+ */
 export function DatabotGateChatBanner() {
   const { agent, isReady } = useAgent({ agentId: "databot" });
   useAgentRefresh(isReady ? agent : undefined, isReady);
 
-  const stage = (agent?.state as DatabotAgentState | undefined)?.stage;
-  const gateKind = gateKindFromStage(stage);
+  const pending = agent?.pendingInterrupts;
+  const cardsGate = selectGateInterrupt(pending, "cards");
+  const sqlGate = selectGateInterrupt(pending, "sql");
+  const gate: GateKind | null = cardsGate ? "cards" : sqlGate ? "sql" : null;
 
-  if (!isReady || !gateKind) {
+  if (!isReady || !gate) {
     return null;
   }
 
@@ -24,7 +36,7 @@ export function DatabotGateChatBanner() {
         <span className="chat-gate-notice-kicker">Action required</span>
         {" — "}
         Submit your decision in the <strong>gate panel on the right</strong>.
-        <GateHelpPopover gate={gateKind} className="chat-gate-notice-help" />
+        <GateHelpPopover gate={gate} className="chat-gate-notice-help" />
       </div>
     </div>
   );

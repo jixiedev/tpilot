@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import getpass
 from collections.abc import Callable, Sequence
 from dataclasses import replace
@@ -162,7 +163,15 @@ class BaseReactAgent(BaseAgent):
             compression_config,
             enable_compression=enable_compression,
         )
-        compressor = make_compressor(model, config) if config.enabled else None
+        # ``make_compressor`` touches the filesystem (the offload store), and
+        # this runs inside the ASGI event loop under ``langgraph dev`` — a
+        # blocking syscall there aborts the whole agent build. Keep the
+        # filesystem work off the loop.
+        compressor = (
+            await asyncio.to_thread(make_compressor, model, config)
+            if config.enabled
+            else None
+        )
 
         refine_prompt = self.run_context.refine_user_profile_prompt.strip()
         refine_user_profile_node = (

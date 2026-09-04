@@ -3,6 +3,7 @@
 import { useCallback, useState } from "react";
 import type { AbstractAgent } from "@ag-ui/client";
 import { buildResumeArray } from "@ag-ui/client";
+import { parseGateInterruptMessage } from "./databotGateUtils";
 import type { DatabotAgentState } from "./types";
 
 type UiAction =
@@ -31,13 +32,26 @@ async function postUiAction(
   threadId: string,
   payload: UiAction,
 ): Promise<ActionResponse> {
-  const response = await fetch("/api/databot/actions", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ thread_id: threadId, ...payload }),
-  });
+  let response: Response;
+  try {
+    response = await fetch("/api/databot/actions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ thread_id: threadId, ...payload }),
+    });
+  } catch {
+    throw new Error("Could not reach the agent backend");
+  }
 
-  const data = (await response.json()) as ActionResponse & { detail?: string };
+  let data: ActionResponse & { detail?: string };
+  try {
+    data = (await response.json()) as ActionResponse & { detail?: string };
+  } catch {
+    throw new Error(
+      `Agent backend returned a non-JSON response (${response.status})`,
+    );
+  }
+
   if (!response.ok) {
     const message =
       typeof data.detail === "string"
@@ -117,24 +131,36 @@ export function useDatabotActions(agent: AbstractAgent | undefined, isReady: boo
         throw new Error("agent not ready");
       }
 
-      const stage = (agent.state as DatabotAgentState | undefined)?.stage;
       const interrupts = agent.pendingInterrupts ?? [];
+      const sqlGateIds = new Set(
+        interrupts
+          .filter((i) => parseGateInterruptMessage(i.message)?.gate === "sql")
+          .map((i) => i.id)
+          .filter((id): id is string => Boolean(id)),
+      );
 
-      if (stage === "gate_sql" && interrupts.length > 0) {
+      // The SQL gate is open: answer the pending interrupt with
+      // "deny-comments". The backend turns that into a redraft request
+      // (stage -> sql, feedback queued) and the graph re-runs the SQL
+      // drafting step, so this is the only path that actually rewrites SQL.
+      if (sqlGateIds.size > 0) {
         setIsPending(true);
         setError(null);
         try {
           const responses: Record<
             string,
-            { status: "resolved"; payload: { decision: string; comments: string } }
+            | { status: "resolved"; payload: { decision: string; comments: string } }
+            | { status: "cancelled" }
           > = {};
           for (const interrupt of interrupts) {
             const id = interrupt.id;
             if (!id) continue;
-            responses[id] = {
-              status: "resolved",
-              payload: { decision: "deny-comments", comments: feedback },
-            };
+            responses[id] = sqlGateIds.has(id)
+              ? {
+                  status: "resolved",
+                  payload: { decision: "deny-comments", comments: feedback },
+                }
+              : { status: "cancelled" };
           }
           const resume = buildResumeArray(interrupts, responses);
           await agent.runAgent({ resume });
@@ -148,6 +174,7 @@ export function useDatabotActions(agent: AbstractAgent | undefined, isReady: boo
         return;
       }
 
+      // No gate open: queue the feedback for the next SQL drafting entry.
       await runPatch({
         action: "request_sql_regenerate",
         feedback,

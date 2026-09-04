@@ -6,13 +6,12 @@ import {
 } from "@copilotkit/react-core/v2";
 import { DatabotAssistantMessage } from "./DatabotAssistantMessage";
 import { DatabotGateChatBanner } from "./DatabotGateChatNotice";
-
-function HiddenReasoningMessage() {
-  return null;
-}
+import { HiddenReasoningMessage } from "./HiddenReasoningMessage";
 
 /** Chat message list with gate banner, no inspector chrome, and no reasoning/thinking rows. */
-export function DatabotMessageView(props: CopilotChatMessageViewProps) {
+function DatabotMessageViewImpl(
+  props: CopilotChatMessageViewProps,
+): React.JSX.Element {
   return (
     <CopilotChatMessageView
       {...props}
@@ -37,3 +36,13 @@ export function DatabotMessageView(props: CopilotChatMessageViewProps) {
     </CopilotChatMessageView>
   );
 }
+
+/**
+ * `messageView` is a CopilotKit slot typed as the library component, which
+ * carries a `Cursor` static. We render the cursor ourselves from the
+ * imported component, so the static is only re-attached to satisfy the
+ * slot contract.
+ */
+export const DatabotMessageView = Object.assign(DatabotMessageViewImpl, {
+  Cursor: CopilotChatMessageView.Cursor,
+});

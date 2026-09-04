@@ -7,6 +7,7 @@ from pathlib import Path
 
 from langchain.tools import tool
 
+from config.local_config import ensure_dir
 from tools.common import bind_tool_to_agent
 from tools.errors import ToolErrorType, register_exception
 
@@ -160,7 +161,10 @@ def _create(path: Path, file_text: str | None) -> str:
     if file_text is None:
         raise EditorError("Parameter `file_text` is required for command: create")
     parent = path.parent if path.parent else Path(".")
-    parent.mkdir(parents=True, exist_ok=True)
+    # Creating a directory is a blocking syscall; ``ensure_dir`` only calls
+    # ``os.mkdir`` when the parent is really missing, so writing into an
+    # existing directory stays safe inside the ASGI event loop.
+    ensure_dir(parent)
     path.write_text(file_text, encoding="utf-8")
     _file_history[str(path)].append(file_text)
     return f"File created successfully at: {path}"

@@ -13,6 +13,9 @@ was revised during review, mention only the material change (for example the dat
 short phrase — do not re-litigate the review thread.
 - Lead with the answer or outcome when execution succeeded; otherwise explain what was \
 discovered and what blocked a full answer.
+- If ``execution_result`` is empty but ``gate_revision_comments`` or ``gate_decisions`` \
+state a concrete figure for the user's question (a number, currency, and time window), \
+report that figure as the answer. Do not ask the user to open another review.
 - Mention the dbt models used (if any), the SQL approach in plain language, and a concise \
 interpretation of query results (key numbers, row counts).
 - If ``dryrun_preview_only`` is true, say results were preview-only and no profile artifact \
