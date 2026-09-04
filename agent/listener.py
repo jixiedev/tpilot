@@ -3,19 +3,14 @@
 from __future__ import annotations
 
 import json
-import re
 from typing import Any
 
 from langchain_core.messages import AIMessage
 
-from agent.turn import completion_tool_reply, current_turn_messages
+from agent.turn import current_turn_messages, last_user_visible_reply
 from state.state import SessionAgentState, last_ai_message, message_text
 
 _DEFAULT_RESULT_PREVIEW_CHARS = 2000
-_WRAPPED_COMPLETION_RE = re.compile(
-    r"""^\s*chat_completion\s*\(\s*reply\s*=\s*(?P<q>["'])(?P<body>.*)(?P=q)\s*\)\s*$""",
-    re.DOTALL | re.IGNORECASE,
-)
 
 
 class ReactAgentListener:
@@ -108,12 +103,10 @@ class CliReactListener(ReactAgentListener):
     def __init__(
         self,
         *,
-        completion_tool_name: str,
         silent_tool_names: frozenset[str] | None = None,
         result_preview_chars: int = _DEFAULT_RESULT_PREVIEW_CHARS,
     ) -> None:
-        self.completion_tool_name = completion_tool_name
-        self.silent_tool_names = silent_tool_names or frozenset({completion_tool_name})
+        self.silent_tool_names = silent_tool_names or frozenset()
         self.result_preview_chars = max(1, int(result_preview_chars))
 
     @staticmethod
@@ -244,29 +237,6 @@ class CliReactListener(ReactAgentListener):
             return None
         return "\n".join(lines)
 
-    def last_completion_reply(self, state: SessionAgentState) -> str | None:
-        """Return this turn's ``chat_completion`` reply, if any.
-
-        Prior-turn completions are ignored so an idle/plain-text end cannot
-        reprint the previous answer.
-        """
-        reply = completion_tool_reply(
-            state,
-            completion_tool_name=self.completion_tool_name,
-        )
-        if reply is None:
-            return None
-        return self.unwrap_completion_reply(reply)
-
-    @staticmethod
-    def unwrap_completion_reply(reply: str) -> str:
-        """Strip accidental ``chat_completion(reply=...)`` wrapping from local models."""
-        text = reply.strip()
-        match = _WRAPPED_COMPLETION_RE.match(text)
-        if match:
-            return match.group("body")
-        return reply
-
     def on_tool_call(self, name: str, args: dict) -> None:
         line = self.format_tool_call(name, args)
         if line:
@@ -282,12 +252,12 @@ class CliReactListener(ReactAgentListener):
             print(line)
 
     def on_turn_output(self, state: SessionAgentState) -> None:
-        reply = self.last_completion_reply(state)
-        if reply is None:
-            fallback = last_ai_message(current_turn_messages(state))
-            if fallback is not None:
-                print(f"Assistant> {self.message_text_content(fallback.content)}")
-                return
-            print(f"Assistant> (no reply; expected {self.completion_tool_name})")
+        reply = last_user_visible_reply(state)
+        if reply:
+            print(f"Assistant> {reply}")
             return
-        print(f"Assistant> {reply}")
+        fallback = last_ai_message(current_turn_messages(state))
+        if fallback is not None:
+            print(f"Assistant> {self.message_text_content(fallback.content)}")
+            return
+        print("Assistant> (no reply)")

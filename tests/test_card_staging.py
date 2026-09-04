@@ -44,6 +44,7 @@ def test_add_card_selections_resolves_from_staging() -> None:
         ],
     )
     assert "committed 1" in note
+    assert "fct_orders" in note
     assert len(updated) == 1
     assert updated[0]["staging_id"] == sid
     assert updated[0]["selected_dimensions"] == ["order_date"]
@@ -85,3 +86,81 @@ def test_parse_card_selection_accepts_aliases() -> None:
     assert parsed["staging_id"] == "x_123"
     assert parsed["selected_dimensions"] == ["dt"]
     assert parsed["selected_metrics"] == ["revenue"]
+
+
+def test_commit_resolves_stale_staging_id_from_approved_cards() -> None:
+    sid = "fct_transaction_variations_294663db"
+    updated, note = apply_add_card_selections(
+        staging_cards=[],
+        committed_cards=[],
+        approved_cards=[
+            {
+                "staging_id": sid,
+                "name": "fct_transaction_variations",
+                "columns": [{"name": "shipping_country"}],
+                "metrics": [{"name": "gmv"}],
+            }
+        ],
+        selections=[
+            {
+                "staging_id": sid,
+                "selected_dimensions": ["shipping_country"],
+                "selected_metrics": ["gmv"],
+            }
+        ],
+    )
+    assert "unknown staging_id" not in note
+    assert len(updated) == 1
+    assert updated[0]["name"] == "fct_transaction_variations"
+
+
+def test_commit_prefers_this_turn_staging_over_approved_cards() -> None:
+    current = new_staging_id("fct_transaction_variations")
+    updated, _note = apply_add_card_selections(
+        staging_cards=[
+            {
+                "staging_id": current,
+                "name": "fct_transaction_variations",
+                "description": "this turn",
+            }
+        ],
+        committed_cards=[],
+        approved_cards=[
+            {
+                "staging_id": "fct_transaction_variations_294663db",
+                "name": "fct_transaction_variations",
+                "description": "last turn",
+            }
+        ],
+        selections=[{"staging_id": "fct_transaction_variations_294663db"}],
+    )
+    assert updated[0]["staging_id"] == current
+    assert updated[0]["description"] == "this turn"
+
+
+def test_commit_resolves_stale_staging_id_by_model_name() -> None:
+    current = new_staging_id("fct_transaction_variations")
+    staging = [
+        {
+            "staging_id": current,
+            "name": "fct_transaction_variations",
+            "columns": [{"name": "shipping_country"}],
+            "metrics": [{"name": "gmv"}],
+        }
+    ]
+    updated, note = apply_add_card_selections(
+        staging_cards=staging,
+        committed_cards=[],
+        selections=[
+            {
+                "staging_id": "fct_transaction_variations_294663db",
+                "selected_dimensions": ["shipping_country"],
+                "selected_metrics": ["gmv"],
+            }
+        ],
+    )
+    assert "unknown staging_id" not in note
+    assert len(updated) == 1
+    assert updated[0]["staging_id"] == current
+    assert updated[0]["name"] == "fct_transaction_variations"
+    assert updated[0]["selected_dimensions"] == ["shipping_country"]

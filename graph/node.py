@@ -13,13 +13,39 @@ from graph.error_recovery import (
     make_handle_tool_errors,
     make_retrying_tool_wrapper,
 )
-from graph.messages import sanitize_messages_for_strict_tool_providers
+from graph.messages import (
+    is_internal_assistant_narration,
+    message_content_to_str,
+    sanitize_messages_for_strict_tool_providers,
+    strip_ai_content_for_tool_calls,
+)
 from state.state import SessionAgentState
 from tools.errors import StructuredToolError
 
 DEFAULT_HANDLE_TOOL_ERRORS = make_handle_tool_errors()
 DEFAULT_WRAP_TOOL_CALL = make_retrying_tool_wrapper()
 DEFAULT_AWRAP_TOOL_CALL = make_async_retrying_tool_wrapper()
+
+
+def _response_for_checkpoint(
+    response: AIMessage,
+    *,
+    persist_plain_text: bool,
+) -> AIMessage | None:
+    """Decide what assistant output to append to session history."""
+    if response.tool_calls:
+        text = message_content_to_str(response.content)
+        if not persist_plain_text:
+            return strip_ai_content_for_tool_calls(response)
+        if text and (
+            len(text) > 120
+            or is_internal_assistant_narration(text)
+        ):
+            return strip_ai_content_for_tool_calls(response)
+        return response
+    if persist_plain_text:
+        return response
+    return None
 
 
 class StepActionNode(ToolNode):
@@ -116,6 +142,8 @@ def make_step_reason_node(
     max_tool_calls: int = 10,
     on_reason_start: Callable[[int, int, int], None] | None = None,
     on_reason_step: Callable[[AIMessage], None] | None = None,
+    *,
+    persist_plain_text: bool = True,
 ):
     """Build the ReAct ``step_reason`` node: one model call, then update idle state.
 
@@ -158,8 +186,16 @@ def make_step_reason_node(
             on_reason_step(response)
 
         # MessagesState.add_messages appends `response`; it does not replace history.
-        update: dict[str, Any] = {"messages": [response]}
-        if response.tool_calls:
+        update: dict[str, Any] = {}
+        response_for_history = (
+            _response_for_checkpoint(response, persist_plain_text=persist_plain_text)
+            if isinstance(response, AIMessage)
+            else response
+        )
+        if response_for_history is not None:
+            update["messages"] = [response_for_history]
+        tool_calls = getattr(response, "tool_calls", None) or []
+        if tool_calls:
             update["idle_rounds"] = 0
         else:
             # Plain text: count as an idle round for route_after_reason / nudge logic.

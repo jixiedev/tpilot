@@ -92,6 +92,11 @@ def make_classify_follow_up_node(
             return {"follow_up_intention": FOLLOW_UP_INTENTION_REQUERY}
 
         question = latest_human_text(state) or ""
+        if not question.strip():
+            return {
+                "follow_up_intention": FOLLOW_UP_INTENTION_REQUERY,
+                "follow_up_turn": False,
+            }
         context = _conversation_context(state.get("messages") or [])
         prompt_messages = [
             SystemMessage(content=CLASSIFY_FOLLOW_UP_SYSTEM_PROMPT),

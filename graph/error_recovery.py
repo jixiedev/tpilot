@@ -25,7 +25,7 @@ DEFAULT_LLM_RETRY_BASE_DELAY = 0.5
 _TOOL_RECOVERY_PROMPT = """\
 A tool step failed after automatic retries. Review the latest TOOL ERROR JSON \
 (`tool`, `hint`, optional `fallback_tool` as plan B) and either switch tools / fix \
-arguments or call `chat_completion` with a clear explanation for the user.
+arguments or write a clear explanation for the user with no further tool calls.
 """
 
 T = TypeVar("T")

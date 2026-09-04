@@ -6,29 +6,24 @@ import {
 } from "@copilotkit/react-core/v2";
 import {
   assistantMessageHasToolCalls,
-  isChatCompletionOnlyMessage,
   isHiddenAssistantNarration,
+  stripThinkBlocks,
 } from "./databotChatUtils";
 
-function HiddenToolCallsView() {
-  return null;
-}
-
-/** Hide thinking/planning; show user-facing prose (including short lines with tool calls). */
+/** Hide thinking/planning; show user-facing prose when there are no tool calls. */
 export function DatabotAssistantMessage(props: CopilotChatAssistantMessageProps) {
   const hasToolCalls = assistantMessageHasToolCalls(props.message);
-  const content = (props.message.content || "").trim();
-  const chatCompletionOnly = isChatCompletionOnlyMessage(props.message);
-  const hideNarration = isHiddenAssistantNarration(content);
+  const rawContent = (props.message.content || "").trim();
+  const content = stripThinkBlocks(rawContent);
+  const hideNarration = isHiddenAssistantNarration(rawContent);
+  const hideContent =
+    hideNarration || (hasToolCalls && content.length > 200);
 
-  if (!hasToolCalls && hideNarration) {
+  if (!hasToolCalls && (hideNarration || !content)) {
     return null;
   }
-  if (!hasToolCalls && !content) {
-    return null;
-  }
 
-  const showMarkdown = content.length > 0 && !hideNarration;
+  const showMarkdown = content.length > 0 && !hideContent;
 
   return (
     <CopilotChatAssistantMessage
@@ -36,7 +31,6 @@ export function DatabotAssistantMessage(props: CopilotChatAssistantMessageProps)
       inspectorButton={() => null}
       toolbarVisible={false}
       markdownRenderer={showMarkdown ? undefined : () => null}
-      toolCallsView={chatCompletionOnly && showMarkdown ? HiddenToolCallsView : undefined}
     />
   );
 }

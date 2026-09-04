@@ -22,7 +22,7 @@ DATABOT_CHAT_STYLE_RULES: tuple[str, ...] = (
     "Never narrate internal checklists, tool names, JSON/tool return values, stage names, or "
     "validation flags in message text — the UI tool trace shows technical detail.",
     "Do not paste evidence dumps or planning monologue; save the full answer for "
-    "`chat_completion(reply=...)`.",
+    "assistant message text with no tool calls.",
 )
 
 
@@ -56,9 +56,8 @@ class DatabotSystemPrompt(TahoeSystemPrompt):
 
     def output(self) -> str:
         return (
-            "Deliver the full retrieval answer via `chat_completion(reply=...)`. "
+            "Deliver the full retrieval answer in assistant message text with no tool calls. "
             "Status lines during tool use must follow the Chat style rules. "
-            "Do not put the final answer only in assistant message text."
         )
 
     def data_prohibitions(self) -> list[str]:
@@ -95,7 +94,7 @@ class DatabotSystemPrompt(TahoeSystemPrompt):
             "unless the payload is `=== TOOL ERROR ===`. "
             "Quote the exact error text when speaking to the user; do not describe vague \"technical issues\". "
             "After at most one retry with a different metric name, stop glossary lookup and "
-            "`chat_completion` to explain that DataHub glossary is unavailable or inconclusive — "
+            "explain that DataHub glossary is unavailable or inconclusive — "
             "do not fall back to wildcard search, unconstrained `search`, or warehouse catalog browsing.",
             "Do not skip glossary lookup and browse Hive/Trino catalogs when a metric definition is still required.",
             "Cite the glossary term name and definition you found. If no glossary term is found, "

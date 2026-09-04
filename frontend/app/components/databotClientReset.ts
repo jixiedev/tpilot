@@ -14,6 +14,7 @@ export const EMPTY_DATABOT_STATE: DatabotAgentState = {
   sql_validated: false,
   gate_decisions: [],
   cards_reasons: {},
+  cards_selection_summary: "",
   sql_reasons: {},
   dryrun: false,
   halt_reason: "",

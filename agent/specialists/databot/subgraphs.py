@@ -32,10 +32,8 @@ from agent.specialists.databot.prompts.sql import (
 from agent.specialists.databot.state import DatabotState
 from agent.plan.stage_tools import SpecialistRunner
 from agent.router import CompletionToolRouter
-from agent.runtime.tahoe_runtime_helper import CHAT_COMPLETION_TOOL_NAME
 from agent.specialists.databot.knowledge_tools import make_invoke_knowledge_tool
 from graph.builder import build_react_graph, static_system_prompt
-from tools.common import find_tool
 
 logger = logging.getLogger(__name__)
 
@@ -62,6 +60,7 @@ _KNOWLEDGE_FOLLOW_UP_CONTEXT = AgentRunContext(
     idle_nudge_prompt=KNOWLEDGE_FOLLOW_UP_NEXT_STEP_PROMPT,
     tool_budget_exhausted_prompt=KNOWLEDGE_FOLLOW_UP_TOOL_BUDGET_PROMPT,
     refine_user_profile_prompt="",
+    max_idle_rounds=1,
 )
 
 
@@ -80,11 +79,7 @@ def _stage_state_exit_router(
         action_end_outlet="__end__",
         state_exit_keys=state_exit_keys,
     )
-    router = CompletionToolRouter(
-        run_context,
-        router_config,
-        completion_tool_name=None,
-    )
+    router = CompletionToolRouter(run_context, router_config)
     return router.route_after_reason(), router.route_after_action()
 
 
@@ -118,6 +113,7 @@ def build_fetch_cards_subgraph(
         idle_nudge_prompt=_FETCH_RUN_CONTEXT.idle_nudge_prompt,
         tool_budget_exhausted_prompt=_FETCH_RUN_CONTEXT.tool_budget_exhausted_prompt,
         max_tool_calls=max_tool_calls,
+        persist_plain_text=False,
         state_class=DatabotState,
     )
 
@@ -154,6 +150,7 @@ def build_generate_sql_subgraph(
         idle_nudge_prompt=_SQL_RUN_CONTEXT.idle_nudge_prompt,
         tool_budget_exhausted_prompt=_SQL_RUN_CONTEXT.tool_budget_exhausted_prompt,
         max_tool_calls=max_tool_calls,
+        persist_plain_text=False,
         state_class=DatabotState,
     )
 
@@ -166,25 +163,18 @@ def build_knowledge_follow_up_subgraph(
     max_tool_calls: int,
     max_idle_rounds: int = 3,
 ) -> CompiledStateGraph:
-    """ReAct loop for knowledge clarifications: delegate to Knowledge, then ``chat_completion``."""
+    """ReAct loop for knowledge clarifications: delegate to Knowledge, then reply in text."""
     from agent.specialists.databot.tool_scopes import TOOL_ID_DEFAULT, databot_tools
 
     tools = list(databot_tools(TOOL_ID_DEFAULT))
     invoke_tool = make_invoke_knowledge_tool(runner)
     tools.append(invoke_tool)
-    if find_tool(tools, CHAT_COMPLETION_TOOL_NAME) is None:
-        raise KeyError("databot: chat_completion missing from identifier 'default'")
 
     run_context = AgentRunContext(
         max_tool_calls=max_tool_calls,
-        max_idle_rounds=max_idle_rounds,
+        max_idle_rounds=_KNOWLEDGE_FOLLOW_UP_CONTEXT.max_idle_rounds,
     )
-    router_config = RouterConfig(action_end_outlet="__end__")
-    router = CompletionToolRouter(
-        run_context,
-        router_config,
-        completion_tool_name=CHAT_COMPLETION_TOOL_NAME,
-    )
+    router = CompletionToolRouter(run_context, RouterConfig())
     route_reason, route_action = router.route_after_reason(), router.route_after_action()
 
     return build_react_graph(
@@ -198,5 +188,6 @@ def build_knowledge_follow_up_subgraph(
         idle_nudge_prompt=_KNOWLEDGE_FOLLOW_UP_CONTEXT.idle_nudge_prompt,
         tool_budget_exhausted_prompt=_KNOWLEDGE_FOLLOW_UP_CONTEXT.tool_budget_exhausted_prompt,
         max_tool_calls=max_tool_calls,
+        persist_plain_text=True,
         state_class=DatabotState,
     )

@@ -41,7 +41,6 @@ def test_plan_tool_scopes_registered() -> None:
     default_names = {t.name for t in get_agent_tools("plan", TOOL_ID_DEFAULT)}
     assert "create_plan" in default_names
     assert "planning" in default_names
-    assert "chat_completion" in default_names
 
 
 @pytest.mark.asyncio
@@ -50,4 +49,3 @@ async def test_plan_agent_create_loads_default_tools() -> None:
     names = {getattr(tool, "name", "") for tool in agent.tools}
     assert "create_plan" in names
     assert "planning" in names
-    assert "chat_completion" in names

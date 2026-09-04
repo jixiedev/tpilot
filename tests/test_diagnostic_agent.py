@@ -53,7 +53,6 @@ async def test_diagnostic_tools_include_infra_and_airflow_mcp() -> None:
         agent = await DiagnosticAgent.create(enable_compression_tools=False)
 
     names = {getattr(tool, "name", "") for tool in agent.tools}
-    assert "chat_completion" in names
     assert "get_dag_runs" in names
     assert "get_log" in names
     assert "k8s_list_pods" in names

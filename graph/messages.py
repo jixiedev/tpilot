@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any
 
 from langchain_core.messages import AIMessage, BaseMessage, ToolMessage
@@ -29,15 +30,94 @@ def message_content_to_str(content: Any) -> str:
     return str(content).strip()
 
 
+_THINK_BLOCK_RE = re.compile(
+    r"<think>.*?</think>",
+    flags=re.IGNORECASE | re.DOTALL,
+)
+
+
+def strip_think_blocks(text: str) -> str:
+    """Remove ``<think>…</think>`` (and unclosed ``<think>``) from model output."""
+    if not text:
+        return ""
+    cleaned = _THINK_BLOCK_RE.sub("", text)
+    lower = cleaned.lower()
+    if "<think>" in lower:
+        cleaned = cleaned[: lower.index("<think>")]
+    return cleaned.strip()
+
+
+_MAX_USER_VISIBLE_STATUS_CHARS = 120
+
+
+def is_internal_assistant_narration(text: str) -> bool:
+    """Heuristic: ReAct planning / third-person monologue, not user-facing status."""
+    normalized = text.strip()
+    if not normalized:
+        return False
+    lower = normalized.lower()
+    if re.match(
+        r"^(let me |i need to |i'll |i will |maybe i |actually |actually wait|"
+        r"the user |looking at the|i've validated|i have validated|i validated|"
+        r"i already provided|i should call |wait, |hmm,|so the )",
+        normalized,
+        flags=re.IGNORECASE,
+    ):
+        return True
+    if any(
+        phrase in lower
+        for phrase in (
+            "没有新的",
+            "等你下一条",
+            "等你下一个",
+            "latest message is empty",
+            "no new question",
+            "no actual new question",
+            "system reminder",
+            "invoke_knowledge",
+            "fetch_related_models",
+            "commit_cards",
+            "trino_explain",
+            "propose_sql",
+            "write_gate_reasons",
+            "ok=true",
+            "returned ok",
+            "view in inspector",
+            "emit only tool",
+            "take exactly one action",
+            "[blocked]",
+        )
+    ):
+        return True
+    if re.search(r"\bthe user (wants|is asking)\b", lower) or re.search(
+        r"\bthey asked\b", lower
+    ):
+        return True
+    if re.search(r"\bmy (task|job) is\b", lower):
+        return True
+    # Long SQL/date reasoning without a tool call is almost always internal.
+    if len(normalized) > 200 and (
+        "date_trunc" in lower
+        or "current_date" in lower
+        or "interval '" in lower
+        or "add_months" in lower
+    ):
+        return True
+    return False
+
+
 def _tool_call_ids(tool_calls: list[dict[str, Any]]) -> list[str]:
     return [str(call.get("id") or "") for call in tool_calls if call.get("id")]
 
 
-def _strip_ai_content_for_tool_calls(message: AIMessage) -> AIMessage:
-    """MiniMax / GLM replay often rejects assistant text mixed with tool_calls."""
+def strip_ai_content_for_tool_calls(message: AIMessage) -> AIMessage:
+    """Drop assistant prose when the turn is carried by ``tool_calls``."""
     if not message.tool_calls or not message.content:
         return message
     return message.model_copy(update={"content": ""})
+
+
+_strip_ai_content_for_tool_calls = strip_ai_content_for_tool_calls
 
 
 def sanitize_messages_for_strict_tool_providers(

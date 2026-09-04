@@ -42,25 +42,32 @@ Tools:
 - ``invoke_knowledge(task=...)`` — delegate to the Knowledge specialist (DataHub glossary, \
 dataset docs, Jira, catalog search). Pass a self-contained task: include the user's question \
 and any relevant field/metric names from the chat history.
-- ``chat_completion(reply=...)`` — deliver the final user-facing answer once you have enough \
-evidence.
 
 Rules:
-- Read the chat history for the prior question, answer, and field names the user is asking about.
-- Call ``invoke_knowledge`` at least once before ``chat_completion`` unless the chat history \
-already contains a definitive glossary definition for the exact term.
-- Synthesize the Knowledge specialist output into a concise answer; do not paste raw tool dumps.
+- Read the chat history for the prior question, answer, committed cards, and field names.
+- When cards, SQL, or prior answers already define the term, write the answer in message \
+text with no tool calls — do **not** call ``invoke_knowledge`` first.
+- If the user asks what specific code values mean (e.g. US, AU, CH), map each to its country \
+name in the reply.
+- If the follow-up was already answered in this thread, write a short recap — never say \
+there is "no new question" or ask the user to wait for their next message.
+- Call ``invoke_knowledge`` only when catalog / glossary evidence is still missing.
+- If ``invoke_knowledge`` fails, answer from thread evidence immediately.
+- **Never** emit planning monologue as the final reply — user-facing prose is assistant text \
+with no tool calls.
+- Synthesize evidence into a concise answer; do not paste raw tool dumps.
 - Do not run warehouse SQL, card discovery, or staged pipeline tools in this phase.
 - Match the user's language (Chinese or English).
 """
 
 KNOWLEDGE_FOLLOW_UP_NEXT_STEP_PROMPT = """\
-Review the latest user follow-up and prior chat context. Either call ``invoke_knowledge`` with \
-a focused task, or call ``chat_completion`` when you can answer from evidence already in the \
-thread.
+Answer the latest user follow-up in message text (no tools) when you can, using evidence in the \
+thread. Call ``invoke_knowledge`` only if glossary or catalog context is still missing. \
+Do not reply that there is nothing to do.
 """
 
 KNOWLEDGE_FOLLOW_UP_TOOL_BUDGET_PROMPT = """\
-Tool budget reached. Call ``chat_completion`` now with the best answer you can give from the \
-Knowledge specialist output and chat history. State any remaining uncertainty plainly.
+Tool budget reached. Write the best answer you can give from the \
+Knowledge specialist output and chat history. State any remaining uncertainty plainly. \
+Do not call more tools.
 """

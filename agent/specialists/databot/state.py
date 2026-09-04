@@ -96,8 +96,10 @@ class DatabotState(SessionAgentState):
     # Cards shown at the human cards gate (copied from ``committed_cards`` by
     # ``prepare_cards_for_gate``; UI may edit via ``update_card_selection``).
     review_cards: list[dict[str, Any]]
-    # Cards the human approved. Hydrated to ``TableCard`` objects; downstream
-    # SQL generation reads this set as the "working schema" for the query.
+    # Cards the human approved. SQL generation reads this as the working
+    # schema. Follow-up requery keeps this list so ``commit_cards`` can
+    # resolve last turn's ``staging_id``s; this-turn ``staging_cards`` stays empty
+    # until fetch. Overwritten when the cards gate approves a new set.
     approved_cards: list[dict[str, Any]]
     # Glossary / dbt-metric conflicts the LLM surfaced but did NOT fix.
     # Each entry: {"card_name": str, "metric": str, "glossary_term": str,
@@ -120,6 +122,8 @@ class DatabotState(SessionAgentState):
     # ``sql_reasons``) before its stage exits; the gate node reads from
     # here when building the interrupt prompt.
     cards_reasons: dict[str, str]
+    # Factual summary of committed models for the cards gate UI (not option copy).
+    cards_selection_summary: str
     sql_reasons: dict[str, str]
     # Per-turn flags written by the gate / persistence nodes.
     dryrun: bool
@@ -150,6 +154,7 @@ FRESH_TURN_STATE_DEFAULTS: dict[str, Any] = {
     "execution_result": {},
     "gate_decisions": [],
     "cards_reasons": {},
+    "cards_selection_summary": "",
     "sql_reasons": {},
     "dryrun": False,
     "halt_reason": "",
@@ -176,15 +181,14 @@ def fresh_turn_state_defaults() -> dict[str, Any]:
     return fresh
 
 
-# Pipeline fields cleared when a **new data-retrieval query** starts (requery
-# after follow-up classification, or CLI ``prepare_turn_input``). Not cleared
-# on knowledge follow-ups — cards / SQL / results stay visible in the UI.
+# Pipeline fields cleared on follow-up **requery**. ``approved_cards`` is left
+# in place so ``commit_cards`` can reuse last turn's models; CLI new questions
+# use ``fresh_turn_state_defaults`` instead. Knowledge follow-ups do not clear.
 FRESH_PIPELINE_STATE_KEYS: tuple[str, ...] = (
     "stage",
     "staging_cards",
     "committed_cards",
     "review_cards",
-    "approved_cards",
     "metric_conflicts",
     "draft_sql",
     "approved_sql",
@@ -192,6 +196,7 @@ FRESH_PIPELINE_STATE_KEYS: tuple[str, ...] = (
     "execution_result",
     "gate_decisions",
     "cards_reasons",
+    "cards_selection_summary",
     "sql_reasons",
     "dryrun",
     "halt_reason",

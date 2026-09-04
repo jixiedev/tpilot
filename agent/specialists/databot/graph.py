@@ -10,7 +10,7 @@ from typing import Any
 from agent.runtime.tahoe_runtime_helper import DEFAULT_PROFILE_DIR
 
 from langchain_core.language_models import BaseChatModel
-from langchain_core.messages import HumanMessage
+from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from langchain_core.tools import BaseTool
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph import END, START, StateGraph
@@ -66,7 +66,8 @@ from agent.specialists.databot.tool_scopes import (
     TOOL_ID_SQL,
 )
 from graph.builder import make_inject_system_prompt_node, static_system_prompt
-from state.state import SessionAgentState
+from graph.messages import is_internal_assistant_narration, strip_think_blocks
+from state.state import SessionAgentState, message_text
 from tools.bootstrap import ensure_tools_registered
 from tools.common import find_tool
 
@@ -141,13 +142,49 @@ def _message_is_human(message: Any) -> bool:
     return False
 
 
+def _message_content(message: Any) -> str:
+    if isinstance(message, dict):
+        return message_text(message.get("content"))
+    return message_text(getattr(message, "content", None))
+
+
+def _message_is_user_visible_ai(message: Any) -> bool:
+    """True when this assistant message is something the chat sidebar should show."""
+    if isinstance(message, ToolMessage) or _message_type(message) == "tool":
+        return False
+    if not (_message_type(message) == "ai" or isinstance(message, AIMessage)):
+        return False
+    if getattr(message, "tool_calls", None):
+        return False
+    text = strip_think_blocks(_message_content(message))
+    if not text:
+        return False
+    return not is_internal_assistant_narration(text)
+
+
+def _human_has_substantive_reply_after(messages: list[Any], human_index: int) -> bool:
+    """True when a user-visible assistant reply already follows this human turn."""
+    for message in messages[human_index + 1 :]:
+        if _message_is_human(message):
+            return False
+        if _message_is_user_visible_ai(message):
+            return True
+        if _message_type(message) in _TRAILING_REPLAY_ARTIFACT_TYPES:
+            continue
+    return False
+
+
 def _trailing_human_wants_new_turn(state: DatabotState) -> bool:
-    """True when the latest message is a new user turn (web chat follow-up).
+    """True when the latest non-empty user message has not been answered yet.
 
     The CLI calls ``prepare_turn_input`` with a fresh partial state each
     time, but the CopilotKit / AG-UI path appends ``HumanMessage``s to the
     checkpoint and re-invokes with ``stage`` still ``"done"``. Without this
     guard the router sends those runs straight to ``end_with_summary``.
+
+    Empty human placeholders (CopilotKit sync noise) are ignored. A follow-up
+    that already has a user-visible ``AIMessage`` reply does not re-enter the
+    knowledge / requery path on graph re-invocation.
 
     Replay paths may append ``RemoveMessage`` / ``ToolMessage`` /
     ``FunctionMessage`` after the user text; those are skipped when scanning
@@ -157,10 +194,15 @@ def _trailing_human_wants_new_turn(state: DatabotState) -> bool:
     messages = state.get("messages") or []
     if not messages:
         return False
-    for message in reversed(messages):
+    for index in range(len(messages) - 1, -1, -1):
+        message = messages[index]
         if _message_type(message) in _TRAILING_REPLAY_ARTIFACT_TYPES:
             continue
-        return _message_is_human(message)
+        if not _message_is_human(message):
+            continue
+        if not _message_content(message):
+            continue
+        return not _human_has_substantive_reply_after(messages, index)
     return False
 
 
@@ -291,8 +333,6 @@ def _build_stage_tool_lists() -> tuple[list[BaseTool], list[BaseTool], BaseTool 
         raise KeyError(
             "databot: commit_cards missing — register under identifier 'fetch'"
         )
-    if find_tool(fetch_tools, "chat_completion") is None:
-        raise KeyError("databot: chat_completion missing from identifier 'fetch'")
     if find_tool(sql_tools, "trino_explain") is None:
         raise KeyError(
             "databot: trino_explain missing from identifier 'sql' — "

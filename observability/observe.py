@@ -26,12 +26,7 @@ class ToolResultRecord:
 class EvalReactListener(ReactAgentListener):
     """Records reason steps and tool traffic for a single eval turn."""
 
-    def __init__(
-        self,
-        *,
-        completion_tool_name: str = "chat_completion",
-    ) -> None:
-        self.completion_tool_name = completion_tool_name
+    def __init__(self) -> None:
         self.tool_calls: list[ToolCallRecord] = []
         self.tool_results: list[ToolResultRecord] = []
         self.reason_steps: list[AIMessage] = []
@@ -55,13 +50,8 @@ class EvalReactListener(ReactAgentListener):
     def on_turn_output(self, state: SessionAgentState) -> None:
         return None
 
-    def tool_names(self, *, include_completion: bool = False) -> list[str]:
-        names: list[str] = []
-        for record in self.tool_calls:
-            if not include_completion and record.name == self.completion_tool_name:
-                continue
-            names.append(record.name)
-        return names
+    def tool_names(self) -> list[str]:
+        return [record.name for record in self.tool_calls]
 
     @property
     def reason_round_count(self) -> int:

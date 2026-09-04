@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from agent.runtime.prompt import (
-    IDLE_CHAT_COMPLETION_PROMPT as _TAHOE_IDLE,
     NEXT_STEP_PROMPT as _TAHOE_NEXT_STEP,
     REFINE_USER_PROFILE_PROMPT as _TAHOE_REFINE,
     SESSION_TURN_BOUNDARY as _SHARED_SESSION_TURN_BOUNDARY,
@@ -13,7 +12,6 @@ from agent.runtime.prompt import (
 
 SESSION_TURN_BOUNDARY = _SHARED_SESSION_TURN_BOUNDARY
 NEXT_STEP_PROMPT = _TAHOE_NEXT_STEP
-IDLE_CHAT_COMPLETION_PROMPT = _TAHOE_IDLE
 TOOL_BUDGET_EXHAUSTED_PROMPT = _TAHOE_BUDGET
 REFINE_USER_PROFILE_PROMPT = _TAHOE_REFINE
 
@@ -38,7 +36,7 @@ class DataAnalysisSystemPrompt(TahoeSystemPrompt):
             "For charts, use `python_execute` with pandas/matplotlib (or seaborn). "
             "`python_execute` only shows printed output — save figures with "
             "`savefig(...)` and print the absolute file path; describe the chart in "
-            "`chat_completion`. Do not assume inline images reach the user.",
+            "your final text reply. Do not assume inline images reach the user.",
             "Use `s3_list_objects` / `s3_get_object` when the source is object storage rather "
             "than the warehouse. Prefer Trino when Hive HMS is unavailable.",
             "State assumptions, sample sizes, filters, and caveats. Put key numbers in the "

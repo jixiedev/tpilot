@@ -3,11 +3,10 @@ from __future__ import annotations
 from langchain_core.messages import AIMessage
 
 from agent.listener import CliReactListener
-from agent.runtime.tahoe_runtime_helper import CHAT_COMPLETION_TOOL_NAME
 
 
 def _listener() -> CliReactListener:
-    return CliReactListener(completion_tool_name=CHAT_COMPLETION_TOOL_NAME)
+    return CliReactListener()
 
 
 _TOOL_CALL = {
@@ -129,12 +128,8 @@ def test_on_reason_step_silent_without_tools(capsys) -> None:
     assert capsys.readouterr().out == ""
 
 
-def test_format_tool_result_preview_and_silent_completion() -> None:
-    listener = CliReactListener(
-        completion_tool_name=CHAT_COMPLETION_TOOL_NAME,
-        result_preview_chars=20,
-    )
-    assert listener.format_tool_result(CHAT_COMPLETION_TOOL_NAME, "hi") is None
+def test_format_tool_result_preview() -> None:
+    listener = CliReactListener(result_preview_chars=20)
     long = "x" * 50
     rendered = listener.format_tool_result("fetch_related_jira_tickets", long)
     assert rendered is not None
@@ -147,86 +142,32 @@ def test_on_tool_result_writes_to_stdout(capsys) -> None:
     assert capsys.readouterr().out == 'Result> hive_list_tables: ["a","b"]\n'
 
 
-def test_unwrap_completion_reply_strips_nested_tool_syntax() -> None:
-    wrapped = 'chat_completion(reply="GMV is sum of gmv_variation")'
-    assert (
-        CliReactListener.unwrap_completion_reply(wrapped) == "GMV is sum of gmv_variation"
-    )
-    assert CliReactListener.unwrap_completion_reply("plain answer") == "plain answer"
-
-
-def test_last_completion_reply_ignores_prior_turn(capsys) -> None:
-    from langchain_core.messages import HumanMessage, ToolMessage
+def test_on_turn_output_uses_current_turn_assistant_text(capsys) -> None:
+    from langchain_core.messages import HumanMessage
 
     listener = _listener()
     state = {
         "messages": [
             HumanMessage(content="old question"),
-            AIMessage(
-                content="",
-                tool_calls=[
-                    {
-                        "name": CHAT_COMPLETION_TOOL_NAME,
-                        "args": {"reply": "old answer"},
-                        "id": "c1",
-                        "type": "tool_call",
-                    }
-                ],
-            ),
-            ToolMessage(
-                content="old answer",
-                name=CHAT_COMPLETION_TOOL_NAME,
-                tool_call_id="c1",
-            ),
+            AIMessage(content="old answer"),
             HumanMessage(content="new question"),
             AIMessage(content="plain idle answer this turn"),
         ]
     }
-    assert listener.last_completion_reply(state) is None
     listener.on_turn_output(state)
     assert capsys.readouterr().out == "Assistant> plain idle answer this turn\n"
 
 
-def test_last_completion_reply_uses_current_turn_only() -> None:
-    from langchain_core.messages import HumanMessage, ToolMessage
-
-    listener = _listener()
-    state = {
-        "messages": [
-            HumanMessage(content="old question"),
-            ToolMessage(
-                content="old answer",
-                name=CHAT_COMPLETION_TOOL_NAME,
-                tool_call_id="c1",
-            ),
-            HumanMessage(content="new question"),
-            ToolMessage(
-                content="new answer",
-                name=CHAT_COMPLETION_TOOL_NAME,
-                tool_call_id="c2",
-            ),
-        ]
-    }
-    assert listener.last_completion_reply(state) == "new answer"
-
-
 def test_on_turn_output_without_current_reply(capsys) -> None:
-    from langchain_core.messages import HumanMessage, ToolMessage
+    from langchain_core.messages import HumanMessage
 
     listener = _listener()
     state = {
         "messages": [
             HumanMessage(content="old question"),
-            ToolMessage(
-                content="old answer",
-                name=CHAT_COMPLETION_TOOL_NAME,
-                tool_call_id="c1",
-            ),
+            AIMessage(content="old answer"),
             HumanMessage(content="new question"),
         ]
     }
     listener.on_turn_output(state)
-    assert (
-        capsys.readouterr().out
-        == f"Assistant> (no reply; expected {CHAT_COMPLETION_TOOL_NAME})\n"
-    )
+    assert capsys.readouterr().out == "Assistant> (no reply)\n"

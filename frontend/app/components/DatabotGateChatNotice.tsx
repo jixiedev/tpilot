@@ -2,13 +2,11 @@
 
 import { useAgent } from "@copilotkit/react-core/v2";
 import type { DatabotAgentState } from "./types";
-import {
-  gateKindFromStage,
-  gateUserInstructions,
-} from "./databotGateUtils";
+import { gateKindFromStage } from "./databotGateUtils";
+import { GateHelpPopover } from "./GateHelpPopover";
 import { useAgentRefresh } from "./useAgentRefresh";
 
-/** Shown in the chat transcript while a human gate is pending. */
+/** Compact chat notice while a human gate is pending. */
 export function DatabotGateChatBanner() {
   const { agent, isReady } = useAgent({ agentId: "databot" });
   useAgentRefresh(isReady ? agent : undefined, isReady);
@@ -20,20 +18,14 @@ export function DatabotGateChatBanner() {
     return null;
   }
 
-  const instructions = gateUserInstructions(gateKind);
-
   return (
-    <div className="chat-gate-notice" role="status" data-testid="chat-gate-notice">
-      <p className="chat-gate-notice-kicker">Action required</p>
-      <h4 className="chat-gate-notice-title">{instructions.headline}</h4>
-      <ol className="chat-gate-notice-steps">
-        {instructions.steps.map((step) => (
-          <li key={step}>{step}</li>
-        ))}
-      </ol>
-      <p className="chat-gate-notice-pointer">
+    <div className="chat-gate-notice chat-gate-notice--compact" role="status" data-testid="chat-gate-notice">
+      <div className="chat-gate-notice-title">
+        <span className="chat-gate-notice-kicker">Action required</span>
+        {" — "}
         Submit your decision in the <strong>gate panel on the right</strong>.
-      </p>
+        <GateHelpPopover gate={gateKind} className="chat-gate-notice-help" />
+      </div>
     </div>
   );
 }

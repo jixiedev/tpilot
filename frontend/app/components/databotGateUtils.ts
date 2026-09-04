@@ -8,6 +8,8 @@ export interface GateInterruptValue {
   default: string;
   gate: GateKind;
   review_cards?: unknown[];
+  /** Factual committed-model summary (cards gate only). */
+  selection_summary?: string;
 }
 
 export function parseGateInterruptMessage(message: unknown): GateInterruptValue | null {

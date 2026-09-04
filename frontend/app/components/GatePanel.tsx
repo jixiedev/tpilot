@@ -4,11 +4,12 @@ import { useState } from "react";
 import { useAgent, useInterrupt } from "@copilotkit/react-core/v2";
 import type { DatabotAgentState, GateDecision, TableCard } from "./types";
 import { GateCardPreview } from "./TableCardList";
+import { GateHelpPopover } from "./GateHelpPopover";
 import {
-  gateUserInstructions,
   parseGateInterruptMessage,
   type GateInterruptValue,
 } from "./databotGateUtils";
+import { stripThinkBlocks } from "./databotChatUtils";
 
 // ---------------------------------------------------------------------------
 // GatePanel
@@ -60,27 +61,32 @@ export function GatePanel() {
       if (!value) return <></>;
       if (value.gate === "chart") {
         return (
-          <ChartGate
-            value={value}
-            onApprove={() => resolve({ decision: "approve" })}
-            onSkip={() => resolve("dryrun")}
-            onCancel={() => cancel()}
-          />
+          <div className="databot-gate-dock" data-testid="databot-gate-dock">
+            <ChartGate
+              value={value}
+              onApprove={() => resolve({ decision: "approve" })}
+              onSkip={() => resolve("dryrun")}
+              onCancel={() => cancel()}
+            />
+          </div>
         );
       }
       return (
-        <HumanGate
-          value={value}
-          liveSelectedCards={liveState?.review_cards}
-          liveDraftSql={liveState?.draft_sql}
-          onChoose={(decision, comments) => {
-            const payload =
-              comments.trim().length > 0
-                ? { decision, comments: comments.trim() }
-                : decision;
-            resolve(payload);
-          }}
-        />
+        <div className="databot-gate-dock" data-testid="databot-gate-dock">
+          <HumanGate
+            value={value}
+            liveSelectedCards={liveState?.review_cards}
+            liveDraftSql={liveState?.draft_sql}
+            liveSelectionSummary={liveState?.cards_selection_summary}
+            onChoose={(decision, comments) => {
+              const payload =
+                comments.trim().length > 0
+                  ? { decision, comments: comments.trim() }
+                  : decision;
+              resolve(payload);
+            }}
+          />
+        </div>
       );
     },
   });
@@ -102,6 +108,15 @@ const DECISION_HINT: Record<GateDecision, string> = {
   dryrun: "Preview the rest of the flow without writing to your profile.",
 };
 
+function gateOptionCopy(raw: string | undefined, fallback: string): string {
+  const text = stripThinkBlocks(raw || "");
+  if (!text) return fallback;
+  if (/^context:?$/i.test(text)) return fallback;
+  if (/the user wants me to write/i.test(text)) return fallback;
+  if (text.startsWith("- User asked") || /committed card:/i.test(text)) return fallback;
+  return text;
+}
+
 const DECISION_ICON: Record<GateDecision, string> = {
   approve: "✓",
   "deny-comments": "✎",
@@ -118,6 +133,7 @@ const GATE_TITLE: Record<"cards" | "sql" | "chart", string> = {
 function gatePresentation(
   value: GateInterruptValue,
   liveDraftSql?: string,
+  liveSelectedCards?: DatabotAgentState["review_cards"],
 ): { title: string; subtitle: string; sql?: string } {
   const question = value.question.trim();
   if (value.gate === "sql") {
@@ -130,9 +146,17 @@ function gatePresentation(
     };
   }
   if (value.gate === "cards") {
+    const cards = liveSelectedCards?.length
+      ? liveSelectedCards
+      : value.review_cards?.map((c) => ({
+          name: String((c as { name?: string }).name ?? ""),
+        }));
+    const names = cards?.map((c) => c.name).filter(Boolean).join(", ") ?? "";
     return {
       title: GATE_TITLE.cards,
-      subtitle: question,
+      subtitle: names
+        ? `${cards?.length ?? 0} model(s): ${names}`
+        : "Check the models Databot picked for your question.",
     };
   }
   return { title: GATE_TITLE.chart, subtitle: question };
@@ -147,18 +171,25 @@ function HumanGate({
   value,
   liveSelectedCards,
   liveDraftSql,
+  liveSelectionSummary,
   onChoose,
 }: {
   value: GateInterruptValue;
   liveSelectedCards?: DatabotAgentState["review_cards"];
   liveDraftSql?: string;
+  liveSelectionSummary?: string;
   onChoose: (decision: GateDecision, comments: string) => void;
 }) {
   const [comments, setComments] = useState("");
-  const [hoveredDecision, setHoveredDecision] = useState<GateDecision | null>(null);
   const defaultDecision = (value.default as GateDecision) || "dryrun";
-  const presentation = gatePresentation(value, liveDraftSql);
-  const userInstructions = gateUserInstructions(value.gate);
+  const presentation = gatePresentation(value, liveDraftSql, liveSelectedCards);
+  const selectionSummary =
+    value.gate === "cards"
+      ? (value.selection_summary?.trim() || liveSelectionSummary?.trim() || "")
+      : "";
+  const reasonByOption = Object.fromEntries(
+    value.options.map((o) => [o.id, o.reason?.trim() ?? ""]),
+  ) as Partial<Record<GateDecision, string>>;
   const selectedCards: TableCard[] | undefined =
     value.gate === "cards" && liveSelectedCards && liveSelectedCards.length > 0
       ? liveSelectedCards
@@ -189,32 +220,14 @@ function HumanGate({
           {value.gate === "cards" ? "⬡" : value.gate === "sql" ? "{ }" : "◐"}
         </div>
         <div className="gate-hero-text">
-          <span className={`tag tag-gate tag-gate-${value.gate}`}>{value.gate} gate</span>
+          <div className="gate-hero-title-row">
+            <span className={`tag tag-gate tag-gate-${value.gate}`}>{value.gate} gate</span>
+            <GateHelpPopover gate={value.gate} />
+          </div>
           <h3 className="gate-title">{presentation.title}</h3>
           <p className="gate-subtitle">{presentation.subtitle}</p>
         </div>
       </header>
-
-      <section className="gate-howto" aria-label="What to do">
-        <p className="gate-howto-title">{userInstructions.headline}</p>
-        <ol className="gate-howto-steps">
-          {userInstructions.steps.map((step) => (
-            <li key={step}>{step}</li>
-          ))}
-        </ol>
-        {value.gate === "cards" && (
-          <p className="gate-howto-note">
-            Card checkboxes in the <strong>Cards</strong> tab refine the selection; the
-            buttons below advance the workflow.
-          </p>
-        )}
-        {value.gate === "sql" && (
-          <p className="gate-howto-note">
-            Edit SQL in the <strong>SQL</strong> tab and Save draft if you fix it yourself.
-            Use <strong>Request changes</strong> below to send feedback to the agent.
-          </p>
-        )}
-      </section>
 
       {value.gate === "sql" && presentation.sql && (
         <div className="gate-sql-block">
@@ -238,49 +251,40 @@ function HumanGate({
                 <GateCardPreview key={c.staging_id ?? `${c.name}-${i}`} card={c} />
               ))}
             </ul>
-            <p className="gate-card-hint">
-              Checkboxes here only refine the list — use the gate buttons below to
-              Approve or Request changes.
-            </p>
           </section>
         )}
 
+      {value.gate === "cards" && selectionSummary && (
+        <section className="gate-selection-summary" data-testid="gate-selection-summary">
+          <h4 className="gate-card-list-title">Selection summary</h4>
+          <p className="gate-selection-summary-text">{selectionSummary}</p>
+        </section>
+      )}
+
       <div className="gate-options" role="group" aria-label="Gate decision">
-        {(Object.keys(DECISION_LABEL) as GateDecision[]).map((decision) => {
-          const meta = value.options.find((o) => o.id === decision);
-          const reason = meta?.reason?.trim();
-          const showReason = hoveredDecision === decision && reason;
-          return (
-            <button
-              key={decision}
-              type="button"
-              className={`gate-option gate-option--${decision.replace(/[^a-z]/g, "")} ${decision === defaultDecision ? "is-default" : ""}`}
-              onMouseEnter={() => setHoveredDecision(decision)}
-              onMouseLeave={() => setHoveredDecision(null)}
-              onClick={() => onChoose(decision, comments)}
-            >
-              <span className="gate-option-icon" aria-hidden>
-                {DECISION_ICON[decision]}
+        {(Object.keys(DECISION_LABEL) as GateDecision[]).map((decision) => (
+          <button
+            key={decision}
+            type="button"
+            className={`gate-option gate-option--${decision.replace(/[^a-z]/g, "")} ${decision === defaultDecision ? "is-default" : ""}`}
+            onClick={() => onChoose(decision, comments)}
+          >
+            <span className="gate-option-icon" aria-hidden>
+              {DECISION_ICON[decision]}
+            </span>
+            <span className="gate-option-content">
+              <span className="gate-option-top">
+                <span className="gate-option-label">{DECISION_LABEL[decision]}</span>
+                {decision === defaultDecision && (
+                  <span className="gate-default-badge">default</span>
+                )}
               </span>
-              <span className="gate-option-content">
-                <span className="gate-option-top">
-                  <span className="gate-option-label">{DECISION_LABEL[decision]}</span>
-                  {decision === defaultDecision && (
-                    <span className="gate-default-badge">default</span>
-                  )}
-                </span>
-                <span className="gate-option-hint">{DECISION_HINT[decision]}</span>
-                {showReason ? (
-                  <span className="gate-option-reason">LLM: {reason}</span>
-                ) : reason ? (
-                  <span className="gate-option-reason gate-option-reason--hint">
-                    Hover for LLM rationale
-                  </span>
-                ) : null}
+              <span className="gate-option-hint">
+                {gateOptionCopy(reasonByOption[decision], DECISION_HINT[decision])}
               </span>
-            </button>
-          );
-        })}
+            </span>
+          </button>
+        ))}
       </div>
 
       <label className="gate-comments-label">
@@ -290,7 +294,7 @@ function HumanGate({
           className="gate-comments"
           value={comments}
           onChange={(e) => setComments(e.target.value)}
-          rows={2}
+          rows={3}
           placeholder={
             value.gate === "cards"
               ? "e.g. drop orders_daily, use fct_transaction_variations instead"

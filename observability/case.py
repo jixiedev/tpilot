@@ -73,7 +73,7 @@ class ToolCallCase:
         self.models = list(models)
 
     async def run(self, agent: BaseReactAgent, *, model_name: str = "") -> CaseResult:
-        eval_listener = EvalReactListener(completion_tool_name=agent.completion_tool_name)
+        eval_listener = EvalReactListener()
         agent.clear_secondaries()
         agent.register_secondary(eval_listener)
         session = f"eval-{self.case_group}-{self.name}-{uuid.uuid4().hex[:8]}"
@@ -91,10 +91,7 @@ class ToolCallCase:
             agent.clear_secondaries()
 
     def score(self, result: AgentTurnResult, eval_listener: EvalReactListener) -> CaseResult:
-        reply = extract_turn_output(
-            result.state,
-            completion_tool_name=eval_listener.completion_tool_name,
-        )
+        reply = extract_turn_output(result.state)
         tool_score, tool_details = self._score_tools(eval_listener)
         round_score, round_details = self._score_rounds(eval_listener)
         answer_score, answer_details = self._score_answer(reply)
@@ -116,7 +113,7 @@ class ToolCallCase:
         )
 
     def _score_tools(self, eval_listener: EvalReactListener) -> tuple[float, dict[str, Any]]:
-        actual = eval_listener.tool_names(include_completion=False)
+        actual = eval_listener.tool_names()
         expected = list(self.expected_tools)
         details: dict[str, Any] = {"expected": expected, "actual": actual}
         if not expected:

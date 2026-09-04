@@ -40,7 +40,6 @@ def test_swe_prompt_covers_editor_and_shell() -> None:
 async def test_data_analysis_tools() -> None:
     agent = await DataAnalysisAgent.create(enable_compression_tools=False)
     names = {getattr(tool, "name", "") for tool in agent.tools}
-    assert "chat_completion" in names
     assert "trino_run_query" in names
     assert "python_execute" in names
     assert "s3_list_objects" in names
@@ -52,7 +51,6 @@ async def test_data_analysis_tools() -> None:
 async def test_swe_tools() -> None:
     agent = await SWEAgent.create(enable_compression_tools=False)
     names = {getattr(tool, "name", "") for tool in agent.tools}
-    assert "chat_completion" in names
     assert "bash" in names
     assert "str_replace_editor" in names
     assert "python_execute" in names

@@ -7,7 +7,6 @@ from agent.specialists.databot.prompts.fetch import (
 )
 from agent.specialists.databot.prompts.gate_prep import PREPARE_CARDS_FOR_GATE_PROMPT
 from agent.specialists.databot.prompts.idle import (
-    IDLE_CHAT_COMPLETION_PROMPT,
     IDLE_NUDGE_PROMPT,
     NEXT_STEP_PROMPT,
     REFINE_USER_PROFILE_PROMPT,
@@ -39,7 +38,6 @@ __all__ = [
     "GENERATE_SQL_NEXT_STEP_PROMPT",
     "GENERATE_SQL_SYSTEM_PROMPT",
     "GENERATE_SQL_TOOL_BUDGET_PROMPT",
-    "IDLE_CHAT_COMPLETION_PROMPT",
     "IDLE_NUDGE_PROMPT",
     "NEXT_STEP_PROMPT",
     "PREPARE_CARDS_FOR_GATE_PROMPT",

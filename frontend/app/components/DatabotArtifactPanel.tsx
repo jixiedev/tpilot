@@ -6,6 +6,7 @@ import { ExecutionChart } from "./ExecutionChart";
 import { SqlEditor } from "./SqlEditor";
 import { TableCardList } from "./TableCardList";
 import { useDatabotActions } from "./useDatabotActions";
+import { databotDisplayCardPool } from "./databotCardPool";
 import { hasExecutionResult } from "./executionResultUtils";
 import type { DatabotAgentState, DatabotStage } from "./types";
 
@@ -49,10 +50,7 @@ export function DatabotArtifactPanel() {
   const interactiveSql = ds?.stage === "sql" || ds?.stage === "gate_sql";
   const sqlGateOpen = ds?.stage === "gate_sql";
 
-  const displayCards =
-    (ds?.committed_cards?.length ?? 0) > 0
-      ? (ds?.committed_cards ?? [])
-      : (ds?.staging_cards ?? []);
+  const displayCards = databotDisplayCardPool(ds);
 
   const stageLabel = ds?.stage ?? "idle";
   const halted = Boolean(ds?.halt_reason);
@@ -61,9 +59,9 @@ export function DatabotArtifactPanel() {
     <aside className="artifact-panel" data-testid="artifact-panel">
       <header className="artifact-header">
         <div className="artifact-title">
-          <h2>Databot working state</h2>
+          <h2>Working state</h2>
           <span className={`stage-pill stage-${stageLabel}`} data-testid="stage-pill">
-            stage: {stageLabel}
+            {stageLabel.replaceAll("_", " ")}
           </span>
         </div>
         {halted && (
@@ -96,7 +94,7 @@ export function DatabotArtifactPanel() {
           tab="cards"
           active={activeTab === "cards"}
           onClick={() => setManualTab("cards")}
-          count={displayCards.length || (ds?.review_cards?.length ?? 0)}
+          count={displayCards.length}
           label="Cards"
         />
         <TabButton
@@ -202,7 +200,7 @@ function AuditTrail({
 }) {
   return (
     <section className="audit-trail">
-      <h3>gate decisions</h3>
+      <h3>Gate decisions</h3>
       <ol>
         {decisions.map((d, i) => (
           <li key={i} className={`audit-row audit-${d.decision}`}>

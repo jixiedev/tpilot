@@ -99,13 +99,49 @@ def test_gate_prompt_cards_preserves_llm_reasons_over_defaults() -> None:
     payload = _gate_prompt(
         {
             "review_cards": [{"name": "orders_daily"}],
-            "cards_reasons": {"approve": "custom approve reason"},
+            "cards_reasons": {"approve": "orders_daily — daily order grain"},
         },
         "cards",
     )
     reasons_by_id = {opt["id"]: opt["reason"] for opt in payload["options"]}
-    assert reasons_by_id["approve"] == "custom approve reason"
+    assert reasons_by_id["approve"] == "orders_daily — daily order grain"
     assert reasons_by_id["dryrun"]
+    assert "orders_daily" in payload["question"]
+
+
+def test_build_cards_selection_summary_from_card_payload() -> None:
+    from agent.specialists.databot.gate_defaults import build_cards_selection_summary
+
+    summary = build_cards_selection_summary(
+        [
+            {
+                "name": "fct_orders",
+                "selected_metrics": ["gmv"],
+                "selected_dimensions": ["order_date"],
+                "selection_notes": "covers yesterday GMV",
+            }
+        ]
+    )
+    assert "fct_orders" in summary
+    assert "gmv" in summary
+    assert "yesterday GMV" in summary
+
+
+def test_gate_prompt_cards_includes_selection_summary() -> None:
+    from agent.specialists.databot.gates import _gate_prompt
+
+    payload = _gate_prompt(
+        {
+            "review_cards": [{"name": "orders_daily"}],
+            "cards_reasons": {"approve": "Pick approve — orders_daily matches your question."},
+            "cards_selection_summary": "orders_daily (metrics: order_count) — daily grain",
+        },
+        "cards",
+    )
+    reasons_by_id = {opt["id"]: opt["reason"] for opt in payload["options"]}
+    assert reasons_by_id["approve"] == "Pick approve — orders_daily matches your question."
+    assert payload["selection_summary"] == "orders_daily (metrics: order_count) — daily grain"
+    assert "orders_daily" in payload["question"]
 
 
 # ---------------------------------------------------------------------------
@@ -170,7 +206,31 @@ def test_coerce_gate_reasons_empty_and_garbage() -> None:
 def test_coerce_gate_reasons_list_with_prefixed_and_bare() -> None:
     out = _coerce_gate_reasons([
         "approve: matches",
-        "no prefix here",  # no head in GATE_OPTIONS — keep as is
+        "no prefix here",
     ])
     assert out["approve"] == "matches"
     assert out["deny-comments"] == "no prefix here"
+
+
+def test_coerce_gate_reasons_rejects_think_dump() -> None:
+    dump = (
+        "<think>The user wants me to write gate option copy for the reviewer.\n"
+        "Context:\n"
+        "- User asked for Wish's last month's GMV by country\n"
+        "- Committed card: fct_transaction_variations with dimensions shipping_country"
+    )
+    assert _coerce_gate_reasons(dump) == {}
+    assert _coerce_gate_reasons(dump.splitlines()) == {}
+
+
+def test_coerce_gate_reasons_extracts_json_after_think() -> None:
+    raw = (
+        '<think>planning</think>\n'
+        '["Approve these models to draft SQL.", '
+        '"Request changes if the grain is wrong.", '
+        '"Halt if this question cannot be answered from these models.", '
+        '"Dry-run if you only want a preview."]'
+    )
+    out = _coerce_gate_reasons(raw)
+    assert "draft SQL" in out["approve"]
+    assert "grain" in out["deny-comments"]

@@ -63,7 +63,6 @@ def test_tahoe_base_has_no_data_domain_sections() -> None:
     text = TahoeSystemPrompt().build()
     assert text == TAHOE_SYSTEM_PROMPT
     assert "TahoePilot" in text
-    assert "chat_completion" in text
     assert "Output:" in text
     assert "web_search" in text
     assert "str_replace_editor" in text

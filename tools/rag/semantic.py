@@ -443,9 +443,11 @@ def commit_cards(
           "selection_notes": "optional one-line why"
         }
 
-    Only cards passed here are added to ``committed_cards``. Full card
-    bodies are resolved from ``state.staging_cards`` — do not echo the
-    entire TableCard dict.
+    Full card bodies are resolved from this turn's ``staging_cards``,
+    already committed cards, and last-turn ``approved_cards``. If the id is
+    from a previous turn but that model is still approved (or staged this
+    turn under a new id), the matching row is used. Do not echo the entire
+    TableCard dict.
 
     Why ``list[Any]``: keeps the tool JSON schema provider-friendly.
     """
@@ -460,9 +462,15 @@ def commit_cards(
         if isinstance(full_state, dict)
         else []
     )
+    approved_cards = (
+        list(full_state.get("approved_cards") or [])
+        if isinstance(full_state, dict)
+        else []
+    )
     updated, note = apply_add_card_selections(
         staging_cards=staging_cards,
         committed_cards=committed_cards,
+        approved_cards=approved_cards,
         selections=selections,
     )
     tool_call_id = (runtime.tool_call_id if runtime else None) or "missing"

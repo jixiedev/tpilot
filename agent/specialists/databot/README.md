@@ -99,7 +99,7 @@ Gate 上的四个选项在所有闸门语义一致：
 要点：
 
 - 必须先**用工具取证**，不能仅凭聊天记忆直接回答。
-- `chat_completion`  alone **不能**结束这一阶段；必须调用 `commit_cards`。
+- 仅凭聊天记忆或空工具列表 **不能**结束这一阶段；必须调用 `commit_cards`。
 - 此阶段**不能**跑 SQL。
 
 ### 阶段 2：`sql`（写 SQL）
@@ -158,7 +158,7 @@ Gate 上的四个选项在所有闸门语义一致：
    ┌─────────────────┐              回到主路径
    │ ReAct：委托       │              stage = fetch
    │ Knowledge Agent  │              （完整流水线）
-   │ → chat_completion│
+   │ → 文本回复（无 tool call）│
    └────────┬────────┘
             │
             ▼
@@ -215,15 +215,15 @@ Gate 上的四个选项在所有闸门语义一致：
 
 - **聊天消息**（`messages`）：你的问题和 Agent 的回复一直累积，供追问时读上下文。
 
+追问时**保留**上一轮 Cards / SQL / Results；仅在分类为 **requery**（新查数任务）并进入 `fetch` 时才清空 staging / committed / SQL / 结果。上一轮 `approved_cards` 保留，供 `commit_cards` 解析旧 id，不会混进本轮 `staging_cards`。知识追问（`knowledge`）全程不清空。
+
 ### 每轮重置（新问题时清空）
 
-- 表卡片链路：`staging_cards` → `committed_cards` → `review_cards` → `approved_cards`
-- SQL：`draft_sql`、`approved_sql`
-- 执行结果：`execution_result`
-- Gate 审计：`gate_decisions`、各类 reason / feedback
-- 阶段指针回到 `fetch`
+- **CLI 新提问**：清空全部 pipeline 字段（含 `approved_cards`）
+- **分类为 requery**：清空 staging / committed / SQL / 结果；**保留** `approved_cards`
+- **追问入口**（仅设 `follow_up_turn`）：**不**清空 pipeline，聊天历史保留
 
-因此：追问「字段含义」走 knowledge 路径时，**上一轮右侧面板里的 SQL/结果会消失**（状态已重置），但聊天记录里仍能看到之前的总结。
+因此：追问「字段含义」时，右侧面板仍显示上一轮结果；只有当你问的是新指标/新时间范围等需要重查时，分类为 requery 后才会清空并重新 fetch。
 
 ### 卡片与 SQL 的生命周期（单轮内）
 

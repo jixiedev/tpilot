@@ -6,11 +6,11 @@ import {
 } from "@copilotkit/react-core/v2";
 import { z } from "zod";
 import { ToolCallCard } from "./ToolCallCard";
-import { DatabotAssistantReply } from "./DatabotAssistantReply";
 import {
   cardNamesFromUnknown,
   formatToolResult,
   isToolErrorText,
+  parseCommitCardsResult,
   parseFetchRelatedModelsResult,
   parseGlossaryResult,
   sqlPreview,
@@ -91,18 +91,42 @@ function CommitCardsToolRender({
         : "";
       return { sid, dims, metrics };
     });
+  const resultText = status === "complete" ? formatToolResult(result) : "";
+  const parsed = status === "complete" ? parseCommitCardsResult(result) : null;
+  const committedCount = parsed?.committedCount ?? null;
+  const committedNames = parsed?.committedNames ?? [];
+  const issues = parsed?.issues ?? [];
+  const requestedCount = lines.length;
+  const actualCount =
+    committedNames.length > 0 ? committedNames.length : committedCount;
+  const mismatch =
+    status === "complete" &&
+    requestedCount > 0 &&
+    actualCount != null &&
+    actualCount < requestedCount;
+
   return (
     <ToolCallCard
       title="Models for review"
       subtitle={
-        lines.length > 0
-          ? `${lines.length} model(s) shortlisted`
-          : "Shortlisting models"
+        status === "complete" && actualCount != null
+          ? `${actualCount} model(s) committed`
+          : requestedCount > 0
+            ? `${requestedCount} model(s) requested`
+            : "Shortlisting models"
       }
       status={status}
       variant="cards"
     >
-      {status === "complete" && lines.length > 0 ? (
+      {status === "complete" && committedNames.length > 0 ? (
+        <ul className="tool-call-chip-list">
+          {committedNames.map((name) => (
+            <li key={name}>
+              <code>{name}</code>
+            </li>
+          ))}
+        </ul>
+      ) : status === "complete" && lines.length > 0 ? (
         <ul className="tool-call-selection-list">
           {lines.map((line) => (
             <li key={line.sid}>
@@ -123,7 +147,20 @@ function CommitCardsToolRender({
       ) : status !== "complete" ? (
         <p className="tool-call-muted">Staging → committed_cards…</p>
       ) : (
-        <p className="tool-call-muted">{formatToolResult(result)}</p>
+        <p className="tool-call-muted">{resultText}</p>
+      )}
+      {mismatch && (
+        <p className="tool-call-warning-text">
+          Only {actualCount} of {requestedCount} requested models were committed — check the
+          Cards panel for the current selection.
+        </p>
+      )}
+      {status === "complete" && issues.length > 0 && (
+        <ul className="tool-call-warning-text">
+          {issues.map((issue) => (
+            <li key={issue}>{truncate(issue, 240)}</li>
+          ))}
+        </ul>
       )}
     </ToolCallCard>
   );
@@ -131,22 +168,6 @@ function CommitCardsToolRender({
 
 export function DatabotToolRenderers() {
   useDefaultRenderTool();
-
-  useRenderTool({
-    name: "chat_completion",
-    parameters: z.object({ reply: z.string().optional() }),
-    render: ({ status, parameters, result }) => {
-      const reply =
-        parameters.reply ||
-        (status === "complete" ? formatToolResult(result) : "");
-      if (status !== "complete" || !reply) {
-        return (
-          <p className="tool-call-muted databot-reply-pending">Composing reply…</p>
-        );
-      }
-      return <DatabotAssistantReply content={reply} />;
-    },
-  });
 
   useRenderTool({
     name: "fetch_related_models",

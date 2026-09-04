@@ -44,7 +44,6 @@ class PlanAgent(BaseAgent, RegistryScopedTools):
     """Plan-and-execute orchestrator: plan → specialist rounds → adjust → summary."""
 
     registry_name = "plan"
-    completion_tool_name = "chat_completion"
     default_profile_dir = DEFAULT_PROFILE_DIR
 
     def __init__(
@@ -64,10 +63,7 @@ class PlanAgent(BaseAgent, RegistryScopedTools):
         self.run_context = run_context or tahoe_run_context()
         self.router_config = router_config or RouterConfig()
         self.prompt_assembler = prompt_assembler or PlanSystemPrompt()
-        self.completion_tool_name = type(self).completion_tool_name
-        self.react_listener = react_listener or CliReactListener(
-            completion_tool_name=self.completion_tool_name
-        )
+        self.react_listener = react_listener or CliReactListener()
         self._runtime = TahoeRuntimeHelper(
             profile_store=profile_store,
             react_listener=self.react_listener,

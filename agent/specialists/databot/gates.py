@@ -10,7 +10,10 @@ from typing import Any, Literal
 from langgraph.types import interrupt
 
 from agent.specialists.databot._constants import STAGE_DONE, STAGE_EXECUTE, STAGE_SQL
-from agent.specialists.databot.gate_defaults import merge_gate_reasons
+from agent.specialists.databot.gate_defaults import (
+    build_cards_selection_summary,
+    merge_gate_reasons,
+)
 from agent.specialists.databot.ui_actions import (
     apply_cards_gate_redraft,
     apply_sql_gate_redraft,
@@ -113,13 +116,13 @@ def _gate_prompt(state: DatabotState, gate: Literal["cards", "sql"]) -> dict[str
                     "selection_notes": (c.get("selection_notes") or "")[:240],
                 }
             )
-        question = (
-            f"Databot picked {len(cards)} candidate dbt model(s).\n\n"
-            "What I need from you:\n"
-            "1. Open the Cards tab on the right — adjust checkboxes if the model set looks wrong.\n"
-            "2. In the gate panel, choose Approve (continue to SQL), Request changes "
-            "(tell me what to fix), Halt, or Dry-run (preview only)."
-        )
+        name_list = [
+            str(c.get("name") or "").strip()
+            for c in cards
+            if isinstance(c, dict) and str(c.get("name") or "").strip()
+        ]
+        name_str = ", ".join(name_list) if name_list else "see Cards tab"
+        question = f"Review {len(cards)} model(s) for this question: {name_str}."
     else:
         sql_preview = (state.get("draft_sql") or "").strip()
         snippet = sql_preview if len(sql_preview) <= 280 else sql_preview[:277] + "..."
@@ -142,6 +145,13 @@ def _gate_prompt(state: DatabotState, gate: Literal["cards", "sql"]) -> dict[str
     }
     if gate == "cards":
         payload["review_cards"] = card_summaries
+        selection_summary = str(state.get("cards_selection_summary") or "").strip()
+        if not selection_summary:
+            selection_summary = build_cards_selection_summary(
+                [c for c in cards if isinstance(c, dict)]
+            )
+        if selection_summary:
+            payload["selection_summary"] = selection_summary
     return payload
 
 

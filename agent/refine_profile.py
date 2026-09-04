@@ -12,7 +12,7 @@ from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import ValidationError
 
-from agent.turn import completion_tool_reply
+from agent.turn import last_user_visible_reply
 from graph.error_recovery import invoke_with_transient_retry
 from memory.profile import UserProfile, merge_user_profile, parse_user_profile_update
 from memory.profile_store import ProfileStore
@@ -48,13 +48,11 @@ def make_refine_user_profile_node(
     refine_prompt: str,
     model: BaseChatModel,
     profile_store: ProfileStore,
-    *,
-    completion_tool_name: str = "chat_completion",
 ) -> Callable[[SessionAgentState], dict[str, Any]]:
     """After a finished turn, merge profile updates into ``ProfileStore`` (not session state).
 
     Profile refinement is best-effort: parse or persistence failures are logged and the
-    turn still completes so the completion-tool reply remains visible to the user.
+    turn still completes so the assistant reply remains visible to the user.
     """
 
     system_prompt = f"{refine_prompt.strip()}\n\n{_PROFILE_JSON_HINT}"
@@ -63,10 +61,7 @@ def make_refine_user_profile_node(
         user_id = _session_user_id(state)
         current = profile_store.load(user_id)
         user_text = latest_human_text(state) or ""
-        reply = completion_tool_reply(
-            state,
-            completion_tool_name=completion_tool_name,
-        ) or ""
+        reply = last_user_visible_reply(state) or ""
 
         messages = [
             SystemMessage(content=system_prompt),

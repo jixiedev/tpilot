@@ -12,7 +12,6 @@ from agent.specialists.swe.prompt import SWESystemPrompt
 from agent.specialists.swe.tool_scopes import swe_react_tools
 from agent.react import BaseReactAgent
 from agent.runtime.tahoe_runtime_helper import (
-    CHAT_COMPLETION_TOOL_NAME,
     DEFAULT_MAX_IDLE_ROUNDS,
     DEFAULT_MAX_TOOL_CALLS,
     DEFAULT_PROFILE_DIR,
@@ -29,7 +28,6 @@ from memory.profile_store import ProfileStore
 class SWEAgent(BaseReactAgent):
     """ReAct agent for script and small-program development."""
 
-    completion_tool_name = CHAT_COMPLETION_TOOL_NAME
     turn_boundary = SESSION_TURN_BOUNDARY
     default_profile_dir = DEFAULT_PROFILE_DIR
     prompt_assembler_cls = SWESystemPrompt

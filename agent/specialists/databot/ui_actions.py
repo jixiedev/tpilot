@@ -7,10 +7,13 @@ where the LLM-owned tools mirror the UI behavior.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping
 from typing import Any, Literal
 
 from langchain_core.messages import HumanMessage
+
+from graph.messages import message_content_to_str
 
 from agent.specialists.databot._constants import (
     STAGE_FETCH,
@@ -44,6 +47,7 @@ DATABOT_STATE_KEYS: tuple[str, ...] = (
     "execution_result",
     "gate_decisions",
     "cards_reasons",
+    "cards_selection_summary",
     "sql_reasons",
     "dryrun",
     "halt_reason",
@@ -97,6 +101,37 @@ def apply_request_sql_regenerate(feedback: str) -> dict[str, Any]:
     }
 
 
+_GATE_REDRAFT_PREFIX_RE = re.compile(
+    r"^(?:SQL|Cards) gate review — redraft and address this feedback:",
+    re.IGNORECASE,
+)
+
+
+def gate_redraft_message_content(feedback: str, *, gate: str) -> str:
+    """Human-message body queued when a gate sends the pipeline back for redraft."""
+    cleaned = (feedback or "").strip()
+    return f"{gate} gate review — redraft and address this feedback:\n{cleaned}"
+
+
+def is_gate_redraft_message(text: str) -> bool:
+    """Whether ``text`` is synthetic gate feedback rather than a user question."""
+    return bool(_GATE_REDRAFT_PREFIX_RE.match((text or "").strip()))
+
+
+def user_question_from_messages(messages: list[Any]) -> str:
+    """Return the latest real user question, skipping gate redraft messages."""
+    for msg in reversed(messages or []):
+        if isinstance(msg, HumanMessage):
+            text = message_content_to_str(msg.content)
+        elif isinstance(msg, dict) and msg.get("type") == "human":
+            text = message_content_to_str(msg.get("content", ""))
+        else:
+            continue
+        if text and not is_gate_redraft_message(text):
+            return text
+    return ""
+
+
 def _subgraph_redraft_counters() -> dict[str, Any]:
     """Reset per-subgraph ReAct bookkeeping so a gate redraft gets a fresh budget."""
     return {
@@ -112,11 +147,7 @@ def _feedback_human_message(feedback: str, *, gate: str) -> dict[str, Any]:
         return {}
     return {
         "messages": [
-            HumanMessage(
-                content=(
-                    f"{gate} gate review — redraft and address this feedback:\n{cleaned}"
-                ),
-            ),
+            HumanMessage(content=gate_redraft_message_content(cleaned, gate=gate)),
         ],
     }
 
@@ -126,8 +157,12 @@ def apply_cards_gate_redraft(feedback: str) -> dict[str, Any]:
     cleaned = (feedback or "").strip()
     return {
         "stage": STAGE_FETCH,
+        "staging_cards": [],
+        "committed_cards": [],
+        "review_cards": [],
         "deny_feedback": cleaned,
         "cards_reasons": {},
+        "cards_selection_summary": "",
         **_subgraph_redraft_counters(),
         **_feedback_human_message(cleaned, gate="Cards"),
     }

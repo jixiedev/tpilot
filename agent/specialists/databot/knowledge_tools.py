@@ -35,7 +35,7 @@ def make_invoke_knowledge_tool(runner: SpecialistRunner) -> BaseTool:
         if isinstance(full_state, dict):
             session = str(full_state.get("session_name") or "").strip()
         try:
-            output = await runner.run(
+            output = await runner.run_isolated(
                 "knowledge",
                 task,
                 parent_session=session,

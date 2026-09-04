@@ -38,7 +38,7 @@ export function DatabotNewChatButton({ className }: DatabotNewChatButtonProps) {
           : "Start a new conversation (new thread)"
       }
     >
-      New chat
+      + New chat
     </button>
   );
 }

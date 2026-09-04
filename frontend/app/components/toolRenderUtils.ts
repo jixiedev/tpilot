@@ -70,6 +70,42 @@ export function sqlPreview(sql: string | undefined, max = 420): string {
   return truncate((sql ?? "").replace(/\s+/g, " "), max);
 }
 
+export interface CommitCardsSummary {
+  committedCount: number | null;
+  committedNames: string[];
+  issues: string[];
+}
+
+/** Parse ``commit_cards`` ToolMessage text (``committed N card(s): …; issues``). */
+export function parseCommitCardsResult(result: unknown): CommitCardsSummary | null {
+  const resultText = formatToolResult(result).trim();
+  if (!resultText) return null;
+
+  const committedMatch = resultText.match(/committed\s+(\d+)\s+card/i);
+  const committedCount = committedMatch ? Number(committedMatch[1]) : null;
+
+  let committedNames: string[] = [];
+  const afterColon = resultText.includes(":") ? resultText.split(":", 2)[1] : "";
+  if (afterColon) {
+    const namesSegment = afterColon.split(";")[0] ?? "";
+    committedNames = namesSegment
+      .split(",")
+      .map((name) => name.trim())
+      .filter(Boolean);
+  }
+
+  const issues: string[] = [];
+  const semicolonIdx = resultText.indexOf("; ");
+  if (semicolonIdx >= 0) {
+    for (const part of resultText.slice(semicolonIdx + 2).split("; ")) {
+      const trimmed = part.trim();
+      if (trimmed) issues.push(trimmed);
+    }
+  }
+
+  return { committedCount, committedNames, issues };
+}
+
 export function isToolErrorText(text: string): boolean {
   const lower = text.toLowerCase();
   return (

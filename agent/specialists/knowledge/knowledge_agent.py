@@ -12,7 +12,6 @@ from agent.specialists.knowledge.tool_scopes import knowledge_react_tools
 from agent.specialists.knowledge.prompt import KnowledgeSystemPrompt
 from agent.react import BaseReactAgent
 from agent.runtime.tahoe_runtime_helper import (
-    CHAT_COMPLETION_TOOL_NAME,
     DEFAULT_MAX_IDLE_ROUNDS,
     DEFAULT_MAX_TOOL_CALLS,
     DEFAULT_PROFILE_DIR,
@@ -30,7 +29,6 @@ from tools.dynamic import register_dynamic_tool_bindings
 class KnowledgeAgent(BaseReactAgent):
     """Team knowledge specialist (code, docs, wikis, Jira)."""
 
-    completion_tool_name = CHAT_COMPLETION_TOOL_NAME
     turn_boundary = SESSION_TURN_BOUNDARY
     default_profile_dir = DEFAULT_PROFILE_DIR
     prompt_assembler_cls = KnowledgeSystemPrompt

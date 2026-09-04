@@ -3,7 +3,6 @@ from __future__ import annotations
 from agent.listener import CliReactListener
 from agent.plan.display import format_plan_step_status
 from agent.plan.tool_listeners import make_plan_tool_call_listener
-from agent.runtime.tahoe_runtime_helper import CHAT_COMPLETION_TOOL_NAME
 
 
 def test_format_plan_step_status_includes_agent_and_task() -> None:
@@ -20,7 +19,7 @@ def test_format_plan_step_status_truncates_long_task() -> None:
 
 
 def test_plan_tool_call_listener_prints_status_for_invoke_agent(capsys) -> None:
-    listener = CliReactListener(completion_tool_name=CHAT_COMPLETION_TOOL_NAME)
+    listener = CliReactListener()
     on_tool_call = make_plan_tool_call_listener(listener)
     on_tool_call(
         "invoke_agent",
@@ -32,7 +31,7 @@ def test_plan_tool_call_listener_prints_status_for_invoke_agent(capsys) -> None:
 
 
 def test_plan_tool_call_listener_forwards_other_tools(capsys) -> None:
-    listener = CliReactListener(completion_tool_name=CHAT_COMPLETION_TOOL_NAME)
+    listener = CliReactListener()
     on_tool_call = make_plan_tool_call_listener(listener)
     on_tool_call("planning", {"command": "get"})
     out = capsys.readouterr().out
