@@ -1,0 +1,477 @@
+/* Plan agent frontend. Reuses the design tokens from databot.css so the
+ * two pages feel like the same product; the differences here are
+ * limited to the plan-specific tree and step primitives. */
+
+.plan-shell {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  min-height: 100vh;
+  width: 100%;
+  overflow: hidden;
+  background:
+    radial-gradient(1200px 420px at 92% -10%, rgba(168, 85, 247, 0.12), transparent 55%),
+    radial-gradient(900px 380px at 0% 0%, rgba(20, 184, 166, 0.08), transparent 50%),
+    var(--db-canvas);
+  color: var(--db-text);
+}
+
+.plan-topbar {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.7rem 1.15rem;
+  border-bottom: 1px solid var(--db-border);
+  background: color-mix(in srgb, var(--db-surface) 82%, transparent);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  position: sticky;
+  top: 0;
+  z-index: 20;
+}
+.plan-brand {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  min-width: 0;
+  flex: 1;
+}
+.plan-logo {
+  flex-shrink: 0;
+  width: 2.1rem;
+  height: 2.1rem;
+  border-radius: 10px;
+  display: grid;
+  place-items: center;
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  color: #fff;
+  background: linear-gradient(145deg, #a855f7 0%, #14b8a6 100%);
+  box-shadow: 0 6px 16px rgba(168, 85, 247, 0.28);
+}
+.plan-topbar-main {
+  display: flex;
+  flex-direction: column;
+  gap: 0.08rem;
+  min-width: 0;
+}
+.plan-topbar h1 {
+  margin: 0;
+  font-size: 0.98rem;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  line-height: 1.2;
+}
+.plan-tagline {
+  margin: 0;
+  color: var(--db-muted);
+  font-size: 0.75rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.plan-topbar-nav {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.18rem;
+  border-radius: 999px;
+  background: var(--db-fill);
+  border: 1px solid var(--db-border);
+}
+.plan-nav-link {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--db-muted);
+  text-decoration: none;
+  padding: 0.32rem 0.85rem;
+  border-radius: 999px;
+  transition: background 120ms ease, color 120ms ease;
+}
+.plan-nav-link:hover {
+  color: var(--db-text);
+  background: color-mix(in srgb, var(--db-surface) 75%, transparent);
+}
+.plan-nav-link--active {
+  color: var(--db-text);
+  background: var(--db-surface);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
+}
+.plan-topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  flex-shrink: 0;
+}
+.plan-new-chat-btn {
+  font-size: 0.8rem;
+  font-weight: 600;
+  padding: 0.42rem 0.9rem;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  background: linear-gradient(135deg, #a855f7 0%, #14b8a6 100%);
+  color: #fff;
+  cursor: pointer;
+  white-space: nowrap;
+  box-shadow: 0 6px 16px rgba(168, 85, 247, 0.22);
+  transition: transform 140ms ease, box-shadow 140ms ease;
+}
+.plan-new-chat-btn:hover:not(:disabled) {
+  transform: translateY(-1px);
+}
+.plan-new-chat-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  box-shadow: none;
+  transform: none;
+}
+
+.plan-layout {
+  display: flex;
+  flex-direction: row;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  padding: 0.7rem 0.7rem 0.75rem;
+  gap: 0.7rem;
+}
+
+.plan-chat-column {
+  flex: 0 0 clamp(320px, 38vw, 480px);
+  min-width: 300px;
+  max-width: 520px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--db-surface);
+  overflow: hidden;
+  border: 1px solid var(--db-border);
+  border-radius: var(--db-radius-lg);
+  box-shadow: var(--db-shadow);
+}
+.plan-chat-column .copilotKitChat,
+.plan-chat-column .plan-chat {
+  flex: 1;
+  min-height: 0;
+}
+
+.plan-right-column {
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--db-surface);
+  border: 1px solid var(--db-border);
+  border-radius: var(--db-radius-lg);
+  box-shadow: var(--db-shadow);
+  display: flex;
+  flex-direction: column;
+}
+
+@media (max-width: 900px) {
+  .plan-layout {
+    flex-direction: column;
+  }
+  .plan-chat-column {
+    flex: 0 0 min(42vh, 380px);
+    width: 100%;
+    max-width: none;
+  }
+  .plan-tagline {
+    display: none;
+  }
+  .plan-topbar-nav {
+    display: none;
+  }
+}
+
+/* -------------------------------------------------------------------------
+   PlanTaskTree
+   ------------------------------------------------------------------------- */
+
+.plan-tree {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+}
+.plan-tree--empty {
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 2rem 1.5rem;
+  color: var(--db-muted);
+  gap: 0.5rem;
+}
+.plan-tree--empty h2 {
+  margin: 0.4rem 0 0;
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--db-text);
+}
+.plan-tree--empty p {
+  margin: 0;
+  max-width: 32rem;
+  font-size: 0.88rem;
+  line-height: 1.5;
+}
+.plan-tree-empty-icon {
+  font-size: 2.4rem;
+  opacity: 0.35;
+  line-height: 1;
+}
+.plan-tree-empty-hint {
+  margin-top: 0.6rem !important;
+  padding: 0.5rem 0.75rem;
+  background: var(--db-fill);
+  border-radius: 8px;
+  font-size: 0.8rem !important;
+  color: var(--db-text);
+}
+
+.plan-tree-header {
+  padding: 1.1rem 1.25rem 0.8rem;
+  border-bottom: 1px solid var(--db-border);
+  background: var(--db-surface-2);
+}
+.plan-tree-title-row {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+.plan-tree-title {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.3;
+  flex: 1 1 auto;
+  min-width: 0;
+  word-break: break-word;
+}
+.plan-stage-pill {
+  font-size: 0.68rem;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 0.2rem 0.55rem;
+  border-radius: 999px;
+  background: var(--db-accent-soft);
+  color: var(--db-accent-text);
+  flex-shrink: 0;
+}
+.plan-stage--create  { background: rgba(99, 102, 241, 0.12);  color: rgb(67, 56, 202); }
+.plan-stage--execute { background: rgba(20, 184, 166, 0.12);  color: rgb(15, 118, 110); }
+.plan-stage--adjust  { background: rgba(245, 158, 11, 0.15);  color: rgb(180, 83, 9); }
+.plan-stage--done    { background: rgba(107, 114, 128, 0.15); color: rgb(75, 85, 99); }
+.plan-stage--idle    { background: rgba(127, 127, 127, 0.12); color: rgb(82, 82, 82); }
+
+.plan-tree-progress {
+  margin-top: 0.85rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+.plan-tree-progress-bar {
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(127, 127, 127, 0.12);
+  overflow: hidden;
+}
+.plan-tree-progress-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, rgb(168, 85, 247), rgb(20, 184, 166));
+  transition: width 300ms ease;
+}
+.plan-tree-progress-meta {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.75rem;
+  color: var(--db-muted);
+  font-weight: 500;
+}
+.plan-tree-progress-pct {
+  font-weight: 700;
+  color: var(--db-text);
+}
+
+.plan-tree-summary {
+  margin-top: 0.7rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+.plan-tree-summary-chip {
+  font-size: 0.68rem;
+  font-weight: 600;
+  padding: 0.16rem 0.5rem;
+  border-radius: 999px;
+  background: var(--db-fill);
+  color: var(--db-muted);
+}
+.plan-tree-summary-chip--active {
+  background: rgba(20, 184, 166, 0.12);
+  color: rgb(15, 118, 110);
+}
+.plan-tree-summary-chip--blocked {
+  background: rgba(239, 68, 68, 0.12);
+  color: rgb(185, 28, 28);
+}
+.plan-tree-summary-chip--pending {
+  background: rgba(127, 127, 127, 0.1);
+  color: rgb(82, 82, 82);
+}
+.plan-tree-summary-chip--rounds {
+  background: rgba(168, 85, 247, 0.12);
+  color: rgb(126, 34, 206);
+}
+
+.plan-step-list {
+  flex: 1;
+  overflow-y: auto;
+  margin: 0;
+  padding: 0.8rem 1.25rem 1.5rem;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.plan-step {
+  border: 1px solid var(--db-border);
+  border-radius: 12px;
+  background: var(--db-surface);
+  transition: border-color 160ms ease, box-shadow 160ms ease;
+}
+.plan-step--active {
+  border-color: rgba(20, 184, 166, 0.55);
+  box-shadow: 0 0 0 1px rgba(20, 184, 166, 0.18), 0 8px 20px rgba(20, 184, 166, 0.08);
+}
+.plan-step--done {
+  background: color-mix(in srgb, var(--db-surface) 80%, rgba(16, 185, 129, 0.05) 20%);
+}
+.plan-step--blocked {
+  border-color: rgba(239, 68, 68, 0.45);
+  background: color-mix(in srgb, var(--db-surface) 80%, rgba(239, 68, 68, 0.04) 20%);
+}
+.plan-step-row {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.6rem 0.75rem;
+  flex-wrap: wrap;
+}
+.plan-step-icon {
+  flex-shrink: 0;
+  width: 1.25rem;
+  text-align: center;
+  font-size: 0.95rem;
+  line-height: 1;
+}
+.plan-step--active .plan-step-icon  { color: rgb(15, 118, 110); }
+.plan-step--done .plan-step-icon    { color: rgb(5, 150, 105); }
+.plan-step--blocked .plan-step-icon { color: rgb(185, 28, 28); }
+.plan-step--pending .plan-step-icon { color: rgba(127, 127, 127, 0.65); }
+
+.plan-step-index {
+  flex-shrink: 0;
+  font-family: var(--font-jetbrains), ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 0.72rem;
+  color: var(--db-muted);
+  font-weight: 700;
+  min-width: 1.4rem;
+}
+.plan-step-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 0.88rem;
+  line-height: 1.4;
+  word-break: break-word;
+}
+.plan-step--done .plan-step-text {
+  text-decoration: line-through;
+  text-decoration-color: rgba(5, 150, 105, 0.5);
+  color: var(--db-muted);
+}
+.plan-step-owner {
+  flex-shrink: 0;
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  padding: 0.1rem 0.45rem;
+  border-radius: 6px;
+  background: rgba(99, 102, 241, 0.1);
+  color: rgb(67, 56, 202);
+  border: 1px solid rgba(99, 102, 241, 0.2);
+}
+.plan-step-owner--databot  { background: rgba(20, 184, 166, 0.12); color: rgb(15, 118, 110); border-color: rgba(20, 184, 166, 0.2); }
+.plan-step-owner--knowledge{ background: rgba(168, 85, 247, 0.12); color: rgb(126, 34, 206); border-color: rgba(168, 85, 247, 0.2); }
+.plan-step-owner--swe      { background: rgba(245, 158, 11, 0.12); color: rgb(180, 83, 9); border-color: rgba(245, 158, 11, 0.2); }
+.plan-step-owner--diagnostic{background: rgba(239, 68, 68, 0.1);  color: rgb(185, 28, 28); border-color: rgba(239, 68, 68, 0.2); }
+.plan-step-owner--data_analysis{background:rgba(99, 102, 241, 0.12); color: rgb(67, 56, 202); border-color: rgba(99, 102, 241, 0.2); }
+
+.plan-step-toggle {
+  flex-shrink: 0;
+  background: transparent;
+  border: 1px solid var(--db-border);
+  border-radius: 6px;
+  width: 1.6rem;
+  height: 1.6rem;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  color: var(--db-muted);
+  font-size: 0.78rem;
+  line-height: 1;
+}
+.plan-step-toggle:hover {
+  background: var(--db-fill);
+  color: var(--db-text);
+}
+
+.plan-step-detail {
+  padding: 0 0.85rem 0.75rem;
+  border-top: 1px dashed var(--db-border);
+  margin-top: -0.1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  padding-top: 0.6rem;
+}
+.plan-step-detail-label {
+  display: block;
+  font-size: 0.62rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--db-muted);
+  margin-bottom: 0.2rem;
+}
+.plan-step-notes p {
+  margin: 0;
+  font-size: 0.82rem;
+  line-height: 1.45;
+  color: var(--db-text);
+  background: var(--db-fill);
+  padding: 0.45rem 0.6rem;
+  border-radius: 8px;
+}
+.plan-step-result pre {
+  margin: 0;
+  font-family: var(--font-jetbrains), ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 0.78rem;
+  line-height: 1.5;
+  color: var(--db-text);
+  background: var(--db-fill);
+  padding: 0.55rem 0.7rem;
+  border-radius: 8px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 22rem;
+  overflow-y: auto;
+}

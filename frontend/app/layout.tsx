@@ -4,6 +4,7 @@ import { Providers } from "./providers";
 import "@copilotkit/react-core/v2/styles.css";
 import "./globals.css";
 import "./databot.css";
+import "./plan.css";
 
 const sans = Plus_Jakarta_Sans({
   subsets: ["latin"],
@@ -18,8 +19,9 @@ const mono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "TahoePilot · Databot",
-  description: "Ask about tables and metrics, draft SQL, and approve execution behind human gates.",
+  title: "TahoePilot",
+  description:
+    "Multi-agent data platform — ask about tables, draft SQL, or run multi-step plans across specialists.",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
