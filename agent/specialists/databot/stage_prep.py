@@ -2,47 +2,34 @@
 
 from __future__ import annotations
 
+import json
 import logging
 from collections.abc import Callable
 from typing import Any
 
 from langchain_core.language_models import BaseChatModel
-from langchain_core.messages import AIMessage, BaseMessage, SystemMessage
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
 from agent.specialists.databot._constants import STAGE_GATE_CARDS
-from agent.specialists.databot.gate_defaults import default_gate_reasons, merge_gate_reasons
+from agent.specialists.databot.gate_defaults import (
+    build_cards_selection_summary,
+    default_gate_reasons,
+    merge_gate_reasons,
+)
 from agent.specialists.databot.prompts.gate_prep import PREPARE_CARDS_FOR_GATE_PROMPT
 from agent.specialists.databot.stage_tools import _coerce_gate_reasons
 from agent.specialists.databot.state import DatabotState
+from agent.specialists.databot.ui_actions import user_question_from_messages
 from graph.error_recovery import invoke_with_transient_retry
-from graph.messages import message_content_to_str, sanitize_messages_for_strict_tool_providers
+from graph.messages import message_content_to_str
 
 logger = logging.getLogger(__name__)
 
 
 def _parse_reasons_from_response(response: AIMessage) -> dict[str, str]:
-    tool_calls = getattr(response, "tool_calls", None) or []
-    for call in tool_calls:
-        if call.get("name") == "chat_completion":
-            reply = call.get("args", {}).get("reply")
-            if reply is not None:
-                text = message_content_to_str(reply)
-                if text:
-                    coerced = _coerce_gate_reasons(text)
-                    if coerced:
-                        return coerced
-
     text = message_content_to_str(response.content)
     if not text:
         return {}
-    coerced = _coerce_gate_reasons(text)
-    if coerced:
-        return coerced
-    if "\n" in text:
-        lines = [line.strip() for line in text.splitlines() if line.strip()]
-        coerced = _coerce_gate_reasons(lines)
-        if coerced:
-            return coerced
     return _coerce_gate_reasons(text)
 
 
@@ -54,17 +41,43 @@ def _review_cards_from_committed(state: DatabotState) -> list[dict[str, Any]]:
     ]
 
 
+def _cards_gate_brief(state: DatabotState, review: list[dict[str, Any]]) -> str:
+    """Compact facts for gate-copy generation — not the full chat history."""
+    cards: list[dict[str, Any]] = []
+    for card in review:
+        cards.append(
+            {
+                "name": card.get("name"),
+                "selected_metrics": card.get("selected_metrics") or [],
+                "selected_dimensions": card.get("selected_dimensions") or [],
+                "selection_notes": (card.get("selection_notes") or "")[:240],
+            }
+        )
+    payload = {
+        "user_question": user_question_from_messages(state.get("messages") or []),
+        "committed_models": cards,
+        "metric_conflicts": state.get("metric_conflicts") or [],
+        "gate_redraft_feedback": (state.get("deny_feedback") or "").strip(),
+    }
+    return json.dumps(payload, ensure_ascii=False, indent=2)
+
+
 def make_prepare_cards_for_gate_node(
     model: BaseChatModel,
 ) -> Callable[[DatabotState], dict[str, Any]]:
-    """Copy committed cards and ask the model for cards-gate reasons using full history."""
+    """Copy committed cards and ask the model for per-option gate persuasion copy."""
 
     def prepare_cards_for_gate(state: DatabotState) -> dict[str, Any]:
         review = _review_cards_from_committed(state)
-        history: list[BaseMessage] = list(state.get("messages") or [])
-        prompt_messages = sanitize_messages_for_strict_tool_providers(
-            history + [SystemMessage(content=PREPARE_CARDS_FOR_GATE_PROMPT)]
-        )
+        prompt_messages = [
+            SystemMessage(content=PREPARE_CARDS_FOR_GATE_PROMPT),
+            HumanMessage(
+                content=(
+                    "Write the four gate-option reasons for this selection.\n\n"
+                    f"{_cards_gate_brief(state, review)}"
+                )
+            ),
+        ]
 
         reasons = default_gate_reasons("cards")
         try:
@@ -79,6 +92,7 @@ def make_prepare_cards_for_gate_node(
             "review_cards": review,
             "deny_feedback": "",
             "cards_reasons": reasons,
+            "cards_selection_summary": build_cards_selection_summary(review),
             "stage": STAGE_GATE_CARDS,
         }
 

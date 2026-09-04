@@ -35,7 +35,10 @@ Tools you may use:
   executed; the SQL guard rejects non-read-only statements before they reach Trino).
 - ``propose_sql`` to commit your draft (set ``validated=True`` only after ``trino_explain``
   returns ``ok=True`` for that exact SQL).
-- ``write_gate_reasons`` to fill the per-option reason map for the SQL gate.
+- ``write_gate_reasons`` — for each gate option (``approve``, ``deny-comments``, ``deny-halt``, \
+``dryrun``), one short sentence telling the reviewer **why they should pick that option** for \
+this SQL draft. Pass a JSON-style list of four strings. Never pass planning notes, \
+``<think>`` tags, or ``Context:`` bullets.
 
 Tools you may NOT use in this stage: ``trino_run_query`` (the actual run is gated
 separately, after the human approves the SQL). ``trino_explain`` is the ONLY way
@@ -52,9 +55,7 @@ tables or columns.
     1. ``trino_explain(sql=...)`` to validate. Iterate until it returns
        ``ok=True`` (or hand off your best effort with ``validated=False``).
     2. ``propose_sql(sql=..., validated=...)`` to commit the draft.
-    3. ``write_gate_reasons(...)`` with one reason per gate option.
-  Calling ``chat_completion`` after these is fine if you want to add a
-  one-line summary, but it is no longer required to exit the stage.
+    3. ``write_gate_reasons(...)`` — four persuasive reasons, one per gate option.
 """
 
 _SQL_GATE_FEEDBACK_SUFFIX = """\

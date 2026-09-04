@@ -113,7 +113,7 @@ def _hint_for(
         return (
             f"`{tool}` failed, and plan-B `{fallback_tool}` already failed this turn. "
             f"Do not call `{tool}` or `{fallback_tool}` again; "
-            "explain the failure to the user via `chat_completion`."
+            "explain the failure to the user in your final reply (no more tools)."
         )
 
     if error_type is ToolErrorType.CONNECTION:

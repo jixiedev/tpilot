@@ -1,60 +1,73 @@
 "use client";
 
+import { useState } from "react";
 import {
   CopilotChatConfigurationProvider,
-  CopilotSidebar,
+  CopilotChat,
 } from "@copilotkit/react-core/v2";
-import { AgentDebugPanel } from "./components/AgentDebugPanel";
-import { DatabotArtifactPanel } from "./components/DatabotArtifactPanel";
 import { DatabotNewChatButton } from "./components/DatabotNewChatButton";
 import { DatabotSessionProvider, useDatabotSession } from "./components/DatabotSessionContext";
 import { DatabotMessageView } from "./components/DatabotMessageView";
+import { DatabotSidePanels } from "./components/DatabotSidePanels";
 import { DatabotToolRenderers } from "./components/DatabotToolRenderers";
 import { GatePanel } from "./components/GatePanel";
 
-function DatabotWorkingPanels() {
+function DatabotWorkingPanels({ debugEnabled }: { debugEnabled: boolean }) {
   const { sessionKey } = useDatabotSession();
   return (
-    <>
+    <div className="databot-right-column" data-testid="databot-right-column">
       <GatePanel key={`gate-${sessionKey}`} />
-      <DatabotArtifactPanel key={`artifact-${sessionKey}`} />
-      <AgentDebugPanel key={`debug-${sessionKey}`} />
-    </>
+      <DatabotSidePanels key={`side-${sessionKey}`} debugEnabled={debugEnabled} />
+    </div>
   );
 }
 
 export default function Page() {
+  const [debugEnabled, setDebugEnabled] = useState(false);
+
   return (
     <CopilotChatConfigurationProvider agentId="databot">
     <DatabotSessionProvider>
     <main className="databot-shell">
       <header className="databot-topbar">
-        <div className="databot-topbar-main">
-          <h1>TahoePilot · Databot</h1>
-          <p className="databot-tagline">
-            Multi-stage data retrieval with RAG, glossary, and human gates.
-          </p>
+        <div className="databot-brand">
+          <span className="databot-logo" aria-hidden="true">
+            TP
+          </span>
+          <div className="databot-topbar-main">
+            <h1>TahoePilot</h1>
+            <p className="databot-tagline">Databot · tables, metrics, SQL, and human gates</p>
+          </div>
         </div>
-        <DatabotNewChatButton />
+        <div className="databot-topbar-actions">
+          <label className="databot-debug-toggle">
+            <input
+              type="checkbox"
+              checked={debugEnabled}
+              onChange={(e) => setDebugEnabled(e.target.checked)}
+              data-testid="debug-toggle"
+            />
+            <span className="databot-switch" aria-hidden="true" />
+            <span>Debug</span>
+          </label>
+          <DatabotNewChatButton />
+        </div>
       </header>
 
       <div className="databot-layout">
-        {/* Sidebar is the chat + interrupt-rendering surface.
-            The GatePanel is a headless hook that mounts the cards / SQL
-            / chart interrupt UI in-place via CopilotKit's interrupt
-            channel. We render a `null` element from it; the chat picks
-            it up automatically. */}
-        <CopilotSidebar
-          defaultOpen
-          messageView={DatabotMessageView}
-          labels={{
-            modalHeaderTitle: "Databot",
-            welcomeMessageText:
-              "Ask me about tables, metrics, or run a SQL query. I'll fetch candidates, draft the SQL, and ask for your approval before executing.",
-          }}
-        />
+        <div className="databot-chat-column" data-testid="databot-chat-column">
+          <CopilotChat
+            messageView={DatabotMessageView}
+            labels={{
+              modalHeaderTitle: "Databot",
+              welcomeMessageText:
+                "Ask about tables or metrics, or run SQL. I’ll fetch candidates, draft the query, and wait for your approval before executing.",
+            }}
+            className="databot-chat"
+          />
+        </div>
         <DatabotToolRenderers />
-        <DatabotWorkingPanels />
+        <DatabotWorkingPanels debugEnabled={debugEnabled} />
       </div>
     </main>
     </DatabotSessionProvider>

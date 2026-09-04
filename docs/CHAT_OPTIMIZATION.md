@@ -985,4 +985,132 @@ Implementation notes (behavior only): detect emits intentions + plan steps; publ
 | State / prompt | `execution_plan`, `plan_draft`, per-step tasks | `route_target` only; prompt asks for intention labels, not step instructions |
 | Agent chain | `PlannedAgentChain` in Intent path | Removed; `StatusRoutedAgentChain` / `StaticAgentChain` remain for other callers |
 
+---
+
+## 2026-09-04 — Knowledge follow-up delegation and UI reply
+
+**Goal**: Make knowledge follow-ups delegate reliably under `langgraph dev` and show only the final `chat_completion` answer in the Web UI.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| `invoke_knowledge` under async tools | Nested Knowledge agent ran in the same event loop and hit blockbuster blocking errors | Specialist runs in a worker thread with its own event loop |
+| Knowledge subgraph exit | `chat_completion` ended the subgraph without mirroring reply to an AIMessage | Same `inject_completion_as_ai` wiring as top-level ReAct agents |
+| Web UI chat bubble | ReAct planning prose leaked when the message also had tool calls | Internal narration is hidden whenever heuristics match, even with tool calls |
+| Follow-up prompt | Required `invoke_knowledge` before answering from thread evidence | Prefer thread/cards evidence; call `chat_completion` directly when sufficient |
+
+## 2026-09-04 — Cards gate vs artifact panel on follow-up
+
+**Goal**: Keep the Cards tab, gate panel, and chat tool trace showing the same model set during follow-up requery and cards-gate review.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| Cards tab data source | Only `committed_cards`; could lag behind `review_cards` in AG-UI snapshots | At `gate_cards`, merge `committed_cards` + `review_cards` |
+| Selected rows missing from pool | `review_cards` entries absent from `committed_cards` were invisible in the grid | Orphan selected cards render as extra tiles |
+| Gate redraft | `deny-comments` kept old committed/review cards while fetch re-ran | Clear staging, committed, and review card lists on cards-gate redraft |
+| Chat `commit_cards` card | Showed requested count from tool args even when fewer landed in state | Show committed model names from tool result; warn on request/commit mismatch |
+
+## 2026-09-04 — Cards gate copy without LLM thinking
+
+**Goal**: Replace meaningless gate “reasons” (parsed LLM monologue) with deterministic selection summaries humans can act on.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| `prepare_cards_for_gate` | Extra LLM call; line-split thinking leaked into per-option “LLM:” hover text | Build reasons from `selection_notes` / metrics / dims on committed cards |
+| Gate subtitle | Long workflow boilerplate repeated under the title | Short line: model count + names |
+| Approve button hover | “LLM: …” planning text | Static button hints only; card summary shown once in **Selection summary** |
+
+## 2026-09-04 — Card gate per-option persuasion reasons
+
+**Goal**: Each cards/SQL gate button shows why the reviewer should pick that option for this turn, separate from the factual model selection summary.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| `cards_reasons` / option `reason` | Deterministic card metadata in `approve`; static hints on every button | LLM writes one persuasive sentence per gate option |
+| Selection summary | Mixed into `approve` reason | `cards_selection_summary` and interrupt `selection_summary` show model/metric facts only |
+| Tool/prompt contract | `write_gate_reasons` as a generic reason map | Docstring + `PREPARE_CARDS_FOR_GATE_PROMPT` define per-option persuasion for the reviewer |
+
+## 2026-09-04 — Stop SQL redraft monologue in chat
+
+**Goal**: Gate feedback re-runs must not dump long DATE/SQL reasoning into the chat sidebar.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| Fetch / SQL subgraphs | `persist_plain_text=True`; tool-call turns still saved full assistant prose | `persist_plain_text=False`; strip message body when persisting tool-call turns |
+| `step_reason` checkpoint | Any `AIMessage` with `tool_calls` kept planning text for the UI | Drop internal/long prose before append; tool trace carries the turn |
+| Chat sidebar (fallback) | Long text beside tool calls still rendered | Hide narration and >200-char bodies when tool calls are present |
+
+## 2026-09-04 — Gate option copy and closing summary
+
+**Goal**: Gate buttons show why to pick each option, and a finished query always gets a chat summary.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| Cards gate reasons | Thinking / `Context:` lines were split into the four buttons | Isolated JSON-only prompt; reject think dumps; fall back to defaults |
+| Closing chat line | Summary LLM `<think>` was treated as the answer (then hidden) or skipped | Strip think; if unusable, write a deterministic result summary |
+
+## 2026-09-04 — Closing summary uses chat_completion
+
+**Goal**: After SQL execution, the chat sidebar shows the same user-facing reply channel as the rest of Databot.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| Turn close | `end_with_summary` wrote a bare `AIMessage`; thinking models put the text in reasoning, which the sidebar hides | Emit `chat_completion(reply=…)` so CopilotKit renders `DatabotAssistantReply` |
+| Follow-up detector | Skipped all `tool` messages, so a completed `chat_completion` still counted as unanswered | A `chat_completion` tool result counts as the reply to that human turn |
+
+## 2026-09-04 — End the turn on empty tool calls
+
+**Goal**: Remove the `chat_completion` tool; a user-visible reply is assistant text with no tool calls.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| Turn end | ReAct loops ended only after a `chat_completion` tool ran | Latest assistant message with no tool calls ends the loop |
+| User-visible reply | Taken from the completion-tool `reply` argument | Taken from assistant message text (CLI, memory fold, Web markdown) |
+| Staged subgraphs | Completion stall plus state keys | Unchanged state-contract exit; idle then end if keys stay empty |
+
+## 2026-09-04 — Turn summary frames the original question
+
+**Goal**: After SQL/cards gate redrafts, the closing summary should answer the user's data question, not the gate feedback thread.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| Question resolution | Turn summary used the latest human message, which after gate redrafts was synthetic feedback like "现在是2026.09.03" | Skip gate redraft messages and frame the summary on the original user question |
+| Revision context | Gate comments were indistinguishable from the question | Gate revision comments are attached as secondary context; the prompt says to mention material changes briefly only |
+
+## 2026-09-04 — Commit-cards failures on follow-up requery
+
+**Goal**: When a follow-up requery resets pipeline state, card commit should not silently reuse stale staging ids from chat history.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| Fetch prompt | Follow-up note mentioned reset state but not stale ``staging_id`` | Explicitly re-fetch all models (fact + new dims) and never reuse ids from prior turns |
+| Commit UI | "Only X of Y committed" with no reason | Surfaces backend issues such as ``unknown staging_id`` under the commit card |
+
+## 2026-09-04 — Follow-up requery can re-commit prior models
+
+**Goal**: Extending a prior answer (e.g. add a country breakdown) must still be able to commit the previous fact table.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| Requery staging | Pipeline wipe dropped approved cards; LLM reused dead ``staging_id``s | Requery keeps ``approved_cards`` for commit lookup; ``staging_cards`` stays this-turn fetch only |
+| Commit lookup | Unknown id failed even when the same model was still approved | Resolves last approved ids / model names; this-turn staging wins if re-fetched |
+
+## 2026-09-04 — Fix chat vs artifact layout squeeze
+
+**Goal**: Stop the fixed Copilot sidebar and the artifact column from fighting for the same horizontal space.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| Chat shell | ``CopilotSidebar`` (fixed overlay on the right) inside a 2-column grid | Embedded ``CopilotChat`` in a dedicated left column (~34vw) |
+| Working state | Artifact panel consumed most of the width; chat was a thin strip on the edge | Artifact + gate use the remaining flex space; gate dock sits above Cards/SQL/Results |
+
+## 2026-09-04 — Databot UI visual refresh
+
+**Goal**: Replace the default-template look with a current product UI so chat and working state feel like one workspace.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| Visual system | Arial, flat white panes, hard gray borders, native checkbox | Plus Jakarta type, lake-blue tokens, rounded panes, switch + pill actions |
+| Workspace chrome | Header and columns sat on a blank page with 1990s form controls | Soft canvas, glass topbar, card columns, Copilot input restyled to match |
+
 <!-- Append the next optimization section above this line -->
+

@@ -52,9 +52,9 @@ def test_preserves_messages_after_tool_batch() -> None:
         HumanMessage(content="hi"),
         AIMessage(
             content="",
-            tool_calls=[{"name": "chat_completion", "args": {}, "id": "c1"}],
+            tool_calls=[{"name": "search", "args": {}, "id": "c1"}],
         ),
-        ToolMessage(content="done", tool_call_id="c1", name="chat_completion"),
+        ToolMessage(content="done", tool_call_id="c1", name="search"),
         AIMessage(content="visible answer"),
     ]
     out = sanitize_messages_for_strict_tool_providers(messages)

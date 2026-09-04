@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+import re
 from typing import Any, Literal, Union
 
 from langchain_core.messages import ToolMessage
@@ -48,6 +50,50 @@ def _ok_tool_message(tool_call_id: str, text: str, artifact: Any = None) -> Tool
     return ToolMessage(content=text, **kwargs)
 
 
+def _extract_json_value(text: str) -> Any:
+    """Parse a JSON value, including one buried after think tags or fences."""
+    from graph.messages import strip_think_blocks
+
+    stripped = strip_think_blocks(text).strip()
+    if stripped.startswith("```"):
+        stripped = re.sub(r"^```(?:json)?\s*", "", stripped, count=1, flags=re.IGNORECASE)
+        stripped = re.sub(r"\s*```$", "", stripped)
+        stripped = stripped.strip()
+    try:
+        return json.loads(stripped)
+    except json.JSONDecodeError:
+        pass
+    for opener, closer in (("[", "]"), ("{", "}")):
+        start = stripped.find(opener)
+        end = stripped.rfind(closer)
+        if start < 0 or end <= start:
+            continue
+        try:
+            return json.loads(stripped[start : end + 1])
+        except json.JSONDecodeError:
+            continue
+    return None
+
+
+def _reason_text_is_usable(text: str) -> bool:
+    """Reject planning dumps that must never appear as gate option copy."""
+    from graph.messages import is_internal_assistant_narration, strip_think_blocks
+
+    cleaned = strip_think_blocks(text).strip()
+    if not cleaned or "<think>" in cleaned.lower():
+        return False
+    if cleaned.lower() in {"context:", "context"}:
+        return False
+    if cleaned.startswith("- ") and (
+        cleaned.lower().startswith("- user asked")
+        or "committed card:" in cleaned.lower()
+    ):
+        return False
+    if is_internal_assistant_narration(cleaned):
+        return False
+    return True
+
+
 def _coerce_gate_reasons(
     raw: Union[dict[GateDecision, str], list[str], str, None],
 ) -> dict[str, str]:
@@ -56,19 +102,27 @@ def _coerce_gate_reasons(
     LLM has been seen to send:
     - ``{"approve": "...", "deny-comments": "..."}`` (ideal dict)
     - ``["approve: ...", "deny-comments: ...", ...]`` (list, one per option)
-    - a single string per option (rare; we ignore)
+    - a JSON array/object embedded in think tags or markdown fences
 
-    The dict form is documented as the primary shape; the list form is
-    accepted as a fallback and parsed by position into
-    ``GATE_OPTIONS``. Anything else falls back to an empty dict so the
-    gate can still fire with no per-option reasons.
+    Unusable planning fragments are dropped so the gate can fall back to
+    defaults instead of showing ``<think>`` / ``Context:`` shards.
     """
     cleaned: dict[str, str] = {}
+    if isinstance(raw, str):
+        text = raw.strip()
+        if not text:
+            return {}
+        parsed = _extract_json_value(text)
+        if parsed is None:
+            return {}
+        return _coerce_gate_reasons(parsed)
     if isinstance(raw, dict):
         for opt, text in raw.items():
             key = str(opt).strip()
             if key in GATE_OPTIONS and text is not None:
-                cleaned[key] = str(text).strip()
+                value = str(text).strip()
+                if _reason_text_is_usable(value):
+                    cleaned[key] = value
         return cleaned
     if isinstance(raw, list):
         # Positional: align with GATE_OPTIONS order
@@ -87,7 +141,9 @@ def _coerce_gate_reasons(
                 head, _, tail = text.partition(":")
                 if head.strip() in GATE_OPTIONS:
                     text = tail.strip()
-            cleaned[opt] = text
+            if _reason_text_is_usable(text):
+                cleaned[opt] = text
+        return cleaned
     return cleaned
 
 
@@ -141,19 +197,20 @@ def write_gate_reasons(
     reasons: list[str],
     runtime: ToolRuntime = None,  # type: ignore[assignment]
 ) -> Command:
-    """Write the LLM-generated reasons for the four gate options.
+    """Write persuasive reasons for the four human gate options.
+
+    The human picks exactly one of ``approve``, ``deny-comments``, ``deny-halt``, or
+    ``dryrun``. For **each** option, pass one short sentence explaining **why the
+    reviewer should choose that option for this turn** — not what the option does in
+    the abstract, and not internal planning text (no ``<think>`` tags, no ``Context:``
+    bullets, no restating the task).
 
     Pass 1–4 strings, positional, aligned with
-    ``["approve", "deny-comments", "deny-halt", "dryrun"]``. Each entry
-    may be the bare reason or ``"approve: <reason>"`` (we strip the
-    prefix). Empty strings are skipped. Required before the gate can
-    fire; if you skip this call, the gate runs with empty reasons.
+    ``["approve", "deny-comments", "deny-halt", "dryrun"]``. Each entry may be the bare
+    reason or ``"approve: <reason>"`` (we strip the prefix). Empty strings are skipped.
 
-    Why ``list[str]`` only (no dict form): some OpenAI-compatible
-    providers (GLM, MiniMax) reject ``Union[dict, list, str]`` arguments
-    with a ``Cannot instantiate typing.Union`` schema error. The
-    positional list form covers the same LLM intent and round-trips
-    cleanly across providers.
+    Cards gate reasons are normally filled by the outer ``prepare_cards_for_gate`` node;
+    call this from the SQL stage before the SQL gate when drafting is complete.
     """
     tool_call_id = (runtime.tool_call_id if runtime else None) or "missing"
     cleaned = _coerce_gate_reasons(reasons)

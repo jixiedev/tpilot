@@ -1,7 +1,7 @@
 """Graduated automatic context compression for long-running agents.
 
 Layer 1 — always-on tool-result offloading (disk I/O only)
-Layer 1b — prior-turn Q&A fold (keep Human + chat_completion; drop tool trails)
+Layer 1b — prior-turn Q&A fold (keep Human + final assistant text; drop tool trails)
 Layer 2 — write-tool input eviction when context fill is high
 Layer 3 — structured LLM summarization of the conversation head
 Layer 4 — agent-initiated compact via ``compact_context`` (force=True)
@@ -72,13 +72,6 @@ def _detect_autonomous_compact(messages: list[BaseMessage]) -> bool:
             continue
         content = _content_to_text(message.content)
         if AUTONOMOUS_COMPACT_MARKER in content:
-            return True
-    return False
-
-
-def _ai_calls_tool(message: AIMessage, tool_name: str) -> bool:
-    for call in message.tool_calls or []:
-        if call.get("name") == tool_name:
             return True
     return False
 
@@ -285,7 +278,7 @@ class ContextCompressor:
         return updates
 
     def layer_prior_turns_qa_only(self, messages: list[BaseMessage]) -> list[BaseMessage]:
-        """Drop prior-turn tool trajectories; keep Human + chat_completion Q&A.
+        """Drop prior-turn tool trajectories; keep Human + final assistant text.
 
         The current turn starts at the last ``HumanMessage``. Everything before
         that is prior history. Within prior history keep:
@@ -294,8 +287,7 @@ class ContextCompressor:
         - turn-boundary ``SystemMessage`` markers
         - prior Layer-3 compression summaries (``CONTEXT COMPRESSED``)
         - ``HumanMessage`` questions
-        - ``AIMessage`` that invoked ``chat_completion``
-        - ``ToolMessage`` named ``chat_completion`` (the user-visible answer)
+        - ``AIMessage`` with no tool calls (the user-visible answer)
 
         All other prior AI/tool messages are removed (and archived). Current-turn
         messages after the last human are left untouched.
@@ -305,7 +297,6 @@ class ContextCompressor:
             return []
 
         prior = messages[:last_human]
-        completion_name = self.config.chat_completion_tool_name
         boundary_marker = self.config.turn_boundary_marker
 
         discard: list[BaseMessage] = []
@@ -322,9 +313,7 @@ class ContextCompressor:
             if isinstance(message, SystemMessage):
                 # Keep turn boundaries and prior compression summaries.
                 continue
-            if isinstance(message, ToolMessage) and message.name == completion_name:
-                continue
-            if isinstance(message, AIMessage) and _ai_calls_tool(message, completion_name):
+            if isinstance(message, AIMessage) and not (message.tool_calls or []):
                 continue
             discard.append(message)
 

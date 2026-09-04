@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any
@@ -145,6 +146,26 @@ class SpecialistRunner:
 
         output = extract_turn_output(result.state)
         return output or "(specialist returned no text output)"
+
+    async def run_isolated(
+        self,
+        agent_name: str,
+        task: str,
+        *,
+        parent_session: str,
+    ) -> str:
+        """Run a nested specialist in a worker thread.
+
+        ``langgraph dev`` blocks synchronous work inside async tool handlers;
+        isolating the nested graph in its own event loop avoids that.
+        """
+
+        def _work() -> str:
+            return asyncio.run(
+                self.run(agent_name, task, parent_session=parent_session)
+            )
+
+        return await asyncio.to_thread(_work)
 
 
 def make_invoke_agent_tool(runner: SpecialistRunner) -> BaseTool:

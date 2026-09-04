@@ -14,6 +14,13 @@ NODE_WRITE_SQL_ARTIFACT = "write_sql_artifact"
 NODE_EXECUTE_SQL = "execute_sql"
 NODE_END_WITH_SUMMARY = "end_with_summary"
 NODE_END_WITH_REFUSAL = "end_with_refusal"
+NODE_CLASSIFY_FOLLOW_UP = "classify_follow_up"
+NODE_KNOWLEDGE_FOLLOW_UP = "knowledge_follow_up"
+NODE_FINISH_KNOWLEDGE_FOLLOW_UP = "finish_knowledge_follow_up"
+
+# Follow-up intention labels (set by ``classify_follow_up``).
+FOLLOW_UP_INTENTION_KNOWLEDGE = "knowledge"
+FOLLOW_UP_INTENTION_REQUERY = "requery"
 
 # State-machine ``stage`` field values.
 STAGE_FETCH = "fetch"
@@ -34,6 +41,9 @@ VALID_STAGES = frozenset({
 
 # Self-map for conditional edges whose router returns a node name.
 NODE_ROUTE_MAP = {
+    NODE_CLASSIFY_FOLLOW_UP: NODE_CLASSIFY_FOLLOW_UP,
+    NODE_KNOWLEDGE_FOLLOW_UP: NODE_KNOWLEDGE_FOLLOW_UP,
+    NODE_FINISH_KNOWLEDGE_FOLLOW_UP: NODE_FINISH_KNOWLEDGE_FOLLOW_UP,
     NODE_FETCH_CARDS: NODE_FETCH_CARDS,
     NODE_GATE_CARDS: NODE_GATE_CARDS,
     NODE_WRITE_CARDS_ARTIFACT: NODE_WRITE_CARDS_ARTIFACT,

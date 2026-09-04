@@ -367,7 +367,7 @@ def test_against_prior_failures_suppresses_circular_plan_b() -> None:
 
     assert suppressed.fallback_tool is None
     assert "already failed this turn" in suppressed.hint
-    assert "chat_completion" in suppressed.hint
+    assert "final reply" in suppressed.hint
     assert structured.against_prior_failures([]).fallback_tool == "hive_list_tables"
 
 

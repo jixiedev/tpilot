@@ -6,7 +6,7 @@ from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
-from langchain_core.messages import BaseMessage, ToolMessage
+from langchain_core.messages import BaseMessage
 from langgraph.types import Command
 
 from state.state import last_ai_message, message_text
@@ -31,8 +31,7 @@ def current_turn_messages(
 ) -> list[Any]:
     """Messages after the latest human turn (exclusive of that human message).
 
-    Used so completion / fallback reply lookup cannot leak a prior turn's answer
-    when the current turn ends without a new ``chat_completion``.
+    Used so reply lookup cannot leak a prior turn's answer.
     """
     if state is None:
         return []
@@ -46,16 +45,14 @@ def current_turn_messages(
     return messages
 
 
-def completion_tool_reply(
-    state: Mapping[str, Any] | None,
-    *,
-    completion_tool_name: str = "chat_completion",
-) -> str | None:
-    """Latest ``chat_completion`` ToolMessage text in the current turn only."""
+def last_user_visible_reply(state: Mapping[str, Any] | None) -> str | None:
+    """Latest assistant text in this turn that is not a tool-call step."""
+    from langchain_core.messages import AIMessage
+
     for message in reversed(current_turn_messages(state)):
-        if not isinstance(message, ToolMessage):
+        if not (getattr(message, "type", None) == "ai" or isinstance(message, AIMessage)):
             continue
-        if getattr(message, "name", None) != completion_tool_name:
+        if getattr(message, "tool_calls", None):
             continue
         text = message_text(getattr(message, "content", None))
         if text:
@@ -65,18 +62,15 @@ def completion_tool_reply(
 
 def extract_turn_output(
     state: Mapping[str, Any] | None,
-    *,
-    completion_tool_name: str = "chat_completion",
 ) -> str:
     """Best-effort user-visible output from a finished agent state.
 
-    Prefers this turn's ``chat_completion`` ToolMessage content, then this turn's
-    last AI text, then common scalar fields used by lightweight stubs. Prior-turn
-    completions are ignored.
+    Prefers this turn's last assistant message without tool calls, then any
+    AI text, then common scalar fields used by lightweight stubs.
     """
     if not state:
         return ""
-    reply = completion_tool_reply(state, completion_tool_name=completion_tool_name)
+    reply = last_user_visible_reply(state)
     if reply:
         return reply
     ai = last_ai_message(current_turn_messages(state))

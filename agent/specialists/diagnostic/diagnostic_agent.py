@@ -12,7 +12,6 @@ from agent.specialists.diagnostic.prompt import DiagnosticSystemPrompt
 from agent.specialists.diagnostic.tool_scopes import diagnostic_react_tools
 from agent.react import BaseReactAgent
 from agent.runtime.tahoe_runtime_helper import (
-    CHAT_COMPLETION_TOOL_NAME,
     DEFAULT_MAX_IDLE_ROUNDS,
     DEFAULT_MAX_TOOL_CALLS,
     DEFAULT_PROFILE_DIR,
@@ -30,7 +29,6 @@ from tools.dynamic import register_dynamic_tool_bindings
 class DiagnosticAgent(BaseReactAgent):
     """Simple ReAct agent for online Airflow incident diagnosis."""
 
-    completion_tool_name = CHAT_COMPLETION_TOOL_NAME
     turn_boundary = SESSION_TURN_BOUNDARY
     default_profile_dir = DEFAULT_PROFILE_DIR
     prompt_assembler_cls = DiagnosticSystemPrompt

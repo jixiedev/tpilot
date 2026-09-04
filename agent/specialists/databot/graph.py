@@ -10,21 +10,25 @@ from typing import Any
 from agent.runtime.tahoe_runtime_helper import DEFAULT_PROFILE_DIR
 
 from langchain_core.language_models import BaseChatModel
-from langchain_core.messages import HumanMessage
+from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from langchain_core.tools import BaseTool
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 
 from agent.specialists.databot._constants import (
+    FOLLOW_UP_INTENTION_KNOWLEDGE,
+    NODE_CLASSIFY_FOLLOW_UP,
     NODE_END_WITH_REFUSAL,
     NODE_END_WITH_SUMMARY,
     NODE_EXECUTE_SQL,
     NODE_FETCH_CARDS,
+    NODE_FINISH_KNOWLEDGE_FOLLOW_UP,
     NODE_GATE_CARDS,
     NODE_GATE_SQL,
     NODE_GENERATE_SQL,
     NODE_INJECT_SYSTEM_PROMPT,
+    NODE_KNOWLEDGE_FOLLOW_UP,
     NODE_PREPARE_CARDS_FOR_GATE,
     NODE_ROUTE_MAP,
     NODE_WRITE_CARDS_ARTIFACT,
@@ -38,11 +42,21 @@ from agent.specialists.databot._constants import (
     VALID_STAGES,
 )
 from agent.specialists.databot.execute import make_execute_sql_node
+from agent.specialists.databot.follow_up_intention import make_classify_follow_up_node
 from agent.specialists.databot.gates import make_cards_gate_node, make_sql_gate_node
 from agent.specialists.databot.profile_persistence import make_persist_turn_artifact_node
 from agent.specialists.databot.prompts.system import SYSTEM_PROMPT as DATABOT_SYSTEM_PROMPT
-from agent.specialists.databot.state import DatabotState, fresh_turn_state_defaults
-from agent.specialists.databot.subgraphs import build_fetch_cards_subgraph, build_generate_sql_subgraph
+from agent.specialists.databot.state import (
+    DatabotState,
+    fresh_follow_up_entry_defaults,
+    fresh_turn_state_defaults,
+)
+from agent.specialists.databot.subgraphs import (
+    build_fetch_cards_subgraph,
+    build_generate_sql_subgraph,
+    build_knowledge_follow_up_subgraph,
+)
+from agent.plan.stage_tools import SpecialistRunner
 from agent.specialists.databot.stage_prep import make_prepare_cards_for_gate_node
 from agent.specialists.databot.turn_summary import make_turn_summary_node
 from agent.specialists.databot.tool_scopes import (
@@ -52,7 +66,8 @@ from agent.specialists.databot.tool_scopes import (
     TOOL_ID_SQL,
 )
 from graph.builder import make_inject_system_prompt_node, static_system_prompt
-from state.state import SessionAgentState
+from graph.messages import is_internal_assistant_narration, strip_think_blocks
+from state.state import SessionAgentState, message_text
 from tools.bootstrap import ensure_tools_registered
 from tools.common import find_tool
 
@@ -73,6 +88,20 @@ _AFTER_GATE_SQL_ROUTES = {
     NODE_GENERATE_SQL: NODE_GENERATE_SQL,
     NODE_WRITE_SQL_ARTIFACT: NODE_WRITE_SQL_ARTIFACT,
     NODE_END_WITH_SUMMARY: NODE_END_WITH_SUMMARY,
+}
+
+_AFTER_CLASSIFY_FOLLOW_UP_ROUTES = {
+    NODE_CLASSIFY_FOLLOW_UP: NODE_CLASSIFY_FOLLOW_UP,
+    NODE_KNOWLEDGE_FOLLOW_UP: NODE_KNOWLEDGE_FOLLOW_UP,
+    NODE_FETCH_CARDS: NODE_FETCH_CARDS,
+    NODE_GATE_CARDS: NODE_GATE_CARDS,
+    NODE_WRITE_CARDS_ARTIFACT: NODE_WRITE_CARDS_ARTIFACT,
+    NODE_GENERATE_SQL: NODE_GENERATE_SQL,
+    NODE_GATE_SQL: NODE_GATE_SQL,
+    NODE_WRITE_SQL_ARTIFACT: NODE_WRITE_SQL_ARTIFACT,
+    NODE_EXECUTE_SQL: NODE_EXECUTE_SQL,
+    NODE_END_WITH_SUMMARY: NODE_END_WITH_SUMMARY,
+    NODE_END_WITH_REFUSAL: NODE_END_WITH_REFUSAL,
 }
 
 
@@ -113,13 +142,49 @@ def _message_is_human(message: Any) -> bool:
     return False
 
 
+def _message_content(message: Any) -> str:
+    if isinstance(message, dict):
+        return message_text(message.get("content"))
+    return message_text(getattr(message, "content", None))
+
+
+def _message_is_user_visible_ai(message: Any) -> bool:
+    """True when this assistant message is something the chat sidebar should show."""
+    if isinstance(message, ToolMessage) or _message_type(message) == "tool":
+        return False
+    if not (_message_type(message) == "ai" or isinstance(message, AIMessage)):
+        return False
+    if getattr(message, "tool_calls", None):
+        return False
+    text = strip_think_blocks(_message_content(message))
+    if not text:
+        return False
+    return not is_internal_assistant_narration(text)
+
+
+def _human_has_substantive_reply_after(messages: list[Any], human_index: int) -> bool:
+    """True when a user-visible assistant reply already follows this human turn."""
+    for message in messages[human_index + 1 :]:
+        if _message_is_human(message):
+            return False
+        if _message_is_user_visible_ai(message):
+            return True
+        if _message_type(message) in _TRAILING_REPLAY_ARTIFACT_TYPES:
+            continue
+    return False
+
+
 def _trailing_human_wants_new_turn(state: DatabotState) -> bool:
-    """True when the latest message is a new user turn (web chat follow-up).
+    """True when the latest non-empty user message has not been answered yet.
 
     The CLI calls ``prepare_turn_input`` with a fresh partial state each
     time, but the CopilotKit / AG-UI path appends ``HumanMessage``s to the
     checkpoint and re-invokes with ``stage`` still ``"done"``. Without this
     guard the router sends those runs straight to ``end_with_summary``.
+
+    Empty human placeholders (CopilotKit sync noise) are ignored. A follow-up
+    that already has a user-visible ``AIMessage`` reply does not re-enter the
+    knowledge / requery path on graph re-invocation.
 
     Replay paths may append ``RemoveMessage`` / ``ToolMessage`` /
     ``FunctionMessage`` after the user text; those are skipped when scanning
@@ -129,10 +194,15 @@ def _trailing_human_wants_new_turn(state: DatabotState) -> bool:
     messages = state.get("messages") or []
     if not messages:
         return False
-    for message in reversed(messages):
+    for index in range(len(messages) - 1, -1, -1):
+        message = messages[index]
         if _message_type(message) in _TRAILING_REPLAY_ARTIFACT_TYPES:
             continue
-        return _message_is_human(message)
+        if not _message_is_human(message):
+            continue
+        if not _message_content(message):
+            continue
+        return not _human_has_substantive_reply_after(messages, index)
     return False
 
 
@@ -146,7 +216,9 @@ def make_databot_entry_node(
         patch: dict[str, Any] = dict(inject(state) or {})
         stage = state.get("stage") or STAGE_FETCH
         if _trailing_human_wants_new_turn(state) and stage == STAGE_DONE:
-            patch.update(fresh_turn_state_defaults())
+            patch.update(fresh_follow_up_entry_defaults())
+        else:
+            patch["follow_up_turn"] = False
         return patch
 
     return entry
@@ -168,11 +240,16 @@ def _stage_route(state: DatabotState) -> str:
     if stage == STAGE_EXECUTE:
         return NODE_WRITE_SQL_ARTIFACT
     if stage == STAGE_DONE:
-        if _trailing_human_wants_new_turn(state):
-            return NODE_FETCH_CARDS
         return NODE_END_WITH_SUMMARY
     logger.warning("databot outer graph: unknown stage %r; routing to end", stage)
     return NODE_END_WITH_SUMMARY
+
+
+def _route_after_entry(state: DatabotState) -> str:
+    """Route follow-up turns through intention classification before the pipeline."""
+    if state.get("follow_up_turn"):
+        return NODE_CLASSIFY_FOLLOW_UP
+    return _stage_route(state)
 
 
 def _after_gate_cards(state: DatabotState) -> str:
@@ -209,6 +286,20 @@ def _after_generate_sql(state: DatabotState) -> str:
     return _stage_route(state)
 
 
+def _route_after_classify_follow_up(state: DatabotState) -> str:
+    """Send knowledge clarifications to the delegate subgraph; else continue the pipeline."""
+    if state.get("follow_up_intention") == FOLLOW_UP_INTENTION_KNOWLEDGE:
+        return NODE_KNOWLEDGE_FOLLOW_UP
+    return _stage_route(state)
+
+
+def _finish_knowledge_follow_up_node() -> Callable[[DatabotState], dict[str, Any]]:
+    def finish_knowledge_follow_up(_state: DatabotState) -> dict[str, Any]:
+        return {"stage": STAGE_DONE, "follow_up_turn": False}
+
+    return finish_knowledge_follow_up
+
+
 def _end_with_refusal_node() -> Callable[[DatabotState], dict[str, Any]]:
     def end_with_refusal(state: DatabotState) -> dict[str, Any]:
         from langchain_core.messages import AIMessage
@@ -242,8 +333,6 @@ def _build_stage_tool_lists() -> tuple[list[BaseTool], list[BaseTool], BaseTool 
         raise KeyError(
             "databot: commit_cards missing — register under identifier 'fetch'"
         )
-    if find_tool(fetch_tools, "chat_completion") is None:
-        raise KeyError("databot: chat_completion missing from identifier 'fetch'")
     if find_tool(sql_tools, "trino_explain") is None:
         raise KeyError(
             "databot: trino_explain missing from identifier 'sql' — "
@@ -266,6 +355,7 @@ def build_databot_graph(
     model: BaseChatModel,
     *,
     checkpointer: BaseCheckpointSaver,
+    runner: SpecialistRunner,
     system_prompt: Callable[[SessionAgentState], str] = static_system_prompt(
         DATABOT_SYSTEM_PROMPT
     ),
@@ -293,9 +383,18 @@ def build_databot_graph(
         max_tool_calls=max_tool_calls,
         max_idle_rounds=1,
     )
+    knowledge_subgraph = build_knowledge_follow_up_subgraph(
+        model,
+        runner,
+        checkpointer=checkpointer,
+        max_tool_calls=max_tool_calls,
+    )
 
     graph = StateGraph(DatabotState)
     graph.add_node(NODE_INJECT_SYSTEM_PROMPT, make_databot_entry_node(system_prompt))
+    graph.add_node(NODE_CLASSIFY_FOLLOW_UP, make_classify_follow_up_node(model))
+    graph.add_node(NODE_KNOWLEDGE_FOLLOW_UP, knowledge_subgraph)
+    graph.add_node(NODE_FINISH_KNOWLEDGE_FOLLOW_UP, _finish_knowledge_follow_up_node())
     graph.add_node(NODE_FETCH_CARDS, fetch_subgraph)
     graph.add_node(
         NODE_PREPARE_CARDS_FOR_GATE,
@@ -319,9 +418,16 @@ def build_databot_graph(
     graph.add_edge(START, NODE_INJECT_SYSTEM_PROMPT)
     graph.add_conditional_edges(
         NODE_INJECT_SYSTEM_PROMPT,
-        _stage_route,
-        NODE_ROUTE_MAP,
+        _route_after_entry,
+        _AFTER_CLASSIFY_FOLLOW_UP_ROUTES,
     )
+    graph.add_conditional_edges(
+        NODE_CLASSIFY_FOLLOW_UP,
+        _route_after_classify_follow_up,
+        _AFTER_CLASSIFY_FOLLOW_UP_ROUTES,
+    )
+    graph.add_edge(NODE_KNOWLEDGE_FOLLOW_UP, NODE_FINISH_KNOWLEDGE_FOLLOW_UP)
+    graph.add_edge(NODE_FINISH_KNOWLEDGE_FOLLOW_UP, END)
     graph.add_edge(NODE_FETCH_CARDS, NODE_PREPARE_CARDS_FOR_GATE)
     graph.add_edge(NODE_PREPARE_CARDS_FOR_GATE, NODE_GATE_CARDS)
     graph.add_conditional_edges(

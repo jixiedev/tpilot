@@ -96,8 +96,10 @@ class DatabotState(SessionAgentState):
     # Cards shown at the human cards gate (copied from ``committed_cards`` by
     # ``prepare_cards_for_gate``; UI may edit via ``update_card_selection``).
     review_cards: list[dict[str, Any]]
-    # Cards the human approved. Hydrated to ``TableCard`` objects; downstream
-    # SQL generation reads this set as the "working schema" for the query.
+    # Cards the human approved. SQL generation reads this as the working
+    # schema. Follow-up requery keeps this list so ``commit_cards`` can
+    # resolve last turn's ``staging_id``s; this-turn ``staging_cards`` stays empty
+    # until fetch. Overwritten when the cards gate approves a new set.
     approved_cards: list[dict[str, Any]]
     # Glossary / dbt-metric conflicts the LLM surfaced but did NOT fix.
     # Each entry: {"card_name": str, "metric": str, "glossary_term": str,
@@ -120,12 +122,20 @@ class DatabotState(SessionAgentState):
     # ``sql_reasons``) before its stage exits; the gate node reads from
     # here when building the interrupt prompt.
     cards_reasons: dict[str, str]
+    # Factual summary of committed models for the cards gate UI (not option copy).
+    cards_selection_summary: str
     sql_reasons: dict[str, str]
     # Per-turn flags written by the gate / persistence nodes.
     dryrun: bool
     halt_reason: str
     chart_requested: bool
     deny_feedback: str
+
+    # follow-up routing ------------------------------------------------------
+    # Set when a web/CLI follow-up arrives after ``stage`` was ``done``.
+    follow_up_turn: bool
+    # ``knowledge`` (clarify prior answer) vs ``requery`` (new fetch pipeline).
+    follow_up_intention: str
 
 
 # Per-turn databot fields reset at the start of each new question (CLI
@@ -144,11 +154,14 @@ FRESH_TURN_STATE_DEFAULTS: dict[str, Any] = {
     "execution_result": {},
     "gate_decisions": [],
     "cards_reasons": {},
+    "cards_selection_summary": "",
     "sql_reasons": {},
     "dryrun": False,
     "halt_reason": "",
     "chart_requested": False,
     "deny_feedback": "",
+    "follow_up_turn": False,
+    "follow_up_intention": "",
     "tool_call_count": 0,
     "idle_rounds": 0,
     "failed_tools": [],
@@ -166,3 +179,49 @@ def fresh_turn_state_defaults() -> dict[str, Any]:
         else:
             fresh[key] = value
     return fresh
+
+
+# Pipeline fields cleared on follow-up **requery**. ``approved_cards`` is left
+# in place so ``commit_cards`` can reuse last turn's models; CLI new questions
+# use ``fresh_turn_state_defaults`` instead. Knowledge follow-ups do not clear.
+FRESH_PIPELINE_STATE_KEYS: tuple[str, ...] = (
+    "stage",
+    "staging_cards",
+    "committed_cards",
+    "review_cards",
+    "metric_conflicts",
+    "draft_sql",
+    "approved_sql",
+    "sql_validated",
+    "execution_result",
+    "gate_decisions",
+    "cards_reasons",
+    "cards_selection_summary",
+    "sql_reasons",
+    "dryrun",
+    "halt_reason",
+    "chart_requested",
+    "deny_feedback",
+    "tool_call_count",
+    "idle_rounds",
+    "failed_tools",
+)
+
+
+def fresh_pipeline_state_defaults(*, stage: str = STAGE_FETCH) -> dict[str, Any]:
+    """Reset staged pipeline artifacts for a new warehouse query."""
+    full = fresh_turn_state_defaults()
+    patch = {key: full[key] for key in FRESH_PIPELINE_STATE_KEYS if key in full}
+    patch["stage"] = stage
+    return patch
+
+
+def fresh_follow_up_entry_defaults() -> dict[str, Any]:
+    """Bookkeeping reset when a follow-up message arrives; keeps pipeline artifacts."""
+    return {
+        "follow_up_turn": True,
+        "follow_up_intention": "",
+        "tool_call_count": 0,
+        "idle_rounds": 0,
+        "failed_tools": [],
+    }

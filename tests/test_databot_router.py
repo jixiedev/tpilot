@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+from langchain_core.messages import AIMessage, HumanMessage
 
 from agent.config import AgentRunContext, RouterConfig
 from agent.router import CompletionToolRouter
@@ -12,44 +12,38 @@ def _router() -> CompletionToolRouter:
     return CompletionToolRouter(
         AgentRunContext(max_tool_calls=20, max_idle_rounds=1),
         RouterConfig(state_exit_keys=("draft_sql", "sql_reasons")),
-        completion_tool_name=None,
     )
 
 
-def test_completion_stall_exceeded_after_repeated_chat_completion() -> None:
+def test_unmet_contract_plain_text_retries_then_ends() -> None:
     router = _router()
-    state = {
-        "messages": [
-            HumanMessage(content="orders and revenue"),
-            AIMessage(
-                content="thinking",
-                tool_calls=[
-                    {"name": "chat_completion", "args": {"reply": "a"}, "id": "1"},
-                ],
-            ),
-            ToolMessage(content="ok", tool_call_id="1", name="chat_completion"),
-            AIMessage(
-                content="still thinking",
-                tool_calls=[
-                    {"name": "chat_completion", "args": {"reply": "b"}, "id": "2"},
-                ],
-            ),
-            ToolMessage(content="ok", tool_call_id="2", name="chat_completion"),
-        ],
+    route = router.route_after_reason()
+    unmet = {
+        "messages": [HumanMessage(content="orders"), AIMessage(content="thinking")],
         "draft_sql": "",
         "sql_reasons": {},
+        "idle_rounds": 0,
+        "tool_call_count": 0,
     }
-    assert router.completion_stall_exceeded(state) is True
+    assert route(unmet) == "step_reason"
+    unmet["idle_rounds"] = 1
+    assert route(unmet) == "__end__"
 
 
-def test_completion_stall_not_triggered_when_state_contract_met() -> None:
+def test_state_contract_met_ends_even_with_tool_calls() -> None:
     router = _router()
+    route = router.route_after_reason()
     state = {
         "messages": [
-            ToolMessage(content="ok", tool_call_id="1", name="chat_completion"),
-            ToolMessage(content="ok", tool_call_id="2", name="chat_completion"),
+            AIMessage(
+                content="",
+                tool_calls=[{"name": "propose_sql", "args": {}, "id": "1"}],
+            )
         ],
         "draft_sql": "SELECT 1",
         "sql_reasons": {"approve": "ok"},
+        "idle_rounds": 0,
+        "tool_call_count": 1,
     }
-    assert router.completion_stall_exceeded(state) is False
+    assert route(state) == "__end__"
+    assert router.state_complete(state) is True

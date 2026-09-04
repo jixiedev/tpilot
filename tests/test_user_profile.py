@@ -196,7 +196,7 @@ class _FakeChatModel:
 
 
 def test_refine_user_profile_node_persists_to_store(tmp_path: Path) -> None:
-    from langchain_core.messages import HumanMessage, ToolMessage
+    from langchain_core.messages import HumanMessage, AIMessage
 
     from agent.refine_profile import make_refine_user_profile_node
 
@@ -211,7 +211,7 @@ def test_refine_user_profile_node_persists_to_store(tmp_path: Path) -> None:
         "user_id": "alice",
         "messages": [
             HumanMessage(content="I am on the growth team; track GMV daily."),
-            ToolMessage(content="GMV last week was 1.2M CNY.", name="chat_completion", tool_call_id="1"),
+            AIMessage(content="GMV last week was 1.2M CNY."),
         ],
     }
 
@@ -245,7 +245,7 @@ class _LooseFenceProfileModel:
 
 
 def test_refine_user_profile_node_falls_back_to_fenced_json(tmp_path: Path) -> None:
-    from langchain_core.messages import HumanMessage, ToolMessage
+    from langchain_core.messages import HumanMessage, AIMessage
 
     from agent.refine_profile import make_refine_user_profile_node
 
@@ -257,7 +257,7 @@ def test_refine_user_profile_node_falls_back_to_fenced_json(tmp_path: Path) -> N
         "user_id": "alice",
         "messages": [
             HumanMessage(content="GMV for wish last month?"),
-            ToolMessage(content="GMV was 1M.", name="chat_completion", tool_call_id="1"),
+            AIMessage(content="GMV was 1M."),
         ],
     }
 
@@ -271,7 +271,7 @@ def test_refine_user_profile_node_falls_back_to_fenced_json(tmp_path: Path) -> N
 
 
 def test_refine_user_profile_node_skips_without_failing_turn(tmp_path: Path) -> None:
-    from langchain_core.messages import HumanMessage, ToolMessage
+    from langchain_core.messages import HumanMessage, AIMessage
 
     from agent.refine_profile import make_refine_user_profile_node
 
@@ -290,7 +290,7 @@ def test_refine_user_profile_node_skips_without_failing_turn(tmp_path: Path) -> 
         "user_id": "alice",
         "messages": [
             HumanMessage(content="hello"),
-            ToolMessage(content="hi", name="chat_completion", tool_call_id="1"),
+            AIMessage(content="hi"),
         ],
     }
 

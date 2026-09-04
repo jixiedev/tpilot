@@ -3,14 +3,11 @@
 from __future__ import annotations
 
 import getpass
-from abc import ABC
 from collections.abc import Callable, Sequence
 from dataclasses import replace
 from pathlib import Path
-from typing import Any
 
 from langchain_core.language_models import BaseChatModel
-from langchain_core.messages import AIMessage
 from langchain_core.tools import BaseTool
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph.state import CompiledStateGraph
@@ -22,44 +19,23 @@ from agent.prompt import SystemPromptAssembler
 from agent.refine_profile import make_refine_user_profile_node
 from agent.router import CompletionToolRouter
 from agent.session import SessionTurnBuilder
-from agent.turn import completion_tool_reply
 from config.local_config import get_local_paths
 from graph.builder import build_react_graph
 from memory import CompressionConfig, make_compressor
 from memory.profile_store import FileProfileStore, ProfileStore
 from state.state import SessionAgentState
 
-# Re-export for convenience.
 __all__ = [
     "AgentRunContext",
     "BaseReactAgent",
     "ReactAgentListener",
     "RouterConfig",
     "StateLike",
-    "make_inject_completion_as_ai_node",
 ]
 
 
-def make_inject_completion_as_ai_node(
-    *,
-    completion_tool_name: str = "chat_completion",
-) -> Callable[[SessionAgentState], dict[str, Any]]:
-    """Mirror this turn's completion-tool reply as the final AIMessage in state."""
-
-    def inject_completion_as_ai(state: SessionAgentState) -> dict[str, Any]:
-        reply = completion_tool_reply(
-            state,
-            completion_tool_name=completion_tool_name,
-        )
-        if not reply:
-            return {}
-        return {"messages": [AIMessage(content=reply)]}
-
-    return inject_completion_as_ai
-
-
 class BaseReactAgent(BaseAgent):
-    """Shared ReAct wiring: graph build, session turns, completion-tool routing.
+    """Shared ReAct wiring: graph build, session turns, tool vs text routing.
 
     Subclasses supply product-specific prompts, tools, and defaults.
     Collaborators:
@@ -69,7 +45,6 @@ class BaseReactAgent(BaseAgent):
     - ``SystemPromptAssembler`` — optional profile-aware system prompt
     """
 
-    completion_tool_name: str = "chat_completion"
     turn_boundary: str = ""
     default_profile_dir: Path = get_local_paths().profiles_dir
     prompt_assembler_cls: type[SystemPromptAssembler] = SystemPromptAssembler
@@ -85,30 +60,22 @@ class BaseReactAgent(BaseAgent):
         react_listener: ReactAgentListener | None = None,
         prompt_assembler: SystemPromptAssembler | None = None,
         turn_boundary: str | None = None,
-        completion_tool_name: str | None = None,
     ) -> None:
         super().__init__(system_prompt=None)
         self.run_context = run_context
         self.router_config = router_config or RouterConfig()
         self.profile_store = profile_store
         self.tools = list(tools)
-        self.completion_tool_name = completion_tool_name or type(self).completion_tool_name
         self.turn_boundary = (
             type(self).turn_boundary if turn_boundary is None else turn_boundary
         )
         self.prompt_assembler = prompt_assembler or self.prompt_assembler_cls()
-        primary = react_listener or CliReactListener(
-            completion_tool_name=self.completion_tool_name
-        )
+        primary = react_listener or CliReactListener()
         self.react_listener: ListenerHub = (
             primary if isinstance(primary, ListenerHub) else ListenerHub(primary)
         )
         self.session = SessionTurnBuilder(self.turn_boundary)
-        self.router = CompletionToolRouter(
-            self.run_context,
-            self.router_config,
-            completion_tool_name=self.completion_tool_name,
-        )
+        self.router = CompletionToolRouter(self.run_context, self.router_config)
         self.system_prompt = (
             system_prompt if system_prompt is not None else self.render_system_prompt
         )
@@ -199,17 +166,9 @@ class BaseReactAgent(BaseAgent):
 
         refine_prompt = self.run_context.refine_user_profile_prompt.strip()
         refine_user_profile_node = (
-            make_refine_user_profile_node(
-                refine_prompt,
-                model,
-                self.profile_store,
-                completion_tool_name=self.completion_tool_name,
-            )
+            make_refine_user_profile_node(refine_prompt, model, self.profile_store)
             if refine_prompt
             else None
-        )
-        inject_completion_node = make_inject_completion_as_ai_node(
-            completion_tool_name=self.completion_tool_name,
         )
 
         return build_react_graph(
@@ -223,7 +182,6 @@ class BaseReactAgent(BaseAgent):
             compressor=compressor,
             include_profile_refinement=refine_user_profile_node is not None,
             refine_user_profile_node=refine_user_profile_node,
-            inject_completion_node=inject_completion_node,
             idle_nudge_prompt=self.run_context.idle_nudge_prompt,
             tool_budget_exhausted_prompt=self.run_context.tool_budget_exhausted_prompt,
             max_tool_calls=self.run_context.max_tool_calls,

@@ -20,8 +20,8 @@ DEFAULT_WRITE_TOOLS: frozenset[str] = frozenset(
     }
 )
 
-# Tool results that must stay in-context (e.g. the user-visible reply).
-DEFAULT_NEVER_OFFLOAD_TOOLS: frozenset[str] = frozenset({"chat_completion"})
+# Tool results that must stay in-context.
+DEFAULT_NEVER_OFFLOAD_TOOLS: frozenset[str] = frozenset()
 
 # Marker text used by SessionTurnBuilder between CLI turns.
 TURN_BOUNDARY_MARKER = "--- Session turn boundary ---"
@@ -41,7 +41,6 @@ class CompressionConfig:
     offload_dir: Path = field(default_factory=lambda: get_local_paths().offload_dir)
     write_tools: frozenset[str] = DEFAULT_WRITE_TOOLS
     never_offload_tools: frozenset[str] = DEFAULT_NEVER_OFFLOAD_TOOLS
-    # Drop prior-turn tool trajectories; keep Human + chat_completion Q&A only.
+    # Drop prior-turn tool trajectories; keep Human + final assistant text.
     prior_turns_qa_only: bool = True
-    chat_completion_tool_name: str = "chat_completion"
     turn_boundary_marker: str = TURN_BOUNDARY_MARKER

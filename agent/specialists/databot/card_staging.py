@@ -14,6 +14,9 @@ import uuid
 from typing import Any
 
 
+_STAGING_ID_SUFFIX_RE = re.compile(r"_[0-9a-f]{8}$", re.IGNORECASE)
+
+
 def new_staging_id(model_name: str) -> str:
     """Mint a stable-enough id for one staged card row."""
     slug = re.sub(r"[^a-zA-Z0-9_]+", "_", (model_name or "card").strip())[:40]
@@ -137,16 +140,68 @@ def _staging_index(cards: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
     return index
 
 
+def _name_from_staging_id(staging_id: str) -> str:
+    sid = (staging_id or "").strip()
+    if _STAGING_ID_SUFFIX_RE.search(sid):
+        return _STAGING_ID_SUFFIX_RE.sub("", sid)
+    return sid
+
+
+def _latest_card_named(
+    cards: list[dict[str, Any]], name: str
+) -> dict[str, Any] | None:
+    if not name:
+        return None
+    match: dict[str, Any] | None = None
+    for card in cards or []:
+        if isinstance(card, dict) and str(card.get("name") or "") == name:
+            match = card
+    return match
+
+
+def resolve_staged_card(
+    staging_id: str,
+    *,
+    staging_cards: list[dict[str, Any]],
+    committed_cards: list[dict[str, Any]],
+    approved_cards: list[dict[str, Any]] | None = None,
+) -> dict[str, Any] | None:
+    """Resolve a commit selection: this-turn staging, then committed, then approved."""
+    sid = (staging_id or "").strip()
+    if not sid:
+        return None
+    staging = list(staging_cards or [])
+    committed = list(committed_cards or [])
+    approved = list(approved_cards or [])
+    names = (_name_from_staging_id(sid), sid)
+
+    for group in (staging, committed):
+        by_id = _staging_index(group)
+        if sid in by_id:
+            return by_id[sid]
+    for name in names:
+        found = _latest_card_named(staging, name)
+        if found is not None:
+            return found
+    by_approved = _staging_index(approved)
+    if sid in by_approved:
+        return by_approved[sid]
+    for group in (committed, approved):
+        for name in names:
+            found = _latest_card_named(group, name)
+            if found is not None:
+                return found
+    return None
+
+
 def apply_add_card_selections(
     *,
     staging_cards: list[dict[str, Any]],
     committed_cards: list[dict[str, Any]],
     selections: list[Any],
+    approved_cards: list[dict[str, Any]] | None = None,
 ) -> tuple[list[dict[str, Any]], str]:
-    """Resolve selections against staging and merge into ``committed_cards``."""
-    by_id = _staging_index(staging_cards)
-    by_id.update(_staging_index(committed_cards))
-
+    """Resolve selections against staging/approved and merge into ``committed_cards``."""
     updated = list(committed_cards or [])
     index_by_id = {
         str(c.get("staging_id")): i
@@ -162,27 +217,40 @@ def apply_add_card_selections(
             issues.append(f"invalid selection {raw!r}")
             continue
         sid = parsed["staging_id"]
-        base = by_id.get(sid)
+        base = resolve_staged_card(
+            sid,
+            staging_cards=staging_cards,
+            committed_cards=committed_cards,
+            approved_cards=approved_cards,
+        )
         if base is None:
             issues.append(f"unknown staging_id {sid!r}")
             continue
 
+        resolved_sid = str(base.get("staging_id") or sid)
         candidate: dict[str, Any] = {
             k: v for k, v in base.items() if k != "staging_id"
         }
-        candidate["staging_id"] = sid
+        candidate["staging_id"] = resolved_sid
         candidate["selected_dimensions"] = list(parsed["selected_dimensions"])
         candidate["selected_metrics"] = list(parsed["selected_metrics"])
         candidate["selection_notes"] = parsed.get("selection_notes") or ""
 
-        if sid in index_by_id:
-            updated[index_by_id[sid]] = candidate
+        if resolved_sid in index_by_id:
+            updated[index_by_id[resolved_sid]] = candidate
         else:
             updated.append(candidate)
-            index_by_id[sid] = len(updated) - 1
+            index_by_id[resolved_sid] = len(updated) - 1
         committed += 1
 
+    names = [
+        str(c.get("name") or "").strip()
+        for c in updated
+        if isinstance(c, dict) and str(c.get("name") or "").strip()
+    ]
     note = f"committed {committed} card(s) to committed_cards"
+    if names:
+        note += f": {', '.join(names)}"
     if issues:
         note += f"; {'; '.join(issues)}"
     return updated, note

@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
-import type { TableCard } from "./types";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
+import type { TableCard, TableCardColumn, TableCardMetric } from "./types";
 
 // ---------------------------------------------------------------------------
 // TableCardList
@@ -57,14 +58,107 @@ function CardScoreBar({ score }: { score: number | undefined }) {
   );
 }
 
+function columnDescription(column: TableCardColumn): string {
+  const parts = [column.description, column.entity?.description]
+    .map((value) => (value || "").trim())
+    .filter(Boolean);
+  return [...new Set(parts)].join("\n");
+}
+
+function metricDescription(metric: TableCardMetric): string {
+  const parts = [
+    metric.label && metric.label !== metric.name ? metric.label : "",
+    metric.description,
+    metric.expr ? `expr: ${metric.expr}` : "",
+  ]
+    .map((value) => (value || "").trim())
+    .filter(Boolean);
+  return parts.join("\n");
+}
+
+function descriptionsFromCard(card: TableCard): {
+  columns: Map<string, string>;
+  metrics: Map<string, string>;
+} {
+  const columns = new Map<string, string>();
+  for (const column of card.columns ?? []) {
+    if (column.name) columns.set(column.name, columnDescription(column));
+  }
+  const metrics = new Map<string, string>();
+  for (const metric of card.metrics ?? []) {
+    if (metric.name) metrics.set(metric.name, metricDescription(metric));
+  }
+  return { columns, metrics };
+}
+
+function FieldChip({
+  name,
+  description,
+  className,
+  children,
+}: {
+  name: string;
+  description?: string;
+  className?: string;
+  children?: ReactNode;
+}) {
+  const ref = useRef<HTMLSpanElement>(null);
+  const [tip, setTip] = useState<{ x: number; y: number; place: "above" | "below" } | null>(
+    null,
+  );
+  const text = (description || "").trim();
+
+  const show = () => {
+    const el = ref.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    const place = rect.top < 96 ? "below" : "above";
+    const x = Math.min(Math.max(rect.left + rect.width / 2, 148), window.innerWidth - 148);
+    const y = place === "above" ? rect.top : rect.bottom;
+    setTip({ x, y, place });
+  };
+
+  return (
+    <>
+      <span
+        ref={ref}
+        className={["field-chip", className].filter(Boolean).join(" ")}
+        tabIndex={0}
+        onMouseEnter={show}
+        onMouseLeave={() => setTip(null)}
+        onFocus={show}
+        onBlur={() => setTip(null)}
+      >
+        {children}
+      </span>
+      {tip &&
+        createPortal(
+          <div
+            className={`field-hover-tip field-hover-tip--${tip.place}`}
+            role="tooltip"
+            style={{ left: tip.x, top: tip.y }}
+          >
+            <div className="field-hover-tip-name">{name}</div>
+            <div className="field-hover-tip-desc">
+              {text || "No description for this field."}
+            </div>
+          </div>,
+          document.body,
+        )}
+    </>
+  );
+}
+
 function ChipRow({
   label,
   items,
   variant,
+  descriptions,
 }: {
   label: string;
   items: string[];
   variant: "dim" | "metric";
+  descriptions?: Map<string, string>;
 }) {
   if (!items.length) return null;
   return (
@@ -72,9 +166,14 @@ function ChipRow({
       <span className="card-chip-row-label">{label}</span>
       <div className="card-chip-wrap">
         {items.map((item) => (
-          <span key={item} className={`card-chip card-chip--${variant}`}>
+          <FieldChip
+            key={item}
+            name={item}
+            description={descriptions?.get(item)}
+            className={`card-chip card-chip--${variant}`}
+          >
             {item}
-          </span>
+          </FieldChip>
         ))}
       </div>
     </div>
@@ -90,12 +189,16 @@ export function TableCardList({
   onChange,
 }: TableCardListProps) {
   const [openCardName, setOpenCardName] = useState<string | null>(null);
+  const closeDetail = useCallback(() => setOpenCardName(null), []);
   const selectedNames = new Set(selected.map((c) => c.name));
   const conflictByCard = new Map(metricConflicts.map((c) => [c.card_name, c]));
 
-  // Show candidates if any; otherwise just show selected.
+  // Show candidates if any; otherwise just show selected. Selected rows that
+  // are missing from candidates (stale AG-UI snapshot) still need a tile.
   const showCandidates = candidates.length > 0;
-  const pool = showCandidates ? candidates : selected;
+  const candidateNames = new Set(candidates.map((c) => c.name));
+  const selectedOnly = selected.filter((c) => !candidateNames.has(c.name));
+  const pool = showCandidates ? [...candidates, ...selectedOnly] : selected;
 
   const interactive = mode === "interactive" && showCandidates;
 
@@ -109,6 +212,9 @@ export function TableCardList({
     }
     onChange(Array.from(next));
   };
+
+  const openCard =
+    pool.find((card) => (card.staging_id ?? card.name) === openCardName) ?? null;
 
   return (
     <div className="card-list">
@@ -133,6 +239,7 @@ export function TableCardList({
           const hasPicks =
             (card.selected_dimensions?.length ?? 0) > 0 ||
             (card.selected_metrics?.length ?? 0) > 0;
+          const fieldTips = descriptionsFromCard(card);
           return (
             <article
               key={card.staging_id ?? card.name}
@@ -173,16 +280,15 @@ export function TableCardList({
                 <button
                   type="button"
                   className={`card-expand${isOpen ? " card-expand--open" : ""}`}
-                  onClick={() =>
-                    setOpenCardName(isOpen ? null : (card.staging_id ?? card.name))
-                  }
+                  onClick={() => setOpenCardName(card.staging_id ?? card.name)}
+                  aria-haspopup="dialog"
                   aria-expanded={isOpen}
                 >
-                  {isOpen ? "Collapse" : "Details"}
+                  Details
                 </button>
               </header>
 
-              {!isOpen && card.description && (
+              {card.description && (
                 <p className="card-blurb">{card.description}</p>
               )}
 
@@ -206,10 +312,20 @@ export function TableCardList({
                 </div>
               </div>
 
-              {hasPicks && !isOpen && (
+              {hasPicks && (
                 <div className="card-picks">
-                  <ChipRow label="Metrics" items={card.selected_metrics ?? []} variant="metric" />
-                  <ChipRow label="Dims" items={card.selected_dimensions ?? []} variant="dim" />
+                  <ChipRow
+                    label="Metrics"
+                    items={card.selected_metrics ?? []}
+                    variant="metric"
+                    descriptions={fieldTips.metrics}
+                  />
+                  <ChipRow
+                    label="Dims"
+                    items={card.selected_dimensions ?? []}
+                    variant="dim"
+                    descriptions={fieldTips.columns}
+                  />
                 </div>
               )}
               {conflict && (
@@ -219,7 +335,6 @@ export function TableCardList({
                   <code>{conflict.glossary_term}</code>: {conflict.reason}
                 </p>
               )}
-              {isOpen && <TableCardDetail card={card} />}
             </article>
           );
         })}
@@ -230,7 +345,81 @@ export function TableCardList({
           <p>No models yet — Databot is still searching the semantic index.</p>
         </div>
       )}
+      {openCard && (
+        <TableCardDetailDialog card={openCard} onClose={closeDetail} />
+      )}
     </div>
+  );
+}
+
+function TableCardDetailDialog({
+  card,
+  onClose,
+}: {
+  card: TableCard;
+  onClose: () => void;
+}) {
+  const closeRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    closeRef.current?.focus();
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [onClose]);
+
+  return createPortal(
+    <div
+      className="card-detail-modal-backdrop"
+      onClick={onClose}
+      data-testid="card-detail-modal"
+    >
+      <div
+        className="card-detail-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="card-detail-modal-title"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <header className="card-detail-modal-header">
+          <span className="card-avatar" aria-hidden>
+            {card.name.slice(0, 2).toUpperCase()}
+          </span>
+          <div className="card-detail-modal-heading">
+            <h3 id="card-detail-modal-title" className="card-name">
+              {card.name}
+            </h3>
+            <div className="card-detail-modal-meta">
+              {card.model_type && (
+                <span className="card-type-badge">{card.model_type}</span>
+              )}
+              <span className="card-stat-pill card-stat-pill--muted">
+                {fmtScore(card.score)} relevance
+              </span>
+            </div>
+          </div>
+          <button
+            ref={closeRef}
+            type="button"
+            className="card-detail-modal-close"
+            onClick={onClose}
+          >
+            Close
+          </button>
+        </header>
+        <div className="card-detail-modal-body">
+          <TableCardDetail card={card} />
+        </div>
+      </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -272,16 +461,17 @@ function TableCardDetail({
           </h4>
           <div className="card-chip-grid">
             {card.columns?.slice(0, 20).map((c) => (
-              <span
+              <FieldChip
                 key={c.name}
+                name={c.name}
+                description={columnDescription(c)}
                 className={`card-detail-chip${dimHigh.has(c.name) ? " card-detail-chip--picked" : ""}`}
-                title={c.description || c.name}
               >
                 {c.name}
                 {c.dimension?.type && (
                   <span className="card-detail-chip-tag">{c.dimension.type}</span>
                 )}
-              </span>
+              </FieldChip>
             ))}
             {(card.columns?.length ?? 0) > 20 && (
               <span className="card-detail-chip card-detail-chip--more">
@@ -298,14 +488,15 @@ function TableCardDetail({
           </h4>
           <div className="card-chip-grid">
             {card.metrics?.map((m) => (
-              <span
+              <FieldChip
                 key={m.name}
+                name={m.name}
+                description={metricDescription(m)}
                 className={`card-detail-chip card-detail-chip--metric${metricHigh.has(m.name) ? " card-detail-chip--picked" : ""}`}
-                title={m.description || m.label || m.name}
               >
                 {m.name}
                 {m.agg && <span className="card-detail-chip-tag">{m.agg}</span>}
-              </span>
+              </FieldChip>
             ))}
             {(card.metrics?.length ?? 0) === 0 && (
               <span className="card-detail-chip card-detail-chip--muted">No metrics</span>

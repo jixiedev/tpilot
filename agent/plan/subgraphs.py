@@ -46,11 +46,7 @@ def _stage_state_exit_router(
         action_end_outlet="__end__",
         state_exit_keys=state_exit_keys,
     )
-    router = CompletionToolRouter(
-        run_context,
-        router_config,
-        completion_tool_name=None,
-    )
+    router = CompletionToolRouter(run_context, router_config)
     return router.route_after_reason(), router.route_after_action()
 
 

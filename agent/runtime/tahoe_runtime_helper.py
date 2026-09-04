@@ -1,4 +1,4 @@
-"""Shared Tahoe team defaults, completion tool, and runtime session helper."""
+"""Shared Tahoe team defaults and runtime session helper."""
 
 from __future__ import annotations
 
@@ -8,7 +8,6 @@ from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
-from langchain.tools import tool
 from langchain_core.tools import BaseTool
 from langgraph.graph.state import CompiledStateGraph
 
@@ -20,28 +19,11 @@ from agent.session import SessionTurnBuilder
 from config.local_config import get_local_paths
 from memory.profile_store import FileProfileStore, ProfileStore
 from state.state import SessionAgentState
-from tools.common import bind_tool_to_agent
-
-CHAT_COMPLETION_TOOL_NAME = "chat_completion"
 
 DEFAULT_MAX_TOOL_CALLS = 10
 # One plain-text reply ends the turn (no multi-minute idle retries for local models).
 DEFAULT_MAX_IDLE_ROUNDS = 1
 DEFAULT_PROFILE_DIR = get_local_paths().profiles_dir
-
-
-@bind_tool_to_agent("databot,default")
-@bind_tool_to_agent("databot,fetch")
-@bind_tool_to_agent("databot,sql")
-@bind_tool_to_agent("knowledge,default")
-@bind_tool_to_agent("diagnostic,default")
-@bind_tool_to_agent("data_analysis,default")
-@bind_tool_to_agent("swe,default")
-@bind_tool_to_agent("plan,default")
-@tool
-def chat_completion(reply: str) -> str:
-    """Deliver the final answer to the user. Call this when you are ready to respond."""
-    return reply
 
 
 def default_profile_store(root: Path | None = None) -> FileProfileStore:
@@ -62,13 +44,12 @@ def tahoe_run_context(
 
 def tahoe_router_config(run_context: AgentRunContext) -> RouterConfig:
     refine_enabled = bool(run_context.refine_user_profile_prompt.strip())
-    outlets = RouterConfig()
+    end_outlet = (
+        RouterConfig().refine_user_profile_outlet if refine_enabled else "__end__"
+    )
     return RouterConfig(
-        action_end_outlet=(
-            outlets.refine_user_profile_outlet
-            if refine_enabled
-            else outlets.inject_completion_outlet
-        ),
+        reason_end_outlet=end_outlet,
+        action_end_outlet=end_outlet,
     )
 
 
@@ -106,11 +87,8 @@ class TahoeRuntimeHelper:
         react_listener: ReactAgentListener | None = None,
         system_prompt: Callable[[SessionAgentState], str] | None = None,
         turn_boundary: str = SESSION_TURN_BOUNDARY,
-        completion_tool_name: str = CHAT_COMPLETION_TOOL_NAME,
     ) -> None:
-        primary = react_listener or CliReactListener(
-            completion_tool_name=completion_tool_name
-        )
+        primary = react_listener or CliReactListener()
         self.react_listener: ListenerHub = (
             primary if isinstance(primary, ListenerHub) else ListenerHub(primary)
         )
@@ -155,13 +133,11 @@ class TahoeRuntimeHelper:
 
 
 __all__ = [
-    "CHAT_COMPLETION_TOOL_NAME",
     "DEFAULT_MAX_IDLE_ROUNDS",
     "DEFAULT_MAX_TOOL_CALLS",
     "DEFAULT_PROFILE_DIR",
     "SESSION_TURN_BOUNDARY",
     "TahoeRuntimeHelper",
-    "chat_completion",
     "default_profile_store",
     "tahoe_react_agent_kwargs",
     "tahoe_router_config",

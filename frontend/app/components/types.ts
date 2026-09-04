@@ -97,6 +97,7 @@ export interface DatabotAgentState {
   execution_result?: ExecutionResult;
   gate_decisions?: GateAuditEntry[];
   cards_reasons?: Record<string, string>;
+  cards_selection_summary?: string;
   sql_reasons?: Record<string, string>;
   dryrun?: boolean;
   halt_reason?: string;

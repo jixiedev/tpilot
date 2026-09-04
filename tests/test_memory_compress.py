@@ -63,17 +63,6 @@ def test_layer1_offloads_large_tool_result(tmp_path: Path) -> None:
     assert stored[0].read_text(encoding="utf-8") == big
 
 
-def test_layer1_skips_chat_completion(tmp_path: Path) -> None:
-    cfg = _config(tmp_path)
-    compressor = ContextCompressor(config=cfg, store=OffloadStore(cfg.offload_dir))
-    big = "y" * 400
-    messages = [
-        ToolMessage(content=big, tool_call_id="c1", name="chat_completion", id="tm-1"),
-    ]
-
-    assert compressor.layer1_offload_tool_results(messages) == []
-
-
 def test_layer2_evicts_write_tool_args(tmp_path: Path) -> None:
     cfg = _config(tmp_path)
     compressor = ContextCompressor(config=cfg, store=OffloadStore(cfg.offload_dir))
@@ -171,15 +160,8 @@ def test_layer_prior_turns_qa_only_keeps_qa_drops_tool_trail(tmp_path: Path) -> 
         ),
         ToolMessage(content="glossary hit...", tool_call_id="c1", name="search", id="tm-search"),
         AIMessage(
-            content="",
-            id="ai-reply-1",
-            tool_calls=[{"name": "chat_completion", "args": {"reply": "GMV is ..."}, "id": "c2"}],
-        ),
-        ToolMessage(
             content="GMV is gross merchandise value.",
-            tool_call_id="c2",
-            name="chat_completion",
-            id="tm-reply-1",
+            id="ai-reply-1",
         ),
         SystemMessage(content="--- Session turn boundary ---\nPrior above.", id="sys-boundary"),
         HumanMessage(content="Show related tables", id="h-2"),
@@ -198,7 +180,6 @@ def test_layer_prior_turns_qa_only_keeps_qa_drops_tool_trail(tmp_path: Path) -> 
     remove_ids = {u.id for u in updates if isinstance(u, RemoveMessage)}
     assert remove_ids == {"ai-search", "tm-search"}
     assert "ai-reply-1" not in remove_ids
-    assert "tm-reply-1" not in remove_ids
     assert "h-1" not in remove_ids
     assert "sys-role" not in remove_ids
     assert "sys-boundary" not in remove_ids
@@ -220,12 +201,7 @@ def test_run_applies_prior_turn_qa_fold(tmp_path: Path) -> None:
             tool_calls=[{"name": "trino_run_query", "args": {}, "id": "c1"}],
         ),
         ToolMessage(content="rows", tool_call_id="c1", name="trino_run_query", id="tm-tool"),
-        AIMessage(
-            content="",
-            id="ai-reply",
-            tool_calls=[{"name": "chat_completion", "args": {"reply": "A1"}, "id": "c2"}],
-        ),
-        ToolMessage(content="A1", tool_call_id="c2", name="chat_completion", id="tm-reply"),
+        AIMessage(content="A1", id="ai-reply"),
         HumanMessage(content="Q2", id="h-2"),
     ]
 
@@ -236,7 +212,7 @@ def test_run_applies_prior_turn_qa_fold(tmp_path: Path) -> None:
     remove_ids = {u.id for u in updates if isinstance(u, RemoveMessage)}
     assert "ai-tool" in remove_ids
     assert "tm-tool" in remove_ids
-    assert "tm-reply" not in remove_ids
+    assert "ai-reply" not in remove_ids
 
 
 def test_prior_turns_qa_only_can_be_disabled(tmp_path: Path) -> None:
@@ -250,12 +226,7 @@ def test_prior_turns_qa_only_can_be_disabled(tmp_path: Path) -> None:
             tool_calls=[{"name": "search", "args": {}, "id": "c1"}],
         ),
         ToolMessage(content="hit", tool_call_id="c1", name="search", id="tm-tool"),
-        AIMessage(
-            content="",
-            id="ai-reply",
-            tool_calls=[{"name": "chat_completion", "args": {"reply": "A1"}, "id": "c2"}],
-        ),
-        ToolMessage(content="A1", tool_call_id="c2", name="chat_completion", id="tm-reply"),
+        AIMessage(content="A1", id="ai-reply"),
         HumanMessage(content="Q2", id="h-2"),
     ]
 

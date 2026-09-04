@@ -77,7 +77,6 @@ def build_react_graph(
     compressor: StateNode | None = None,
     include_profile_refinement: bool = False,
     refine_user_profile_node: StateNode | None = None,
-    inject_completion_node: StateNode | None = None,
     post_refine_outlet: str = "__end__",
     idle_nudge_prompt: str = "",
     tool_budget_exhausted_prompt: str = "",
@@ -87,6 +86,7 @@ def build_react_graph(
     on_tool_result: Callable[[str, Any], None] | None = None,
     on_reason_start: Callable[[int, int, int], None] | None = None,
     on_reason_step: Callable[[AIMessage], None] | None = None,
+    persist_plain_text: bool = True,
     state_class: InnerStateClass = SessionAgentState,
 ) -> CompiledStateGraph:
     """Compile inject_system_prompt → step_reason ↔ step_action.
@@ -98,8 +98,7 @@ def build_react_graph(
 
     When ``include_profile_refinement`` is True and ``refine_user_profile_node``
     is supplied, agents should route turn completion to ``refine_user_profile``,
-    then optionally through ``inject_completion_node`` (when wired), then
-    ``post_refine_outlet`` (default ``__end__``). Subgraphs and other inner
+    then ``post_refine_outlet`` (default ``__end__``). Subgraphs and other inner
     ReAct loops default to ``include_profile_refinement=False``.
 
     ``state_class`` is the ``MessagesState`` subclass used as the
@@ -127,6 +126,7 @@ def build_react_graph(
             max_tool_calls=max_tool_calls,
             on_reason_start=on_reason_start,
             on_reason_step=on_reason_step,
+            persist_plain_text=persist_plain_text,
         ),
     )
     graph.add_node(
@@ -141,19 +141,11 @@ def build_react_graph(
     )
     if include_profile_refinement and refine_user_profile_node is not None:
         graph.add_node("refine_user_profile", refine_user_profile_node)
-    if inject_completion_node is not None:
-        graph.add_node("inject_completion_as_ai", inject_completion_node)
 
     inject_end_target = END if post_refine_outlet == "__end__" else post_refine_outlet
     has_refine = include_profile_refinement and refine_user_profile_node is not None
-    has_inject = inject_completion_node is not None
-    if has_refine and has_inject:
-        graph.add_edge("refine_user_profile", "inject_completion_as_ai")
-        graph.add_edge("inject_completion_as_ai", inject_end_target)
-    elif has_refine:
+    if has_refine:
         graph.add_edge("refine_user_profile", inject_end_target)
-    elif has_inject:
-        graph.add_edge("inject_completion_as_ai", inject_end_target)
 
     if compressor:
         graph.add_edge(START, "compress_on_start")

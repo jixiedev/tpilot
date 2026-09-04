@@ -1,78 +1,289 @@
-/* Databot v2 frontend styles. Written in plain CSS so we don't fight
-   Tailwind v4's atomic classes or CopilotKit's bundled styles. Light
-   mode + dark mode both supported. */
+/* Databot frontend. Plain CSS so we don't fight Tailwind v4 or CopilotKit. */
 
 .databot-shell {
   display: flex;
   flex-direction: column;
+  height: 100vh;
   min-height: 100vh;
   width: 100%;
+  overflow: hidden;
+  background:
+    radial-gradient(1200px 420px at 8% -10%, rgba(59, 91, 253, 0.12), transparent 55%),
+    radial-gradient(900px 380px at 100% 0%, rgba(20, 184, 166, 0.08), transparent 50%),
+    var(--db-canvas);
+  color: var(--db-text);
+}
+
+.databot-shell code,
+.databot-shell pre,
+.databot-shell .sql-textarea,
+.databot-shell .sql-pre,
+.databot-shell .card-name {
+  font-family: var(--font-jetbrains), ui-monospace, "SF Mono", Menlo, monospace;
 }
 
 .databot-topbar {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 1rem;
-  padding: 1rem 1.5rem;
-  border-bottom: 1px solid rgba(127, 127, 127, 0.2);
-  background: var(--background);
+  padding: 0.7rem 1.15rem;
+  border-bottom: 1px solid var(--db-border);
+  background: color-mix(in srgb, var(--db-surface) 82%, transparent);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  position: sticky;
+  top: 0;
+  z-index: 20;
+}
+.databot-brand {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  min-width: 0;
+  flex: 1;
+}
+.databot-logo {
+  flex-shrink: 0;
+  width: 2.1rem;
+  height: 2.1rem;
+  border-radius: 10px;
+  display: grid;
+  place-items: center;
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  color: #fff;
+  background: linear-gradient(145deg, #3b5bfd 0%, #14b8a6 100%);
+  box-shadow: 0 6px 16px rgba(59, 91, 253, 0.28);
 }
 .databot-topbar-main {
   display: flex;
-  align-items: baseline;
-  gap: 1.5rem;
-  flex: 1;
+  flex-direction: column;
+  gap: 0.08rem;
   min-width: 0;
+}
+.databot-topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  flex-shrink: 0;
 }
 .databot-new-chat-btn {
   flex-shrink: 0;
-  font-family: inherit;
   font-size: 0.8rem;
   font-weight: 600;
-  padding: 0.4rem 0.85rem;
-  border-radius: 6px;
-  border: 1px solid rgba(99, 102, 241, 0.45);
-  background: rgba(99, 102, 241, 0.08);
-  color: rgb(67, 56, 202);
+  padding: 0.42rem 0.9rem;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  background: var(--db-accent);
+  color: #fff;
   cursor: pointer;
   white-space: nowrap;
+  box-shadow: 0 6px 16px rgba(59, 91, 253, 0.22);
+  transition: background 140ms ease, transform 140ms ease, box-shadow 140ms ease;
 }
 .databot-new-chat-btn:hover:not(:disabled) {
-  border-color: rgba(99, 102, 241, 0.75);
-  background: rgba(99, 102, 241, 0.14);
+  background: var(--db-accent-hover);
+  transform: translateY(-1px);
 }
 .databot-new-chat-btn:disabled {
   opacity: 0.45;
   cursor: not-allowed;
+  box-shadow: none;
+  transform: none;
 }
-@media (prefers-color-scheme: dark) {
-  .databot-new-chat-btn {
-    color: rgb(165, 180, 252);
-    border-color: rgba(129, 140, 248, 0.45);
-    background: rgba(99, 102, 241, 0.12);
-  }
+.databot-debug-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  flex-shrink: 0;
+  font-size: 0.78rem;
+  font-weight: 500;
+  color: var(--db-muted);
+  cursor: pointer;
+  user-select: none;
+}
+.databot-debug-toggle input {
+  position: absolute;
+  opacity: 0;
+  width: 1px;
+  height: 1px;
+  pointer-events: none;
+}
+.databot-switch {
+  width: 2.2rem;
+  height: 1.22rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--db-muted) 35%, var(--db-fill));
+  position: relative;
+  transition: background 160ms ease;
+  box-shadow: inset 0 0 0 1px var(--db-border-strong);
+}
+.databot-switch::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.25);
+  transition: transform 160ms ease;
+}
+.databot-debug-toggle input:checked + .databot-switch {
+  background: var(--db-accent);
+  box-shadow: none;
+}
+.databot-debug-toggle input:checked + .databot-switch::after {
+  transform: translateX(15px);
+}
+.databot-debug-toggle input:focus-visible + .databot-switch {
+  outline: 2px solid var(--db-accent);
+  outline-offset: 2px;
 }
 .databot-topbar h1 {
   margin: 0;
-  font-size: 1.1rem;
-  font-weight: 600;
-  letter-spacing: 0.01em;
+  font-size: 0.98rem;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  line-height: 1.2;
 }
 .databot-tagline {
   margin: 0;
-  color: rgba(127, 127, 127, 1);
-  font-size: 0.85rem;
+  color: var(--db-muted);
+  font-size: 0.75rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .databot-layout {
-  display: grid;
-  grid-template-columns: minmax(320px, 32%) 1fr;
+  display: flex;
+  flex-direction: row;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  padding: 0.7rem 0.7rem 0.75rem;
+  gap: 0.7rem;
+}
+
+.databot-chat-column {
+  flex: 0 0 clamp(300px, 34vw, 440px);
+  min-width: 280px;
+  max-width: 480px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--db-surface);
+  overflow: hidden;
+  border: 1px solid var(--db-border);
+  border-radius: var(--db-radius-lg);
+  box-shadow: var(--db-shadow);
+}
+.databot-chat-column .copilotKitChat,
+.databot-chat-column .databot-chat {
   flex: 1;
   min-height: 0;
 }
+
+.databot-right-column {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--db-surface);
+  border: 1px solid var(--db-border);
+  border-radius: var(--db-radius-lg);
+  box-shadow: var(--db-shadow);
+}
+.databot-gate-dock {
+  flex: 0 0 auto;
+  max-height: min(48vh, 520px);
+  overflow: auto;
+  padding: 0.9rem 1.05rem 1rem;
+  border-bottom: 1px solid var(--db-border);
+  background: var(--db-surface-2);
+}
+.databot-right-column:has(.databot-gate-dock) .databot-side-panels {
+  flex: 1 1 0;
+  min-height: 14rem;
+}
 @media (max-width: 900px) {
   .databot-layout {
-    grid-template-columns: 1fr;
+    flex-direction: column;
+  }
+  .databot-chat-column {
+    flex: 0 0 min(42vh, 380px);
+    width: 100%;
+    max-width: none;
+  }
+  .databot-tagline {
+    display: none;
+  }
+}
+
+.databot-side-panels {
+  display: flex;
+  flex-direction: row;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  flex: 1 1 0;
+}
+.databot-side-debug {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+.databot-side-artifact {
+  display: flex;
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+.databot-resize-handle {
+  flex: 0 0 6px;
+  cursor: col-resize;
+  background: transparent;
+  position: relative;
+  touch-action: none;
+}
+.databot-resize-handle::after {
+  content: "";
+  position: absolute;
+  inset: 0.65rem 2px;
+  border-radius: 999px;
+  background: var(--db-border-strong);
+  transition: background 0.15s ease;
+}
+.databot-resize-handle:hover::after,
+.databot-resize-handle:active::after {
+  background: var(--db-accent);
+}
+@media (max-width: 900px) {
+  .databot-side-panels--debug-on {
+    flex-direction: column;
+  }
+  .databot-side-panels--debug-on .databot-side-debug {
+    width: 100% !important;
+    flex: 0 0 min(40vh, 280px) !important;
+    max-height: 40vh;
+    border-bottom: 1px solid var(--db-border);
+  }
+  .databot-resize-handle {
+    flex: 0 0 6px;
+    cursor: row-resize;
+    width: 100%;
+  }
+  .databot-resize-handle::after {
+    inset: 2px 30%;
   }
 }
 
@@ -83,13 +294,14 @@
 .artifact-panel {
   display: flex;
   flex-direction: column;
-  border-left: 1px solid rgba(127, 127, 127, 0.2);
-  background: var(--background);
+  flex: 1;
   min-width: 0;
+  min-height: 0;
+  background: var(--db-surface);
 }
 .artifact-header {
-  padding: 1rem 1.25rem 0.5rem;
-  border-bottom: 1px solid rgba(127, 127, 127, 0.15);
+  padding: 1rem 1.2rem 0.65rem;
+  border-bottom: 1px solid var(--db-border);
 }
 .artifact-title {
   display: flex;
@@ -99,18 +311,19 @@
 }
 .artifact-title h2 {
   margin: 0;
-  font-size: 1rem;
-  font-weight: 600;
+  font-size: 0.92rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
 }
 .stage-pill {
-  font-size: 0.7rem;
-  font-weight: 600;
+  font-size: 0.68rem;
+  font-weight: 650;
   letter-spacing: 0.04em;
-  text-transform: uppercase;
-  padding: 0.15rem 0.5rem;
+  text-transform: capitalize;
+  padding: 0.18rem 0.55rem;
   border-radius: 999px;
-  background: rgba(99, 102, 241, 0.12);
-  color: rgb(79, 70, 229);
+  background: var(--db-accent-soft);
+  color: var(--db-accent-text);
 }
 .stage-fetch       { background: rgba(99, 102, 241, 0.12);  color: rgb(67, 56, 202); }
 .stage-gate_cards  { background: rgba(245, 158, 11, 0.15);  color: rgb(180, 83, 9); }
@@ -157,37 +370,41 @@
 
 .artifact-tabs {
   display: flex;
-  gap: 0.25rem;
-  padding: 0.5rem 1.25rem 0;
-  border-bottom: 1px solid rgba(127, 127, 127, 0.15);
+  gap: 0.3rem;
+  padding: 0.55rem 1rem 0;
+  border-bottom: 1px solid var(--db-border);
 }
 .artifact-tab {
   background: transparent;
   border: 0;
   border-bottom: 2px solid transparent;
-  padding: 0.4rem 0.75rem;
-  font-size: 0.85rem;
-  color: rgba(127, 127, 127, 1);
+  padding: 0.45rem 0.7rem 0.55rem;
+  font-size: 0.82rem;
+  font-weight: 500;
+  color: var(--db-muted);
   cursor: pointer;
   display: flex;
   align-items: center;
   gap: 0.4rem;
+  border-radius: 8px 8px 0 0;
+  transition: color 120ms ease, background 120ms ease;
 }
 .artifact-tab:hover {
-  color: var(--foreground);
+  color: var(--db-text);
+  background: var(--db-fill);
 }
 .artifact-tab.is-active {
-  color: var(--foreground);
-  border-bottom-color: rgb(99, 102, 241);
-  font-weight: 600;
+  color: var(--db-text);
+  border-bottom-color: var(--db-accent);
+  font-weight: 650;
 }
 .tab-badge {
-  background: rgba(99, 102, 241, 0.15);
-  color: rgb(79, 70, 229);
-  font-size: 0.7rem;
+  background: var(--db-accent-soft);
+  color: var(--db-accent-text);
+  font-size: 0.68rem;
   padding: 0.05rem 0.4rem;
   border-radius: 999px;
-  font-weight: 600;
+  font-weight: 650;
 }
 
 .artifact-body {
@@ -255,15 +472,15 @@
 
 .card-item {
   position: relative;
-  border: 1px solid rgba(127, 127, 127, 0.2);
-  border-radius: 14px;
+  border: 1px solid var(--db-border);
+  border-radius: 16px;
   padding: 0;
-  background: var(--background);
+  background: var(--db-surface);
   display: flex;
   flex-direction: column;
   gap: 0;
   overflow: hidden;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04), 0 4px 12px rgba(0, 0, 0, 0.03);
+  box-shadow: var(--db-shadow);
   transition: box-shadow 160ms ease, border-color 160ms ease, transform 160ms ease;
 }
 .card-item:hover {
@@ -297,13 +514,13 @@
 .card-item > .card-header {
   padding-top: 0.85rem;
 }
-.card-item > .card-detail,
 .card-item > .card-picks,
 .card-item > .card-conflict {
   padding-bottom: 0.85rem;
 }
 .card-item.card-is-open {
-  border-color: rgba(99, 102, 241, 0.35);
+  border-color: rgba(99, 102, 241, 0.45);
+  box-shadow: 0 0 0 1px rgba(99, 102, 241, 0.18);
 }
 
 .card-header {
@@ -534,16 +751,82 @@
 .card-detail {
   display: flex;
   flex-direction: column;
-  gap: 0.65rem;
-  border-top: 1px solid rgba(127, 127, 127, 0.12);
-  padding-top: 0.75rem;
-  padding-bottom: 0.85rem;
+  gap: 0.85rem;
   font-size: 0.82rem;
-  background: rgba(127, 127, 127, 0.03);
-  margin-left: -0.9rem;
-  margin-right: -0.9rem;
-  padding-left: 0.9rem;
-  padding-right: 0.9rem;
+}
+.card-detail-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.25rem;
+  background: rgba(15, 23, 42, 0.45);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+.card-detail-modal {
+  width: min(920px, 100%);
+  max-height: min(86vh, 820px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--db-surface);
+  color: var(--db-text);
+  border: 1px solid var(--db-border);
+  border-radius: 18px;
+  box-shadow: var(--db-shadow-lg);
+}
+.card-detail-modal-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 1rem 1.1rem 0.85rem;
+  border-bottom: 1px solid var(--db-border);
+  background: var(--db-surface-2);
+}
+.card-detail-modal-heading {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+.card-detail-modal-heading .card-name {
+  margin: 0;
+  font-size: 1.05rem;
+}
+.card-detail-modal-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+}
+.card-detail-modal-close {
+  flex-shrink: 0;
+  font-size: 0.78rem;
+  font-weight: 600;
+  padding: 0.35rem 0.8rem;
+  border-radius: 999px;
+  border: 1px solid var(--db-border-strong);
+  background: var(--db-surface);
+  color: var(--db-text);
+  cursor: pointer;
+}
+.card-detail-modal-close:hover,
+.card-detail-modal-close:focus-visible {
+  border-color: var(--db-accent);
+  color: var(--db-accent-text);
+  outline: none;
+}
+.card-detail-modal-body {
+  overflow: auto;
+  padding: 1rem 1.1rem 1.2rem;
+  min-height: 0;
+}
+.card-detail-modal .card-chip-grid {
+  max-height: 220px;
 }
 .card-description {
   margin: 0;
@@ -626,6 +909,42 @@
 .card-detail-chip--muted {
   color: rgba(127, 127, 127, 1);
   font-style: italic;
+}
+.field-chip {
+  cursor: help;
+}
+.field-hover-tip {
+  position: fixed;
+  z-index: 140;
+  width: max-content;
+  max-width: min(22rem, calc(100vw - 1.5rem));
+  padding: 0.5rem 0.7rem 0.55rem;
+  border-radius: 10px;
+  background: #0f172a;
+  color: #f8fafc;
+  box-shadow: 0 12px 32px rgba(15, 23, 42, 0.28);
+  pointer-events: none;
+  font-size: 0.78rem;
+  line-height: 1.45;
+  white-space: pre-wrap;
+}
+.field-hover-tip--above {
+  transform: translate(-50%, calc(-100% - 10px));
+}
+.field-hover-tip--below {
+  transform: translate(-50%, 10px);
+}
+.field-hover-tip-name {
+  font-family: var(--font-jetbrains), ui-monospace, Menlo, monospace;
+  font-weight: 650;
+  font-size: 0.72rem;
+  letter-spacing: -0.01em;
+  color: #c7d2fe;
+  margin-bottom: 0.2rem;
+  word-break: break-word;
+}
+.field-hover-tip-desc {
+  color: #e2e8f0;
 }
 .card-detail-chip-tag {
   font-size: 0.58rem;
@@ -869,26 +1188,29 @@
 
 .btn {
   font-size: 0.8rem;
-  border-radius: 5px;
-  padding: 0.35rem 0.7rem;
+  font-weight: 600;
+  border-radius: 999px;
+  padding: 0.42rem 0.85rem;
   cursor: pointer;
   border: 1px solid transparent;
   background: transparent;
   font-family: inherit;
+  transition: background 140ms ease, border-color 140ms ease, color 140ms ease, transform 140ms ease;
 }
 .btn-primary {
-  background: rgb(99, 102, 241);
+  background: var(--db-accent);
   color: white;
-  border-color: rgb(99, 102, 241);
+  border-color: var(--db-accent);
+  box-shadow: 0 6px 14px rgba(59, 91, 253, 0.2);
 }
-.btn-primary:hover:not(:disabled) { background: rgb(79, 70, 229); }
-.btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+.btn-primary:hover:not(:disabled) { background: var(--db-accent-hover); transform: translateY(-1px); }
+.btn-primary:disabled { opacity: 0.5; cursor: not-allowed; box-shadow: none; transform: none; }
 .btn-secondary {
-  background: rgba(127, 127, 127, 0.1);
-  color: var(--foreground);
-  border-color: rgba(127, 127, 127, 0.3);
+  background: var(--db-fill);
+  color: var(--db-text);
+  border-color: var(--db-border-strong);
 }
-.btn-secondary:hover { background: rgba(127, 127, 127, 0.15); }
+.btn-secondary:hover { background: var(--db-accent-soft); border-color: transparent; }
 .btn-warn {
   background: rgb(245, 158, 11);
   color: white;
@@ -898,22 +1220,22 @@
 .btn-warn:disabled { opacity: 0.5; cursor: not-allowed; }
 .btn-ghost {
   background: transparent;
-  color: rgba(127, 127, 127, 1);
-  border-color: rgba(127, 127, 127, 0.2);
+  color: var(--db-muted);
+  border-color: var(--db-border-strong);
 }
-.btn-ghost:hover { color: var(--foreground); }
+.btn-ghost:hover { color: var(--db-text); background: var(--db-fill); }
 .btn-tab {
-  background: rgba(127, 127, 127, 0.08);
+  background: var(--db-fill);
   border: 1px solid transparent;
-  color: rgba(127, 127, 127, 1);
-  padding: 0.2rem 0.5rem;
+  color: var(--db-muted);
+  padding: 0.2rem 0.55rem;
   font-size: 0.72rem;
+  border-radius: 999px;
 }
 .btn-tab.active {
-  background: rgba(99, 102, 241, 0.15);
-  color: rgb(67, 56, 202);
-  border-color: rgba(99, 102, 241, 0.4);
-  font-weight: 600;
+  background: var(--db-accent-soft);
+  color: var(--db-accent-text);
+  font-weight: 650;
 }
 
 /* -------------------------------------------------------------------------
@@ -922,15 +1244,20 @@
 
 .gate-panel {
   border-radius: 16px;
-  padding: 1rem 1.1rem 1.15rem;
-  margin: 0.5rem 0;
+  padding: 1.15rem 1.25rem 1.25rem;
+  margin: 0;
   display: flex;
   flex-direction: column;
-  gap: 0.85rem;
+  gap: 1rem;
   background: var(--background);
   border: 1px solid rgba(127, 127, 127, 0.2);
   box-shadow: 0 8px 28px rgba(0, 0, 0, 0.06);
   overflow: hidden;
+  min-height: 100%;
+}
+.databot-gate-dock .gate-panel {
+  padding: 1.25rem 1.35rem 1.35rem;
+  gap: 1.05rem;
 }
 .gate-panel--cards {
   border-color: rgba(245, 158, 11, 0.35);
@@ -982,16 +1309,83 @@
   gap: 0.3rem;
   min-width: 0;
 }
+.gate-hero-title-row {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+.gate-help-trigger {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.gate-help-trigger-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.15rem;
+  height: 1.15rem;
+  border-radius: 999px;
+  border: 1px solid rgba(99, 102, 241, 0.35);
+  background: rgba(99, 102, 241, 0.08);
+  color: rgb(67, 56, 202);
+  font-size: 0.68rem;
+  font-weight: 700;
+  line-height: 1;
+  cursor: help;
+}
+.gate-help-popover {
+  display: none;
+  position: absolute;
+  top: calc(100% + 0.35rem);
+  left: 0;
+  z-index: 30;
+  width: min(18rem, 70vw);
+  padding: 0.65rem 0.75rem;
+  border-radius: 8px;
+  border: 1px solid rgba(99, 102, 241, 0.2);
+  background: #fff;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
+  text-align: left;
+}
+.gate-help-trigger:hover .gate-help-popover,
+.gate-help-trigger:focus-within .gate-help-popover {
+  display: block;
+}
+.gate-help-popover-title {
+  margin: 0 0 0.35rem;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: rgb(67, 56, 202);
+}
+.gate-help-popover-steps {
+  margin: 0;
+  padding-left: 1.1rem;
+  font-size: 0.74rem;
+  line-height: 1.4;
+  color: rgba(55, 65, 81, 1);
+}
+.gate-help-popover-steps li + li {
+  margin-top: 0.2rem;
+}
+.gate-help-popover-note {
+  margin: 0.45rem 0 0;
+  font-size: 0.72rem;
+  line-height: 1.35;
+  color: rgba(107, 114, 128, 1);
+}
 .gate-title {
   margin: 0;
-  font-size: 1.05rem;
+  font-size: 1.12rem;
   font-weight: 700;
   letter-spacing: -0.01em;
-  line-height: 1.25;
+  line-height: 1.3;
 }
 .gate-subtitle {
   margin: 0;
-  font-size: 0.8rem;
+  font-size: 0.88rem;
   line-height: 1.45;
   color: rgba(107, 114, 128, 1);
 }
@@ -1012,7 +1406,12 @@
   margin: 0;
   border-radius: 10px;
   border: 1px solid rgba(99, 102, 241, 0.2);
-  max-height: 220px;
+  max-height: min(28vh, 320px);
+  overflow: auto;
+  font-size: 0.8rem;
+}
+.databot-gate-dock .gate-sql-live {
+  max-height: min(36vh, 420px);
 }
 
 .gate-card-list {
@@ -1129,6 +1528,21 @@
   color: rgba(127, 127, 127, 1);
 }
 
+.gate-selection-summary {
+  margin: 0 0 0.85rem;
+  padding: 0.65rem 0.75rem;
+  border-radius: 8px;
+  background: rgba(245, 158, 11, 0.08);
+  border: 1px solid rgba(245, 158, 11, 0.2);
+}
+
+.gate-selection-summary-text {
+  margin: 0.35rem 0 0;
+  font-size: 0.8rem;
+  line-height: 1.45;
+  color: rgba(55, 48, 20, 1);
+}
+
 .gate-howto {
   margin: 0 0 0.85rem;
   padding: 0.65rem 0.75rem;
@@ -1167,8 +1581,20 @@
   border: 1px solid rgba(245, 158, 11, 0.35);
   flex-shrink: 0;
 }
+.chat-gate-notice--compact {
+  padding: 0.55rem 0.75rem;
+}
+.chat-gate-notice--compact .chat-gate-notice-title {
+  margin: 0;
+  font-size: 0.82rem;
+  font-weight: 500;
+  line-height: 1.45;
+}
+.chat-gate-notice-help {
+  margin-left: 0.35rem;
+  vertical-align: middle;
+}
 .chat-gate-notice-kicker {
-  margin: 0 0 0.25rem;
   font-size: 0.65rem;
   font-weight: 700;
   text-transform: uppercase;
@@ -1234,7 +1660,10 @@
 .gate-options {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 0.5rem;
+  gap: 0.65rem;
+}
+.databot-gate-dock .gate-options {
+  gap: 0.75rem;
 }
 @media (max-width: 640px) {
   .gate-options { grid-template-columns: 1fr; }
@@ -1251,7 +1680,7 @@
   background: var(--background);
   border: 1px solid rgba(127, 127, 127, 0.2);
   border-radius: 12px;
-  padding: 0.65rem 0.75rem;
+  padding: 0.75rem 0.85rem;
   cursor: pointer;
   text-align: left;
   font-family: inherit;
@@ -1335,7 +1764,7 @@
 }
 .gate-option-label {
   font-weight: 700;
-  font-size: 0.82rem;
+  font-size: 0.88rem;
 }
 .gate-default-badge {
   font-size: 0.58rem;
@@ -1348,9 +1777,9 @@
   font-weight: 700;
 }
 .gate-option-hint {
-  font-size: 0.72rem;
+  font-size: 0.78rem;
   color: rgba(127, 127, 127, 1);
-  line-height: 1.35;
+  line-height: 1.4;
 }
 .gate-option-reason {
   font-size: 0.72rem;
@@ -1460,12 +1889,12 @@
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
-  border-left: 1px solid rgba(127, 127, 127, 0.2);
-  border-top: 1px solid rgba(127, 127, 127, 0.2);
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
   background: rgba(127, 127, 127, 0.03);
-  padding: 0.75rem 1rem 1rem;
-  font-size: 0.8rem;
-  grid-column: 2;
+  padding: 0.75rem 0.85rem 1rem;
+  font-size: 0.75rem;
 }
 .agent-debug-header {
   display: flex;
@@ -1730,3 +2159,117 @@
   background: rgba(245, 158, 11, 0.16);
   color: rgb(180, 83, 9);
 }
+
+/* -------------------------------------------------------------------------
+   CopilotKit chat chrome
+   ------------------------------------------------------------------------- */
+
+.databot-chat {
+  --copilot-kit-primary-color: var(--db-accent);
+  background: transparent;
+  height: 100%;
+}
+.databot-chat-column .copilotKitMessages,
+.databot-chat-column .databot-message-list {
+  padding: 0.85rem 0.9rem 0.4rem;
+  gap: 0.35rem;
+}
+.databot-chat-column .copilotKitUserMessage {
+  font-size: 0.88rem;
+}
+.databot-chat-column .copilotKitUserMessage [class*="rounded"] {
+  border-radius: 16px 16px 6px 16px !important;
+}
+.databot-chat-column .copilotKitAssistantMessage {
+  font-size: 0.88rem;
+  line-height: 1.55;
+}
+.databot-chat-column .copilotKitInput {
+  margin: 0.55rem 0.75rem 0.85rem !important;
+  background: var(--db-surface-2) !important;
+  border: 1px solid var(--db-border) !important;
+  box-shadow: none !important;
+  border-radius: 18px !important;
+}
+.databot-chat-column textarea,
+.databot-chat-column .copilotKitInput textarea {
+  font-family: inherit !important;
+  font-size: 0.88rem !important;
+}
+.databot-assistant-reply-body {
+  background: var(--db-accent-soft);
+  border: 1px solid color-mix(in srgb, var(--db-accent) 22%, transparent);
+  color: var(--db-text);
+  border-radius: 14px 14px 14px 6px;
+}
+
+.gate-panel {
+  border-radius: 14px;
+  border-color: var(--db-border);
+  box-shadow: none;
+  background: var(--db-surface);
+}
+.gate-help-popover {
+  background: var(--db-surface);
+  color: var(--db-text);
+  border-color: var(--db-border);
+  box-shadow: var(--db-shadow-lg);
+  border-radius: 12px;
+}
+.sql-textarea, .sql-feedback, .sql-pre, .gate-comments {
+  border-radius: 12px !important;
+  border-color: var(--db-border-strong) !important;
+  background: var(--db-surface-2) !important;
+}
+.sql-textarea:focus, .sql-feedback:focus, .gate-comments:focus {
+  outline: none;
+  border-color: color-mix(in srgb, var(--db-accent) 55%, transparent) !important;
+  box-shadow: 0 0 0 3px var(--db-accent-soft);
+}
+.result-table-wrap {
+  border: 1px solid var(--db-border);
+  border-radius: 12px;
+}
+.result-table th {
+  background: var(--db-surface-2);
+  font-weight: 650;
+}
+.exec-chart-body {
+  border-radius: 12px;
+  border-color: var(--db-border);
+  background: var(--db-surface-2);
+}
+.agent-debug-panel {
+  background: var(--db-surface-2);
+}
+.audit-trail {
+  background: var(--db-surface-2);
+  border-top-color: var(--db-border);
+}
+
+@media (prefers-color-scheme: dark) {
+  .databot-logo {
+    box-shadow: 0 6px 18px rgba(59, 91, 253, 0.35);
+  }
+  .chat-gate-notice-title,
+  .chat-gate-notice-steps,
+  .gate-howto-steps,
+  .gate-selection-summary-text,
+  .artifact-gate-hint,
+  .gate-help-popover-steps {
+    color: var(--db-text);
+  }
+  .chat-gate-notice-pointer,
+  .gate-howto-note {
+    color: var(--db-muted);
+  }
+  .card-conflict,
+  .halt-banner,
+  .action-error {
+    color: #fecaca;
+  }
+  .dryrun-banner {
+    color: var(--db-accent-text);
+  }
+}
+
