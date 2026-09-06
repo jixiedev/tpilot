@@ -96,3 +96,12 @@ def test_is_internal_assistant_narration_detects_sql_date_reasoning() -> None:
         "CURRENT_DATE is say 2026-03-15, then ... [blocked]"
     )
     assert is_internal_assistant_narration(text)
+
+
+def test_is_internal_assistant_narration_detects_plan_orchestration_leak() -> None:
+    text = (
+        "The user has been silent on resolving the Cards Gate. The system reminder "
+        "asks me to review and either invoke an agent, mark a step complete, or "
+        "reply with plain text."
+    )
+    assert is_internal_assistant_narration(text)

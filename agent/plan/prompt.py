@@ -43,6 +43,9 @@ class PlanSystemPrompt(TahoeSystemPrompt):
             "Use `planning` to mark progress (`mark_step`) or revise steps (`update`).",
             "Do not answer the user directly during create/execute/adjust phases — only the "
             "final summary node speaks to the user.",
+            "Never write reasoning, orchestration notes, or third-person monologue in assistant "
+            "text during create/execute/adjust. Plain text without tool calls is only a silent "
+            "control signal to end a subgraph — not user-facing copy.",
             render_agent_cards(),
         ]
 
@@ -63,28 +66,29 @@ SUBAGENT_SYSTEM_PROMPT = (
     PlanSystemPrompt().build()
     + "\n\n## Execute phase\n"
     "Run the next incomplete plan step by calling `invoke_agent`. "
-    "When the step output is sufficient, stop calling tools (plain text ends this phase). "
+    "When the step output is sufficient, stop calling tools (minimal plain text ends this phase). "
+    "Do not narrate blockers or ask the user questions here — human gates surface in the UI. "
     "You may call `planning` with `mark_step` to record progress."
 )
 
 SUBAGENT_NEXT_STEP = (
     "Review the current plan (`planning` command=get) and prior step results. "
     "Either call `invoke_agent` for the next actionable step, mark a step complete, "
-    "or reply with plain text when this execution round is sufficient."
+    "or end this round with no user-facing prose (plain text is a control signal only)."
 )
 
 ADJUST_PLAN_SYSTEM_PROMPT = (
     PlanSystemPrompt().build()
     + "\n\n## Adjust-plan phase\n"
     "Review step results and the plan. Call `planning` to update steps or mark statuses. "
-    "When the plan is complete or no more delegation is needed, reply with plain text only "
-    "(no tool calls) so the turn can summarize for the user."
+    "When the plan is complete or no more delegation is needed, end with minimal plain text "
+    "(no tool calls) so the turn can summarize for the user. Do not write status reports here."
 )
 
 ADJUST_PLAN_NEXT_STEP = (
     "Decide whether the plan needs updates or more execution. "
     "Use `planning` (update / mark_step / get) when changes are required. "
-    "Otherwise reply in plain text — no tools — to finish planning."
+    "Otherwise end with minimal plain text — no tools, no user-facing prose."
 )
 
 SUMMARY_SYSTEM_PROMPT = """\

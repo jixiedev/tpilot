@@ -130,6 +130,9 @@ class DatabotState(SessionAgentState):
     halt_reason: str
     chart_requested: bool
     deny_feedback: str
+    # Count of nested HITL resumes already applied by Plan's invoke_agent.
+    # Used to align LangGraph interrupt scratchpad order on tool replay.
+    parent_hitl_applied: int
 
     # follow-up routing ------------------------------------------------------
     # Set when a web/CLI follow-up arrives after ``stage`` was ``done``.
@@ -160,6 +163,7 @@ FRESH_TURN_STATE_DEFAULTS: dict[str, Any] = {
     "halt_reason": "",
     "chart_requested": False,
     "deny_feedback": "",
+    "parent_hitl_applied": 0,
     "follow_up_turn": False,
     "follow_up_intention": "",
     "tool_call_count": 0,
@@ -202,6 +206,7 @@ FRESH_PIPELINE_STATE_KEYS: tuple[str, ...] = (
     "halt_reason",
     "chart_requested",
     "deny_feedback",
+    "parent_hitl_applied",
     "tool_call_count",
     "idle_rounds",
     "failed_tools",
