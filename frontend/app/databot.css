@@ -2202,6 +2202,16 @@
 .tool-call-reason-list li {
   margin: 0.2rem 0;
 }
+.tool-call-step-list {
+  margin: 0;
+  padding-left: 1.15rem;
+  color: var(--db-text);
+  font-size: 0.8rem;
+  line-height: 1.45;
+}
+.tool-call-step-list li {
+  margin: 0.2rem 0;
+}
 .tool-call-badge {
   display: inline-block;
   margin: 0;

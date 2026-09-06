@@ -14,12 +14,24 @@ wheels/
 
 # Local MCP server config (may contain secrets)
 tools/mcp/mcp.json
+# Local SSL CA bundle for MCP servers
+tools/mcp/ssl/
 
 # Local dev process logs / pids (langgraph dev, next dev)
 .run/
 
 # Machine-local runtime data (checkpoints, profiles, logs, offload store)
-.local/
+# Generated at repo root by the agent runtime; never commit.
+checkpoints.sqlite
+checkpoints.sqlite-shm
+checkpoints.sqlite-wal
+agent/profiles/
+agent/react/
+logs/
+offload_store/
+
+# OS junk
+.DS_Store
 
 .idea/
 

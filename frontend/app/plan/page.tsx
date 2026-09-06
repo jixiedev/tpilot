@@ -1,24 +1,37 @@
 "use client";
 
 import Link from "next/link";
+import { useState } from "react";
 import {
   CopilotChatConfigurationProvider,
   CopilotChat,
 } from "@copilotkit/react-core/v2";
+import { AgentDebugPanel } from "../components/AgentDebugPanel";
+import { PlanInterruptDialog } from "../components/PlanInterruptDialog";
+import { PlanMessageView } from "../components/PlanMessageView";
 import { PlanNewChatButton } from "../components/PlanNewChatButton";
 import { PlanSessionProvider, usePlanSession } from "../components/PlanSessionContext";
 import { PlanTaskTree } from "../components/PlanTaskTree";
+import { PlanToolRenderers } from "../components/PlanToolRenderers";
 
-function PlanWorkingPanel() {
+function PlanWorkingPanel({ debugEnabled }: { debugEnabled: boolean }) {
   const { sessionKey } = usePlanSession();
   return (
     <div className="plan-right-column" data-testid="plan-right-column">
       <PlanTaskTree key={`tree-${sessionKey}`} />
+      {debugEnabled && <AgentDebugPanel agentId="plan" />}
     </div>
   );
 }
 
+function PlanInterruptLayer() {
+  const { sessionKey } = usePlanSession();
+  return <PlanInterruptDialog key={`interrupt-${sessionKey}`} />;
+}
+
 export default function PlanPage() {
+  const [debugEnabled, setDebugEnabled] = useState(false);
+
   return (
     <CopilotChatConfigurationProvider agentId="plan">
       <PlanSessionProvider>
@@ -52,6 +65,16 @@ export default function PlanPage() {
               </span>
             </nav>
             <div className="plan-topbar-actions">
+              <label className="databot-debug-toggle">
+                <input
+                  type="checkbox"
+                  checked={debugEnabled}
+                  onChange={(e) => setDebugEnabled(e.target.checked)}
+                  data-testid="plan-debug-toggle"
+                />
+                <span className="databot-switch" aria-hidden="true" />
+                <span>Debug</span>
+              </label>
               <PlanNewChatButton />
             </div>
           </header>
@@ -59,6 +82,7 @@ export default function PlanPage() {
           <div className="plan-layout">
             <div className="plan-chat-column" data-testid="plan-chat-column">
               <CopilotChat
+                messageView={PlanMessageView}
                 labels={{
                   modalHeaderTitle: "Plan",
                   welcomeMessageText:
@@ -67,8 +91,10 @@ export default function PlanPage() {
                 className="plan-chat"
               />
             </div>
-            <PlanWorkingPanel />
+            <PlanToolRenderers />
+            <PlanWorkingPanel debugEnabled={debugEnabled} />
           </div>
+          <PlanInterruptLayer />
         </main>
       </PlanSessionProvider>
     </CopilotChatConfigurationProvider>

@@ -10,6 +10,8 @@ export interface GateInterruptValue {
   review_cards?: unknown[];
   /** Factual committed-model summary (cards gate only). */
   selection_summary?: string;
+  /** Full draft SQL (sql gate); Plan modal has no live Databot state. */
+  draft_sql?: string;
 }
 
 export function parseGateInterruptMessage(message: unknown): GateInterruptValue | null {
@@ -49,7 +51,36 @@ export interface GateUserInstructions {
   steps: string[];
 }
 
-export function gateUserInstructions(gate: GateKind): GateUserInstructions {
+export function gateUserInstructions(
+  gate: GateKind,
+  surface: "dock" | "dialog" = "dock",
+): GateUserInstructions {
+  if (surface === "dialog") {
+    if (gate === "cards") {
+      return {
+        headline: "Review Databot's model picks",
+        steps: [
+          "Check the selected models listed in this dialog.",
+          "Approve to continue, Request changes with feedback to redraft, Halt, or Dry-run.",
+        ],
+      };
+    }
+    if (gate === "sql") {
+      return {
+        headline: "Review the drafted SQL",
+        steps: [
+          "Read the SQL in this dialog.",
+          "Approve to run it, Request changes with feedback to rewrite, Halt, or Dry-run.",
+        ],
+      };
+    }
+    return {
+      headline: "Optional chart",
+      steps: [
+        "Choose whether to generate a visualization or end the turn with the table results.",
+      ],
+    };
+  }
   if (gate === "cards") {
     return {
       headline: "Review Databot's model picks",

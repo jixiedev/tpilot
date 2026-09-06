@@ -1,6 +1,7 @@
 "use client";
 
 import { useAgent, useCopilotChatConfiguration } from "@copilotkit/react-core/v2";
+import { resetPlanAgentView } from "./planClientReset";
 import { usePlanSession } from "./PlanSessionContext";
 
 type PlanNewChatButtonProps = {
@@ -22,6 +23,7 @@ export function PlanNewChatButton({ className }: PlanNewChatButtonProps) {
   const handleClick = () => {
     if (busy) return;
     config?.startNewThread();
+    if (isReady) resetPlanAgentView(agent);
     resetSessionUi();
   };
 

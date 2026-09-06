@@ -1,4 +1,4 @@
-/** Heuristics for hiding ReAct planning text in the chat sidebar. */
+/** Heuristics for hiding ReAct planning text in agent chat sidebars (Databot + Plan). */
 
 export function assistantMessageHasToolCalls(message: {
   toolCalls?: unknown[] | null;
@@ -33,7 +33,13 @@ export function isHiddenAssistantNarration(content: string): boolean {
     lower.includes("latest message is empty") ||
     lower.includes("no new question") ||
     lower.includes("no actual new question") ||
-    lower.includes("system reminder")
+    lower.includes("system reminder") ||
+    lower.includes("let me think") ||
+    lower.includes("hard-blocked") ||
+    lower.includes("cannot make progress") ||
+    lower.includes("cannot proceed") ||
+    lower.includes("cards gate") ||
+    lower.includes("mark a step complete")
   ) {
     return true;
   }
@@ -47,6 +53,8 @@ export function isHiddenAssistantNarration(content: string): boolean {
   }
 
   if (
+    lower.includes("invoke_agent") ||
+    lower.includes("mark_step") ||
     lower.includes("invoke_knowledge") ||
     lower.includes("fetch_related_models") ||
     lower.includes("commit_cards") ||

@@ -475,3 +475,31 @@
   max-height: 22rem;
   overflow-y: auto;
 }
+
+.plan-interrupt-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.25rem;
+  background: rgba(15, 23, 42, 0.45);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+.plan-interrupt-modal {
+  width: min(640px, 100%);
+  max-height: min(86vh, 820px);
+  overflow: auto;
+  background: var(--db-surface);
+  color: var(--db-text);
+  border: 1px solid var(--db-border);
+  border-radius: 18px;
+  box-shadow: var(--db-shadow-lg);
+  padding: 0.35rem;
+}
+.plan-interrupt-modal .gate-panel {
+  box-shadow: none;
+  border: none;
+}

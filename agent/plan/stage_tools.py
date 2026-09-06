@@ -13,8 +13,10 @@ from langgraph.prebuilt import ToolRuntime
 from langgraph.types import Command
 
 from agent.plan._constants import STAGE_ADJUST, STAGE_EXECUTE
+from agent.plan.nested_hitl import run_specialist_bubbling_interrupts
 from agent.plan.prompt import DELEGATABLE_AGENTS
 from agent.session import specialist_session_id
+from agent.turn import is_graph_interrupt
 from tools.common import bind_tool_to_agent
 from tools.plan import PlanToolError, run_planning, snapshot_for
 
@@ -126,7 +128,14 @@ class SpecialistRunner:
     get_specialist: Callable[[str], Awaitable[Any]]
     parent_session: str = ""
 
-    async def run(self, agent_name: str, task: str, *, parent_session: str) -> str:
+    async def run(
+        self,
+        agent_name: str,
+        task: str,
+        *,
+        parent_session: str,
+        bubble_to_parent: bool = True,
+    ) -> str:
         name = agent_name.strip().lower()
         if name not in DELEGATABLE_AGENTS:
             allowed = ", ".join(sorted(DELEGATABLE_AGENTS))
@@ -138,6 +147,16 @@ class SpecialistRunner:
             raise ValueError("`task` must be non-empty")
         specialist = await self.get_specialist(name)
         session = specialist_session_id(parent_session or self.parent_session, name)
+        if bubble_to_parent:
+            try:
+                graph = specialist.graph
+            except (AttributeError, RuntimeError):
+                graph = None
+            if graph is not None:
+                output = await run_specialist_bubbling_interrupts(
+                    specialist, task_text, session
+                )
+                return output or "(specialist returned no text output)"
         result = await specialist.run(
             task_text,
             session=session,
@@ -161,11 +180,18 @@ class SpecialistRunner:
 
         ``langgraph dev`` blocks synchronous work inside async tool handlers;
         isolating the nested graph in its own event loop avoids that.
+        Parent-graph ``interrupt()`` is skipped: it is not valid off the
+        Plan tool's execution context.
         """
 
         def _work() -> str:
             return asyncio.run(
-                self.run(agent_name, task, parent_session=parent_session)
+                self.run(
+                    agent_name,
+                    task,
+                    parent_session=parent_session,
+                    bubble_to_parent=False,
+                )
             )
 
         return await asyncio.to_thread(_work)
@@ -197,6 +223,8 @@ def make_invoke_agent_tool(runner: SpecialistRunner) -> BaseTool:
                 parent_session=session,
             )
         except Exception as exc:
+            if is_graph_interrupt(exc):
+                raise
             return Command(
                 update={
                     "messages": [
