@@ -1,21 +1,31 @@
 "use client";
 
 import { useAgent } from "@copilotkit/react-core/v2";
-import { parseGateInterruptMessage } from "./databotGateUtils";
+import {
+  parseGateInterruptMessage,
+  selectPlanGateInterrupt,
+} from "./databotGateUtils";
 import { GateHelpPopover } from "./GateHelpPopover";
 import { useAgentRefresh } from "./useAgentRefresh";
+import { usePlanStopDismissal } from "./usePlanStopDismissal";
 
 /** Compact chat notice while a nested specialist gate is pending. */
 export function PlanGateChatBanner() {
   const { agent, isReady } = useAgent({ agentId: "plan" });
   useAgentRefresh(isReady ? agent : undefined, isReady);
+  const stopDismissed = usePlanStopDismissal(isReady ? agent : undefined, isReady);
 
-  const pending = (agent as { pendingInterrupts?: Array<{ message?: unknown }> })
-    .pendingInterrupts;
-  const interrupt = pending?.[0];
-  const gate = interrupt ? parseGateInterruptMessage(interrupt.message)?.gate : null;
+  const pending = agent.pendingInterrupts;
+  const interrupt = selectPlanGateInterrupt(pending);
+  const gate = interrupt
+    ? parseGateInterruptMessage(interrupt.message)?.gate
+    : null;
 
-  if (!isReady || !gate) {
+  // ``pendingInterrupts`` is not cleared on RUN_STARTED, so a cards-gate
+  // payload stays visible while generate_sql tools are still streaming.
+  // Stopping the run also leaves that payload in place — do not treat it
+  // as a live confirmation.
+  if (!isReady || agent.isRunning || stopDismissed || !gate) {
     return null;
   }
 

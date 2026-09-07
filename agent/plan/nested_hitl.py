@@ -28,8 +28,11 @@ from agent.turn import (
 
 APPLIED_KEY = "parent_hitl_applied"
 
+# Keep in sync with ``PLAN_NESTED_HITL_REPLAY_ID`` in the Plan UI.
+REPLAY_INTERRUPT_ID = "plan-nested-hitl-replay"
+
 _REPLAY_MARKER: dict[str, str] = {
-    "id": "plan-nested-hitl-replay",
+    "id": REPLAY_INTERRUPT_ID,
     "reason": "replay",
     "message": "",
 }

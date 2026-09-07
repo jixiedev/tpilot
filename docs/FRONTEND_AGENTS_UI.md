@@ -629,6 +629,8 @@ Call `useDefaultRenderTool()` once in the same component so unlisted tools still
 | Orchestration text in chat | Plain text persisted or not filtered | `persist_plain_text`; `DatabotAssistantMessage` |
 | Plan gate on Databot page / vice versa | Wrong `agentId` on `useInterrupt` | `GatePanel` vs `PlanInterruptDialog` |
 | Chat frozen after gate | Resume not sent | `useInterrupt` `resolve` → `runAgent({ resume })` |
+| Plan Action-required banner, no dialog, tools still Running | Stale `pendingInterrupts` after cards resume; SQL modal waits for `RUN_FINISHED` | Banner ignores pending gates while `agent.isRunning`; dialog picks sql/cards from the interrupt list (skips nested HITL replay) |
+| Stop run opens draft-SQL dialog | Abort sets `isRunning` false without clearing `pendingInterrupts` | `usePlanStopDismissal` drops leftover gates on abort |
 | New chat shows old artifacts | Client state not cleared | `reset*AgentView` in New chat handler |
 
 ---

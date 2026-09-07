@@ -1,14 +1,19 @@
 "use client";
 
 import { useState, type ReactNode } from "react";
-import { useInterrupt } from "@copilotkit/react-core/v2";
+import type { Interrupt } from "@ag-ui/client";
+import { useAgent, useInterrupt } from "@copilotkit/react-core/v2";
 import { ChartGate, HumanGate } from "./GateDecision";
-import { parseGateInterruptMessage } from "./databotGateUtils";
+import {
+  parseGateInterruptMessage,
+  selectPlanGateInterrupt,
+  isPlanReplayInterrupt,
+  type PlanInterruptLike,
+} from "./databotGateUtils";
+import { useAgentRefresh } from "./useAgentRefresh";
+import { usePlanStopDismissal } from "./usePlanStopDismissal";
 
-function genericQuestion(interrupt: {
-  reason?: string;
-  message?: unknown;
-}): string {
+function genericQuestion(interrupt: PlanInterruptLike): string {
   const gate = parseGateInterruptMessage(interrupt.message);
   if (gate?.question.trim()) return gate.question.trim();
   if (typeof interrupt.message === "string" && interrupt.message.trim()) {
@@ -77,21 +82,38 @@ function GenericInterruptForm({
   );
 }
 
+function pickRenderableInterrupt(
+  interrupt: Interrupt | PlanInterruptLike | null | undefined,
+  interrupts: Array<Interrupt | PlanInterruptLike> | undefined,
+): PlanInterruptLike | null {
+  const fromList = selectPlanGateInterrupt(interrupts);
+  if (fromList) return fromList;
+  if (!interrupt || isPlanReplayInterrupt(interrupt)) return null;
+  return interrupt;
+}
+
 export function PlanInterruptDialog() {
-  const element = useInterrupt({
+  const { agent, isReady } = useAgent({ agentId: "plan" });
+  useAgentRefresh(isReady ? agent : undefined, isReady);
+  const stopDismissed = usePlanStopDismissal(isReady ? agent : undefined, isReady);
+
+  return useInterrupt({
     agentId: "plan",
     renderInChat: false,
-    render: ({ interrupt, resolve, cancel }) => {
-      if (!interrupt) return <></>;
-      const value = parseGateInterruptMessage(interrupt.message);
+    enabled: () => !stopDismissed,
+    render: ({ interrupt, interrupts, resolve, cancel }) => {
+      if (stopDismissed) return <></>;
+      const selected = pickRenderableInterrupt(interrupt, interrupts);
+      if (!selected) return <></>;
+      const value = parseGateInterruptMessage(selected.message);
       let body: ReactNode;
       if (value?.gate === "chart") {
         body = (
           <ChartGate
             value={value}
-            onApprove={() => resolve({ decision: "approve" })}
-            onSkip={() => resolve("dryrun")}
-            onCancel={() => cancel()}
+            onApprove={() => resolve({ decision: "approve" }, selected.id)}
+            onSkip={() => resolve("dryrun", selected.id)}
+            onCancel={() => cancel(selected.id)}
           />
         );
       } else if (value) {
@@ -104,16 +126,16 @@ export function PlanInterruptDialog() {
                 comments.trim().length > 0
                   ? { decision, comments: comments.trim() }
                   : decision;
-              resolve(payload);
+              resolve(payload, selected.id);
             }}
           />
         );
       } else {
         body = (
           <GenericInterruptForm
-            question={genericQuestion(interrupt)}
-            onSubmit={(reply) => resolve(reply)}
-            onCancel={() => cancel()}
+            question={genericQuestion(selected)}
+            onSubmit={(reply) => resolve(reply, selected.id)}
+            onCancel={() => cancel(selected.id)}
           />
         );
       }
@@ -135,6 +157,4 @@ export function PlanInterruptDialog() {
       );
     },
   });
-
-  return element;
 }

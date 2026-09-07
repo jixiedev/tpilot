@@ -1144,6 +1144,23 @@ Plan still picks the specialist at runtime with `invoke_agent(agent_name=...)`. 
 |--------------|--------|-------|
 | UI architecture doc | Feature parity checklist only | `docs/FRONTEND_AGENTS_UI.md` — event catalog, SSE pipeline, per-agent consumers, side channels |
 
+## 2026-09-07 — Plan SQL gate dialog vs stale Action-required banner
+
+**Goal**: After approving model cards, show the SQL confirmation dialog instead of a leftover Action-required banner over a nested tool-call stream.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| Plan gate banner | Any parseable `pendingInterrupts[0]`, including the cards payload kept during the SQL-draft run | Hide while the Plan run is in progress; skip nested-HITL replay placeholders |
+| Plan confirmation dialog | `useInterrupt` rendered `interrupts[0]` only after `onRunFinalized` | Prefer the cards/sql/chart payload in the open interrupt list; if the hook never mounts, resume from `pendingInterrupts` once the run is idle |
+
+## 2026-09-07 — Stop run must not open the SQL gate dialog
+
+**Goal**: CopilotKit “stop” should end the turn, not surface a leftover draft-SQL confirmation.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| Stop / abort | `isRunning` went false while `pendingInterrupts` still held the SQL (or cards) gate, so the idle fallback opened the modal | Abort clears pending gates and ignores them until the next run |
+
 ## 2026-09-07 — RAG document graph and shared ingest
 
 **Goal**: One document → paragraph → chunk model for Jira, Drive, and dbt ingest, with a single embed/upsert path.
