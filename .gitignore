@@ -47,3 +47,5 @@ frontend/.DS_Store
 frontend/**/.DS_Store
 frontend/out/
 frontend/build/
+
+./.local

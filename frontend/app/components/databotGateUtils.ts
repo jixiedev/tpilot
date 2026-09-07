@@ -14,6 +14,39 @@ export interface GateInterruptValue {
   draft_sql?: string;
 }
 
+/** Matches ``agent.plan.nested_hitl.REPLAY_INTERRUPT_ID``. */
+export const PLAN_NESTED_HITL_REPLAY_ID = "plan-nested-hitl-replay";
+
+export interface PlanInterruptLike {
+  id?: string;
+  reason?: string;
+  message?: unknown;
+}
+
+export function isPlanReplayInterrupt(
+  interrupt: PlanInterruptLike | null | undefined,
+): boolean {
+  if (!interrupt) return false;
+  if (interrupt.id === PLAN_NESTED_HITL_REPLAY_ID) return true;
+  const reason = interrupt.reason?.trim().toLowerCase();
+  if (reason === "replay" && !parseGateInterruptMessage(interrupt.message)) {
+    return true;
+  }
+  return false;
+}
+
+/** Prefer a real cards/sql/chart payload; skip nested-HITL replay placeholders. */
+export function selectPlanGateInterrupt<T extends PlanInterruptLike>(
+  interrupts: T[] | null | undefined,
+): T | null {
+  if (!interrupts?.length) return null;
+  for (const item of interrupts) {
+    if (isPlanReplayInterrupt(item)) continue;
+    if (parseGateInterruptMessage(item.message)) return item;
+  }
+  return null;
+}
+
 export function parseGateInterruptMessage(message: unknown): GateInterruptValue | null {
   if (message == null) return null;
 

@@ -14,7 +14,11 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.types import Command, interrupt
 from typing_extensions import TypedDict
 
-from agent.plan.nested_hitl import applied_hitl_rounds, as_parent_interrupt
+from agent.plan.nested_hitl import (
+    REPLAY_INTERRUPT_ID,
+    applied_hitl_rounds,
+    as_parent_interrupt,
+)
 from agent.plan.stage_tools import SpecialistRunner, make_invoke_agent_tool
 from graph.node import StepActionNode
 from agent.turn import (
@@ -73,6 +77,10 @@ def test_is_graph_interrupt_detects_langgraph_control_flow() -> None:
 def test_applied_hitl_rounds_reads_counter() -> None:
     assert applied_hitl_rounds({}) == 0
     assert applied_hitl_rounds({"parent_hitl_applied": 2}) == 2
+
+
+def test_replay_interrupt_id_is_stable_for_plan_ui() -> None:
+    assert REPLAY_INTERRUPT_ID == "plan-nested-hitl-replay"
 
 
 def test_as_parent_interrupt_passthrough_agui_shape() -> None:
