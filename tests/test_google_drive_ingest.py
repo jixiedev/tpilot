@@ -41,17 +41,17 @@ def test_collect_google_drive_documents_from_zips(tmp_path: Path) -> None:
     (tmp_path / "loose-notes.md").write_text("Already extracted FAQ about Superset.", encoding="utf-8")
 
     docs = collect_google_drive_documents(tmp_path)
-    paths = {doc["payload"]["path"] for doc in docs}
+    paths = {doc.rel_path for doc in docs}
     assert "design/overview.md" in paths
     assert "ops/oncall.txt" in paths
     assert "loose-notes.md" in paths
-    assert all(doc["payload"]["source"] == "google_drive" for doc in docs)
-    assert not any(doc["payload"]["path"].endswith(".png") for doc in docs)
+    assert all(doc.suffix in {".md", ".txt"} for doc in docs)
+    assert not any(doc.rel_path.endswith(".png") for doc in docs)
 
 
-@patch("rag.google_drive_ingest.upsert_points")
-@patch("rag.google_drive_ingest.ensure_collection")
-@patch("rag.google_drive_ingest.get_embeddings")
+@patch("rag.nrag.pipeline.upsert_points")
+@patch("rag.nrag.pipeline.ensure_collection")
+@patch("rag.nrag.pipeline.get_embeddings")
 def test_upload_google_drive_embeds_chunks(
     mock_embeddings,
     mock_ensure,

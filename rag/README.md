@@ -2,6 +2,17 @@
 
 Index Jira CSV exports and Google Drive folder downloads into local Qdrant for Knowledge agent retrieval.
 
+Ingest builds a **document → paragraph → chunk** graph (`rag/nrag`), then a shared pipeline embeds chunks and upserts them to Qdrant.
+
+| Source | Paragraphs | Chunks |
+|--------|------------|--------|
+| Jira CSV | one paragraph per ticket | one point per ticket (legacy integer ids kept) |
+| Google Drive | markdown headings for `.md`; otherwise the whole file | overlapping ~4k-character chunks |
+| dbt models | `columns` and/or `metrics` | one point per paragraph |
+| PDF / markdown | heading sections (`PdfDocument` / `MarkdownDocument`) | then the same length splitter |
+
+PDF ingest via `PdfDocument.open` expects a Tika server (`TIKA_SERVER_ENDPOINT`, default `http://localhost:9998`). Drive zip ingest still extracts PDFs with pypdf so it does not require Tika.
+
 ## Prerequisites
 
 1. Start Qdrant (dev only — not bundled in the PyPI wheel):
@@ -114,7 +125,7 @@ mkdir -p ~/gdrive_exports
 python -m rag -t google_drive -p ~/gdrive_exports -c gdrive_tahoe
 ```
 
-Supported file types inside the zips / directory: `.txt`, `.md`, `.html`, `.docx`, `.pdf`, `.xlsx`, plus common text configs (`.json`, `.yaml`, `.csv`, …). Images and Google shortcut stubs (`.gdoc`, `.gsheet`, …) are skipped. Long documents are split into overlapping chunks (~4k characters).
+Supported file types inside the zips / directory: `.txt`, `.md`, `.html`, `.docx`, `.pdf`, `.xlsx`, plus common text configs (`.json`, `.yaml`, `.csv`, …). Images and Google shortcut stubs (`.gdoc`, `.gsheet`, …) are skipped. Markdown files are split on headings first; long sections (and non-markdown files) are then split into overlapping chunks (~4k characters).
 
 ### dbt semantic models
 

@@ -31,17 +31,17 @@ clean up.
 
 from __future__ import annotations
 
-import hashlib
 import math
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Iterable
 
 import yaml
-from qdrant_client.http import models as qmodels
 
-from rag.config import get_rag_config
-from rag.embeddings import get_embeddings
-from rag.store import ensure_collection, upsert_points
+from rag.nrag.data import Chunk, Document, Paragraph, TextParagraph
+from rag.nrag.ids import stable_point_id
+from rag.nrag.pipeline import upsert_documents
+from rag.nrag.split import IdentitySplitStrategy
 
 # Safety cap on description / usage / SQL fields stored in payloads. With
 # the 2-chunk split each chunk's embed_text is focused (columns *or*
@@ -88,13 +88,61 @@ def _truncate(text: str, max_chars: int) -> str:
     return cleaned[:max_chars]
 
 
-def _stable_point_id(key: str) -> str:
-    """Qdrant-compatible UUID derived from a stable content key."""
-    digest = hashlib.sha1(key.encode("utf-8")).hexdigest()
-    return (
-        f"{digest[:8]}-{digest[8:12]}-{digest[12:16]}"
-        f"-{digest[16:20]}-{digest[20:32]}"
-    )
+@dataclass(kw_only=True)
+class ModelDocument(Document):
+    """One dbt model; paragraphs are the columns chunk and/or the metrics chunk."""
+
+    model_name: str
+    yml_path_str: str
+    base_payload: dict[str, Any] = field(default_factory=dict)
+    columns_embed: str = ""
+    metrics_embed: str = ""
+
+    def split_paragraphs(self) -> list[Paragraph]:
+        if self.paragraphs:
+            return self.paragraphs
+        paras: list[Paragraph] = []
+        seq = 0
+        if self.columns_embed.strip():
+            paras.append(
+                TextParagraph(
+                    ref_doc=self,
+                    para_seq=seq,
+                    para_title="columns",
+                    content=self.columns_embed,
+                )
+            )
+            seq += 1
+        if self.metrics_embed.strip():
+            paras.append(
+                TextParagraph(
+                    ref_doc=self,
+                    para_seq=seq,
+                    para_title="metrics",
+                    content=self.metrics_embed,
+                )
+            )
+        self.paragraphs = paras
+        return self.paragraphs
+
+    def chunk_payload(self, chunk: Chunk) -> dict[str, Any]:
+        payload = dict(self.base_payload)
+        title = chunk.ref_para.para_title
+        payload["chunk_type"] = (
+            _CHUNK_COLUMNS if title == "columns" else _CHUNK_METRICS
+        )
+        return payload
+
+    def chunk_embed_text(self, chunk: Chunk) -> str:
+        return chunk.content
+
+    def chunk_point_id(self, chunk: Chunk) -> int | str:
+        suffix = "columns" if chunk.ref_para.para_title == "columns" else "metrics"
+        return stable_point_id(f"{self.yml_path_str}::{self.model_name}::{suffix}")
+
+
+def _as_dict(value: Any) -> dict[str, Any]:
+    return value if isinstance(value, dict) else {}
 
 
 def _format_data_tests(tests: Any) -> str:
@@ -135,10 +183,8 @@ def _column_to_record(column: dict[str, Any]) -> dict[str, Any] | None:
     if not name:
         return None
     description = _as_str(column.get("description"))
-    entity = column.get("entity") if isinstance(column.get("entity"), dict) else {}
-    dimension = (
-        column.get("dimension") if isinstance(column.get("dimension"), dict) else {}
-    )
+    entity = _as_dict(column.get("entity"))
+    dimension = _as_dict(column.get("dimension"))
     granularity = _as_str(column.get("granularity"))
     data_tests = _format_data_tests(column.get("data_tests"))
 
@@ -215,20 +261,14 @@ def _build_model_base_payload(
     if not name:
         return None
     description = _as_str(model.get("description"))
-    config = model.get("config") if isinstance(model.get("config"), dict) else {}
+    config = _as_dict(model.get("config"))
     model_meta = _meta(config.get("meta"))
     owner = _as_str(model_meta.get("owner"))
     hive_table = _as_str(model_meta.get("hive_table"))
     agg_time_dimension = _as_str(model.get("agg_time_dimension"))
 
-    semantic = (
-        model.get("semantic_model")
-        if isinstance(model.get("semantic_model"), dict)
-        else {}
-    )
-    semantic_config = (
-        semantic.get("config") if isinstance(semantic.get("config"), dict) else {}
-    )
+    semantic = _as_dict(model.get("semantic_model"))
+    semantic_config = _as_dict(semantic.get("config"))
     semantic_meta = _meta(semantic_config.get("meta"))
     usage = _as_str(semantic_meta.get("usage"))
 
@@ -362,22 +402,18 @@ def _build_metrics_embed_text(
     return "\n".join(parts)
 
 
-def _model_to_chunks(
+def _model_to_document(
     *,
     model: dict[str, Any],
     yml_path: Path,
-) -> tuple[list[dict[str, Any]], int, int]:
-    """Build 0-2 chunks for one dbt model. Returns (chunks, column_count, metric_count)."""
+) -> tuple[ModelDocument | None, int, int]:
+    """Build a document with 0-2 paragraphs. Returns (doc, column_count, metric_count)."""
     name = _as_str(model.get("name"))
     if not name:
-        return [], 0, 0
-    semantic = (
-        model.get("semantic_model")
-        if isinstance(model.get("semantic_model"), dict)
-        else {}
-    )
+        return None, 0, 0
+    semantic = _as_dict(model.get("semantic_model"))
     if semantic.get("enabled") is False:
-        return [], 0, 0
+        return None, 0, 0
 
     sql_path = _find_model_sql(yml_path, name)
     sql_text = _read_sql(sql_path)
@@ -409,32 +445,29 @@ def _model_to_chunks(
         metric_records=metric_records,
     )
     if base_payload is None:
-        return [], 0, 0
+        return None, 0, 0
 
-    chunks: list[dict[str, Any]] = []
-    if column_records:
-        embed_text = _build_columns_embed_text(base_payload, column_records)
-        payload = dict(base_payload)
-        payload["chunk_type"] = _CHUNK_COLUMNS
-        chunks.append(
-            {
-                "point_key": f"{yml_path_str}::{name}::columns",
-                "embed_text": embed_text,
-                "payload": payload,
-            }
-        )
-    if metric_records:
-        embed_text = _build_metrics_embed_text(base_payload, metric_records)
-        payload = dict(base_payload)
-        payload["chunk_type"] = _CHUNK_METRICS
-        chunks.append(
-            {
-                "point_key": f"{yml_path_str}::{name}::metrics",
-                "embed_text": embed_text,
-                "payload": payload,
-            }
-        )
-    return chunks, len(column_records), len(metric_records)
+    columns_embed = (
+        _build_columns_embed_text(base_payload, column_records) if column_records else ""
+    )
+    metrics_embed = (
+        _build_metrics_embed_text(base_payload, metric_records) if metric_records else ""
+    )
+    if not columns_embed and not metrics_embed:
+        return None, 0, 0
+
+    doc = ModelDocument(
+        doc_id=f"{yml_path_str}::{name}",
+        url=yml_path_str,
+        title=name,
+        content="\n\n".join(part for part in (columns_embed, metrics_embed) if part),
+        model_name=name,
+        yml_path_str=yml_path_str,
+        base_payload=base_payload,
+        columns_embed=columns_embed,
+        metrics_embed=metrics_embed,
+    )
+    return doc, len(column_records), len(metric_records)
 
 
 def _iter_dbt_yml_files(root: Path) -> Iterable[Path]:
@@ -449,20 +482,20 @@ def _iter_dbt_yml_files(root: Path) -> Iterable[Path]:
             yield path
 
 
-def collect_semantic_model_documents(model_path: str | Path) -> list[dict[str, Any]]:
-    """Walk ``model_path`` for dbt schema yml files; return chunk documents."""
+def collect_semantic_model_documents(model_path: str | Path) -> list[ModelDocument]:
+    """Walk ``model_path`` for dbt schema yml files; return model documents."""
     docs, _stats = collect_semantic_model_documents_with_stats(model_path)
     return docs
 
 
 def collect_semantic_model_documents_with_stats(
     model_path: str | Path,
-) -> tuple[list[dict[str, Any]], dict[str, int]]:
+) -> tuple[list[ModelDocument], dict[str, int]]:
     root = Path(model_path).expanduser().resolve()
     if not root.is_dir():
         raise FileNotFoundError(f"dbt models directory not found: {root}")
 
-    docs: list[dict[str, Any]] = []
+    docs: list[ModelDocument] = []
     seen_keys: set[str] = set()
     stats = {
         "yml_files": 0,
@@ -494,32 +527,29 @@ def collect_semantic_model_documents_with_stats(
             model_name = _as_str(model.get("name"))
             if not model_name:
                 continue
-            semantic = (
-                model.get("semantic_model")
-                if isinstance(model.get("semantic_model"), dict)
-                else {}
-            )
+            semantic = _as_dict(model.get("semantic_model"))
             if semantic.get("enabled") is False:
                 stats["models_skipped_disabled"] += 1
                 continue
             stats["models"] += 1
 
-            chunks, col_count, met_count = _model_to_chunks(
+            doc, col_count, met_count = _model_to_document(
                 model=model, yml_path=yml_path
             )
             stats["columns"] += col_count
             stats["metrics"] += met_count
-            for chunk in chunks:
-                key = chunk["point_key"]
-                if key in seen_keys:
-                    continue
-                seen_keys.add(key)
-                if chunk["payload"].get("chunk_type") == _CHUNK_COLUMNS:
-                    stats["column_chunks"] += 1
-                elif chunk["payload"].get("chunk_type") == _CHUNK_METRICS:
-                    stats["metric_chunks"] += 1
+            if doc is None:
+                continue
+            if doc.doc_id in seen_keys:
+                continue
+            seen_keys.add(doc.doc_id)
+            if doc.columns_embed:
+                stats["column_chunks"] += 1
                 stats["chunks"] += 1
-                docs.append(chunk)
+            if doc.metrics_embed:
+                stats["metric_chunks"] += 1
+                stats["chunks"] += 1
+            docs.append(doc)
 
     return docs, stats
 
@@ -540,46 +570,25 @@ def upload_semantic_models(
     for this call only — useful when using an OpenAI-compatible endpoint
     that supports a larger context than local BGE.
     """
-    cfg = get_rag_config().embedding
-    size = batch_size or cfg.batch_size
+    from rag.config import get_rag_config
+
+    embedding_config = None
     if max_chars is not None:
-        cfg = cfg.model_copy(update={"max_chars": max_chars})
+        cfg = get_rag_config().embedding
+        embedding_config = cfg.model_copy(update={"max_chars": max_chars})
 
     docs, stats = collect_semantic_model_documents_with_stats(model_path)
-    ensure_collection(collection_name)
     print(
-        f"Collected {len(docs)} chunks from {stats['models']} models in {model_path!s}"
+        f"Collected {stats['chunks']} chunks from {stats['models']} models in {model_path!s}"
         f" → collection {collection_name!r} (yml_files={stats['yml_files']},"
         f" columns={stats['columns']} → {stats['column_chunks']} chunk(s),"
         f" metrics={stats['metrics']} → {stats['metric_chunks']} chunk(s),"
         f" skipped_disabled={stats['models_skipped_disabled']})"
     )
-    if not docs:
-        print("No documents to embed; nothing uploaded.")
-        return 0
-
-    prepared: list[tuple[str, dict[str, Any], str]] = [
-        (_stable_point_id(doc["point_key"]), doc["payload"], doc["embed_text"])
-        for doc in docs
-    ]
-
-    uploaded = 0
-    for offset in range(0, len(prepared), size):
-        batch = prepared[offset : offset + size]
-        try:
-            vectors = get_embeddings([text for _, _, text in batch], config=cfg)
-        except Exception as exc:  # noqa: BLE001 — continue remaining batches
-            print(f"Embedding batch at offset {offset} failed: {exc}")
-            continue
-        points = [
-            qmodels.PointStruct(id=point_id, vector=vector, payload=payload)
-            for (point_id, payload, _), vector in zip(batch, vectors, strict=True)
-        ]
-        try:
-            upsert_points(collection_name, points)
-            uploaded += len(points)
-            print(f"Upserted {uploaded}/{len(prepared)}")
-        except Exception as exc:  # noqa: BLE001
-            print(f"Upsert failed at offset {offset}: {exc}")
-    print(f"Upload complete: {uploaded} points in {collection_name!r}")
-    return uploaded
+    return upsert_documents(
+        collection_name,
+        docs,
+        strategy=IdentitySplitStrategy(),
+        batch_size=batch_size,
+        embedding_config=embedding_config,
+    )

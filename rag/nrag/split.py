@@ -1,90 +1,114 @@
-from abc import ABC, abstractmethod
-from typing import TypeVar
+"""Split a document into paragraphs, then paragraphs into embedding chunks."""
 
-from rag.nrag.data import Document, Paragraph, Chunk, SimpleChunk, NeighborSimpleChunk
+from __future__ import annotations
+
+import re
+from abc import ABC, abstractmethod
+from typing import Iterator
+
+from rag.nrag.data import Chunk, Document, Paragraph, link_sequence
+
+DEFAULT_CHUNK_CHARS = 4000
+DEFAULT_CHUNK_OVERLAP = 200
+
+
+def normalize_whitespace(text: str) -> str:
+    text = text.replace("\x00", " ")
+    text = re.sub(r"[ \t]+", " ", text)
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return text.strip()
+
+
+def split_text(
+    text: str,
+    *,
+    chunk_chars: int = DEFAULT_CHUNK_CHARS,
+    overlap: int = DEFAULT_CHUNK_OVERLAP,
+) -> list[str]:
+    """Split long text into overlapping character chunks, preferring paragraph breaks."""
+    cleaned = normalize_whitespace(text)
+    if not cleaned:
+        return []
+    if len(cleaned) <= chunk_chars:
+        return [cleaned]
+
+    overlap = max(0, min(overlap, chunk_chars // 2))
+    chunks: list[str] = []
+    start = 0
+    length = len(cleaned)
+    while start < length:
+        end = min(start + chunk_chars, length)
+        if end < length:
+            window = cleaned[start:end]
+            break_at = max(window.rfind("\n\n"), window.rfind("\n"), window.rfind(". "))
+            if break_at >= chunk_chars // 2:
+                if window[break_at : break_at + 2] == "\n\n":
+                    end = start + break_at + 2
+                elif window[break_at : break_at + 2] == ". ":
+                    end = start + break_at + 2
+                else:
+                    end = start + break_at + 1
+        piece = cleaned[start:end].strip()
+        if piece:
+            chunks.append(piece)
+        if end >= length:
+            break
+        start = max(end - overlap, start + 1)
+    return chunks
 
 
 class SplitStrategy(ABC):
-    @abstractmethod
-    def accept_doc(self, doc: Document) -> list[Paragraph]:
-        pass
+    def split_document(self, doc: Document) -> list[Paragraph]:
+        paras = doc.split_paragraphs()
+        link_sequence(paras)
+        return paras
 
     @abstractmethod
-    def accept_para(self, para: Paragraph) -> list[Chunk]:
+    def split_paragraph(self, para: Paragraph) -> list[Chunk]:
         pass
 
+    def iter_chunks(self, doc: Document) -> Iterator[Chunk]:
+        for para in self.split_document(doc):
+            chunks = self.split_paragraph(para)
+            link_sequence(chunks)
+            para.chunks = list(chunks)
+            yield from chunks
 
-CK = TypeVar("CK", bound=Chunk)
 
+class LengthSplitStrategy(SplitStrategy):
+    """Length-based chunker with overlap; paragraph boundaries come from the document."""
 
-class SimpleSplitStrategy(SplitStrategy):
-    """
-    A simple splitter that split text based on length
-    """
+    def __init__(
+        self,
+        chunk_chars: int = DEFAULT_CHUNK_CHARS,
+        overlap: int = DEFAULT_CHUNK_OVERLAP,
+    ) -> None:
+        self.chunk_chars = chunk_chars
+        self.overlap = overlap
 
-    def __init__(self, stride, document_threshold=-1, para_threshold=-1, chunk_threshold=2000):
-        """
-        if document_size < document_threshold => skip splitting, otherwise split paras
-        if para_size < para_threshold => skip splitting chunks, otherwise split chunks with less than chunk_threshold chars
-        """
-        self.stride = stride
-        self.document_threshold = document_threshold
-        self.para_threshold = para_threshold
-        self.chunk_threshold = chunk_threshold
-
-    def accept_doc(self, doc: Document) -> list[Paragraph]:
-        if doc.get_doc_size <= self.document_threshold:
-            return [Paragraph.single_graph(doc)]
-        else:
-            paras = doc.split_paras()
-            return paras
-
-    def accept_para(self, para: Paragraph) -> list[CK]:
-        if para.get_para_size <= self.para_threshold:
-            chunk = Chunk.single_chunk(para)
+    def split_paragraph(self, para: Paragraph) -> list[Chunk]:
+        pieces = split_text(
+            para.text,
+            chunk_chars=self.chunk_chars,
+            overlap=self.overlap,
+        )
+        if not pieces:
+            return []
+        chunks: list[Chunk] = []
+        for seq, piece in enumerate(pieces):
+            chunk = Chunk(ref_para=para, chunk_seq=seq, chunk_content=piece)
             para.add_chunk(chunk)
-            return [chunk]
-        else:
-            chunks = []
-            chunk_seq = 0
-            last_chunk = None
-            for i in range(para.para_start_in_doc, para.para_end_in_doc - self.chunk_threshold, self.stride):
-                chunk = SimpleChunk(
-                    ref_para=para,
-                    chunk_seq=chunk_seq,
-                    chunk_start_in_doc=i,
-                    chunk_end_in_doc=min(i+self.chunk_threshold, para.para_end_in_doc),
-                    _next=None,
-                    _prev=last_chunk
-                )
-                para.add_chunk(chunk)
-                last_chunk = chunk
-                chunks.append(chunk)
-            return chunks
+            chunks.append(chunk)
+        return chunks
 
 
-class NeighborSimpleSplitStrategy(SimpleSplitStrategy):
-    def accept_para(self, para: Paragraph) -> list[CK]:
-        if para.get_para_size <= self.para_threshold:
-            chunk = Chunk.single_chunk(para)
-            para.add_chunk(chunk)
-            return [chunk]
-        else:
-            chunks = []
-            chunk_seq = 0
-            last_chunk = None
-            for i in range(para.para_start_in_doc, para.para_end_in_doc - self.chunk_threshold, self.stride):
-                chunk = NeighborSimpleChunk(
-                    ref_para=para,
-                    chunk_seq=chunk_seq,
-                    chunk_start_in_doc=i,
-                    chunk_end_in_doc=min(i+self.chunk_threshold, para.para_end_in_doc),
-                    _next=None,
-                    _prev=last_chunk
-                )
-                para.add_chunk(chunk)
-                last_chunk = chunk
-                chunks.append(chunk)
-            return chunks
+class IdentitySplitStrategy(SplitStrategy):
+    """One chunk per paragraph — used when the document already chose the unit."""
 
-
+    def split_paragraph(self, para: Paragraph) -> list[Chunk]:
+        text = para.text
+        if not text.strip():
+            return []
+        chunk = Chunk(ref_para=para, chunk_seq=0, chunk_content=text)
+        para.add_chunk(chunk)
+        return [chunk]

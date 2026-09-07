@@ -2,20 +2,25 @@
 
 from __future__ import annotations
 
-import hashlib
 import io
 import re
 import tempfile
 import zipfile
+from dataclasses import dataclass
 from html.parser import HTMLParser
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Iterable
 
-from qdrant_client.http import models as qmodels
-
-from rag.config import get_rag_config
-from rag.embeddings import get_embeddings
-from rag.store import ensure_collection, upsert_points
+from rag.nrag.data import Chunk, Document, Paragraph, TextParagraph
+from rag.nrag.ids import stable_point_id
+from rag.nrag.pipeline import upsert_documents
+from rag.nrag.split import (
+    DEFAULT_CHUNK_CHARS,
+    DEFAULT_CHUNK_OVERLAP,
+    LengthSplitStrategy,
+    normalize_whitespace,
+    split_text,
+)
 
 # Google Drive "Download" of a folder usually yields one or more zips of exported files.
 _TEXT_SUFFIXES = {
@@ -35,6 +40,7 @@ _TEXT_SUFFIXES = {
 _DOCX_SUFFIXES = {".docx"}
 _PDF_SUFFIXES = {".pdf"}
 _XLSX_SUFFIXES = {".xlsx", ".xlsm"}
+_MARKDOWN_SUFFIXES = {".md", ".markdown"}
 _SKIP_DIR_NAMES = {"__macosx", ".git", ".svn", "node_modules"}
 _SKIP_FILE_NAMES = {".ds_store", "thumbs.db", "desktop.ini"}
 _SKIP_SUFFIXES = {
@@ -61,8 +67,8 @@ _SKIP_SUFFIXES = {
     ".gtable",
 }
 
-DEFAULT_CHUNK_CHARS = 4000
-DEFAULT_CHUNK_OVERLAP = 200
+# Re-export for tests and callers that imported these from this module.
+chunk_text = split_text
 
 
 class _HTMLTextExtractor(HTMLParser):
@@ -92,19 +98,6 @@ class _HTMLTextExtractor(HTMLParser):
         return re.sub(r"\n{3,}", "\n\n", " ".join(self._chunks)).strip()
 
 
-def _stable_point_id(key: str) -> str:
-    """Qdrant-compatible UUID derived from a stable content key."""
-    digest = hashlib.sha1(key.encode("utf-8")).hexdigest()
-    return f"{digest[:8]}-{digest[8:12]}-{digest[12:16]}-{digest[16:20]}-{digest[20:32]}"
-
-
-def _normalize_whitespace(text: str) -> str:
-    text = text.replace("\x00", " ")
-    text = re.sub(r"[ \t]+", " ", text)
-    text = re.sub(r"\n{3,}", "\n\n", text)
-    return text.strip()
-
-
 def _read_text_bytes(data: bytes, path: Path) -> str:
     for encoding in ("utf-8", "utf-8-sig", "latin-1"):
         try:
@@ -118,14 +111,14 @@ def _read_text_bytes(data: bytes, path: Path) -> str:
     if suffix in {".html", ".htm"}:
         parser = _HTMLTextExtractor()
         parser.feed(raw)
-        return _normalize_whitespace(parser.text())
-    return _normalize_whitespace(raw)
+        return normalize_whitespace(parser.text())
+    return normalize_whitespace(raw)
 
 
 def _extract_docx(data: bytes) -> str:
-    from docx import Document
+    from docx import Document as DocxDocument
 
-    document = Document(io.BytesIO(data))
+    document = DocxDocument(io.BytesIO(data))
     parts: list[str] = []
     for paragraph in document.paragraphs:
         text = paragraph.text.strip()
@@ -136,7 +129,7 @@ def _extract_docx(data: bytes) -> str:
             cells = [cell.text.strip() for cell in row.cells if cell.text.strip()]
             if cells:
                 parts.append(" | ".join(cells))
-    return _normalize_whitespace("\n".join(parts))
+    return normalize_whitespace("\n".join(parts))
 
 
 def _extract_pdf(data: bytes) -> str:
@@ -148,7 +141,7 @@ def _extract_pdf(data: bytes) -> str:
         text = (page.extract_text() or "").strip()
         if text:
             parts.append(text)
-    return _normalize_whitespace("\n\n".join(parts))
+    return normalize_whitespace("\n\n".join(parts))
 
 
 def _extract_xlsx(data: bytes) -> str:
@@ -164,7 +157,7 @@ def _extract_xlsx(data: bytes) -> str:
             cells = [str(cell).strip() for cell in row if str(cell).strip()]
             if cells:
                 parts.append(" | ".join(cells))
-    return _normalize_whitespace("\n".join(parts))
+    return normalize_whitespace("\n".join(parts))
 
 
 def extract_text_from_bytes(data: bytes, path: Path) -> str | None:
@@ -190,42 +183,67 @@ def extract_text_from_bytes(data: bytes, path: Path) -> str | None:
     return text or None
 
 
-def chunk_text(
-    text: str,
-    *,
-    chunk_chars: int = DEFAULT_CHUNK_CHARS,
-    overlap: int = DEFAULT_CHUNK_OVERLAP,
-) -> list[str]:
-    """Split long documents into overlapping character chunks for embedding."""
-    cleaned = _normalize_whitespace(text)
-    if not cleaned:
-        return []
-    if len(cleaned) <= chunk_chars:
-        return [cleaned]
+@dataclass(kw_only=True)
+class DriveDocument(Document):
+    source_zip: str = ""
+    rel_path: str = ""
+    suffix: str = ""
 
-    overlap = max(0, min(overlap, chunk_chars // 2))
-    chunks: list[str] = []
-    start = 0
-    length = len(cleaned)
-    while start < length:
-        end = min(start + chunk_chars, length)
-        if end < length:
-            window = cleaned[start:end]
-            break_at = max(window.rfind("\n\n"), window.rfind("\n"), window.rfind(". "))
-            if break_at >= chunk_chars // 2:
-                if window[break_at : break_at + 2] == "\n\n":
-                    end = start + break_at + 2
-                elif window[break_at : break_at + 2] == ". ":
-                    end = start + break_at + 2
-                else:
-                    end = start + break_at + 1
-        piece = cleaned[start:end].strip()
-        if piece:
-            chunks.append(piece)
-        if end >= length:
-            break
-        start = max(end - overlap, start + 1)
-    return chunks
+    def split_paragraphs(self) -> list[Paragraph]:
+        if self.paragraphs:
+            return self.paragraphs
+        if self.suffix in _MARKDOWN_SUFFIXES:
+            from rag.nrag.pdf import markdown_section_texts
+
+            paras: list[Paragraph] = []
+            for seq, (title, body) in enumerate(
+                markdown_section_texts(self.content, fallback_title=self.title)
+            ):
+                paras.append(
+                    TextParagraph(
+                        ref_doc=self,
+                        para_seq=seq,
+                        para_title=title or self.title,
+                        content=body,
+                    )
+                )
+            if paras:
+                self.paragraphs = paras
+                return self.paragraphs
+        return super().split_paragraphs()
+
+    def _file_chunk_index(self, chunk: Chunk) -> int:
+        index = chunk.chunk_seq
+        for para in self.paragraphs:
+            if para is chunk.ref_para:
+                return index
+            index += len(para.chunks)
+        return index
+
+    def chunk_payload(self, chunk: Chunk) -> dict[str, object]:
+        return {
+            "source": "google_drive",
+            "source_zip": self.source_zip,
+            "path": self.rel_path,
+            "title": self.title,
+            "suffix": self.suffix,
+            "chunk_index": self._file_chunk_index(chunk),
+            "text": chunk.content,
+        }
+
+    def chunk_embed_text(self, chunk: Chunk) -> str:
+        return f"Title: {self.title}\nPath: {self.rel_path}\n\n{chunk.content}"
+
+    def chunk_point_id(self, chunk: Chunk) -> int | str:
+        # Single-paragraph files keep the historical ``prefix::path::index`` key.
+        if len(self.paragraphs) <= 1 and chunk.ref_para.para_seq == 0:
+            key = f"{self.doc_id}::{self.rel_path}::{chunk.chunk_seq}"
+        else:
+            key = (
+                f"{self.doc_id}::{self.rel_path}"
+                f"::{chunk.ref_para.para_seq}::{chunk.chunk_seq}"
+            )
+        return stable_point_id(key)
 
 
 def _iter_files(root: Path, *, include_zip: bool = False) -> Iterable[Path]:
@@ -241,43 +259,14 @@ def _iter_files(root: Path, *, include_zip: bool = False) -> Iterable[Path]:
         yield path
 
 
-def _chunk_documents(
-    *,
-    text: str,
-    title: str,
-    rel_path: str,
-    suffix: str,
-    source_zip: str,
-    point_prefix: str,
-) -> list[dict[str, Any]]:
-    docs: list[dict[str, Any]] = []
-    for chunk_index, chunk in enumerate(chunk_text(text)):
-        docs.append(
-            {
-                "point_key": f"{point_prefix}::{rel_path}::{chunk_index}",
-                "embed_text": f"Title: {title}\nPath: {rel_path}\n\n{chunk}",
-                "payload": {
-                    "source": "google_drive",
-                    "source_zip": source_zip,
-                    "path": rel_path,
-                    "title": title,
-                    "suffix": suffix,
-                    "chunk_index": chunk_index,
-                    "text": chunk,
-                },
-            }
-        )
-    return docs
-
-
 def _documents_from_tree(
     root: Path,
     *,
     source_zip: str,
     relative_to: Path,
     point_prefix: str,
-) -> list[dict[str, Any]]:
-    docs: list[dict[str, Any]] = []
+) -> list[DriveDocument]:
+    docs: list[DriveDocument] = []
     for path in _iter_files(root):
         try:
             data = path.read_bytes()
@@ -291,26 +280,27 @@ def _documents_from_tree(
             rel = str(path.relative_to(relative_to))
         except ValueError:
             rel = path.name
-        docs.extend(
-            _chunk_documents(
-                text=text,
+        docs.append(
+            DriveDocument(
+                doc_id=point_prefix,
+                url=rel,
                 title=path.stem,
+                content=text,
+                source_zip=source_zip,
                 rel_path=rel,
                 suffix=path.suffix.lower(),
-                source_zip=source_zip,
-                point_prefix=point_prefix,
             )
         )
     return docs
 
 
-def collect_google_drive_documents(directory: str | Path) -> list[dict[str, Any]]:
-    """Scan ``directory`` for Drive zips and loose files; return chunk documents."""
+def collect_google_drive_documents(directory: str | Path) -> list[DriveDocument]:
+    """Scan ``directory`` for Drive zips and loose files; return documents to split."""
     root = Path(directory).expanduser().resolve()
     if not root.is_dir():
         raise FileNotFoundError(f"Google Drive ingest directory not found: {root}")
 
-    docs: list[dict[str, Any]] = []
+    docs: list[DriveDocument] = []
     zips = sorted(p for p in root.iterdir() if p.is_file() and p.suffix.lower() == ".zip")
     for zip_path in zips:
         print(f"Extracting {zip_path.name} ...")
@@ -331,7 +321,6 @@ def collect_google_drive_documents(directory: str | Path) -> list[dict[str, Any]
                 )
             )
 
-    # Loose / already-extracted files beside the zips (skip the zip binaries themselves).
     docs.extend(
         _documents_from_tree(
             root,
@@ -341,8 +330,7 @@ def collect_google_drive_documents(directory: str | Path) -> list[dict[str, Any]
         )
     )
 
-    # Deduplicate by point_key (re-running ingest or overlapping loose+zip copies).
-    unique = {doc["point_key"]: doc for doc in docs}
+    unique = {f"{doc.doc_id}::{doc.rel_path}": doc for doc in docs}
     return list(unique.values())
 
 
@@ -357,33 +345,14 @@ def upload_google_drive(
     ``directory`` should contain the zip file(s) downloaded from Google Drive
     (and optionally already-extracted files). Returns the number of upserted points.
     """
-    cfg = get_rag_config().embedding
-    size = batch_size or cfg.batch_size
     docs = collect_google_drive_documents(directory)
-    ensure_collection(collection_name)
-    print(f"Collected {len(docs)} chunks from {directory!s} → collection {collection_name!r}")
-
-    prepared: list[tuple[str, dict[str, Any], str]] = [
-        (_stable_point_id(doc["point_key"]), doc["payload"], doc["embed_text"])
-        for doc in docs
-    ]
-    uploaded = 0
-    for offset in range(0, len(prepared), size):
-        batch = prepared[offset : offset + size]
-        try:
-            vectors = get_embeddings([text for _, _, text in batch])
-        except Exception as exc:  # noqa: BLE001
-            print(f"Embedding batch at offset {offset} failed: {exc}")
-            continue
-        points = [
-            qmodels.PointStruct(id=point_id, vector=vector, payload=payload)
-            for (point_id, payload, _), vector in zip(batch, vectors, strict=True)
-        ]
-        try:
-            upsert_points(collection_name, points)
-            uploaded += len(points)
-            print(f"Upserted {uploaded}/{len(prepared)}")
-        except Exception as exc:  # noqa: BLE001
-            print(f"Upsert failed at offset {offset}: {exc}")
-    print(f"Upload complete: {uploaded} points in {collection_name!r}")
-    return uploaded
+    print(f"Collected {len(docs)} files from {directory!s} → collection {collection_name!r}")
+    return upsert_documents(
+        collection_name,
+        docs,
+        strategy=LengthSplitStrategy(
+            chunk_chars=DEFAULT_CHUNK_CHARS,
+            overlap=DEFAULT_CHUNK_OVERLAP,
+        ),
+        batch_size=batch_size,
+    )

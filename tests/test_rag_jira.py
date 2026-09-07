@@ -31,11 +31,12 @@ def test_row_to_document_uses_jira_csv_headers() -> None:
     doc = row_to_document(row)
 
     assert doc is not None
-    assert doc["issue_key"] == "TAHOE-123"
-    assert "Hive metastore timeout" in doc["embed_text"]
-    assert "Root cause was connection pool" in doc["embed_text"]
-    assert doc["payload"]["status"] == "Done"
-    assert doc["payload"]["assignee"] == "alice"
+    assert doc.issue_key == "TAHOE-123"
+    assert "Hive metastore timeout" in doc.content
+    assert "Root cause was connection pool" in doc.content
+    payload = doc.source_payload()
+    assert payload["status"] == "Done"
+    assert payload["assignee"] == "alice"
 
 
 def test_row_to_document_skips_empty_rows() -> None:

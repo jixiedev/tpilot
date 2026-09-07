@@ -1112,5 +1112,15 @@ Implementation notes (behavior only): detect emits intentions + plan steps; publ
 | Visual system | Arial, flat white panes, hard gray borders, native checkbox | Plus Jakarta type, lake-blue tokens, rounded panes, switch + pill actions |
 | Workspace chrome | Header and columns sat on a blank page with 1990s form controls | Soft canvas, glass topbar, card columns, Copilot input restyled to match |
 
+## 2026-09-07 — RAG document graph and shared ingest
+
+**Goal**: One document → paragraph → chunk model for Jira, Drive, and dbt ingest, with a single embed/upsert path.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| Ingest shape | Each source built ad-hoc dicts and copied the embed/upsert loop | Shared `Document` / `Paragraph` / `Chunk` graph plus `upsert_documents` |
+| Markdown / PDF sections | A file was one blob before character chunking | Heading-aware paragraphs, then the same length splitter |
+| Neighbor navigation | Chunk seq lived only in unused dataclasses | Payload carries `prev_chunk_seq` / `next_chunk_seq` for later expansion |
+
 <!-- Append the next optimization section above this line -->
 

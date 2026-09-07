@@ -1,13 +1,13 @@
-from abc import ABC, abstractmethod
-from typing import Generic, TypeVar, Iterator
+"""Source readers that yield ``Document`` instances for ingest."""
 
-T = TypeVar('T')
+from __future__ import annotations
+
+from abc import ABC
+from typing import Generic, Iterator, TypeVar
+
+T = TypeVar("T")
+
 
 class Reader(ABC, Generic[T]):
-    @abstractmethod
-    def open(self):
-        pass
-
-    @abstractmethod
     def __iter__(self) -> Iterator[T]:
-        pass
+        raise NotImplementedError
