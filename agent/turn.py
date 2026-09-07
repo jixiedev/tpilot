@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
@@ -94,16 +95,73 @@ def interrupt_values(result: Any) -> list[Any]:
     return values
 
 
+def interrupt_values_from_snapshot(snapshot: Any) -> list[Any]:
+    """Pending interrupt payloads on a ``StateSnapshot`` (not ``ainvoke`` output).
+
+    ``snapshot.values`` usually has no ``__interrupt__`` key; the payloads live
+    on ``snapshot.tasks[].interrupts`` (and sometimes ``snapshot.interrupts``).
+    """
+    if snapshot is None:
+        return []
+    pending: list[Any] = []
+    for task in getattr(snapshot, "tasks", None) or ():
+        for item in getattr(task, "interrupts", None) or ():
+            pending.append(getattr(item, "value", item))
+    if pending:
+        return pending
+    for item in getattr(snapshot, "interrupts", None) or ():
+        pending.append(getattr(item, "value", item))
+    if pending:
+        return pending
+    values = getattr(snapshot, "values", None)
+    if isinstance(values, dict):
+        return interrupt_values(values)
+    return []
+
+
+def _question_from_interrupt_value(value: Any) -> str | None:
+    if isinstance(value, dict):
+        question = value.get("question")
+        if question is not None and str(question).strip():
+            return str(question).strip()
+        message = value.get("message")
+        if isinstance(message, str) and message.strip():
+            text = message.strip()
+            if text[0] in "{[":
+                try:
+                    parsed = json.loads(text)
+                except (ValueError, TypeError):
+                    parsed = None
+                if isinstance(parsed, dict):
+                    nested = parsed.get("question")
+                    if nested is not None and str(nested).strip():
+                        return str(nested).strip()
+            return text
+        reason = value.get("reason")
+        if reason is not None and str(reason).strip():
+            return str(reason).strip()
+        return None
+    if value is not None and str(value).strip():
+        return str(value).strip()
+    return None
+
+
 def interrupt_question(result: Any) -> str | None:
     for value in interrupt_values(result):
-        if isinstance(value, dict):
-            question = value.get("question")
-            if question is not None and str(question).strip():
-                return str(question).strip()
-            continue
-        if value is not None and str(value).strip():
-            return str(value).strip()
+        question = _question_from_interrupt_value(value)
+        if question:
+            return question
+    for value in interrupt_values_from_snapshot(result):
+        question = _question_from_interrupt_value(value)
+        if question:
+            return question
     return None
+
+
+def is_graph_interrupt(exc: BaseException) -> bool:
+    """True when ``exc`` is LangGraph's control-flow interrupt exception."""
+    names = {type(exc).__name__, *(base.__name__ for base in type(exc).__mro__)}
+    return bool(names & {"GraphInterrupt", "GraphBubbleUp", "NodeInterrupt"})
 
 
 async def ainvoke_resolving_interrupts(

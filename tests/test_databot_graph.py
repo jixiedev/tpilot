@@ -151,8 +151,10 @@ def _seed(stage: str, **overrides) -> DatabotState:
         "halt_reason": "",
         "chart_requested": False,
         "deny_feedback": "",
+        "parent_hitl_applied": 0,
         "follow_up_turn": False,
         "follow_up_intention": "",
+        "cards_selection_summary": "",
     }
     base.update(overrides)  # type: ignore[arg-type]
     return base

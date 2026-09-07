@@ -77,23 +77,29 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname
 # Path to the SQLite checkpoint DB (``config/local.toml`` + env overrides).
 CHECKPOINT_DB = str(get_local_paths().checkpoint_db)
 
-# AG-UI mount path. Frontend's ``CopilotKit runtimeUrl`` resolves to
-# ``/api/copilotkit``, which the Next.js route handler proxies to
-# ``http://localhost:8000{AGUI_PATH}``.
-AGUI_PATH = os.environ.get("AGUI_AGENT_PATH", "/agui")
+# AG-UI mount path prefix. Each registered agent gets one endpoint at
+# ``f"{AGUI_BASE}/{name}"`` so the Next.js proxy can fan out by agent.
+# Frontend's ``CopilotKit runtimeUrl`` resolves to ``/api/copilotkit``,
+# which the Next.js route handler forwards to
+# ``http://localhost:8000{AGUI_BASE}/{agent_name}``.
+AGUI_BASE = "/" + os.environ.get("AGUI_AGENT_PATH", "agui").strip("/").lstrip("/")
 
-# Agent name (must match frontend's ``CopilotKit agent="..."`` and
-# ``useAgent({ agentId: "..." })``). We pin it to the same string the
-# existing LangGraph deployment uses so neither side has to change.
-AGENT_NAME = "databot"
+# Agents that get an AG-UI endpoint. The key MUST match the string the
+# frontend uses in ``CopilotKit agent="..."`` and ``useAgent({ agentId })``;
+# the value is the human description shown in CopilotKit's agent registry.
+# The agent name MUST also be a registered name in ``agent.registry.AGENTS``.
+AGUI_AGENTS: dict[str, str] = {
+    "databot": "Databot — staged data retrieval pipeline (RAG → human-gated SQL → execute).",
+    "plan": "Plan — decompose a request into ordered steps and delegate to specialists.",
+}
 
 
 # ---------------------------------------------------------------------------
 # Graph build (sync entry, called once at import time by langgraph dev)
 # ---------------------------------------------------------------------------
 
-def _build_graph():
-    """Compile the databot graph with a long-lived SQLite checkpointer.
+def _build_graph_for(agent_name: str):
+    """Compile the named agent's graph with a long-lived SQLite checkpointer.
 
     ``langgraph dev`` mounts this module as a Starlette app; it imports
     the symbol bound to ``app`` (see bottom of file). We compile the
@@ -112,7 +118,7 @@ def _build_graph():
     """
 
     async def _go():
-        spec = get_agent(AGENT_NAME)
+        spec = get_agent(agent_name)
         agent = await spec.create_agent(max_tool_calls=30)
         conn = await aiosqlite.connect(CHECKPOINT_DB)
         saver = AsyncSqliteSaver(conn)
@@ -125,37 +131,50 @@ def _build_graph():
         return agent._graph, conn  # type: ignore[attr-defined]
 
     # Return a coroutine. Callers (lifespan startup, first request)
-    # are async, so they ``await _build_graph()`` directly. We avoid
-    # ``asyncio.run`` here because ``langgraph dev`` already has a
+    # are async, so they ``await _build_graph_for(name)`` directly. We
+    # avoid ``asyncio.run`` here because ``langgraph dev`` already has a
     # running event loop at module-import time.
     return _go()
 
 
-_checkpoint_conn: "aiosqlite.Connection | None" = None
-_agent_lock = asyncio.Lock()
+# Per-agent state. Each agent has its own compiled graph, its own
+# LangGraphAgent wrapper, and its own asyncio.Lock for build-time
+# concurrency. Keyed by agent name (the path segment after AGUI_BASE).
+_compiled_graphs: dict[str, "object"] = {}
+_checkpoint_conns: list["aiosqlite.Connection"] = []
+_agent_locks: dict[str, asyncio.Lock] = {}
 
 
-async def _ensure_built():
-    """Build the graph on first call; return the cached one thereafter.
+def _lock_for(agent_name: str) -> asyncio.Lock:
+    lock = _agent_locks.get(agent_name)
+    if lock is None:
+        lock = asyncio.Lock()
+        _agent_locks[agent_name] = lock
+    return lock
 
-    Idempotent across concurrent requests thanks to ``_agent_lock``.
+
+async def _ensure_built(agent_name: str):
+    """Build the named agent's graph on first call; cache thereafter.
+
+    Idempotent across concurrent requests thanks to ``_lock_for(name)``.
     Each request's ``agent.clone()`` reads ``self.graph`` at clone
-    time, so updating ``_agent.graph`` after a build is enough for
-    subsequent requests to see the real graph.
+    time, so updating ``_agents[name].graph`` after a build is enough
+    for subsequent requests to see the real graph.
     """
-    global _compiled_graph, _checkpoint_conn
-    if _compiled_graph is not None:
-        return _compiled_graph
-    async with _agent_lock:
-        if _compiled_graph is not None:
-            return _compiled_graph
-        graph, conn = await _build_graph()
-        _compiled_graph = graph
-        _checkpoint_conn = conn
-        # Swap the placeholder graph on the module-level agent so the
-        # route's per-request ``agent.clone()`` picks it up.
-        _agent.graph = graph  # type: ignore[attr-defined]
-        logger.info("AG-UI agent graph built; ready to serve /agui")
+    cached = _compiled_graphs.get(agent_name)
+    if cached is not None:
+        return cached
+    async with _lock_for(agent_name):
+        cached = _compiled_graphs.get(agent_name)
+        if cached is not None:
+            return cached
+        graph, conn = await _build_graph_for(agent_name)
+        _compiled_graphs[agent_name] = graph
+        _checkpoint_conns.append(conn)
+        # Swap the placeholder graph on the per-agent LangGraphAgent so
+        # the route's per-request ``agent.clone()`` picks it up.
+        _agents[agent_name].graph = graph  # type: ignore[attr-defined]
+        logger.info("AG-UI agent %r graph built; ready to serve %s", agent_name, _path_for(agent_name))
         return graph
 
 
@@ -175,9 +194,6 @@ class _DummyCompiledGraph:  # pragma: no cover - never executed
     nodes: dict = {}
 
 
-_compiled_graph: "object | None" = None  # type: ignore[assignment]
-
-
 # ---------------------------------------------------------------------------
 # FastAPI lifespan — required by ``langgraph dev``'s router merger
 # (langgraph_api/server.py:validate_router_lifespan_hooks rejects
@@ -189,25 +205,31 @@ _compiled_graph: "object | None" = None  # type: ignore[assignment]
 @asynccontextmanager
 async def _lifespan(_app: FastAPI) -> AsyncIterator[None]:
     ensure_local_dirs()
-    # Eagerly build the graph so the first AG-UI request doesn't pay
-    # the MCP / RAG / Trino tool-loading cost. Errors here are
-    # surfaced as a startup failure rather than a per-request 500.
-    await _ensure_built()
+    # Eagerly build every agent's graph so the first AG-UI request
+    # doesn't pay the MCP / RAG / Trino tool-loading cost. Errors here
+    # are surfaced as a startup failure rather than a per-request 500.
+    for name in AGUI_AGENTS:
+        try:
+            await _ensure_built(name)
+        except Exception:  # noqa: BLE001
+            logger.exception("failed to eagerly build agent %r; will retry on first request", name)
     try:
         yield
     finally:
-        global _checkpoint_conn
-        if _checkpoint_conn is not None:
+        # Close every checkpoint connection we opened during build.
+        # The list is append-only, so we snapshot before iterating so
+        # the global itself doesn't get mutated under us.
+        for conn in list(_checkpoint_conns):
             try:
-                await _checkpoint_conn.close()
+                await conn.close()
             except Exception:  # pragma: no cover - shutdown best effort
                 logger.exception("failed to close checkpoint connection cleanly")
-            _checkpoint_conn = None
+        _checkpoint_conns.clear()
 
-# Wrap in the AG-UI adapter. This is the line that actually fixes
-# the "View in Inspector (local only)" issue: the wrapper teaches the
-# AG-UI stream about the graph's tool calls and interrupt events, so
-# the runtime no longer treats them as unknown.
+# Wrap each registered agent in the AG-UI adapter. This is the line that
+# actually fixes the "View in Inspector (local only)" issue: the wrapper
+# teaches the AG-UI stream about the graph's tool calls and interrupt
+# events, so the runtime no longer treats them as unknown.
 #
 # Note: we use ``ag_ui_langgraph.LangGraphAgent`` rather than
 # ``copilotkit.LangGraphAGUIAgent`` because in the currently-pinned
@@ -217,32 +239,37 @@ async def _lifespan(_app: FastAPI) -> AsyncIterator[None]:
 # and explodes. ``LangGraphAGUIAgent`` only adds CopilotKit-internal
 # ``copilotkit:emit-*`` metadata filtering — which the graph nodes
 # here never emit — so the missing layer is a no-op for this app.
-_agent = LangGraphAgent(
-    name=AGENT_NAME,
-    graph=_DummyCompiledGraph(),  # swapped for the real graph by _ensure_built()
-    description=(
-        "Databot — staged data retrieval pipeline (RAG → human-gated SQL → execute)."
-    ),
-    # The two flags below are critical for CopilotKit v2's interrupt UX:
-    #
-    #   - ``emit_interrupt_outcome=True`` makes LangGraphAgent attach an
-    #     AG-UI standard ``outcome: { type: "interrupt", interrupts: [...] }``
-    #     to the ``RUN_FINISHED`` event when the graph hits
-    #     ``langgraph.types.interrupt(...)``. Without this, the runtime
-    #     sees ``outcome: null`` and treats the paused run as a normal
-    #     success — the chat panel stops refreshing because CopilotKit
-    #     thinks "nothing more to do", while the graph is actually
-    #     waiting for a human gate decision.
-    #
-    #   - ``enable_legacy_on_interrupt_event=False`` suppresses the old
-    #     CopilotKit v1 ``on_interrupt`` custom event. The legacy channel
-    #     is what previously made the chat "freeze" (custom events
-    #     arrive but the runtime doesn't pause the run for them). The
-    #     standard outcome is the only channel v2's ``useAgent`` hook
-    #     actually subscribes to.
-    emit_interrupt_outcome=True,
-    enable_legacy_on_interrupt_event=False,
-)
+def _path_for(agent_name: str) -> str:
+    return f"{AGUI_BASE.rstrip('/')}/{agent_name}"
+
+
+_agents: dict[str, "object"] = {
+    name: LangGraphAgent(
+        name=name,
+        graph=_DummyCompiledGraph(),  # swapped by _ensure_built(name)
+        description=description,
+        # The two flags below are critical for CopilotKit v2's interrupt UX:
+        #
+        #   - ``emit_interrupt_outcome=True`` makes LangGraphAgent attach an
+        #     AG-UI standard ``outcome: { type: "interrupt", interrupts: [...] }``
+        #     to the ``RUN_FINISHED`` event when the graph hits
+        #     ``langgraph.types.interrupt(...)``. Without this, the runtime
+        #     sees ``outcome: null`` and treats the paused run as a normal
+        #     success — the chat panel stops refreshing because CopilotKit
+        #     thinks "nothing more to do", while the graph is actually
+        #     waiting for a human gate decision.
+        #
+        #   - ``enable_legacy_on_interrupt_event=False`` suppresses the old
+        #     CopilotKit v1 ``on_interrupt`` custom event. The legacy channel
+        #     is what previously made the chat "freeze" (custom events
+        #     arrive but the runtime doesn't pause the run for them). The
+        #     standard outcome is the only channel v2's ``useAgent`` hook
+        #     actually subscribes to.
+        emit_interrupt_outcome=True,
+        enable_legacy_on_interrupt_event=False,
+    )
+    for name, description in AGUI_AGENTS.items()
+}
 
 # ---------------------------------------------------------------------------
 # FastAPI app (mounted by ``langgraph dev`` via http.app in langgraph.json)
@@ -255,7 +282,10 @@ app = FastAPI(title="tpilot-agui", version="0.1.0", lifespan=_lifespan)
 def health() -> dict:
     return {
         "status": "ok",
-        "agent": {"name": _agent.name, "path": AGUI_PATH},
+        "agents": [
+            {"name": name, "path": _path_for(name)}
+            for name in AGUI_AGENTS
+        ],
         "checkpoint_db": CHECKPOINT_DB,
     }
 
@@ -281,113 +311,142 @@ from ag_ui.core.types import RunAgentInput  # noqa: E402  (after FastAPI app to 
 from ag_ui.encoder import EventEncoder  # noqa: E402
 
 
-@app.post(AGUI_PATH)
-async def agui_endpoint(input_data: RunAgentInput, request: "Request"):
-    # Ensure the real graph is built before we clone the agent. This
-    # also runs in the lifespan startup path, so it's a fast no-op
-    # in the steady state.
-    await _ensure_built()
+def _make_agui_handler(agent_name: str):
+    """Build the per-agent AG-UI streaming handler.
 
-    accept_header = request.headers.get("accept")
-    encoder = EventEncoder(accept=accept_header)
+    We don't use ``ag_ui_langgraph.add_langgraph_fastapi_endpoint`` because:
+      - It doesn't expose a hook for lazy graph initialisation. Our graph
+        can only be built inside a running event loop, and ``langgraph dev``
+        imports this module synchronously before its event loop is
+        accessible — so we defer the build to the first request (and to
+        the lifespan startup, when running standalone).
+      - It would couple us to a third-party helper whose signature
+        changes between versions.
 
-    # Clone per request: LangGraphAgent stores per-request state in
-    # self.active_run; sharing a single instance across concurrent
-    # requests corrupts that state.
-    request_agent = _agent.clone()
+    The handler body mirrors what
+    ``ag_ui_langgraph.add_langgraph_fastapi_endpoint`` does internally.
+    """
 
-    # Debug: log which state keys LangGraph thinks the graph has. If
-    # ``review_cards`` / ``committed_cards`` are missing from the
-    # output schema, the AG-UI runtime filters them out of the
-    # ``STATE_SNAPSHOT`` event and the human gate UI can't see what
-    # the LLM picked.
-    try:
-        schema_keys = request_agent.get_schema_keys(
-            {"configurable": {"thread_id": input_data.thread_id}}
-        )
-        logger.warning(
-            "agui_endpoint schema input=%s output=%s",
-            schema_keys.get("input"),
-            schema_keys.get("output"),
-        )
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("agui_endpoint: get_schema_keys failed: %r", exc)
+    async def handler(input_data: RunAgentInput, request: "Request"):
+        # Ensure the real graph is built before we clone the agent. This
+        # also runs in the lifespan startup path, so it's a fast no-op
+        # in the steady state.
+        await _ensure_built(agent_name)
 
-    # The thread id is stable for the whole conversation; we also
-    # need the run id so the terminal events we synthesise on
-    # error/abort line up with whatever the agent already started
-    # emitting. AG-UI guarantees ``input_data.run_id`` is present.
-    run_id = input_data.run_id
-    thread_id = input_data.thread_id
+        accept_header = request.headers.get("accept")
+        encoder = EventEncoder(accept=accept_header)
 
-    async def event_generator():
-        from ag_ui.core import EventType, RunErrorEvent
-        terminal_seen = False
+        # Clone per request: LangGraphAgent stores per-request state in
+        # self.active_run; sharing a single instance across concurrent
+        # requests corrupts that state.
+        request_agent = _agents[agent_name].clone()
+
+        # Debug: log which state keys LangGraph thinks the graph has. If
+        # ``review_cards`` / ``committed_cards`` are missing from the
+        # output schema, the AG-UI runtime filters them out of the
+        # ``STATE_SNAPSHOT`` event and the human gate UI can't see what
+        # the LLM picked.
         try:
-            async for event in request_agent.run(input_data):
-                if event.type in ("RUN_FINISHED", "RUN_ERROR"):
-                    terminal_seen = True
-                yield encoder.encode(event)
-        except asyncio.CancelledError:
-            # The client (browser) closed the connection. Don't try to
-            # write more bytes; just let Starlette clean up.
-            logger.info("agui_endpoint: client disconnected mid-stream (run_id=%s)", run_id)
-            raise
-        except BaseException as exc:  # noqa: BLE001 - last-resort guard
-            # Surface the failure as a structured terminal event so the
-            # client can render a sensible error message instead of
-            # seeing a raw stack trace. Then re-raise so Starlette /
-            # uvicorn also log the exception server-side. We catch
-            # ``BaseException`` (not just ``Exception``) so that errors
-            # raised from background tasks inside ``LangGraphAgent.run``
-            # — e.g. ``openai.BadRequestError`` from the LLM client —
-            # which propagate as the async generator's task fails, still
-            # surface here as a ``RUN_ERROR`` event before the stream
-            # tears down.
-            logger.exception(
-                "agui_endpoint: unhandled exception (run_id=%s): %r",
-                run_id,
-                exc,
+            schema_keys = request_agent.get_schema_keys(
+                {"configurable": {"thread_id": input_data.thread_id}}
             )
+            logger.warning(
+                "agui_endpoint(%s) schema input=%s output=%s",
+                agent_name,
+                schema_keys.get("input"),
+                schema_keys.get("output"),
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("agui_endpoint(%s): get_schema_keys failed: %r", agent_name, exc)
+
+        # The thread id is stable for the whole conversation; we also
+        # need the run id so the terminal events we synthesise on
+        # error/abort line up with whatever the agent already started
+        # emitting. AG-UI guarantees ``input_data.run_id`` is present.
+        run_id = input_data.run_id
+        thread_id = input_data.thread_id
+
+        async def event_generator():
+            from ag_ui.core import EventType, RunErrorEvent
+            terminal_seen = False
             try:
-                yield encoder.encode(
-                    RunErrorEvent(
-                        type=EventType.RUN_ERROR,
-                        message=f"{type(exc).__name__}: {exc}",
-                        code="AGENT_RUNTIME_ERROR",
-                    )
+                async for event in request_agent.run(input_data):
+                    if event.type in ("RUN_FINISHED", "RUN_ERROR"):
+                        terminal_seen = True
+                    yield encoder.encode(event)
+            except asyncio.CancelledError:
+                # The client (browser) closed the connection. Don't try to
+                # write more bytes; just let Starlette clean up.
+                logger.info(
+                    "agui_endpoint(%s): client disconnected mid-stream (run_id=%s)",
+                    agent_name, run_id,
                 )
-                terminal_seen = True
-            except Exception:  # pragma: no cover - encoder already gone
-                pass
-        # If the agent's own ``run()`` exhausted without emitting a
-        # terminal event (e.g. it crashed mid-stream, or the client
-        # disconnected before ``run()`` could finalise), synthesise
-        # an explicit ``RUN_ERROR`` so the AG-UI client doesn't have
-        # to fabricate its own ``INCOMPLETE_STREAM`` error. This
-        # also makes the failure mode visible in the chat panel
-        # instead of looking like a hang.
-        if not terminal_seen:
-            try:
-                yield encoder.encode(
-                    RunErrorEvent(
-                        type=EventType.RUN_ERROR,
-                        message="AG-UI stream ended without a terminal event",
-                        code="INCOMPLETE_STREAM",
-                    )
+                raise
+            except BaseException as exc:  # noqa: BLE001 - last-resort guard
+                # Surface the failure as a structured terminal event so the
+                # client can render a sensible error message instead of
+                # seeing a raw stack trace. Then re-raise so Starlette /
+                # uvicorn also log the exception server-side. We catch
+                # ``BaseException`` (not just ``Exception``) so that errors
+                # raised from background tasks inside ``LangGraphAgent.run``
+                # — e.g. ``openai.BadRequestError`` from the LLM client —
+                # which propagate as the async generator's task fails, still
+                # surface here as a ``RUN_ERROR`` event before the stream
+                # tears down.
+                logger.exception(
+                    "agui_endpoint(%s): unhandled exception (run_id=%s): %r",
+                    agent_name, run_id, exc,
                 )
-            except Exception:  # pragma: no cover
-                pass
+                try:
+                    yield encoder.encode(
+                        RunErrorEvent(
+                            type=EventType.RUN_ERROR,
+                            message=f"{type(exc).__name__}: {exc}",
+                            code="AGENT_RUNTIME_ERROR",
+                        )
+                    )
+                    terminal_seen = True
+                except Exception:  # pragma: no cover - encoder already gone
+                    pass
+            # If the agent's own ``run()`` exhausted without emitting a
+            # terminal event (e.g. it crashed mid-stream, or the client
+            # disconnected before ``run()`` could finalise), synthesise
+            # an explicit ``RUN_ERROR`` so the AG-UI client doesn't have
+            # to fabricate its own ``INCOMPLETE_STREAM`` error. This
+            # also makes the failure mode visible in the chat panel
+            # instead of looking like a hang.
+            if not terminal_seen:
+                try:
+                    yield encoder.encode(
+                        RunErrorEvent(
+                            type=EventType.RUN_ERROR,
+                            message="AG-UI stream ended without a terminal event",
+                            code="INCOMPLETE_STREAM",
+                        )
+                    )
+                except Exception:  # pragma: no cover
+                    pass
 
-    return StreamingResponse(
-        event_generator(),
-        media_type=encoder.get_content_type(),
-    )
+        return StreamingResponse(
+            event_generator(),
+            media_type=encoder.get_content_type(),
+        )
+
+    return handler
 
 
-@app.get(f"{AGUI_PATH.rstrip('/')}/health")
+# Register one POST handler per agent. The path mirrors the agent name
+# so the Next.js proxy can forward by agent.
+for _name in AGUI_AGENTS:
+    app.post(_path_for(_name))(_make_agui_handler(_name))
+
+
+@app.get(f"{AGUI_BASE.rstrip('/')}/health")
 def agui_health() -> dict:
-    return {"status": "ok", "agent": {"name": _agent.name}}
+    return {
+        "status": "ok",
+        "agents": [{"name": name, "path": _path_for(name)} for name in AGUI_AGENTS],
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -404,7 +463,7 @@ class DatabotUiActionBody(BaseModel):
     feedback: str | None = None
 
 
-@app.post(f"{AGUI_PATH.rstrip('/')}/actions")
+@app.post(f"{AGUI_BASE.rstrip('/')}/actions")
 async def databot_ui_action(body: DatabotUiActionBody) -> dict:
     """Apply a human UI edit directly to the LangGraph checkpoint."""
     from agent.specialists.databot.ui_actions import (
@@ -413,8 +472,13 @@ async def databot_ui_action(body: DatabotUiActionBody) -> dict:
         databot_state_subset,
     )
 
-    await _ensure_built()
-    if _compiled_graph is None:
+    # The actions endpoint is databot-specific (the only agent with a
+    # human-gated UI today). Hard-code the agent name so we look up the
+    # right compiled graph from the per-agent cache.
+    agent_name = "databot"
+    await _ensure_built(agent_name)
+    graph = _compiled_graphs.get(agent_name)
+    if graph is None:
         raise HTTPException(status_code=503, detail="graph not ready")
 
     action = body.action
@@ -426,7 +490,7 @@ async def databot_ui_action(body: DatabotUiActionBody) -> dict:
         raise HTTPException(status_code=400, detail=f"unknown action: {action}")
 
     config = {"configurable": {"thread_id": body.thread_id}}
-    snapshot = await _compiled_graph.aget_state(config)  # type: ignore[attr-defined]
+    snapshot = await graph.aget_state(config)  # type: ignore[attr-defined]
     state = dict(snapshot.values or {}) if snapshot else {}
 
     try:
@@ -441,8 +505,8 @@ async def databot_ui_action(body: DatabotUiActionBody) -> dict:
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
-    await _compiled_graph.aupdate_state(config, patch)  # type: ignore[attr-defined]
-    updated = await _compiled_graph.aget_state(config)  # type: ignore[attr-defined]
+    await graph.aupdate_state(config, patch)  # type: ignore[attr-defined]
+    updated = await graph.aget_state(config)  # type: ignore[attr-defined]
     merged = dict(state)
     merged.update(patch)
     if updated and updated.values:
@@ -458,14 +522,14 @@ async def databot_ui_action(body: DatabotUiActionBody) -> dict:
 # The official AG-UI endpoint. Mounted at ``/agui`` so Next.js's
 # CopilotKit runtime can forward a turn directly to it without going
 # through the deployment-URL bridge.
-add_langgraph_fastapi_endpoint_unused_marker = None  # was: add_langgraph_fastapi_endpoint(app, _agent, path=AGUI_PATH)
-# We register /agui ourselves in the FastAPI app block below; see
-# the comment above ``agui_endpoint`` for why.
+add_langgraph_fastapi_endpoint_unused_marker = None  # was: add_langgraph_fastapi_endpoint(app, _agent, path=AGUI_BASE)
+# We register one POST handler per agent in the FastAPI app block above;
+# see the comment above ``_make_agui_handler`` for why.
 
 logger.info(
-    "AG-UI server ready: agent=%s path=%s checkpoint_db=%s",
-    _agent.name,
-    AGUI_PATH,
+    "AG-UI server ready: agents=%s base=%s checkpoint_db=%s",
+    list(AGUI_AGENTS),
+    AGUI_BASE,
     CHECKPOINT_DB,
 )
 

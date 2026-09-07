@@ -96,6 +96,7 @@ def _gate_prompt(state: DatabotState, gate: Literal["cards", "sql"]) -> dict[str
     raw_reasons = state.get(reasons_key) or {}
     state_reasons: dict[str, str] = raw_reasons if isinstance(raw_reasons, dict) else {}
     reasons = merge_gate_reasons(gate, state_reasons)
+    payload_sql = ""
 
     if gate == "cards":
         cards = state.get("review_cards") or []
@@ -134,6 +135,7 @@ def _gate_prompt(state: DatabotState, gate: Literal["cards", "sql"]) -> dict[str
             "(describe fixes in the feedback box), Halt, or Dry-run.\n\n"
             f"```sql\n{snippet}\n```"
         )
+        payload_sql = sql_preview
     payload: dict[str, Any] = {
         "question": question,
         "options": [
@@ -143,6 +145,8 @@ def _gate_prompt(state: DatabotState, gate: Literal["cards", "sql"]) -> dict[str
         "default": DEFAULT_GATE_DECISION,
         "gate": gate,
     }
+    if gate == "sql" and payload_sql:
+        payload["draft_sql"] = payload_sql
     if gate == "cards":
         payload["review_cards"] = card_summaries
         selection_summary = str(state.get("cards_selection_summary") or "").strip()

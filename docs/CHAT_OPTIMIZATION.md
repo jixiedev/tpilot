@@ -1112,5 +1112,54 @@ Implementation notes (behavior only): detect emits intentions + plan steps; publ
 | Visual system | Arial, flat white panes, hard gray borders, native checkbox | Plus Jakarta type, lake-blue tokens, rounded panes, switch + pill actions |
 | Workspace chrome | Header and columns sat on a blank page with 1990s form controls | Soft canvas, glass topbar, card columns, Copilot input restyled to match |
 
+## 2026-09-06 — Plan nested specialist HITL
+
+**Goal**: When Plan delegates to Databot, cards/SQL gates pause the Plan chat so the user can choose in a modal, instead of the tool failing.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| Nested Databot gates | `invoke_agent` had no HITL handler; the gate raised and became a tool error | Child interrupt is re-emitted on the Plan graph; `/plan` shows a modal and `resolve`s the same gate payload |
+| Tool replay | N/A (run failed) | On resume, skip `prepare_turn_input` when the child thread is still at a gate; an in-process resume count keeps cards → SQL interrupt order aligned |
+| SQL gate payload | Snippet only inside the question text | Full `draft_sql` in the interrupt JSON so Plan can render without Databot live state |
+| Plan chat monologue | Execute/adjust plain text and reasoning rows appeared in the sidebar | ReAct subgraphs use `persist_plain_text=False`; `/plan` reuses Databot message filtering and hides reasoning rows |
+| Plan UI parity | No tool cards, no gate banner, no client reset; tools showed “View in Inspector” | `PlanToolRenderers`, `PlanGateChatBanner`, `planClientReset`, debug toggle; patterns documented in `docs/FRONTEND_AGENTS_UI.md` |
+
+**Why this is not “Databot as a Plan subgraph node”**
+
+Plan still picks the specialist at runtime with `invoke_agent(agent_name=...)`. A compiled subgraph node (`add_node("databot", databot_graph)`) would bubble interrupts automatically and resume from the child checkpoint without Python scratchpad alignment — but it needs a static node (or a new router node) per specialist, and it would replace the current ReAct execute loop. The parent node would still re-enter on resume either way. Nested `ainvoke` on a child `thread_id` keeps dynamic delegation; the extra cost is replay-safe `SpecialistRunner` plus a Plan-page modal. Revisit a subgraph node if execute is rewritten away from tools.
+
+## 2026-09-06 — Plan gate interrupt through StepActionNode
+
+**Goal**: Let nested Databot cards/SQL gates pause the Plan run so `/plan` can show the gate modal instead of a tool-error chat loop.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| `invoke_agent` + human gate | `StepActionNode` treated `GraphInterrupt` as a tool failure; Plan finished the turn and the LLM asked for approve/dryrun in chat | Tool error handler re-raises LangGraph control-flow interrupts; Plan `RUN_FINISHED` carries `outcome: interrupt` and `PlanInterruptDialog` opens |
+
+## 2026-09-06 — Agent UI & AG-UI event documentation
+
+**Goal**: Document how Databot and Plan UIs consume AG-UI events end-to-end, with shared vs per-agent handling.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| UI architecture doc | Feature parity checklist only | `docs/FRONTEND_AGENTS_UI.md` — event catalog, SSE pipeline, per-agent consumers, side channels |
+
+## 2026-09-07 — Plan SQL gate dialog vs stale Action-required banner
+
+**Goal**: After approving model cards, show the SQL confirmation dialog instead of a leftover Action-required banner over a nested tool-call stream.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| Plan gate banner | Any parseable `pendingInterrupts[0]`, including the cards payload kept during the SQL-draft run | Hide while the Plan run is in progress; skip nested-HITL replay placeholders |
+| Plan confirmation dialog | `useInterrupt` rendered `interrupts[0]` only after `onRunFinalized` | Prefer the cards/sql/chart payload in the open interrupt list; if the hook never mounts, resume from `pendingInterrupts` once the run is idle |
+
+## 2026-09-07 — Stop run must not open the SQL gate dialog
+
+**Goal**: CopilotKit “stop” should end the turn, not surface a leftover draft-SQL confirmation.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| Stop / abort | `isRunning` went false while `pendingInterrupts` still held the SQL (or cards) gate, so the idle fallback opened the modal | Abort clears pending gates and ignores them until the next run |
+
 <!-- Append the next optimization section above this line -->
 

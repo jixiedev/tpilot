@@ -12,12 +12,17 @@ const GATE_NOTE: Partial<Record<GateKind, string>> = {
 type GateHelpPopoverProps = {
   gate: GateKind;
   className?: string;
+  surface?: "dock" | "dialog";
 };
 
 /** Compact help trigger; full workflow steps appear on hover or keyboard focus. */
-export function GateHelpPopover({ gate, className = "" }: GateHelpPopoverProps) {
-  const instructions = gateUserInstructions(gate);
-  const note = GATE_NOTE[gate];
+export function GateHelpPopover({
+  gate,
+  className = "",
+  surface = "dock",
+}: GateHelpPopoverProps) {
+  const instructions = gateUserInstructions(gate, surface);
+  const note = surface === "dock" ? GATE_NOTE[gate] : undefined;
 
   return (
     <span

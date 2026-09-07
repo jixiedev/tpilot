@@ -53,7 +53,7 @@ export function DatabotSidePanels({ debugEnabled }: DatabotSidePanelsProps) {
             className="databot-side-debug"
             style={{ width: debugWidth, flex: `0 0 ${debugWidth}px` }}
           >
-            <AgentDebugPanel />
+            <AgentDebugPanel agentId="databot" />
           </div>
           <div
             className="databot-resize-handle"
