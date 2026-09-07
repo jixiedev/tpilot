@@ -19,6 +19,7 @@ JIRA_FIELDS = [
     ("comments", list[dict], field(default_factory=list)),
 ]
 
+
 def get_embedded_text(self):
     embed_text = "\n\n".join(
         part
@@ -31,18 +32,21 @@ def get_embedded_text(self):
     )
     return embed_text
 
+
 def populate_doc_fields(self):
     embed_text = self.get_embedded_text
     self.doc_id = self.issue_id
     self.url = f"https://wishcloud.atlassian.net/browse/{self.issue_id}"
     self.title = self.issue_key
     self.doc_content = embed_text
+    self.paras = dict()
 
 def jira_metadata(self) -> dict[str, Any]:
     metadata = dict()
     for field_name, _, _ in JIRA_FIELDS:
         metadata[field_name] = getattr(self, field_name)
     return metadata
+
 
 JiraDocument = make_dataclass(
     cls_name="JiraDocument",
