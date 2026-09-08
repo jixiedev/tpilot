@@ -7,17 +7,27 @@ from collections.abc import Iterable, Sequence
 from qdrant_client.http import models as qmodels
 
 from rag.config import EmbeddingConfig, get_rag_config
-from rag.embeddings import get_embeddings
-from rag.nrag.data import Chunk, Document
-from rag.nrag.split import LengthSplitStrategy, SplitStrategy
-from rag.store import ensure_collection, upsert_points
+from rag.embeddings import get_embeddings, to_sparse_vector
+from rag.document import Chunk, Document
+from rag.chunking import DEFAULT_CHUNK_OVERLAP, LengthSplitStrategy, SplitStrategy
+from rag.qdrant import ensure_collection, upsert_points
+
+
+def length_strategy_for_embeddings(
+    embedding_config: EmbeddingConfig | None = None,
+) -> LengthSplitStrategy:
+    """Length-split so each chunk fits ``[embedding].max_chars`` (no embed truncate)."""
+    cfg = embedding_config or get_rag_config().embedding
+    size = max(1, int(cfg.max_chars))
+    overlap = min(DEFAULT_CHUNK_OVERLAP, max(0, size // 2))
+    return LengthSplitStrategy(chunk_chars=size, overlap=overlap)
 
 
 def iter_document_chunks(
     documents: Iterable[Document],
     strategy: SplitStrategy | None = None,
 ) -> Iterable[Chunk]:
-    splitter = strategy or LengthSplitStrategy()
+    splitter = strategy or length_strategy_for_embeddings()
     for doc in documents:
         yield from splitter.iter_chunks(doc)
 
@@ -31,8 +41,8 @@ def upsert_chunks(
 ) -> int:
     """Embed ``chunks`` in batches and upsert into ``collection_name``.
 
-    Empty embed text is skipped. A failed embedding or upsert batch is logged
-    and skipped so the rest of the job can continue.
+    Empty embed text is skipped. If any embedding or upsert batch fails, remaining
+    batches still run, then this raises so the caller does not checkpoint the file.
     """
     cfg = embedding_config or get_rag_config().embedding
     size = batch_size or cfg.batch_size
@@ -45,16 +55,25 @@ def upsert_chunks(
         return 0
 
     uploaded = 0
+    failures: list[str] = []
     for offset in range(0, total, size):
         batch = prepared[offset : offset + size]
         try:
             vectors = get_embeddings([c.embed_text() for c in batch], config=cfg)
-        except Exception as exc:  # noqa: BLE001 — continue remaining batches
+        except Exception as exc:  # noqa: BLE001 — finish remaining batches, then fail
             print(f"Embedding batch at offset {offset} failed: {exc}")
+            failures.append(f"embed@{offset}: {exc}")
             continue
         points = [
-            qmodels.PointStruct(id=chunk.point_id(), vector=vector, payload=chunk.payload())
-            for chunk, vector in zip(batch, vectors, strict=True)
+            qmodels.PointStruct(
+                id=chunk.point_id(),
+                vector={
+                    "dense": dense,
+                    "sparse": to_sparse_vector(sparse),
+                },
+                payload=chunk.payload(),
+            )
+            for chunk, (dense, sparse) in zip(batch, vectors, strict=True)
         ]
         try:
             upsert_points(collection_name, points)
@@ -62,7 +81,14 @@ def upsert_chunks(
             print(f"Upserted {uploaded}/{total}")
         except Exception as exc:  # noqa: BLE001
             print(f"Upsert failed at offset {offset}: {exc}")
+            failures.append(f"upsert@{offset}: {exc}")
     print(f"Upload complete: {uploaded} points in {collection_name!r}")
+    if failures:
+        detail = "; ".join(failures)
+        raise RuntimeError(
+            f"Ingest incomplete for {collection_name!r}: "
+            f"{uploaded}/{total} points uploaded ({detail})"
+        )
     return uploaded
 
 

@@ -11,8 +11,7 @@ from typing import Any, Iterator
 import pandas as pd
 
 from rag.embeddings import truncate_text
-from rag.nrag.data import Chunk, Document
-from rag.nrag.loader import Reader
+from rag.document import Chunk, Document, Paragraph, Reader, TextParagraph, stable_point_id
 
 _SUMMARY_COLS = ("Summary", "summary", "title")
 _DESCRIPTION_COLS = ("Description", "description")
@@ -76,8 +75,8 @@ def _point_id(issue_id: Any, issue_key: str, fallback: int) -> int | str:
         except (TypeError, ValueError):
             pass
     if issue_key:
-        return abs(hash(issue_key)) % (2**63 - 1) or fallback
-    return fallback
+        return stable_point_id(issue_key)
+    return stable_point_id(f"jira-row:{fallback}")
 
 
 def _is_comment_column(name: str) -> bool:
@@ -147,16 +146,63 @@ class JiraDocument(Document):
         return self.source_payload()
 
     def chunk_embed_text(self, chunk: Chunk) -> str:
-        return self.content
+        return chunk.content
 
     def chunk_point_id(self, chunk: Chunk) -> int | str:
-        # One point per issue (IdentitySplitStrategy); keep the legacy int id
-        # so re-ingest of an existing collection stays idempotent.
-        if chunk.chunk_seq == 0 and chunk.next is None:
+        # A single-chunk ticket keeps the legacy integer Issue id so re-ingest
+        # of an existing collection stays idempotent.
+        n_chunks = sum(len(para.chunks) for para in self.paragraphs)
+        if n_chunks <= 1:
             return self.stored_point_id
-        from rag.nrag.ids import stable_point_id
+        return stable_point_id(
+            f"{self.issue_key or self.doc_id}"
+            f"#{chunk.ref_para.para_seq}#{chunk.chunk_seq}"
+        )
 
-        return stable_point_id(chunk.primary_key)
+    def split_paragraphs(self) -> list[Paragraph]:
+        if self.paragraphs:
+            return self.paragraphs
+        paras: list[Paragraph] = []
+        seq = 0
+        ticket_parts = [
+            part
+            for part in (
+                f"Summary: {self.summary}" if self.summary else "",
+                f"Description: {self.description}" if self.description else "",
+            )
+            if part
+        ]
+        if ticket_parts:
+            paras.append(
+                TextParagraph(
+                    ref_doc=self,
+                    para_seq=seq,
+                    para_title="ticket",
+                    content="\n\n".join(ticket_parts),
+                )
+            )
+            seq += 1
+        if self.comments.strip():
+            comment_parts = [
+                part
+                for part in (
+                    f"Summary: {self.summary}" if self.summary else "",
+                    f"Comments: {self.comments}",
+                )
+                if part
+            ]
+            paras.append(
+                TextParagraph(
+                    ref_doc=self,
+                    para_seq=seq,
+                    para_title="comments",
+                    content="\n\n".join(comment_parts),
+                )
+            )
+        if not paras:
+            return super().split_paragraphs()
+        self.paragraphs = paras
+        return self.paragraphs
 
     @classmethod
     def from_row(cls, row: pd.Series, *, fallback_id: int = 0) -> JiraDocument | None:

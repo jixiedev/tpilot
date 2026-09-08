@@ -5,19 +5,17 @@ api_key_env = "QDRANT_API_KEY"
 timeout_seconds = 30.0
 
 [embedding]
-# provider: "local" (sentence-transformers) or "openai" (OpenAI-compatible HTTP API)
-provider = "local"
+# Local BGE-M3 via FlagEmbedding (dense + sparse). Remote embedding APIs are not used.
 model = "BAAI/bge-m3"
 vector_size = 1024
-# Optional device override for local models: "", "cpu", "cuda", "mps"
+# Optional device override: "", "cpu", "cuda", "mps"
 device = ""
-# Used only when provider = "openai"
-base_url = "https://api.openai.com/v1"
-api_key = ""
-api_key_env = "OPENAI_API_KEY"
-timeout_seconds = 60.0
 # Keep local encode memory bounded (Jira descriptions can be huge).
 # 512 tokens ≈ safe on CPU/MPS; raise only if you have spare GPU RAM.
 max_seq_length = 512
 max_chars = 2000
 batch_size = 8
+
+[rerank]
+model = "BAAI/bge-reranker-v2-m3"
+prefetch_limit = 50

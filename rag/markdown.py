@@ -16,8 +16,8 @@ from uuid import uuid4
 from markdown_it import MarkdownIt
 from markdown_it.token import Token
 
-from rag.nrag.data import Document, Paragraph
-from rag.nrag.split import normalize_whitespace
+from rag.document import Document, Paragraph
+from rag.chunking import normalize_whitespace
 
 
 def _heading_title(tokens: list[Token], heading_open_index: int) -> str:

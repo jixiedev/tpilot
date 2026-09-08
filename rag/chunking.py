@@ -1,4 +1,4 @@
-"""Split a document into paragraphs, then paragraphs into embedding chunks."""
+"""Chunk documents into paragraphs, then paragraphs into embedding units."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ import re
 from abc import ABC, abstractmethod
 from typing import Iterator
 
-from rag.nrag.data import Chunk, Document, Paragraph, link_sequence
+from rag.document import Chunk, Document, Paragraph, link_sequence
 
 DEFAULT_CHUNK_CHARS = 4000
 DEFAULT_CHUNK_OVERLAP = 200

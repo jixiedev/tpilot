@@ -1,4 +1,4 @@
-"""Document → paragraph → chunk graph used by ingest and split strategies.
+"""Document → paragraph → chunk graph used by ingest and chunking.
 
 Paragraphs are semantic sections (a whole Jira ticket, a markdown heading
 block, a dbt columns/metrics group). Chunks are the embedding units written
@@ -7,12 +7,22 @@ to Qdrant. Adjacent nodes are linked so payload can carry prev/next seq.
 
 from __future__ import annotations
 
+import hashlib
+from abc import ABC
 from dataclasses import dataclass, field
-from typing import Any, Sequence, TypeVar
-
-from rag.nrag.ids import stable_point_id
+from typing import Any, Generic, Iterator, Sequence, TypeVar
 
 TLinked = TypeVar("TLinked", bound="Linked")
+T = TypeVar("T")
+
+
+def stable_point_id(key: str) -> str:
+    """Return a UUID-shaped SHA1 so re-ingest of the same key is idempotent."""
+    digest = hashlib.sha1(key.encode("utf-8")).hexdigest()
+    return (
+        f"{digest[:8]}-{digest[8:12]}-{digest[12:16]}"
+        f"-{digest[16:20]}-{digest[20:32]}"
+    )
 
 
 def link_sequence(nodes: Sequence[TLinked]) -> list[TLinked]:
@@ -21,6 +31,13 @@ def link_sequence(nodes: Sequence[TLinked]) -> list[TLinked]:
         node.prev = nodes[i - 1] if i else None
         node.next = nodes[i + 1] if i + 1 < len(nodes) else None
     return list(nodes)
+
+
+class Reader(ABC, Generic[T]):
+    """Yields ``Document`` instances (or a source-specific subclass) for ingest."""
+
+    def __iter__(self) -> Iterator[T]:
+        raise NotImplementedError
 
 
 @dataclass(kw_only=True)

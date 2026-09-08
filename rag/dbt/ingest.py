@@ -1,32 +1,29 @@
 """Ingest dbt semantic model definitions (schema yml + sql) into Qdrant.
 
-Each dbt model is split into **two Qdrant points** to balance retrieval
-diversity against description fidelity:
+Each dbt model is indexed as **one or more Qdrant points** so retrieval stays
+balanced while descriptions stay complete:
 
-- ``model+columns`` — model header (name, description, owner, hive_table,
-  usage, agg time dimension) + every column's name and full description
-- ``model+metrics`` — same model header + every MetricFlow metric's name
-  and full description
+- ``model+columns`` — model header plus a packed group of columns
+- ``model+metrics`` — model header plus a packed group of metrics
 
-The dense vector carries the full description text (only truncated by the
-embedding caller's ``max_chars`` cap, not by us). The point payload keeps
-the entire structured model — columns, metrics, SQL, owner, usage — so a
-retrieved point is enough for the calling agent to render a ``TableCard``
-without a second hop.
+Columns (and metrics) that do not fit the embedding window are split across
+chunks. Text is never truncated: a retrieved set of chunks for a model covers
+every column and metric description.
 
-Why two chunks (not one, not 26+):
-- One chunk per model would force us to truncate long descriptions to fit
-  the local BGE encoder's 512-token cap, losing semantic signal.
-- One chunk per column / metric reintroduces the popularity-bias problem
-  (``fetch_related_models`` returns model-level ``TableCard`` instances;
-  column-heavy models would crowd out other relevant models in top-K).
-- Two chunks give ~equal representation per model, keep each chunk's
-  embed text focused (columns *or* metrics, not both), and stay small
-  enough that the full descriptions usually fit the local encoder.
+The point payload keeps the entire structured model — columns, metrics, SQL,
+owner, usage — so a retrieved point is enough for the calling agent to render
+a ``TableCard`` without a second hop.
 
-Re-ingest on a collection that still has the previous single-chunk
-``::model`` points will leave them stale; recreate the collection to
-clean up.
+Why not one chunk per model, and not one chunk per column:
+- One chunk per model would overflow the local BGE encoder's 512-token window.
+- One chunk per column / metric reintroduces popularity bias in top-K
+  (``fetch_related_models`` returns model-level ``TableCard`` instances).
+- Packed groups keep each vector inside the encoder window without dropping
+  text, then the tool deduplicates by ``model_name``.
+
+Re-ingest on a collection that still has the previous two-point
+``::columns`` / ``::metrics`` keys (no seq) will leave them stale; recreate
+the collection to clean up.
 """
 
 from __future__ import annotations
@@ -38,17 +35,9 @@ from typing import Any, Iterable
 
 import yaml
 
-from rag.nrag.data import Chunk, Document, Paragraph, TextParagraph
-from rag.nrag.ids import stable_point_id
-from rag.nrag.pipeline import upsert_documents
-from rag.nrag.split import IdentitySplitStrategy
-
-# Safety cap on description / usage / SQL fields stored in payloads. With
-# the 2-chunk split each chunk's embed_text is focused (columns *or*
-# metrics, not both), so this can stay conservative without losing
-# semantic signal. Qdrant's per-point payload limit is 40 MiB; this is
-# only a guardrail against pathological inputs.
-_MAX_PAYLOAD_TEXT_CHARS = 4000
+from rag.document import Chunk, Document, Paragraph, TextParagraph, stable_point_id
+from rag.ingest import upsert_documents
+from rag.chunking import IdentitySplitStrategy, split_text
 
 # Chunk-type tags used in the payload and point_key.
 _CHUNK_COLUMNS = "model+columns"
@@ -81,47 +70,97 @@ def _meta(meta: Any) -> dict[str, Any]:
     return {str(k): v for k, v in meta.items()}
 
 
-def _truncate(text: str, max_chars: int) -> str:
-    cleaned = (text or "").strip()
-    if len(cleaned) <= max_chars:
-        return cleaned
-    return cleaned[:max_chars]
+def pack_embed_sections(
+    header_lines: list[str],
+    blocks: list[str],
+    *,
+    max_chars: int,
+) -> list[str]:
+    """Pack ``blocks`` under a repeated header so no block text is dropped.
+
+    Each returned string is at most ``max_chars`` characters. A block that
+    does not fit with the header is split with ``split_text`` (no overlap).
+    """
+    header = "\n".join(line for line in header_lines if line).strip()
+    budget = max(1, int(max_chars))
+    packed: list[str] = []
+    current: list[str] = []
+
+    def render(parts: list[str]) -> str:
+        body = [part for part in parts if part]
+        if header and body:
+            return header + "\n" + "\n".join(body)
+        if header:
+            return header
+        return "\n".join(body)
+
+    def flush() -> None:
+        if current:
+            packed.append(render(current))
+            current.clear()
+
+    for raw in blocks:
+        block = (raw or "").strip()
+        if not block:
+            continue
+        trial = current + [block]
+        if len(render(trial)) <= budget:
+            current = trial
+            continue
+        flush()
+        if len(render([block])) <= budget:
+            current = [block]
+            continue
+        room = budget - len(header) - (1 if header else 0)
+        if room < 32:
+            for piece in split_text(render([block]), chunk_chars=budget, overlap=0):
+                packed.append(piece)
+            continue
+        for piece in split_text(block, chunk_chars=room, overlap=0):
+            packed.append(render([piece]))
+    flush()
+    return packed
 
 
 @dataclass(kw_only=True)
 class ModelDocument(Document):
-    """One dbt model; paragraphs are the columns chunk and/or the metrics chunk."""
+    """One dbt model; paragraphs are packed columns chunks and/or metrics chunks."""
 
     model_name: str
     yml_path_str: str
     base_payload: dict[str, Any] = field(default_factory=dict)
-    columns_embed: str = ""
-    metrics_embed: str = ""
+    columns_embeds: list[str] = field(default_factory=list)
+    metrics_embeds: list[str] = field(default_factory=list)
 
     def split_paragraphs(self) -> list[Paragraph]:
         if self.paragraphs:
             return self.paragraphs
         paras: list[Paragraph] = []
         seq = 0
-        if self.columns_embed.strip():
+        for text in self.columns_embeds:
+            if not text.strip():
+                continue
             paras.append(
                 TextParagraph(
                     ref_doc=self,
                     para_seq=seq,
                     para_title="columns",
-                    content=self.columns_embed,
+                    content=text,
                 )
             )
             seq += 1
-        if self.metrics_embed.strip():
+        for text in self.metrics_embeds:
+            if not text.strip():
+                continue
             paras.append(
                 TextParagraph(
                     ref_doc=self,
                     para_seq=seq,
                     para_title="metrics",
-                    content=self.metrics_embed,
+                    content=text,
                 )
             )
+            seq += 1
         self.paragraphs = paras
         return self.paragraphs
 
@@ -137,8 +176,10 @@ class ModelDocument(Document):
         return chunk.content
 
     def chunk_point_id(self, chunk: Chunk) -> int | str:
-        suffix = "columns" if chunk.ref_para.para_title == "columns" else "metrics"
-        return stable_point_id(f"{self.yml_path_str}::{self.model_name}::{suffix}")
+        kind = "columns" if chunk.ref_para.para_title == "columns" else "metrics"
+        return stable_point_id(
+            f"{self.yml_path_str}::{self.model_name}::{kind}::{chunk.ref_para.para_seq}"
+        )
 
 
 def _as_dict(value: Any) -> dict[str, Any]:
@@ -190,7 +231,7 @@ def _column_to_record(column: dict[str, Any]) -> dict[str, Any] | None:
 
     record: dict[str, Any] = {
         "name": name,
-        "description": _truncate(description, _MAX_PAYLOAD_TEXT_CHARS),
+        "description": description,
     }
     if data_tests:
         record["data_tests"] = data_tests
@@ -204,7 +245,7 @@ def _column_to_record(column: dict[str, Any]) -> dict[str, Any] | None:
             entity_record["name"] = ename
         edesc = _as_str(entity.get("description"))
         if edesc:
-            entity_record["description"] = _truncate(edesc, _MAX_PAYLOAD_TEXT_CHARS)
+            entity_record["description"] = edesc
         if entity_record:
             record["entity"] = entity_record
     if dimension:
@@ -231,7 +272,7 @@ def _metric_to_record(metric: dict[str, Any]) -> dict[str, Any] | None:
     description = _as_str(metric.get("description"))
     record: dict[str, Any] = {
         "name": name,
-        "description": _truncate(description, _MAX_PAYLOAD_TEXT_CHARS),
+        "description": description,
     }
     metric_type = _as_str(metric.get("type"))
     if metric_type:
@@ -275,7 +316,7 @@ def _build_model_base_payload(
     payload: dict[str, Any] = {
         "source": "dbt_semantic_model",
         "model_name": name,
-        "description": _truncate(description, _MAX_PAYLOAD_TEXT_CHARS),
+        "description": description,
         "yml_path": yml_path,
         "sql_path": sql_path,
         "column_count": len(column_records),
@@ -292,9 +333,9 @@ def _build_model_base_payload(
     if agg_time_dimension:
         payload["agg_time_dimension"] = agg_time_dimension
     if usage:
-        payload["usage"] = _truncate(usage, _MAX_PAYLOAD_TEXT_CHARS)
+        payload["usage"] = usage
     if sql_text:
-        payload["sql"] = _truncate(sql_text, _MAX_PAYLOAD_TEXT_CHARS)
+        payload["sql"] = sql_text
     if semantic.get("enabled") is False:
         payload["semantic_enabled"] = False
     return payload
@@ -382,32 +423,52 @@ def _metric_embed_block(metric: dict[str, Any]) -> str:
     return " ".join(bits)
 
 
-def _build_columns_embed_text(
-    payload_base: dict[str, Any], column_records: list[dict[str, Any]]
-) -> str:
-    parts = _model_header_lines(payload_base)
-    parts.append(f"Type: {_CHUNK_COLUMNS}")
-    parts.append(f"Columns ({len(column_records)}):")
-    parts.extend(_column_embed_block(c) for c in column_records)
-    return "\n".join(parts)
+def _build_columns_embeds(
+    payload_base: dict[str, Any],
+    column_records: list[dict[str, Any]],
+    *,
+    max_chars: int,
+) -> list[str]:
+    if not column_records:
+        return []
+    header = _model_header_lines(payload_base)
+    header.append(f"Type: {_CHUNK_COLUMNS}")
+    header.append(f"Columns ({len(column_records)}):")
+    return pack_embed_sections(
+        header,
+        [_column_embed_block(c) for c in column_records],
+        max_chars=max_chars,
+    )
 
 
-def _build_metrics_embed_text(
-    payload_base: dict[str, Any], metric_records: list[dict[str, Any]]
-) -> str:
-    parts = _model_header_lines(payload_base)
-    parts.append(f"Type: {_CHUNK_METRICS}")
-    parts.append(f"Metrics ({len(metric_records)}):")
-    parts.extend(_metric_embed_block(m) for m in metric_records)
-    return "\n".join(parts)
+def _build_metrics_embeds(
+    payload_base: dict[str, Any],
+    metric_records: list[dict[str, Any]],
+    *,
+    max_chars: int,
+) -> list[str]:
+    if not metric_records:
+        return []
+    header = _model_header_lines(payload_base)
+    header.append(f"Type: {_CHUNK_METRICS}")
+    header.append(f"Metrics ({len(metric_records)}):")
+    return pack_embed_sections(
+        header,
+        [_metric_embed_block(m) for m in metric_records],
+        max_chars=max_chars,
+    )
 
 
 def _model_to_document(
     *,
     model: dict[str, Any],
     yml_path: Path,
+    max_chars: int,
 ) -> tuple[ModelDocument | None, int, int]:
-    """Build a document with 0-2 paragraphs. Returns (doc, column_count, metric_count)."""
+    """Build a document with packed column/metric paragraphs.
+
+    Returns ``(doc, column_count, metric_count)``.
+    """
     name = _as_str(model.get("name"))
     if not name:
         return None, 0, 0
@@ -447,25 +508,25 @@ def _model_to_document(
     if base_payload is None:
         return None, 0, 0
 
-    columns_embed = (
-        _build_columns_embed_text(base_payload, column_records) if column_records else ""
+    columns_embeds = _build_columns_embeds(
+        base_payload, column_records, max_chars=max_chars
     )
-    metrics_embed = (
-        _build_metrics_embed_text(base_payload, metric_records) if metric_records else ""
+    metrics_embeds = _build_metrics_embeds(
+        base_payload, metric_records, max_chars=max_chars
     )
-    if not columns_embed and not metrics_embed:
+    if not columns_embeds and not metrics_embeds:
         return None, 0, 0
 
     doc = ModelDocument(
         doc_id=f"{yml_path_str}::{name}",
         url=yml_path_str,
         title=name,
-        content="\n\n".join(part for part in (columns_embed, metrics_embed) if part),
+        content="\n\n".join([*columns_embeds, *metrics_embeds]),
         model_name=name,
         yml_path_str=yml_path_str,
         base_payload=base_payload,
-        columns_embed=columns_embed,
-        metrics_embed=metrics_embed,
+        columns_embeds=columns_embeds,
+        metrics_embeds=metrics_embeds,
     )
     return doc, len(column_records), len(metric_records)
 
@@ -482,6 +543,73 @@ def _iter_dbt_yml_files(root: Path) -> Iterable[Path]:
             yield path
 
 
+def list_yml_paths(model_path: str | Path) -> list[Path]:
+    """Return dbt schema yml files under ``model_path`` (must be a directory)."""
+    root = Path(model_path).expanduser().resolve()
+    if not root.is_dir():
+        raise FileNotFoundError(f"dbt models directory not found: {root}")
+    return list(_iter_dbt_yml_files(root))
+
+
+def documents_from_yml(
+    yml_path: str | Path,
+    *,
+    max_chars: int | None = None,
+) -> tuple[list[ModelDocument], dict[str, int]]:
+    """Parse one dbt schema yml into model documents and per-file stats."""
+    from rag.config import get_rag_config
+
+    budget = max_chars if max_chars is not None else get_rag_config().embedding.max_chars
+    path = Path(yml_path).expanduser().resolve()
+    stats = {
+        "yml_files": 0,
+        "models": 0,
+        "models_skipped_disabled": 0,
+        "chunks": 0,
+        "column_chunks": 0,
+        "metric_chunks": 0,
+        "columns": 0,
+        "metrics": 0,
+    }
+    try:
+        data = yaml.safe_load(path.read_text(encoding="utf-8"))
+    except yaml.YAMLError as exc:
+        print(f"Skipping {path}: YAML parse failed ({exc})")
+        return [], stats
+    if not isinstance(data, dict):
+        return [], stats
+    models = data.get("models")
+    if not isinstance(models, list):
+        return [], stats
+    stats["yml_files"] = 1
+    docs: list[ModelDocument] = []
+    seen: set[str] = set()
+    for model in models:
+        if not isinstance(model, dict):
+            continue
+        model_name = _as_str(model.get("name"))
+        if not model_name:
+            continue
+        semantic = _as_dict(model.get("semantic_model"))
+        if semantic.get("enabled") is False:
+            stats["models_skipped_disabled"] += 1
+            continue
+        stats["models"] += 1
+        doc, col_count, met_count = _model_to_document(
+            model=model, yml_path=path, max_chars=budget
+        )
+        stats["columns"] += col_count
+        stats["metrics"] += met_count
+        if doc is None or doc.doc_id in seen:
+            continue
+        seen.add(doc.doc_id)
+        stats["column_chunks"] += len(doc.columns_embeds)
+        stats["metric_chunks"] += len(doc.metrics_embeds)
+        stats["chunks"] += len(doc.columns_embeds) + len(doc.metrics_embeds)
+        docs.append(doc)
+    return docs, stats
+
+
 def collect_semantic_model_documents(model_path: str | Path) -> list[ModelDocument]:
     """Walk ``model_path`` for dbt schema yml files; return model documents."""
     docs, _stats = collect_semantic_model_documents_with_stats(model_path)
@@ -490,6 +618,8 @@ def collect_semantic_model_documents(model_path: str | Path) -> list[ModelDocume
 
 def collect_semantic_model_documents_with_stats(
     model_path: str | Path,
+    *,
+    max_chars: int | None = None,
 ) -> tuple[list[ModelDocument], dict[str, int]]:
     root = Path(model_path).expanduser().resolve()
     if not root.is_dir():
@@ -509,46 +639,13 @@ def collect_semantic_model_documents_with_stats(
     }
 
     for yml_path in _iter_dbt_yml_files(root):
-        try:
-            data = yaml.safe_load(yml_path.read_text(encoding="utf-8"))
-        except yaml.YAMLError as exc:
-            print(f"Skipping {yml_path}: YAML parse failed ({exc})")
-            continue
-        if not isinstance(data, dict):
-            continue
-        models = data.get("models")
-        if not isinstance(models, list):
-            continue
-        stats["yml_files"] += 1
-
-        for model in models:
-            if not isinstance(model, dict):
-                continue
-            model_name = _as_str(model.get("name"))
-            if not model_name:
-                continue
-            semantic = _as_dict(model.get("semantic_model"))
-            if semantic.get("enabled") is False:
-                stats["models_skipped_disabled"] += 1
-                continue
-            stats["models"] += 1
-
-            doc, col_count, met_count = _model_to_document(
-                model=model, yml_path=yml_path
-            )
-            stats["columns"] += col_count
-            stats["metrics"] += met_count
-            if doc is None:
-                continue
+        file_docs, file_stats = documents_from_yml(yml_path, max_chars=max_chars)
+        for key, value in file_stats.items():
+            stats[key] += value
+        for doc in file_docs:
             if doc.doc_id in seen_keys:
                 continue
             seen_keys.add(doc.doc_id)
-            if doc.columns_embed:
-                stats["column_chunks"] += 1
-                stats["chunks"] += 1
-            if doc.metrics_embed:
-                stats["metric_chunks"] += 1
-                stats["chunks"] += 1
             docs.append(doc)
 
     return docs, stats
@@ -559,24 +656,13 @@ def upload_semantic_models(
     collection_name: str,
     *,
     batch_size: int | None = None,
-    max_chars: int | None = None,
 ) -> int:
     """Embed dbt semantic model definitions under ``model_path`` into ``collection_name``.
 
-    Each model is split into a ``model+columns`` point and a ``model+metrics``
-    point (whichever has content). The point payload carries the full
-    structured model so the calling agent can render a ``TableCard``
-    directly. ``max_chars`` overrides ``config.rag.toml [embedding].max_chars``
-    for this call only — useful when using an OpenAI-compatible endpoint
-    that supports a larger context than local BGE.
+    Each model is packed into as many ``model+columns`` / ``model+metrics``
+    points as needed so no description is dropped. The point payload carries
+    the full structured model so the calling agent can render a ``TableCard``.
     """
-    from rag.config import get_rag_config
-
-    embedding_config = None
-    if max_chars is not None:
-        cfg = get_rag_config().embedding
-        embedding_config = cfg.model_copy(update={"max_chars": max_chars})
-
     docs, stats = collect_semantic_model_documents_with_stats(model_path)
     print(
         f"Collected {stats['chunks']} chunks from {stats['models']} models in {model_path!s}"
@@ -590,5 +676,4 @@ def upload_semantic_models(
         docs,
         strategy=IdentitySplitStrategy(),
         batch_size=batch_size,
-        embedding_config=embedding_config,
     )

@@ -6,7 +6,7 @@ from typing import Any, Literal, TypedDict
 
 from langchain_core.tools import tool
 
-from rag.store import search as qdrant_search
+from rag.qdrant import search as qdrant_search
 from tools.common import bind_tool_to_agent
 
 JiraProject = Literal["tahoe", "core", "de", "ds", "sqd"]
@@ -148,7 +148,6 @@ def _format_hit(hit: dict[str, Any]) -> dict[str, Any]:
         "description": description,
     }
 
-
 @bind_tool_to_agent("knowledge,default")
 @tool(description=_tool_description())
 def fetch_related_jira_tickets(
@@ -168,8 +167,21 @@ def fetch_related_jira_tickets(
         known = ", ".join(sorted(_PROJECT_BY_NAME))
         raise ValueError(f"Unknown Jira project {project!r}; choose one of: {known}")
     limit = max(1, min(int(limit), 20))
-    hits = qdrant_search(profile["collection"], cleaned, limit=limit)
-    return [_format_hit(hit) for hit in hits]
+    # Tickets may occupy several chunks; over-fetch then dedupe by issue_key.
+    fetch_limit = max(limit * 4, 10)
+    hits = qdrant_search(profile["collection"], cleaned, limit=fetch_limit)
+    seen: set[str] = set()
+    results: list[dict[str, Any]] = []
+    for hit in hits:
+        payload = hit.get("payload") or {}
+        key = str(payload.get("issue_key") or "").strip() or str(hit.get("id"))
+        if key in seen:
+            continue
+        seen.add(key)
+        results.append(_format_hit(hit))
+        if len(results) >= limit:
+            break
+    return results
 
 
 TOOLS = [fetch_related_jira_tickets]

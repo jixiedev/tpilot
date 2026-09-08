@@ -1,28 +1,25 @@
-"""Ingest Google Drive folder downloads (zip archives and loose files) into Qdrant."""
+"""Ingest extracted Google Drive folder downloads into Qdrant.
+
+Zip archives are skipped — extract them first, then point ingest at the tree.
+"""
 
 from __future__ import annotations
 
 import io
 import re
-import tempfile
-import zipfile
 from dataclasses import dataclass
 from html.parser import HTMLParser
 from pathlib import Path
 from typing import Iterable
 
-from rag.nrag.data import Chunk, Document, Paragraph, TextParagraph
-from rag.nrag.ids import stable_point_id
-from rag.nrag.pipeline import upsert_documents
-from rag.nrag.split import (
-    DEFAULT_CHUNK_CHARS,
-    DEFAULT_CHUNK_OVERLAP,
-    LengthSplitStrategy,
+from rag.document import Chunk, Document, Paragraph, TextParagraph, stable_point_id
+from rag.ingest import length_strategy_for_embeddings, upsert_documents
+from rag.chunking import (
     normalize_whitespace,
     split_text,
 )
 
-# Google Drive "Download" of a folder usually yields one or more zips of exported files.
+# Extracted Drive folder downloads (zip files in the tree are skipped).
 _TEXT_SUFFIXES = {
     ".txt",
     ".md",
@@ -193,7 +190,7 @@ class DriveDocument(Document):
         if self.paragraphs:
             return self.paragraphs
         if self.suffix in _MARKDOWN_SUFFIXES:
-            from rag.nrag.pdf import markdown_section_texts
+            from rag.markdown import markdown_section_texts
 
             paras: list[Paragraph] = []
             for seq, (title, body) in enumerate(
@@ -246,7 +243,7 @@ class DriveDocument(Document):
         return stable_point_id(key)
 
 
-def _iter_files(root: Path, *, include_zip: bool = False) -> Iterable[Path]:
+def _iter_files(root: Path) -> Iterable[Path]:
     for path in root.rglob("*"):
         if not path.is_file():
             continue
@@ -254,83 +251,67 @@ def _iter_files(root: Path, *, include_zip: bool = False) -> Iterable[Path]:
             continue
         if path.name.lower() in _SKIP_FILE_NAMES:
             continue
-        if not include_zip and path.suffix.lower() == ".zip":
+        if path.suffix.lower() == ".zip":
             continue
         yield path
 
 
-def _documents_from_tree(
-    root: Path,
-    *,
-    source_zip: str,
-    relative_to: Path,
-    point_prefix: str,
-) -> list[DriveDocument]:
-    docs: list[DriveDocument] = []
-    for path in _iter_files(root):
-        try:
-            data = path.read_bytes()
-        except OSError as exc:
-            print(f"Skipping {path}: read failed ({exc})")
-            continue
-        text = extract_text_from_bytes(data, path)
-        if not text:
-            continue
-        try:
-            rel = str(path.relative_to(relative_to))
-        except ValueError:
-            rel = path.name
-        docs.append(
-            DriveDocument(
-                doc_id=point_prefix,
-                url=rel,
-                title=path.stem,
-                content=text,
-                source_zip=source_zip,
-                rel_path=rel,
-                suffix=path.suffix.lower(),
-            )
-        )
-    return docs
-
-
-def collect_google_drive_documents(directory: str | Path) -> list[DriveDocument]:
-    """Scan ``directory`` for Drive zips and loose files; return documents to split."""
+def list_drive_paths(directory: str | Path) -> list[Path]:
+    """Return extracted files under ``directory``. Zip archives are skipped."""
     root = Path(directory).expanduser().resolve()
     if not root.is_dir():
         raise FileNotFoundError(f"Google Drive ingest directory not found: {root}")
-
-    docs: list[DriveDocument] = []
-    zips = sorted(p for p in root.iterdir() if p.is_file() and p.suffix.lower() == ".zip")
-    for zip_path in zips:
-        print(f"Extracting {zip_path.name} ...")
-        with tempfile.TemporaryDirectory(prefix="gdrive_rag_") as tmp:
-            tmp_root = Path(tmp)
-            try:
-                with zipfile.ZipFile(zip_path, "r") as archive:
-                    archive.extractall(tmp_root)
-            except zipfile.BadZipFile as exc:
-                print(f"Skipping {zip_path.name}: bad zip ({exc})")
-                continue
-            docs.extend(
-                _documents_from_tree(
-                    tmp_root,
-                    source_zip=zip_path.name,
-                    relative_to=tmp_root,
-                    point_prefix=zip_path.name,
-                )
-            )
-
-    docs.extend(
-        _documents_from_tree(
-            root,
-            source_zip="",
-            relative_to=root,
-            point_prefix="loose",
+    zips = sorted(p for p in root.rglob("*.zip") if p.is_file())
+    if zips:
+        print(
+            f"Skipping {len(zips)} zip file(s) under {root}; "
+            "extract them first, then re-run plan."
         )
-    )
+    return sorted(_iter_files(root))
 
-    unique = {f"{doc.doc_id}::{doc.rel_path}": doc for doc in docs}
+
+def documents_from_path(
+    path: str | Path,
+    *,
+    ingest_root: str | Path,
+) -> list[DriveDocument]:
+    """Load documents from one extracted Drive file. Zip paths are skipped."""
+    file_path = Path(path).expanduser().resolve()
+    root = Path(ingest_root).expanduser().resolve()
+    if file_path.suffix.lower() == ".zip":
+        print(f"Skipping {file_path.name}: zip files are not ingested; extract first")
+        return []
+    try:
+        data = file_path.read_bytes()
+    except OSError as exc:
+        raise OSError(f"Failed to read {file_path}: {exc}") from exc
+    text = extract_text_from_bytes(data, file_path)
+    if not text:
+        return []
+    try:
+        rel = str(file_path.relative_to(root))
+    except ValueError:
+        rel = file_path.name
+    return [
+        DriveDocument(
+            doc_id="loose",
+            url=rel,
+            title=file_path.stem,
+            content=text,
+            source_zip="",
+            rel_path=rel,
+            suffix=file_path.suffix.lower(),
+        )
+    ]
+
+
+def collect_google_drive_documents(directory: str | Path) -> list[DriveDocument]:
+    """Scan ``directory`` for extracted Drive files; zip archives are skipped."""
+    root = Path(directory).expanduser().resolve()
+    docs: list[DriveDocument] = []
+    for path in list_drive_paths(root):
+        docs.extend(documents_from_path(path, ingest_root=root))
+    unique = {doc.rel_path: doc for doc in docs}
     return list(unique.values())
 
 
@@ -340,19 +321,16 @@ def upload_google_drive(
     *,
     batch_size: int | None = None,
 ) -> int:
-    """Embed Google Drive downloads under ``directory`` into ``collection_name``.
+    """Embed extracted Google Drive files under ``directory`` into ``collection_name``.
 
-    ``directory`` should contain the zip file(s) downloaded from Google Drive
-    (and optionally already-extracted files). Returns the number of upserted points.
+    ``directory`` should already contain unzipped files. Zip archives are skipped.
+    Returns the number of upserted points.
     """
     docs = collect_google_drive_documents(directory)
     print(f"Collected {len(docs)} files from {directory!s} → collection {collection_name!r}")
     return upsert_documents(
         collection_name,
         docs,
-        strategy=LengthSplitStrategy(
-            chunk_chars=DEFAULT_CHUNK_CHARS,
-            overlap=DEFAULT_CHUNK_OVERLAP,
-        ),
+        strategy=length_strategy_for_embeddings(),
         batch_size=batch_size,
     )

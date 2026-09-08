@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, patch
 import pandas as pd
 import pytest
 
-from rag.jira_ingest import row_to_document
+from rag.jira import row_to_document
 from tools.rag.jira import JIRA_PROFILES, fetch_related_jira_tickets
 
 
@@ -85,7 +85,68 @@ def test_fetch_related_jira_tickets_formats_hits(mock_search: MagicMock) -> None
             "description": "Lag spiked overnight",
         }
     ]
-    mock_search.assert_called_once_with("jira_tahoe", "flink lag", limit=3)
+    mock_search.assert_called_once_with("jira_tahoe", "flink lag", limit=12)
+
+
+@patch("tools.rag.jira.qdrant_search")
+def test_fetch_related_jira_tickets_dedupes_issue_key(mock_search: MagicMock) -> None:
+    mock_search.return_value = [
+        {
+            "id": "a",
+            "score": 0.9,
+            "payload": {
+                "issue_key": "TAHOE-9",
+                "summary": "first chunk",
+                "status": "Open",
+                "priority": "",
+                "assignee": "",
+                "reporter": "",
+                "issue_type": "",
+                "created": "",
+                "updated": "",
+                "description": "desc",
+            },
+        },
+        {
+            "id": "b",
+            "score": 0.8,
+            "payload": {
+                "issue_key": "TAHOE-9",
+                "summary": "comment chunk",
+                "status": "Open",
+                "priority": "",
+                "assignee": "",
+                "reporter": "",
+                "issue_type": "",
+                "created": "",
+                "updated": "",
+                "description": "desc",
+            },
+        },
+        {
+            "id": "c",
+            "score": 0.7,
+            "payload": {
+                "issue_key": "CORE-1",
+                "summary": "other",
+                "status": "Open",
+                "priority": "",
+                "assignee": "",
+                "reporter": "",
+                "issue_type": "",
+                "created": "",
+                "updated": "",
+                "description": "other",
+            },
+        },
+    ]
+
+    result = fetch_related_jira_tickets.invoke(
+        {"query": "lag", "project": "tahoe", "limit": 5}
+    )
+
+    assert [row["issue_key"] for row in result] == ["TAHOE-9", "CORE-1"]
+    mock_search.assert_called_once_with("jira_tahoe", "lag", limit=20)
 
 
 def test_fetch_related_jira_tickets_rejects_wildcard_query() -> None:
