@@ -4,9 +4,8 @@ from __future__ import annotations
 
 import os
 from functools import lru_cache
-from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class QdrantConfig(BaseModel):
@@ -17,25 +16,30 @@ class QdrantConfig(BaseModel):
 
 
 class EmbeddingConfig(BaseModel):
-    """Local sentence-transformers or OpenAI-compatible embeddings endpoint."""
+    """Local BGE-M3 (FlagEmbedding) dense + sparse embeddings."""
 
-    provider: Literal["local", "openai"] = "local"
+    model_config = ConfigDict(extra="ignore")
+
     model: str = "BAAI/bge-m3"
     vector_size: int = 1024
     device: str = ""
-    base_url: str = "https://api.openai.com/v1"
-    api_key: str = ""
-    api_key_env: str | None = "OPENAI_API_KEY"
-    timeout_seconds: float = 60.0
-    # Token cap for local sentence-transformers (avoids multi‑GiB encode buffers).
+    # Token cap for local BGE-M3 encode (avoids multi‑GiB buffers).
     max_seq_length: int = 512
     max_chars: int = 2000
     batch_size: int = 8
 
 
+class RerankConfig(BaseModel):
+    """Cross-encoder rerank applied after hybrid retrieval. Empty model skips rerank."""
+
+    model: str = "BAAI/bge-reranker-v2-m3"
+    prefetch_limit: int = 50
+
+
 class RagConfig(BaseModel):
     qdrant: QdrantConfig = Field(default_factory=QdrantConfig)
     embedding: EmbeddingConfig = Field(default_factory=EmbeddingConfig)
+    rerank: RerankConfig = Field(default_factory=RerankConfig)
 
 
 def _env_or(value: str, env_name: str | None) -> str:
@@ -46,11 +50,13 @@ def _env_or(value: str, env_name: str | None) -> str:
     return value.strip()
 
 
-def _embedding_provider_from_env() -> Literal["local", "openai"] | None:
+def _reject_remote_embedding_provider() -> None:
     raw = os.environ.get("EMBEDDING_PROVIDER", "").strip().lower()
-    if raw in {"local", "openai"}:
-        return raw  # type: ignore[return-value]
-    return None
+    if raw and raw not in {"local"}:
+        raise ValueError(
+            "RAG embeddings are local BGE-M3 only (dense + sparse). "
+            f"Unset EMBEDDING_PROVIDER (got {raw!r})."
+        )
 
 
 def resolve_qdrant_api_key(cfg: QdrantConfig | None = None) -> str | None:
@@ -59,26 +65,13 @@ def resolve_qdrant_api_key(cfg: QdrantConfig | None = None) -> str | None:
     return key or None
 
 
-def resolve_embedding_api_key(cfg: EmbeddingConfig | None = None) -> str:
-    embedding = cfg or get_rag_config().embedding
-    if embedding.provider == "local":
-        return ""
-    key = _env_or(embedding.api_key, embedding.api_key_env)
-    if key:
-        return key
-    env_hint = embedding.api_key_env or "OPENAI_API_KEY"
-    raise ValueError(
-        f"Missing embedding API key; set environment variable {env_hint!r} "
-        "or rag.toml [embedding].api_key"
-    )
-
-
 @lru_cache(maxsize=1)
 def get_rag_config() -> RagConfig:
     """Load ``config/rag.toml`` when present; otherwise env/defaults only."""
     from pathlib import Path
     import tomllib
 
+    _reject_remote_embedding_provider()
     path = Path(__file__).resolve().parents[1] / "config" / "rag.toml"
     if not path.is_file():
         return RagConfig(
@@ -87,9 +80,6 @@ def get_rag_config() -> RagConfig:
                 or "http://localhost:6333",
             ),
             embedding=EmbeddingConfig(
-                provider=_embedding_provider_from_env() or EmbeddingConfig().provider,
-                base_url=os.environ.get("EMBEDDING_BASE_URL", "").strip()
-                or EmbeddingConfig().base_url,
                 model=os.environ.get("EMBEDDING_MODEL", "").strip()
                 or EmbeddingConfig().model,
                 vector_size=int(
@@ -110,16 +100,10 @@ def get_rag_config() -> RagConfig:
         cfg = cfg.model_copy(
             update={"qdrant": cfg.qdrant.model_copy(update={"url": url})}
         )
-    emb_provider = _embedding_provider_from_env()
-    emb_url = os.environ.get("EMBEDDING_BASE_URL", "").strip()
     emb_model = os.environ.get("EMBEDDING_MODEL", "").strip()
     emb_size = os.environ.get("EMBEDDING_VECTOR_SIZE", "").strip()
     emb_device = os.environ.get("EMBEDDING_DEVICE", "").strip()
     emb_updates: dict[str, object] = {}
-    if emb_provider:
-        emb_updates["provider"] = emb_provider
-    if emb_url:
-        emb_updates["base_url"] = emb_url
     if emb_model:
         emb_updates["model"] = emb_model
     if emb_size:

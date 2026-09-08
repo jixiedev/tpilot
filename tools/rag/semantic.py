@@ -28,7 +28,7 @@ from agent.specialists.databot.card_staging import (
     merge_staging_cards,
     staging_entry_from_card,
 )
-from rag.store import search as qdrant_search
+from rag.qdrant import search as qdrant_search
 from tools.common import bind_tool_to_agent, encode_tool_summary
 
 """
@@ -187,9 +187,9 @@ def _tool_description() -> str:
     return (
         "Search indexed dbt semantic models and return candidate `TableCard`s.\n\n"
         "Use when the user asks which dbt model holds a column / dimension / metric, "
-        "or how a metric is computed. Each model is indexed as two Qdrant points "
-        "(`model+columns` and `model+metrics`); the `chunk_type` filter lets you "
-        "narrow the search to one side.\n\n"
+        "or how a metric is computed. Each model is indexed as one or more Qdrant "
+        "points (`model+columns` and/or `model+metrics`, packed to the embedding "
+        "window); the `chunk_type` filter lets you narrow the search to one side.\n\n"
         "Pick `layer` from the catalog below. Default `chunk_type=\"any\"` searches "
         "both; use `\"model+columns\"` for column / entity / dimension matches, "
         "`\"model+metrics\"` for metric / aggregation matches.\n\n"
@@ -368,9 +368,9 @@ def fetch_related_models(
     chunk_filter = _normalize_chunk_type(chunk_type)
     limit = max(1, min(int(limit), 20))
 
-    # Each model has 2 points (columns + metrics), so we over-fetch and
-    # deduplicate by model_name to honor the requested `limit` of unique models.
-    fetch_limit = max(limit * 2, 10)
+    # A model may have several packed column/metric points, so over-fetch
+    # and deduplicate by model_name to honor the requested `limit`.
+    fetch_limit = max(limit * 6, 20)
     query_filter = _payload_filter(chunk_filter)
     hits = qdrant_search(
         profile["collection"],
