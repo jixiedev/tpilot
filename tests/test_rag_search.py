@@ -10,7 +10,7 @@ import pytest
 from qdrant_client.http import models as qmodels
 
 from rag.embeddings import to_sparse_vector
-from rag.qdrant import passage_text, rerank_points, search
+from rag.qdrant import _download_reranker, passage_text, rerank_points, search
 
 
 def _collection_info(*, hybrid: bool = False) -> SimpleNamespace:
@@ -71,6 +71,35 @@ def test_rerank_points_orders_by_cross_encoder_score() -> None:
         ranked = rerank_points("lag", points, limit=2)
     assert [point.id for point, _score in ranked] == [2, 1]
     assert ranked[0][1] == 0.8
+
+
+def test_rerank_points_raises_when_reranker_fails() -> None:
+    points = [
+        SimpleNamespace(id=1, payload={"chunk_data": "a"}, score=0.4),
+        SimpleNamespace(id=2, payload={"chunk_data": "b"}, score=0.1),
+    ]
+    with (
+        patch("rag.qdrant.get_rag_config") as mock_cfg,
+        patch("rag.qdrant._reranker", side_effect=OSError("connection reset")),
+        pytest.raises(OSError, match="connection reset"),
+    ):
+        mock_cfg.return_value.rerank.model = "BAAI/bge-reranker-v2-m3"
+        rerank_points("q", points, limit=2)
+
+
+def test_download_reranker_retries_mirror_when_default_host_resets(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("HF_ENDPOINT", raising=False)
+    calls: list[str | None] = []
+
+    def fake_snapshot(model: str, endpoint: str | None = None) -> str:
+        calls.append(endpoint)
+        if endpoint is None:
+            raise ConnectionResetError(54, "Connection reset by peer")
+        return "/tmp/reranker"
+
+    with patch("huggingface_hub.snapshot_download", fake_snapshot):
+        _download_reranker("BAAI/bge-reranker-v2-m3")
+    assert calls == [None, "https://hf-mirror.com"]
 
 
 def test_rerank_points_skips_when_model_blank() -> None:

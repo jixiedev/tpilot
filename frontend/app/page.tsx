@@ -5,6 +5,7 @@ import {
   CopilotChatConfigurationProvider,
   CopilotChat,
 } from "@copilotkit/react-core/v2";
+import { ColorSchemeToggle } from "./providers";
 import { DatabotNewChatButton } from "./components/DatabotNewChatButton";
 import { DatabotSessionProvider, useDatabotSession } from "./components/DatabotSessionContext";
 import { DatabotMessageView } from "./components/DatabotMessageView";
@@ -40,7 +41,8 @@ export default function Page() {
           </div>
         </div>
         <div className="databot-topbar-actions">
-          <label className="databot-debug-toggle">
+          <ColorSchemeToggle />
+          <label className="databot-switch-field">
             <input
               type="checkbox"
               checked={debugEnabled}

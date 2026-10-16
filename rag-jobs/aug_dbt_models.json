@@ -1,0 +1,1166 @@
+{
+  "collection": "aug_dbt_models",
+  "created_at": "2026-10-08T03:32:05+00:00",
+  "job_type": "dbt",
+  "source_path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive",
+  "start_line": 0,
+  "tasks": [
+    {
+      "id": "abtesting/assignment.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/abtesting/assignment.yml"
+    },
+    {
+      "id": "abtesting/assignments.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/abtesting/assignments.yml"
+    },
+    {
+      "id": "ads/all_new_buyers_cohort_user_level_ltv.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/ads/all_new_buyers_cohort_user_level_ltv.yml"
+    },
+    {
+      "id": "ads/country_spend.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/ads/country_spend.yml"
+    },
+    {
+      "id": "ads/daily_goog_shopping_filtered_merchant_cids.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/ads/daily_goog_shopping_filtered_merchant_cids.yml"
+    },
+    {
+      "id": "ads/goog_added_accounts.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/ads/goog_added_accounts.yml"
+    },
+    {
+      "id": "ads/goog_oneoff_merchant_cids_from_mongo_0409.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/ads/goog_oneoff_merchant_cids_from_mongo_0409.yml"
+    },
+    {
+      "id": "ads/goog_shopping_adult_cids.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/ads/goog_shopping_adult_cids.yml"
+    },
+    {
+      "id": "ads/google_shopping_suspended_merchants.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/ads/google_shopping_suspended_merchants.yml"
+    },
+    {
+      "id": "ads/product_feed_blacklist_keywords.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/ads/product_feed_blacklist_keywords.yml"
+    },
+    {
+      "id": "ads/shopping_banned_cids.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/ads/shopping_banned_cids.yml"
+    },
+    {
+      "id": "ads/shopping_cids.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/ads/shopping_cids.yml"
+    },
+    {
+      "id": "ads/shopping_cids_labels.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/ads/shopping_cids_labels.yml"
+    },
+    {
+      "id": "ads/singular_wish_marketing_data.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/ads/singular_wish_marketing_data.yml"
+    },
+    {
+      "id": "ads/tmp_recent_365days_sales.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/ads/tmp_recent_365days_sales.yml"
+    },
+    {
+      "id": "analytics/analytics__dim_refund_reasons.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/analytics/analytics__dim_refund_reasons.yml"
+    },
+    {
+      "id": "analytics/ced_commerce_merchants.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/analytics/ced_commerce_merchants.yml"
+    },
+    {
+      "id": "analytics/daily_rev_tahoe.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/analytics/daily_rev_tahoe.yml"
+    },
+    {
+      "id": "analytics/daily_revenue_JE_table.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/analytics/daily_revenue_JE_table.yml"
+    },
+    {
+      "id": "analytics/dim_all_stores.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/analytics/dim_all_stores.yml"
+    },
+    {
+      "id": "analytics/dim_cs_reps.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/analytics/dim_cs_reps.yml"
+    },
+    {
+      "id": "analytics/erp_client_id_mapping_dump.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/analytics/erp_client_id_mapping_dump.yml"
+    },
+    {
+      "id": "analytics/feed_shipping_options.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/analytics/feed_shipping_options.yml"
+    },
+    {
+      "id": "analytics/master_fine_creation.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/analytics/master_fine_creation.yml"
+    },
+    {
+      "id": "analytics/master_fine_creation_month_end_snapshot.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/analytics/master_fine_creation_month_end_snapshot.yml"
+    },
+    {
+      "id": "analytics/merch_fusion_order_detail.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/analytics/merch_fusion_order_detail.yml"
+    },
+    {
+      "id": "analytics/merchant_signup_source_table.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/analytics/merchant_signup_source_table.yml"
+    },
+    {
+      "id": "analytics/product_available_countries.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/analytics/product_available_countries.yml"
+    },
+    {
+      "id": "analytics/store_quality_scores.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/analytics/store_quality_scores.yml"
+    },
+    {
+      "id": "analytics/true_tags_clean.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/analytics/true_tags_clean.yml"
+    },
+    {
+      "id": "analytics_cn/mkl73771_us_au_zip_mapping.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/analytics_cn/mkl73771_us_au_zip_mapping.yml"
+    },
+    {
+      "id": "analytics_cn/mkl79304_gateway_mapping.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/analytics_cn/mkl79304_gateway_mapping.yml"
+    },
+    {
+      "id": "bi/daily_finance_metrics.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/bi/daily_finance_metrics.yml"
+    },
+    {
+      "id": "bi/daily_refund.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/bi/daily_refund.yml"
+    },
+    {
+      "id": "bi/dim_attribution_lookup.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/bi/dim_attribution_lookup.yml"
+    },
+    {
+      "id": "bi/dim_wad_campaigns.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/bi/dim_wad_campaigns.yml"
+    },
+    {
+      "id": "bi/events_base_cat.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/bi/events_base_cat.yml"
+    },
+    {
+      "id": "bi/influencer_txn_30.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/bi/influencer_txn_30.yml"
+    },
+    {
+      "id": "bi/influencer_txn_7.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/bi/influencer_txn_7.yml"
+    },
+    {
+      "id": "bi/merchant_mapping.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/bi/merchant_mapping.yml"
+    },
+    {
+      "id": "bi/mid_country_focus.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/bi/mid_country_focus.yml"
+    },
+    {
+      "id": "bi/network_country_dt.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/bi/network_country_dt.yml"
+    },
+    {
+      "id": "bi/order_level.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/bi/order_level.yml"
+    },
+    {
+      "id": "bi/product_categories.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/bi/product_categories.yml"
+    },
+    {
+      "id": "bi/refurb_category_products.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/bi/refurb_category_products.yml"
+    },
+    {
+      "id": "bi/repurchase_30.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/bi/repurchase_30.yml"
+    },
+    {
+      "id": "bi/repurchase_60.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/bi/repurchase_60.yml"
+    },
+    {
+      "id": "bi/user_dt.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/bi/user_dt.yml"
+    },
+    {
+      "id": "bi/weekly_category_cb.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/bi/weekly_category_cb.yml"
+    },
+    {
+      "id": "bi/weekly_category_comrev.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/bi/weekly_category_comrev.yml"
+    },
+    {
+      "id": "bi/weekly_category_engagement.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/bi/weekly_category_engagement.yml"
+    },
+    {
+      "id": "bi/weekly_category_gmv.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/bi/weekly_category_gmv.yml"
+    },
+    {
+      "id": "bi/weekly_category_listings.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/bi/weekly_category_listings.yml"
+    },
+    {
+      "id": "bi/weekly_category_listings_w_impression.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/bi/weekly_category_listings_w_impression.yml"
+    },
+    {
+      "id": "bi/weekly_category_listings_w_sales.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/bi/weekly_category_listings_w_sales.yml"
+    },
+    {
+      "id": "bi/weekly_category_merchant.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/bi/weekly_category_merchant.yml"
+    },
+    {
+      "id": "bi/weekly_category_merchant_w_impression.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/bi/weekly_category_merchant_w_impression.yml"
+    },
+    {
+      "id": "bi/weekly_category_merchant_w_impression_category.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/bi/weekly_category_merchant_w_impression_category.yml"
+    },
+    {
+      "id": "bi/weekly_category_merchant_w_impression_l1.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/bi/weekly_category_merchant_w_impression_l1.yml"
+    },
+    {
+      "id": "bi/weekly_category_merchant_w_impression_l2.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/bi/weekly_category_merchant_w_impression_l2.yml"
+    },
+    {
+      "id": "bi/weekly_category_merchant_w_impression_overall.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/bi/weekly_category_merchant_w_impression_overall.yml"
+    },
+    {
+      "id": "bi/weekly_category_merchant_w_listings_1.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/bi/weekly_category_merchant_w_listings_1.yml"
+    },
+    {
+      "id": "bi/weekly_category_merchant_w_listings_2.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/bi/weekly_category_merchant_w_listings_2.yml"
+    },
+    {
+      "id": "bi/weekly_category_merchant_w_listings_category.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/bi/weekly_category_merchant_w_listings_category.yml"
+    },
+    {
+      "id": "bi/weekly_category_merchant_w_listings_overall.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/bi/weekly_category_merchant_w_listings_overall.yml"
+    },
+    {
+      "id": "bi/weekly_category_merchant_w_sales.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/bi/weekly_category_merchant_w_sales.yml"
+    },
+    {
+      "id": "bi/weekly_category_merchant_w_sales_category.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/bi/weekly_category_merchant_w_sales_category.yml"
+    },
+    {
+      "id": "bi/weekly_category_merchant_w_sales_l1.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/bi/weekly_category_merchant_w_sales_l1.yml"
+    },
+    {
+      "id": "bi/weekly_category_merchant_w_sales_l2.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/bi/weekly_category_merchant_w_sales_l2.yml"
+    },
+    {
+      "id": "bi/weekly_category_merchant_w_sales_overall.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/bi/weekly_category_merchant_w_sales_overall.yml"
+    },
+    {
+      "id": "bi/weekly_category_nps.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/bi/weekly_category_nps.yml"
+    },
+    {
+      "id": "bi/weekly_category_rating.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/bi/weekly_category_rating.yml"
+    },
+    {
+      "id": "bi/weekly_category_ref_breakdown.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/bi/weekly_category_ref_breakdown.yml"
+    },
+    {
+      "id": "bi/weekly_category_refunds.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/bi/weekly_category_refunds.yml"
+    },
+    {
+      "id": "bi/weekly_category_top_mid_category.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/bi/weekly_category_top_mid_category.yml"
+    },
+    {
+      "id": "bi/weekly_category_top_mid_l1.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/bi/weekly_category_top_mid_l1.yml"
+    },
+    {
+      "id": "bi/weekly_category_top_mid_l2.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/bi/weekly_category_top_mid_l2.yml"
+    },
+    {
+      "id": "bi/weekly_category_top_mid_leaf.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/bi/weekly_category_top_mid_leaf.yml"
+    },
+    {
+      "id": "bi/weekly_category_top_pid.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/bi/weekly_category_top_pid.yml"
+    },
+    {
+      "id": "bi/weekly_category_top_pid_l1.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/bi/weekly_category_top_pid_l1.yml"
+    },
+    {
+      "id": "bi/weekly_category_top_pid_l2.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/bi/weekly_category_top_pid_l2.yml"
+    },
+    {
+      "id": "bi/weekly_category_top_pid_leaf.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/bi/weekly_category_top_pid_leaf.yml"
+    },
+    {
+      "id": "campaigns/campaign_info.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/campaigns/campaign_info.yml"
+    },
+    {
+      "id": "campaigns_pt/campaign_main_dashboard.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/campaigns_pt/campaign_main_dashboard.yml"
+    },
+    {
+      "id": "campaigns_pt/emails_sent.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/campaigns_pt/emails_sent.yml"
+    },
+    {
+      "id": "campaigns_pt/pushes_sent.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/campaigns_pt/pushes_sent.yml"
+    },
+    {
+      "id": "cnfinance/boc_exchange_rate_di.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/cnfinance/boc_exchange_rate_di.yml"
+    },
+    {
+      "id": "consumer/consumer__merchant_dispute_result.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/consumer/consumer__merchant_dispute_result.yml"
+    },
+    {
+      "id": "consumer/crazy_deals_pid.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/consumer/crazy_deals_pid.yml"
+    },
+    {
+      "id": "consumer/daily_user_page_module_activity.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/consumer/daily_user_page_module_activity.yml"
+    },
+    {
+      "id": "consumer/dim_country_focus.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/consumer/dim_country_focus.yml"
+    },
+    {
+      "id": "consumer/merch_campaign_summary_v4.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/consumer/merch_campaign_summary_v4.yml"
+    },
+    {
+      "id": "consumer/merch_category_page_imp.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/consumer/merch_category_page_imp.yml"
+    },
+    {
+      "id": "consumer/merch_category_page_imp_v4.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/consumer/merch_category_page_imp_v4.yml"
+    },
+    {
+      "id": "consumer/merch_categorypage_metrics.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/consumer/merch_categorypage_metrics.yml"
+    },
+    {
+      "id": "consumer/merch_collectionpage_metrics.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/consumer/merch_collectionpage_metrics.yml"
+    },
+    {
+      "id": "consumer/merch_homepage_metrics_v2.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/consumer/merch_homepage_metrics_v2.yml"
+    },
+    {
+      "id": "consumer/merch_live_campaigns.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/consumer/merch_live_campaigns.yml"
+    },
+    {
+      "id": "consumer/merch_live_campaigns_a2c_metrics.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/consumer/merch_live_campaigns_a2c_metrics.yml"
+    },
+    {
+      "id": "consumer/merch_live_campaigns_click_gmv.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/consumer/merch_live_campaigns_click_gmv.yml"
+    },
+    {
+      "id": "consumer/merch_live_campaigns_homepage_metrics.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/consumer/merch_live_campaigns_homepage_metrics.yml"
+    },
+    {
+      "id": "consumer/merch_live_campaigns_product_metrics.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/consumer/merch_live_campaigns_product_metrics.yml"
+    },
+    {
+      "id": "consumer/merch_mweb_collection_imp_v2.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/consumer/merch_mweb_collection_imp_v2.yml"
+    },
+    {
+      "id": "consumer/merch_product_metrics_v3.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/consumer/merch_product_metrics_v3.yml"
+    },
+    {
+      "id": "consumer/merch_product_metrics_v4.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/consumer/merch_product_metrics_v4.yml"
+    },
+    {
+      "id": "consumer/mfp_pid_gmv.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/consumer/mfp_pid_gmv.yml"
+    },
+    {
+      "id": "consumer/user_segmentation_label_system.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/consumer/user_segmentation_label_system.yml"
+    },
+    {
+      "id": "core_data/agg_experiments_metrics.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/core_data/agg_experiments_metrics.yml"
+    },
+    {
+      "id": "core_data/core_data__dim_calendar_dates.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/core_data/core_data__dim_calendar_dates.yml"
+    },
+    {
+      "id": "core_data/core_data__dim_region_country.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/core_data/core_data__dim_region_country.yml"
+    },
+    {
+      "id": "core_data/dau_attribution.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/core_data/dau_attribution.yml"
+    },
+    {
+      "id": "core_data/dim_all_countries.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/core_data/dim_all_countries.yml"
+    },
+    {
+      "id": "core_data/dim_assignments.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/core_data/dim_assignments.yml"
+    },
+    {
+      "id": "core_data/dim_country_region_map.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/core_data/dim_country_region_map.yml"
+    },
+    {
+      "id": "core_data/dim_currency_conversion_rate.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/core_data/dim_currency_conversion_rate.yml"
+    },
+    {
+      "id": "core_data/dim_experiments.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/core_data/dim_experiments.yml"
+    },
+    {
+      "id": "core_data/dim_locale_code.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/core_data/dim_locale_code.yml"
+    },
+    {
+      "id": "core_data/dim_payment_types.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/core_data/dim_payment_types.yml"
+    },
+    {
+      "id": "core_data/dim_shipping_providers.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/core_data/dim_shipping_providers.yml"
+    },
+    {
+      "id": "core_data/exp_assignments_daily_staging.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/core_data/exp_assignments_daily_staging.yml"
+    },
+    {
+      "id": "core_data/exp_metadata_daily.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/core_data/exp_metadata_daily.yml"
+    },
+    {
+      "id": "core_data/experiment_calculated_details.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/core_data/experiment_calculated_details.yml"
+    },
+    {
+      "id": "core_data/fct_daily_buyer.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/core_data/fct_daily_buyer.yml"
+    },
+    {
+      "id": "core_data/fct_dau.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/core_data/fct_dau.yml"
+    },
+    {
+      "id": "core_data/fct_dau_w_bots.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/core_data/fct_dau_w_bots.yml"
+    },
+    {
+      "id": "core_data/fct_experiments_metrics.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/core_data/fct_experiments_metrics.yml"
+    },
+    {
+      "id": "core_data/fct_refund.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/core_data/fct_refund.yml"
+    },
+    {
+      "id": "core_data/fct_transaction_variations.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/core_data/fct_transaction_variations.yml"
+    },
+    {
+      "id": "core_data/time_spine.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/core_data/time_spine.yml"
+    },
+    {
+      "id": "core_data/ulc_active_buyers.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/core_data/ulc_active_buyers.yml"
+    },
+    {
+      "id": "core_data/ulc_active_users.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/core_data/ulc_active_users.yml"
+    },
+    {
+      "id": "core_data/ulc_base_users.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/core_data/ulc_base_users.yml"
+    },
+    {
+      "id": "core_data/ulc_power_user.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/core_data/ulc_power_user.yml"
+    },
+    {
+      "id": "customer_support/1p_3p_merchant_nholmes.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/customer_support/1p_3p_merchant_nholmes.yml"
+    },
+    {
+      "id": "customer_support/customer_support__dim_calendar_dates.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/customer_support/customer_support__dim_calendar_dates.yml"
+    },
+    {
+      "id": "customer_support/customer_support__merchant_dispute_result.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/customer_support/customer_support__merchant_dispute_result.yml"
+    },
+    {
+      "id": "customer_support/customer_support_merchant_dispute_result.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/customer_support/customer_support_merchant_dispute_result.yml"
+    },
+    {
+      "id": "customer_support/dim_locale_code_nholmes.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/customer_support/dim_locale_code_nholmes.yml"
+    },
+    {
+      "id": "customer_support/dim_refund_reason_ppcx.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/customer_support/dim_refund_reason_ppcx.yml"
+    },
+    {
+      "id": "customer_support/logical_queue_is_cs_nholmes.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/customer_support/logical_queue_is_cs_nholmes.yml"
+    },
+    {
+      "id": "customer_support/merch_locale_lookup_nholmes.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/customer_support/merch_locale_lookup_nholmes.yml"
+    },
+    {
+      "id": "customer_support/ppcx_funnel.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/customer_support/ppcx_funnel.yml"
+    },
+    {
+      "id": "customer_support/ppcx_funnel_nholmes.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/customer_support/ppcx_funnel_nholmes.yml"
+    },
+    {
+      "id": "customer_support/ticket_truth_nholmes.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/customer_support/ticket_truth_nholmes.yml"
+    },
+    {
+      "id": "final_mile/wl_all_store_packages.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/final_mile/wl_all_store_packages.yml"
+    },
+    {
+      "id": "growth_data/fct_temp_user_event.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/growth_data/fct_temp_user_event.yml"
+    },
+    {
+      "id": "growth_data/growth_wbr_daily_buyer_lifecycle.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/growth_data/growth_wbr_daily_buyer_lifecycle.yml"
+    },
+    {
+      "id": "growth_data/growth_wbr_daily_user_lifecycle.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/growth_data/growth_wbr_daily_user_lifecycle.yml"
+    },
+    {
+      "id": "growth_data/temp_to_reg_users_cv.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/growth_data/temp_to_reg_users_cv.yml"
+    },
+    {
+      "id": "mde/ads_performance.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/mde/ads_performance.yml"
+    },
+    {
+      "id": "mde/daily_attribution.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/mde/daily_attribution.yml"
+    },
+    {
+      "id": "mde/daily_trans_attribution.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/mde/daily_trans_attribution.yml"
+    },
+    {
+      "id": "mde/daily_user_attribution.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/mde/daily_user_attribution.yml"
+    },
+    {
+      "id": "mde/daily_user_dau_attribution.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/mde/daily_user_dau_attribution.yml"
+    },
+    {
+      "id": "mde/daily_user_trans_attribution.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/mde/daily_user_trans_attribution.yml"
+    },
+    {
+      "id": "mde/email_click_log.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/mde/email_click_log.yml"
+    },
+    {
+      "id": "mde/email_open_log.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/mde/email_open_log.yml"
+    },
+    {
+      "id": "mde/email_send_log.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/mde/email_send_log.yml"
+    },
+    {
+      "id": "mde/marketing_touches.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/mde/marketing_touches.yml"
+    },
+    {
+      "id": "mde/noti_click_log.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/mde/noti_click_log.yml"
+    },
+    {
+      "id": "mde/noti_send_log.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/mde/noti_send_log.yml"
+    },
+    {
+      "id": "mde/user_attribution.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/mde/user_attribution.yml"
+    },
+    {
+      "id": "merchant_external_api/merchant_authorization.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/merchant_external_api/merchant_authorization.yml"
+    },
+    {
+      "id": "merchant_onboarding/daily_merchant_kyc_info_dump.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/merchant_onboarding/daily_merchant_kyc_info_dump.yml"
+    },
+    {
+      "id": "merchant_onboarding/daily_seller_profile_verification_dump.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/merchant_onboarding/daily_seller_profile_verification_dump.yml"
+    },
+    {
+      "id": "mfp/mfp_campaign_log.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/mfp/mfp_campaign_log.yml"
+    },
+    {
+      "id": "mkl_policy/tmp_wss_order_mature.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/mkl_policy/tmp_wss_order_mature.yml"
+    },
+    {
+      "id": "mkl_policy/tmp_wss_raw_refund.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/mkl_policy/tmp_wss_raw_refund.yml"
+    },
+    {
+      "id": "mkl_policy/tmp_wss_unbanned_merchants.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/mkl_policy/tmp_wss_unbanned_merchants.yml"
+    },
+    {
+      "id": "mkl_policy/wss_exclude_orders.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/mkl_policy/wss_exclude_orders.yml"
+    },
+    {
+      "id": "payment_dump/wishpost_payment_purchase_dump.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/payment_dump/wishpost_payment_purchase_dump.yml"
+    },
+    {
+      "id": "payment_dump/wishpost_payment_sales_dump.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/payment_dump/wishpost_payment_sales_dump.yml"
+    },
+    {
+      "id": "product_boost/a2c_direct_attribution_client.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/product_boost/a2c_direct_attribution_client.yml"
+    },
+    {
+      "id": "product_boost/click_attribution.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/product_boost/click_attribution.yml"
+    },
+    {
+      "id": "product_boost/daily_impression_truelog.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/product_boost/daily_impression_truelog.yml"
+    },
+    {
+      "id": "product_boost/txn_direct_attribution_client.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/product_boost/txn_direct_attribution_client.yml"
+    },
+    {
+      "id": "productboost_mkl/dashboard_pb_revenue_by_day.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/productboost_mkl/dashboard_pb_revenue_by_day.yml"
+    },
+    {
+      "id": "risk_datamart/agg_accenture_mtr_review.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/risk_datamart/agg_accenture_mtr_review.yml"
+    },
+    {
+      "id": "risk_datamart/agg_cb_tc40_captured_gmv.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/risk_datamart/agg_cb_tc40_captured_gmv.yml"
+    },
+    {
+      "id": "risk_datamart/agg_daily_cb_representment.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/risk_datamart/agg_daily_cb_representment.yml"
+    },
+    {
+      "id": "risk_datamart/buyer_risk_okr_raw.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/risk_datamart/buyer_risk_okr_raw.yml"
+    },
+    {
+      "id": "risk_datamart/commerce_dispute_summary.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/risk_datamart/commerce_dispute_summary.yml"
+    },
+    {
+      "id": "risk_datamart/daily_commerce_transactions.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/risk_datamart/daily_commerce_transactions.yml"
+    },
+    {
+      "id": "risk_datamart/daily_user_restrictions.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/risk_datamart/daily_user_restrictions.yml"
+    },
+    {
+      "id": "risk_datamart/flagged_fraud.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/risk_datamart/flagged_fraud.yml"
+    },
+    {
+      "id": "risk_datamart/likely_bot_base_table_batch_v2.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/risk_datamart/likely_bot_base_table_batch_v2.yml"
+    },
+    {
+      "id": "risk_datamart/likely_bot_users.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/risk_datamart/likely_bot_users.yml"
+    },
+    {
+      "id": "risk_datamart/likely_bot_users_v2.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/risk_datamart/likely_bot_users_v2.yml"
+    },
+    {
+      "id": "risk_datamart/merch_monthly_orders.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/risk_datamart/merch_monthly_orders.yml"
+    },
+    {
+      "id": "risk_datamart/mmo_daily_stage.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/risk_datamart/mmo_daily_stage.yml"
+    },
+    {
+      "id": "risk_datamart/user_performance.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/risk_datamart/user_performance.yml"
+    },
+    {
+      "id": "risk_datamart/user_restrictions_history.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/risk_datamart/user_restrictions_history.yml"
+    },
+    {
+      "id": "risk_datamart/windowed_user_performance.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/risk_datamart/windowed_user_performance.yml"
+    },
+    {
+      "id": "search/a2c_by_impression_source.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/search/a2c_by_impression_source.yml"
+    },
+    {
+      "id": "search/click_by_impression_source.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/search/click_by_impression_source.yml"
+    },
+    {
+      "id": "search/ctr_exploration_daily_feed_client.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/search/ctr_exploration_daily_feed_client.yml"
+    },
+    {
+      "id": "search/daily_active_user_by_impression_source_client.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/search/daily_active_user_by_impression_source_client.yml"
+    },
+    {
+      "id": "search/daily_impression_context.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/search/daily_impression_context.yml"
+    },
+    {
+      "id": "search/daily_search_impression_relevancy.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/search/daily_search_impression_relevancy.yml"
+    },
+    {
+      "id": "search/daily_search_query_performance.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/search/daily_search_query_performance.yml"
+    },
+    {
+      "id": "search/phash_grouped_products.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/search/phash_grouped_products.yml"
+    },
+    {
+      "id": "search/transaction_by_impression_source.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/search/transaction_by_impression_source.yml"
+    },
+    {
+      "id": "search/wish_by_impression_source.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/search/wish_by_impression_source.yml"
+    },
+    {
+      "id": "structured_data/latest_listing_category_predictions.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/structured_data/latest_listing_category_predictions.yml"
+    },
+    {
+      "id": "structured_data/predicted_listing_categories.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/structured_data/predicted_listing_categories.yml"
+    },
+    {
+      "id": "structured_data/structured_data__wish_product_predicted_category.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/structured_data/structured_data__wish_product_predicted_category.yml"
+    },
+    {
+      "id": "structured_data/wish_product_categories.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/structured_data/wish_product_categories.yml"
+    },
+    {
+      "id": "supply/active_listings.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/supply/active_listings.yml"
+    },
+    {
+      "id": "supply/alli_mid_tier_daily_stats_country_category.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/supply/alli_mid_tier_daily_stats_country_category.yml"
+    },
+    {
+      "id": "supply/consignment_swap_mapping_log.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/supply/consignment_swap_mapping_log.yml"
+    },
+    {
+      "id": "supply/daily_commerce_merchant_metrics.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/supply/daily_commerce_merchant_metrics.yml"
+    },
+    {
+      "id": "supply/daily_exploration_candidates.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/supply/daily_exploration_candidates.yml"
+    },
+    {
+      "id": "supply/dim_all_merchants.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/supply/dim_all_merchants.yml"
+    },
+    {
+      "id": "supply/hyper_growth_cap_log.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/supply/hyper_growth_cap_log.yml"
+    },
+    {
+      "id": "supply/ia_merchant_by_stage.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/supply/ia_merchant_by_stage.yml"
+    },
+    {
+      "id": "supply/ka_bucket.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/supply/ka_bucket.yml"
+    },
+    {
+      "id": "supply/ka_list2022.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/supply/ka_list2022.yml"
+    },
+    {
+      "id": "supply/lifecycle_log_v2.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/supply/lifecycle_log_v2.yml"
+    },
+    {
+      "id": "supply/lifecycle_v2.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/supply/lifecycle_v2.yml"
+    },
+    {
+      "id": "supply/merchant_cap_log.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/supply/merchant_cap_log.yml"
+    },
+    {
+      "id": "supply/merchant_mqs_logging.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/supply/merchant_mqs_logging.yml"
+    },
+    {
+      "id": "supply/merchant_quality_score.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/supply/merchant_quality_score.yml"
+    },
+    {
+      "id": "supply/merchant_quality_score_log.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/supply/merchant_quality_score_log.yml"
+    },
+    {
+      "id": "supply/microtagging_sensitive_products.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/supply/microtagging_sensitive_products.yml"
+    },
+    {
+      "id": "supply/seller_daily_uploadings.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/supply/seller_daily_uploadings.yml"
+    },
+    {
+      "id": "supply/smb_list2022.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/supply/smb_list2022.yml"
+    },
+    {
+      "id": "supply/user_rfm_segment_label_log.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/supply/user_rfm_segment_label_log.yml"
+    },
+    {
+      "id": "sweeper/add_to_cart_data.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/sweeper/add_to_cart_data.yml"
+    },
+    {
+      "id": "sweeper/apps.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/sweeper/apps.yml"
+    },
+    {
+      "id": "sweeper/auth_retry.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/sweeper/auth_retry.yml"
+    },
+    {
+      "id": "sweeper/chinapost_subsidy.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/sweeper/chinapost_subsidy.yml"
+    },
+    {
+      "id": "sweeper/commerce_item_discount_info.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/sweeper/commerce_item_discount_info.yml"
+    },
+    {
+      "id": "sweeper/commerce_transaction_audit.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/sweeper/commerce_transaction_audit.yml"
+    },
+    {
+      "id": "sweeper/commerce_transaction_personal_price_info.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/sweeper/commerce_transaction_personal_price_info.yml"
+    },
+    {
+      "id": "sweeper/commerce_transaction_pricing_info.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/sweeper/commerce_transaction_pricing_info.yml"
+    },
+    {
+      "id": "sweeper/commerce_transaction_realtime.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/sweeper/commerce_transaction_realtime.yml"
+    },
+    {
+      "id": "sweeper/commerce_transactions.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/sweeper/commerce_transactions.yml"
+    },
+    {
+      "id": "sweeper/disputes.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/sweeper/disputes.yml"
+    },
+    {
+      "id": "sweeper/feed_tile_interactions.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/sweeper/feed_tile_interactions.yml"
+    },
+    {
+      "id": "sweeper/free_and_flat_rate_shipping.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/sweeper/free_and_flat_rate_shipping.yml"
+    },
+    {
+      "id": "sweeper/impressions_by_day.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/sweeper/impressions_by_day.yml"
+    },
+    {
+      "id": "sweeper/ip_violation_everc_ml_job_result.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/sweeper/ip_violation_everc_ml_job_result.yml"
+    },
+    {
+      "id": "sweeper/ipv_audit_events.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/sweeper/ipv_audit_events.yml"
+    },
+    {
+      "id": "sweeper/ipv_audit_results.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/sweeper/ipv_audit_results.yml"
+    },
+    {
+      "id": "sweeper/logical_queue.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/sweeper/logical_queue.yml"
+    },
+    {
+      "id": "sweeper/merchant_fine_audit.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/sweeper/merchant_fine_audit.yml"
+    },
+    {
+      "id": "sweeper/merchant_leads.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/sweeper/merchant_leads.yml"
+    },
+    {
+      "id": "sweeper/merchant_review.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/sweeper/merchant_review.yml"
+    },
+    {
+      "id": "sweeper/merchant_warnings.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/sweeper/merchant_warnings.yml"
+    },
+    {
+      "id": "sweeper/mgc_feed_gen_source.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/sweeper/mgc_feed_gen_source.yml"
+    },
+    {
+      "id": "sweeper/new_users.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/sweeper/new_users.yml"
+    },
+    {
+      "id": "sweeper/order_ttd_audit.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/sweeper/order_ttd_audit.yml"
+    },
+    {
+      "id": "sweeper/realtime_external_ad_clicks.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/sweeper/realtime_external_ad_clicks.yml"
+    },
+    {
+      "id": "sweeper/requests.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/sweeper/requests.yml"
+    },
+    {
+      "id": "sweeper/showroom_interactions.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/sweeper/showroom_interactions.yml"
+    },
+    {
+      "id": "sweeper/transactions_refunded.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/sweeper/transactions_refunded.yml"
+    },
+    {
+      "id": "sweeper/true_brand_tagging.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/sweeper/true_brand_tagging.yml"
+    },
+    {
+      "id": "sweeper/true_tags.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/sweeper/true_tags.yml"
+    },
+    {
+      "id": "sweeper_dev/exp_daily_cohort_stats.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/sweeper_dev/exp_daily_cohort_stats.yml"
+    },
+    {
+      "id": "sweeper_dev/exp_daily_general_stats.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/sweeper_dev/exp_daily_general_stats.yml"
+    },
+    {
+      "id": "sweeper_dev/feed_tile_interactions_clean.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/sweeper_dev/feed_tile_interactions_clean.yml"
+    },
+    {
+      "id": "sweeper_dev/sweeper_dev__dim_refund_reasons.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/sweeper_dev/sweeper_dev__dim_refund_reasons.yml"
+    },
+    {
+      "id": "sweeper_dev/sweeper_dev__dim_region_country.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/sweeper_dev/sweeper_dev__dim_region_country.yml"
+    },
+    {
+      "id": "sweeper_dev/sweeper_dev__wish_product_predicted_category.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/sweeper_dev/sweeper_dev__wish_product_predicted_category.yml"
+    },
+    {
+      "id": "sweeper_dev/ts_local_to_local_product.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/sweeper_dev/ts_local_to_local_product.yml"
+    },
+    {
+      "id": "sweeper_dev/user_purchase_retention.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/sweeper_dev/user_purchase_retention.yml"
+    },
+    {
+      "id": "sweeper_pt/email_click.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/sweeper_pt/email_click.yml"
+    },
+    {
+      "id": "wish/dim_all_products.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/wish/dim_all_products.yml"
+    },
+    {
+      "id": "wish/dim_feed_tile_interactions_mapping.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/wish/dim_feed_tile_interactions_mapping.yml"
+    },
+    {
+      "id": "wish/master_warehouse_shipping.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/wish/master_warehouse_shipping.yml"
+    },
+    {
+      "id": "wishpost/dim_order_channel.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/wishpost/dim_order_channel.yml"
+    },
+    {
+      "id": "wishpost/dim_order_channel_cn_mongo.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/wishpost/dim_order_channel_cn_mongo.yml"
+    },
+    {
+      "id": "wishpost/dim_pricing_channel_cn_mongo.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/wishpost/dim_pricing_channel_cn_mongo.yml"
+    },
+    {
+      "id": "wishpost/dim_region.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/wishpost/dim_region.yml"
+    },
+    {
+      "id": "wishpost/dim_wishpost_program_by_pricing_channel.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/wishpost/dim_wishpost_program_by_pricing_channel.yml"
+    },
+    {
+      "id": "wishpost/large_cargo_logistics_linehaul_bill_parcel_map_cn_mongo.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/wishpost/large_cargo_logistics_linehaul_bill_parcel_map_cn_mongo.yml"
+    },
+    {
+      "id": "wishpost/overall_finance_profits_1y.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/wishpost/overall_finance_profits_1y.yml"
+    },
+    {
+      "id": "wishpost/overall_finance_purchase_1y.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/wishpost/overall_finance_purchase_1y.yml"
+    },
+    {
+      "id": "wishpost/overall_finance_purchase_over_gmv_1y.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/wishpost/overall_finance_purchase_over_gmv_1y.yml"
+    },
+    {
+      "id": "wishpost/overall_finance_sales_1y.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/wishpost/overall_finance_sales_1y.yml"
+    },
+    {
+      "id": "wishpost/wishpost_jit_merchant_transaction_info_cn_mongo.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/wishpost/wishpost_jit_merchant_transaction_info_cn_mongo.yml"
+    },
+    {
+      "id": "wishpost/wishpost_last_mile_tracking_cn_mongo.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/wishpost/wishpost_last_mile_tracking_cn_mongo.yml"
+    },
+    {
+      "id": "wishpost/wishpost_last_mile_tracking_cp_extracted.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/wishpost/wishpost_last_mile_tracking_cp_extracted.yml"
+    },
+    {
+      "id": "wishpost/wishpost_last_mile_tracking_cp_extracted_di.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/wishpost/wishpost_last_mile_tracking_cp_extracted_di.yml"
+    },
+    {
+      "id": "wishpost/wishpost_last_mile_tracking_update_for_full_cycle.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/wishpost/wishpost_last_mile_tracking_update_for_full_cycle.yml"
+    },
+    {
+      "id": "wishpost/wishpost_payment_allocation_cn_mongo.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/wishpost/wishpost_payment_allocation_cn_mongo.yml"
+    },
+    {
+      "id": "wishpost/wishpost_payment_purchase_dump_cn_mongo.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/wishpost/wishpost_payment_purchase_dump_cn_mongo.yml"
+    },
+    {
+      "id": "wishpost/wishpost_tracking_combine_mapping.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/wishpost/wishpost_tracking_combine_mapping.yml"
+    },
+    {
+      "id": "wishpost/wishpost_warehouse_ready_for_combine_info_clean.yml",
+      "path": "/Users/jixie/wbox/data-governance/semantic_layer/models/hive/wishpost/wishpost_warehouse_ready_for_combine_info_clean.yml"
+    }
+  ],
+  "version": 1
+}

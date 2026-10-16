@@ -93,6 +93,9 @@ class DatabotState(SessionAgentState):
     staging_cards: list[dict[str, Any]]
     # LLM-committed cards (dims/metrics annotated) via ``commit_cards``.
     committed_cards: list[dict[str, Any]]
+    # Set when ``commit_cards`` runs, including ``selections=[]`` after a failed
+    # or empty ``fetch_related_models``. The fetch subgraph exits on this flag.
+    cards_committed: bool
     # Cards shown at the human cards gate (copied from ``committed_cards`` by
     # ``prepare_cards_for_gate``; UI may edit via ``update_card_selection``).
     review_cards: list[dict[str, Any]]
@@ -145,6 +148,7 @@ FRESH_TURN_STATE_DEFAULTS: dict[str, Any] = {
     "stage": STAGE_FETCH,
     "staging_cards": [],
     "committed_cards": [],
+    "cards_committed": False,
     "review_cards": [],
     "approved_cards": [],
     "metric_conflicts": [],
@@ -188,6 +192,7 @@ FRESH_PIPELINE_STATE_KEYS: tuple[str, ...] = (
     "stage",
     "staging_cards",
     "committed_cards",
+    "cards_committed",
     "review_cards",
     "metric_conflicts",
     "draft_sql",

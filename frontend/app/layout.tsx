@@ -22,10 +22,13 @@ export const metadata: Metadata = {
   description: "Ask about tables and metrics, draft SQL, and approve execution behind human gates.",
 };
 
+const colorSchemeScript = `(function(){try{var k="tahoepilot-color-scheme";var s=localStorage.getItem(k);var d=s==="dark"||(s!=="light"&&window.matchMedia("(prefers-color-scheme: dark)").matches);document.documentElement.classList.toggle("dark",d);document.documentElement.style.colorScheme=d?"dark":"light";}catch(e){}})();`;
+
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={`${sans.variable} ${mono.variable}`}>
+    <html lang="en" className={`${sans.variable} ${mono.variable}`} suppressHydrationWarning>
       <body>
+        <script dangerouslySetInnerHTML={{ __html: colorSchemeScript }} />
         <Providers>{children}</Providers>
       </body>
     </html>

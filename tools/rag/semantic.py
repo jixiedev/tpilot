@@ -160,9 +160,9 @@ class SemanticProfile(TypedDict):
 SEMANTIC_PROFILES: list[SemanticProfile] = [
     {
         "layer": "hive_analytics",
-        "collection": "dbt_models",
+        "collection": "aug_dbt_models",
         "description": (
-            "Analytics-layer dbt semantic models in the Hive warehouse. "
+            "Hive dbt semantic models (hybrid dense+sparse index). "
             "Use for merchant, transaction, and product analytics tables; "
             "primary source for BI / Tableau / report work."
         ),
@@ -449,6 +449,10 @@ def commit_cards(
     turn under a new id), the matching row is used. Do not echo the entire
     TableCard dict.
 
+    Calling this tool sets ``cards_committed`` and ends the fetch stage,
+    including ``selections=[]`` when ``fetch_related_models`` failed or
+    staged nothing. Do not invent staging ids.
+
     Why ``list[Any]``: keeps the tool JSON schema provider-friendly.
     """
     full_state = runtime.state if runtime is not None else {}
@@ -473,10 +477,13 @@ def commit_cards(
         approved_cards=approved_cards,
         selections=selections,
     )
+    if not updated:
+        note += " Fetch stage exit is recorded with no cards."
     tool_call_id = (runtime.tool_call_id if runtime else None) or "missing"
     return Command(
         update={
             "committed_cards": updated,
+            "cards_committed": True,
             "messages": [
                 ToolMessage(
                     content=note,

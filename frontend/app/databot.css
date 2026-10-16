@@ -93,7 +93,34 @@
   box-shadow: none;
   transform: none;
 }
-.databot-debug-toggle {
+.databot-theme-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  flex-shrink: 0;
+  font-size: 0.78rem;
+  font-weight: 500;
+  color: var(--db-muted);
+  cursor: pointer;
+  user-select: none;
+  background: none;
+  border: 0;
+  padding: 0;
+  font-family: inherit;
+}
+.databot-theme-toggle:focus-visible {
+  outline: 2px solid var(--db-accent);
+  outline-offset: 3px;
+  border-radius: 999px;
+}
+.databot-switch.is-on {
+  background: var(--db-accent);
+  box-shadow: none;
+}
+.databot-switch.is-on::after {
+  transform: translateX(15px);
+}
+.databot-switch-field {
   display: inline-flex;
   align-items: center;
   gap: 0.45rem;
@@ -104,7 +131,7 @@
   cursor: pointer;
   user-select: none;
 }
-.databot-debug-toggle input {
+.databot-switch-field input {
   position: absolute;
   opacity: 0;
   width: 1px;
@@ -132,14 +159,14 @@
   box-shadow: 0 1px 3px rgba(15, 23, 42, 0.25);
   transition: transform 160ms ease;
 }
-.databot-debug-toggle input:checked + .databot-switch {
+.databot-switch-field input:checked + .databot-switch {
   background: var(--db-accent);
   box-shadow: none;
 }
-.databot-debug-toggle input:checked + .databot-switch::after {
+.databot-switch-field input:checked + .databot-switch::after {
   transform: translateX(15px);
 }
-.databot-debug-toggle input:focus-visible + .databot-switch {
+.databot-switch-field input:focus-visible + .databot-switch {
   outline: 2px solid var(--db-accent);
   outline-offset: 2px;
 }
@@ -2169,6 +2196,15 @@
   background: transparent;
   height: 100%;
 }
+/* CopilotKit paints light-theme surfaces unless <html> has .dark.
+   Pin chat chrome to our tokens so text and the input wrapper stay readable. */
+.databot-chat-column [data-copilotkit] {
+  --foreground: var(--db-text);
+  --muted-foreground: var(--db-muted);
+  --background: transparent;
+  color: var(--db-text);
+  background-color: transparent !important;
+}
 .databot-chat-column .copilotKitMessages,
 .databot-chat-column .databot-message-list {
   padding: 0.85rem 0.9rem 0.4rem;
@@ -2195,6 +2231,7 @@
 .databot-chat-column .copilotKitInput textarea {
   font-family: inherit !important;
   font-size: 0.88rem !important;
+  color: var(--db-text);
 }
 .databot-assistant-reply-body {
   background: var(--db-accent-soft);
@@ -2247,7 +2284,7 @@
   border-top-color: var(--db-border);
 }
 
-@media (prefers-color-scheme: dark) {
+html.dark {
   .databot-logo {
     box-shadow: 0 6px 18px rgba(59, 91, 253, 0.35);
   }

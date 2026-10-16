@@ -1,7 +1,7 @@
 {
   "airflow_tahoe": {
     "transport": "stdio",
-    "command": "/Users/cdpac/.local/bin/uv",
+    "command": "/Users/jixie/.local/bin/uv",
     "args": [
       "run",
       "--directory",
@@ -17,7 +17,7 @@
   },
   "airflow_legacy": {
     "transport": "stdio",
-    "command": "/Users/cdpac/.local/bin/uv",
+    "command": "/Users/jixie/.local/bin/uv",
     "args": [
       "run",
       "--directory",

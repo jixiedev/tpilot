@@ -68,7 +68,7 @@ from agent.specialists.databot.tool_scopes import (
 from graph.builder import make_inject_system_prompt_node, static_system_prompt
 from graph.messages import is_internal_assistant_narration, strip_think_blocks
 from state.state import SessionAgentState, message_text
-from tools.bootstrap import ensure_tools_registered
+from tools.bootstrap import ensure_tools_registered, rag_tools_import_error
 from tools.common import find_tool
 
 logger = logging.getLogger(__name__)
@@ -318,6 +318,22 @@ def _end_with_refusal_node() -> Callable[[DatabotState], dict[str, Any]]:
 # Tool composition
 # ---------------------------------------------------------------------------
 
+def _require_stage_tool(tools: list[BaseTool], name: str, identifier: str) -> BaseTool:
+    """Return ``name`` from ``tools``, or raise with the registration or import cause."""
+    found = find_tool(tools, name)
+    if found is not None:
+        return found
+    rag_error = rag_tools_import_error() if identifier == TOOL_ID_FETCH else None
+    if rag_error is not None:
+        raise RuntimeError(
+            f"databot: {name} is unavailable because tools.rag failed to import "
+            f"({rag_error}). Install with: pip install 'tahoepilot[rag]'"
+        ) from rag_error
+    raise KeyError(
+        f"databot: {name} missing — register under identifier {identifier!r}"
+    )
+
+
 def _build_stage_tool_lists() -> tuple[list[BaseTool], list[BaseTool], BaseTool | None]:
     """Load per-stage tool lists from ``AgentSpec.register_tools`` identifiers."""
     ensure_tools_registered()
@@ -325,14 +341,8 @@ def _build_stage_tool_lists() -> tuple[list[BaseTool], list[BaseTool], BaseTool 
     sql_tools = databot_tools(TOOL_ID_SQL)
     execute_tools = databot_tools(TOOL_ID_EXECUTE)
 
-    if find_tool(fetch_tools, "fetch_related_models") is None:
-        raise KeyError(
-            "databot: fetch_related_models missing — register under identifier 'fetch'"
-        )
-    if find_tool(fetch_tools, "commit_cards") is None:
-        raise KeyError(
-            "databot: commit_cards missing — register under identifier 'fetch'"
-        )
+    _require_stage_tool(fetch_tools, "fetch_related_models", TOOL_ID_FETCH)
+    _require_stage_tool(fetch_tools, "commit_cards", TOOL_ID_FETCH)
     if find_tool(sql_tools, "trino_explain") is None:
         raise KeyError(
             "databot: trino_explain missing from identifier 'sql' — "

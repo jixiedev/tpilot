@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sys
 from functools import lru_cache
 from typing import Any
 
@@ -17,16 +18,38 @@ def _use_fp16(device: str) -> bool:
     return name not in {"cpu", "mps"}
 
 
-@lru_cache(maxsize=1)
-def _local_model() -> Any:
+def resolve_bge_devices(device: str) -> str | None:
+    """Device string for FlagEmbedding BGE models (dense + sparse must both work).
+
+    On Apple Silicon, auto-selected ``mps:0`` often yields empty lexical weights for
+    batched encode; use ``mps`` (not ``mps:0``). Unset config defaults to ``mps`` on
+    macOS; empty sparse rows are re-encoded on CPU (batch size 1).
+    """
+    cleaned = (device or "").strip()
+    if not cleaned:
+        if sys.platform == "darwin":
+            return "mps"
+        return None
+    lowered = cleaned.lower()
+    if lowered.startswith("mps"):
+        return "mps"
+    return cleaned
+
+
+def _device_cache_key(device: str | None) -> str:
+    return device if device is not None else "__auto__"
+
+
+@lru_cache(maxsize=4)
+def _bge_model(device_key: str) -> Any:
     from FlagEmbedding import BGEM3FlagModel
 
     cfg = get_rag_config().embedding
-    device = cfg.device.strip()
+    devices = None if device_key == "__auto__" else device_key
     return BGEM3FlagModel(
         cfg.model,
-        use_fp16=_use_fp16(device),
-        devices=device or None,
+        use_fp16=_use_fp16(devices or ""),
+        devices=devices,
         normalize_embeddings=True,
         return_dense=True,
         return_sparse=True,
@@ -34,6 +57,12 @@ def _local_model() -> Any:
         passage_max_length=max(32, int(cfg.max_seq_length)),
         batch_size=max(1, int(cfg.batch_size)),
     )
+
+
+@lru_cache(maxsize=1)
+def _local_model() -> Any:
+    device = resolve_bge_devices(get_rag_config().embedding.device)
+    return _bge_model(_device_cache_key(device))
 
 
 def truncate_text(text: str, *, max_chars: int | None = None) -> str:
@@ -86,23 +115,116 @@ def _as_sparse_rows(sparse: Any) -> list[dict[Any, Any]]:
     return [dict(row or {}) for row in list(sparse or [])]
 
 
-def _embed_local(payloads: list[str], *, config: EmbeddingConfig) -> list[HybridEmbedding]:
-    model = _local_model()
-    vectors = model.encode(
-        payloads,
-        return_dense=True,
-        return_sparse=True,
-        return_colbert_vecs=False,
-        batch_size=max(1, config.batch_size),
-        max_length=max(32, int(config.max_seq_length)),
-    )
-    dense_rows = _as_dense_rows(vectors["dense_vecs"], len(payloads))
+def _hybrid_rows_from_encode(
+    vectors: Any,
+    *,
+    count: int,
+) -> list[HybridEmbedding]:
+    dense_rows = _as_dense_rows(vectors["dense_vecs"], count)
     sparse_rows = _as_sparse_rows(vectors["lexical_weights"])
     encoded: list[HybridEmbedding] = []
     for dense, sparse in zip(dense_rows, sparse_rows, strict=True):
         weights = {int(key): float(value) for key, value in dict(sparse or {}).items()}
-        encoded.append(ensure_hybrid_embedding([float(x) for x in dense], weights))
+        encoded.append(
+            (
+                [float(x) for x in dense],
+                weights,
+            )
+        )
     return encoded
+
+
+def _encode_hybrid_batch(
+    model: Any,
+    payloads: list[str],
+    *,
+    batch_size: int,
+    encode_kwargs: dict[str, Any],
+) -> list[HybridEmbedding]:
+    vectors = model.encode(payloads, batch_size=batch_size, **encode_kwargs)
+    return _hybrid_rows_from_encode(vectors, count=len(payloads))
+
+
+def _sparse_lexical_fallback(
+    model: Any,
+    text: str,
+    *,
+    max_length: int,
+) -> dict[int, float]:
+    """Token-id weights when the model returns no lexical vector (ingest must not stall)."""
+    tokenizer = model.tokenizer
+    token_ids = tokenizer.encode(
+        text,
+        add_special_tokens=False,
+        truncation=True,
+        max_length=max_length,
+    )
+    if not token_ids:
+        token_ids = tokenizer.encode("text", add_special_tokens=False)
+    weights: dict[int, float] = {}
+    for token_id in token_ids:
+        key = int(token_id)
+        weights[key] = weights.get(key, 0.0) + 1.0
+    return weights
+
+
+def _embed_local(payloads: list[str], *, config: EmbeddingConfig) -> list[HybridEmbedding]:
+    model = _local_model()
+    batch_size = max(1, config.batch_size)
+    max_length = max(32, int(config.max_seq_length))
+    encode_kwargs: dict[str, Any] = {
+        "return_dense": True,
+        "return_sparse": True,
+        "return_colbert_vecs": False,
+        "max_length": max_length,
+    }
+    encoded = _encode_hybrid_batch(
+        model, payloads, batch_size=batch_size, encode_kwargs=encode_kwargs
+    )
+
+    missing = [i for i, (_, weights) in enumerate(encoded) if not weights]
+    if missing:
+        print(f"Sparse embed retry on cpu: {len(missing)}/{len(payloads)} text(s)")
+        cpu_model = _bge_model("cpu")
+        cpu_rows = _encode_hybrid_batch(
+            cpu_model,
+            payloads,
+            batch_size=batch_size,
+            encode_kwargs=encode_kwargs,
+        )
+        for index in missing:
+            encoded[index] = cpu_rows[index]
+
+        still_missing = [i for i, (_, weights) in enumerate(encoded) if not weights]
+        for index in still_missing:
+            encoded[index] = _encode_hybrid_batch(
+                cpu_model,
+                [payloads[index]],
+                batch_size=1,
+                encode_kwargs=encode_kwargs,
+            )[0]
+
+        still_missing = [i for i, (_, weights) in enumerate(encoded) if not weights]
+        if still_missing:
+            print(f"Sparse tokenizer fallback: {len(still_missing)} text(s)")
+            for index in still_missing:
+                dense, weights = encoded[index]
+                if not dense:
+                    dense, weights = _encode_hybrid_batch(
+                        cpu_model,
+                        [payloads[index]],
+                        batch_size=1,
+                        encode_kwargs=encode_kwargs,
+                    )[0]
+                if not weights:
+                    weights = _sparse_lexical_fallback(
+                        cpu_model,
+                        payloads[index],
+                        max_length=max_length,
+                    )
+                encoded[index] = (dense, weights)
+
+    return [ensure_hybrid_embedding(dense, weights) for dense, weights in encoded]
 
 
 def get_embedding(

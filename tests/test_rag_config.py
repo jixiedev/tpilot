@@ -8,7 +8,14 @@ from rag.config import (
     get_rag_config,
     resolve_qdrant_api_key,
 )
-from rag.embeddings import ensure_hybrid_embedding, to_sparse_vector
+from types import SimpleNamespace
+
+from rag.embeddings import (
+    ensure_hybrid_embedding,
+    resolve_bge_devices,
+    to_sparse_vector,
+    _sparse_lexical_fallback,
+)
 
 
 def test_resolve_qdrant_api_key_optional(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -55,6 +62,32 @@ def test_ensure_hybrid_embedding_rejects_empty() -> None:
         ensure_hybrid_embedding([], {1: 0.2})
     with pytest.raises(ValueError, match="Sparse"):
         ensure_hybrid_embedding([0.1, 0.2], {})
+
+
+def test_resolve_bge_devices_normalizes_mps_index(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("rag.embeddings.sys.platform", "linux")
+    assert resolve_bge_devices("") is None
+    assert resolve_bge_devices("mps:0") == "mps"
+    assert resolve_bge_devices("cuda:1") == "cuda:1"
+
+
+def test_resolve_bge_devices_defaults_mps_on_macos(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("rag.embeddings.sys.platform", "darwin")
+    assert resolve_bge_devices("") == "mps"
+
+
+def test_sparse_lexical_fallback_builds_token_weights() -> None:
+    class _Tokenizer:
+        def encode(self, text: str, **kwargs: object) -> list[int]:
+            return [10, 20, 20]
+
+    model = SimpleNamespace(tokenizer=_Tokenizer())
+    weights = _sparse_lexical_fallback(model, "hello", max_length=32)
+    assert weights == {10: 1.0, 20: 2.0}
 
 
 def test_to_sparse_vector_empty_raises() -> None:

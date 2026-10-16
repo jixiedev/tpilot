@@ -1177,5 +1177,38 @@ Implementation notes (behavior only): detect emits intentions + plan steps; publ
 | Jira point id | Missing Issue id used `hash(issue_key)` (process-unstable) | `stable_point_id(issue_key)`; integer Issue id still used for single-chunk tickets |
 | Chunk window | Drive split at 4000 chars then embed-truncated to 2000; Jira was one truncated blob | Drive and Jira length-split to `[embedding].max_chars`; Jira comments are their own paragraph |
 
+## 2026-09-21 — BGE-M3 sparse on macOS
+
+**Goal**: Jira ingest must not fail mid-run with empty sparse vectors on Apple Silicon.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| Embed device | FlagEmbedding auto-used `mps:0`; batched encode often returned empty lexical weights | Unset device defaults to `mps` on macOS; `mps:N` → `mps`; empty sparse re-encodes on CPU, then tokenizer lexical fallback if still empty |
+
+## 2026-10-08 — Fetch stage can end with no RAG cards
+
+**Goal**: A failed or empty model search must not trap the fetch stage.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| Fetch exit | Stage ended only when `committed_cards` was non-empty, so a broken `fetch_related_models` left nothing to commit | `commit_cards` sets `cards_committed`, including `selections=[]`, and that ends the stage with no models |
+
+## 2026-10-08 — Search tools use hybrid aug collections
+
+**Goal**: Point retrieval at the named dense+sparse indexes instead of the old dense-only collections.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| dbt search | `fetch_related_models` read dense-only `dbt_models` and failed the hybrid check | Reads `aug_dbt_models` (289 schemas, hybrid) |
+| Jira search | Profiles targeted `jira_tahoe` / `jira_core` / `jira_data_engineer` / `jira_data_science` / `jira_sqd` | Reads `aug_jira_tahoe`, `aug_jira_core`, `aug_jira_de`, `aug_jira_ds`, `aug_jira_sqd` |
+
+## 2026-10-08 — Rerank loads from a local snapshot
+
+**Goal**: Search must rerank with the configured cross-encoder when huggingface.co resets the connection.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| Rerank load | Each search HEAD-requested `BAAI/bge-reranker-v2-m3` from huggingface.co and stalled on connection reset | Weights download once, via the mirror when the default host resets, then every search loads that snapshot and reranks |
+
 <!-- Append the next optimization section above this line -->
 

@@ -72,8 +72,9 @@ metrics/dimensions, allowed tables, forbidden columns.
 IDLE_NUDGE_PROMPT = """\
 You returned plain text without calling a tool. Emit ONLY a tool call — no narration. \
 Either call a tool to make progress in this Databot stage, or, if the state contract is \
-already met (``committed_cards`` populated via ``commit_cards`` in fetch, or ``draft_sql`` + \
-``sql_reasons`` in SQL), the router will end the subgraph automatically. In fetch, \
-plain text or an empty tool list does NOT satisfy the contract — you must call ``commit_cards`` first. \
+already met (``cards_committed`` via ``commit_cards`` in fetch, including an empty \
+selection when nothing was staged, or ``draft_sql`` + ``sql_reasons`` in SQL), the \
+router will end the subgraph automatically. In fetch, plain text or an empty tool \
+list does NOT satisfy the contract — you must call ``commit_cards`` first. \
 Do not respond with plain text alone.
 """

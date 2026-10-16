@@ -85,7 +85,7 @@ def test_fetch_related_jira_tickets_formats_hits(mock_search: MagicMock) -> None
             "description": "Lag spiked overnight",
         }
     ]
-    mock_search.assert_called_once_with("jira_tahoe", "flink lag", limit=12)
+    mock_search.assert_called_once_with("aug_jira_tahoe", "flink lag", limit=12)
 
 
 @patch("tools.rag.jira.qdrant_search")
@@ -146,7 +146,7 @@ def test_fetch_related_jira_tickets_dedupes_issue_key(mock_search: MagicMock) ->
     )
 
     assert [row["issue_key"] for row in result] == ["TAHOE-9", "CORE-1"]
-    mock_search.assert_called_once_with("jira_tahoe", "lag", limit=20)
+    mock_search.assert_called_once_with("aug_jira_tahoe", "lag", limit=20)
 
 
 def test_fetch_related_jira_tickets_rejects_wildcard_query() -> None:

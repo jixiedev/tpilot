@@ -8,7 +8,8 @@ timeout_seconds = 30.0
 # Local BGE-M3 via FlagEmbedding (dense + sparse). Remote embedding APIs are not used.
 model = "BAAI/bge-m3"
 vector_size = 1024
-# Optional device override: "", "cpu", "cuda", "mps"
+# Optional device override: "", "cpu", "cuda", "mps" (avoid "mps:0" — sparse breaks)
+# On macOS, unset device defaults to mps (not mps:0 — sparse breaks). Use cpu if needed.
 device = ""
 # Keep local encode memory bounded (Jira descriptions can be huge).
 # 512 tokens ≈ safe on CPU/MPS; raise only if you have spare GPU RAM.

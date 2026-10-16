@@ -12,6 +12,21 @@ from agent.specialists.databot.card_staging import (
 )
 
 
+def test_empty_commit_cards_records_stage_exit() -> None:
+    from types import SimpleNamespace
+
+    from tools.rag.semantic import commit_cards
+
+    runtime = SimpleNamespace(
+        state={"staging_cards": [], "committed_cards": [], "approved_cards": []},
+        tool_call_id="t1",
+    )
+    command = commit_cards.func(selections=[], runtime=runtime)
+    assert command.update["cards_committed"] is True
+    assert command.update["committed_cards"] == []
+    assert "no cards" in command.update["messages"][0].content
+
+
 def test_staging_entry_gets_unique_id() -> None:
     card = {"name": "fct_orders", "columns": [], "metrics": []}
     a = staging_entry_from_card(card)

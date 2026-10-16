@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+import os
 from functools import lru_cache
 from typing import Any
 
@@ -9,10 +11,23 @@ from qdrant_client import QdrantClient
 from qdrant_client.http import models as qmodels
 
 from rag.config import get_rag_config, resolve_qdrant_api_key
-from rag.embeddings import get_embedding, to_sparse_vector
+from rag.embeddings import get_embedding, resolve_bge_devices, to_sparse_vector
+
+logger = logging.getLogger(__name__)
 
 _EMBED_TEXT_KEYS = ("chunk_data", "text")
 _TITLE_KEYS = ("description", "summary")
+_HF_MIRROR = "https://hf-mirror.com"
+_RERANKER_WEIGHT_FILES = ("model.safetensors", "pytorch_model.bin")
+_CONNECTION_ERROR_NAMES = {
+    "ConnectError",
+    "ConnectTimeout",
+    "ConnectionError",
+    "ConnectionResetError",
+    "ProtocolError",
+    "ReadTimeout",
+    "TimeoutException",
+}
 
 
 @lru_cache(maxsize=1)
@@ -196,19 +211,92 @@ def passage_text(payload: dict[str, Any] | None) -> str:
     return ""
 
 
+def _fusion_order(points: list[Any], *, limit: int) -> list[tuple[Any, float]]:
+    return [
+        (point, float(getattr(point, "score", 0.0) or 0.0))
+        for point in points[:limit]
+    ]
+
+
+def _reranker_weights_cached(model: str) -> bool:
+    """True when reranker weights are already in the local Hugging Face cache."""
+    try:
+        from huggingface_hub import try_to_load_from_cache
+    except ImportError:
+        return False
+    for filename in _RERANKER_WEIGHT_FILES:
+        resolved = try_to_load_from_cache(model, filename)
+        if isinstance(resolved, str):
+            return True
+    return False
+
+
+def _hub_connection_failure(exc: BaseException) -> bool:
+    seen: set[int] = set()
+    current: BaseException | None = exc
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        if isinstance(current, OSError) or type(current).__name__ in _CONNECTION_ERROR_NAMES:
+            return True
+        current = current.__cause__ or current.__context__
+    return False
+
+
+def _disable_xet_downloads() -> None:
+    """Use plain HTTP. The mirror's Xet host rejects unauthenticated reconstruction."""
+    os.environ["HF_HUB_DISABLE_XET"] = "1"
+    import huggingface_hub.constants as hf_constants
+
+    hf_constants.HF_HUB_DISABLE_XET = True
+
+
+def _snapshot_reranker(model: str, endpoint: str | None) -> None:
+    from huggingface_hub import snapshot_download
+
+    if endpoint and "hf-mirror.com" in endpoint:
+        _disable_xet_downloads()
+    if endpoint:
+        snapshot_download(model, endpoint=endpoint)
+        return
+    snapshot_download(model)
+
+
+def _download_reranker(model: str) -> None:
+    """Download the reranker. Retry the mirror when the default host resets."""
+    endpoint = os.environ.get("HF_ENDPOINT", "").strip()
+    if endpoint:
+        _snapshot_reranker(model, endpoint)
+        return
+    try:
+        _snapshot_reranker(model, None)
+    except Exception as exc:
+        if not _hub_connection_failure(exc):
+            raise
+        logger.warning(
+            "Reranker %s could not be downloaded from Hugging Face (%s); retrying via %s",
+            model,
+            exc,
+            _HF_MIRROR,
+        )
+        _snapshot_reranker(model, _HF_MIRROR)
+
+
 @lru_cache(maxsize=1)
 def _reranker() -> Any:
     from FlagEmbedding import FlagReranker
 
     cfg = get_rag_config().rerank
-    device = get_rag_config().embedding.device.strip()
+    if not _reranker_weights_cached(cfg.model):
+        _download_reranker(cfg.model)
+    device = resolve_bge_devices(get_rag_config().embedding.device)
     return FlagReranker(
         cfg.model,
-        use_fp16=device.lower() not in {"cpu", "mps"},
-        devices=device or None,
+        use_fp16=(device or "").lower() not in {"cpu", "mps"},
+        devices=device,
         normalize=True,
         max_length=max(32, int(get_rag_config().embedding.max_seq_length)),
         batch_size=max(1, int(get_rag_config().embedding.batch_size)),
+        local_files_only=True,
     )
 
 
@@ -223,7 +311,7 @@ def rerank_points(
         return []
     cfg = get_rag_config().rerank
     if not (cfg.model or "").strip():
-        return [(point, float(getattr(point, "score", 0.0) or 0.0)) for point in points[:limit]]
+        return _fusion_order(points, limit=limit)
 
     pairs = [(query, passage_text(getattr(point, "payload", None))) for point in points]
     raw_scores = _reranker().compute_score(pairs)
