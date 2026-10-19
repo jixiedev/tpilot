@@ -1,4 +1,4 @@
-"""CLI: python -m rag plan|run ..."""
+"""CLI: python -m rag plan|run|download ..."""
 
 from __future__ import annotations
 
@@ -6,6 +6,7 @@ import argparse
 import sys
 
 from rag.job import default_checkpoint_path, plan_ingest, run_ingest
+from rag.models import download_configured_models
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
@@ -84,12 +85,21 @@ def build_arg_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="delete the target Qdrant collection and ignore completed files in the checkpoint",
     )
+
+    sub.add_parser(
+        "download",
+        help="Download BAAI/bge-m3 and BAAI/bge-reranker-v2-m3 into the local model cache",
+    )
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     args = build_arg_parser().parse_args(argv)
     try:
+        if args.command == "download":
+            for line in download_configured_models():
+                print(line)
+            return 0
         if args.command == "plan":
             plan_ingest(
                 job_type=args.job_type,

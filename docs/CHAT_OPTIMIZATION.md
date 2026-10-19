@@ -1210,5 +1210,13 @@ Implementation notes (behavior only): detect emits intentions + plan steps; publ
 |--------------|--------|-------|
 | Rerank load | Each search HEAD-requested `BAAI/bge-reranker-v2-m3` from huggingface.co and stalled on connection reset | Weights download once, via the mirror when the default host resets, then every search loads that snapshot and reranks |
 
+## 2026-10-19 — BGE models download before search
+
+**Goal**: Search loads the two local BAAI models from disk instead of fetching them on the first tool call.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| Model download | First `fetch_related_models` downloaded `BAAI/bge-m3` and `BAAI/bge-reranker-v2-m3`; the embedder snapshot failed on `imgs/.DS_Store` | `python -m rag download` fetches both into `~/.cache/tahoepilot/models`, skipping that file; search only loads those directories |
+
 <!-- Append the next optimization section above this line -->
 

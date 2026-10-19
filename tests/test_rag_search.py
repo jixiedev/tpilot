@@ -10,7 +10,8 @@ import pytest
 from qdrant_client.http import models as qmodels
 
 from rag.embeddings import to_sparse_vector
-from rag.qdrant import _download_reranker, passage_text, rerank_points, search
+from rag.models import download_repo
+from rag.qdrant import passage_text, rerank_points, search
 
 
 def _collection_info(*, hybrid: bool = False) -> SimpleNamespace:
@@ -87,19 +88,27 @@ def test_rerank_points_raises_when_reranker_fails() -> None:
         rerank_points("q", points, limit=2)
 
 
-def test_download_reranker_retries_mirror_when_default_host_resets(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_download_repo_retries_mirror_and_skips_ds_store(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
     monkeypatch.delenv("HF_ENDPOINT", raising=False)
-    calls: list[str | None] = []
+    calls: list[tuple[str | None, list[str] | None]] = []
 
-    def fake_snapshot(model: str, endpoint: str | None = None) -> str:
-        calls.append(endpoint)
+    def fake_snapshot(repo_id: str, **kwargs: object) -> str:
+        endpoint = kwargs.get("endpoint")
+        patterns = kwargs.get("ignore_patterns")
+        calls.append((endpoint if isinstance(endpoint, str) else None, patterns if isinstance(patterns, list) else None))
         if endpoint is None:
             raise ConnectionResetError(54, "Connection reset by peer")
-        return "/tmp/reranker"
+        return str(kwargs.get("local_dir"))
 
     with patch("huggingface_hub.snapshot_download", fake_snapshot):
-        _download_reranker("BAAI/bge-reranker-v2-m3")
-    assert calls == [None, "https://hf-mirror.com"]
+        download_repo("BAAI/bge-m3", tmp_path / "bge-m3")
+    assert [endpoint for endpoint, _ in calls] == [None, "https://hf-mirror.com"]
+    assert calls[0][1] is not None
+    assert "imgs/*" in calls[0][1]
+    assert "*.DS_Store" in calls[0][1]
 
 
 def test_rerank_points_skips_when_model_blank() -> None:

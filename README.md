@@ -65,6 +65,40 @@ python main.py -v
 
 在 `You>` 提示符下输入问题，输入 `quit` 退出。
 
+### Web UI
+
+脚本会加载仓库根目录的 `.env`。前端首次运行前在 `frontend/` 执行 `npm install`。
+
+检索只用两个本地模型，启动前下载一次（写入 `~/.cache/tahoepilot/models/`）：
+
+```bash
+export HF_ENDPOINT=https://hf-mirror.com   # huggingface.co 连不上时
+export HF_HUB_DISABLE_XET=1
+python -m rag download
+```
+
+- `BAAI/bge-m3` — 向量（dense + sparse）
+- `BAAI/bge-reranker-v2-m3` — 重排
+
+对话过程中不会再去拉模型。`imgs/.DS_Store` 这类仓库垃圾文件会被跳过。
+
+两个终端分别前台启动：
+
+```bash
+./scripts/dev.sh backend    # langgraph dev :8000，同时挂载 /agui
+./scripts/dev.sh frontend   # Next.js :3000
+```
+
+浏览器打开 http://localhost:3000。
+
+或在同一终端后台启动：
+
+```bash
+./scripts/dev.sh start      # 后台启动，打印 PID；日志在 .run/
+./scripts/dev.sh status     # 查看 :8000、:3000 和 /agui
+./scripts/dev.sh stop       # 停止后台进程
+```
+
 ## Agent 一览
 
 | Agent | 说明 |

@@ -64,16 +64,23 @@ export EMBEDDING_VECTOR_SIZE="1024"
 
 Ingest uses FlagEmbedding `BGEM3FlagModel` so each point stores a dense vector and a lexical sparse vector. Both must be non-empty. Search fuses the two with Qdrant RRF, then reranks the fused candidates. Caps (`max_seq_length=512`, `max_chars=2000`, `batch_size=8`) keep long Jira descriptions from blowing memory. Raise those in `config/rag.toml` only if you have spare GPU/MPS RAM. dbt ingest packs columns/metrics into multiple chunks instead of truncating.
 
-First run downloads the embedder and reranker from Hugging Face into the local cache (several GB).
-If `huggingface.co` resets connections (common on some networks), use a mirror before ingest:
+Download both models once before ingest or search. They land in `~/.cache/tahoepilot/models/` (override with `TAHOEPILOT_MODELS_DIR`). Later runs load those directories and do not call the Hub. The snapshot skips `imgs/.DS_Store`, which hf-mirror rejects with 403.
 
 ```bash
-export HF_ENDPOINT=https://hf-mirror.com
+export HF_ENDPOINT=https://hf-mirror.com   # when huggingface.co resets connections
+export HF_HUB_DISABLE_XET=1
+python -m rag download
+```
+
+| Model | Role |
+|-------|------|
+| `BAAI/bge-m3` | Dense + sparse embeddings |
+| `BAAI/bge-reranker-v2-m3` | Cross-encoder rerank |
+
+```bash
 python -m rag plan -t jira -p rag/raw/Jira-tahoe.csv -c jira_tahoe --tasks ./rag-jobs/jira_tahoe.json
 python -m rag run --tasks ./rag-jobs/jira_tahoe.json
 ```
-
-Or download the model once with the same env, then later runs use `~/.cache/huggingface/`.
 
 `[embedding].vector_size` must match the model (**1024** for `BAAI/bge-m3`). Collections are named-vector hybrid (`dense` + `sparse`). Changing dimension or moving from a dense-only collection requires recreating that collection, then re-ingesting.
 
@@ -85,7 +92,7 @@ uv sync --extra rag
 
 ## CLI
 
-Ingest is two commands. `plan` scans a source path and writes a **task list** (one entry per source file) plus a **checkpoint** (progress for that task list). `run` reads those files and upserts into Qdrant.
+`download` fetches the two BAAI models listed above. Ingest is then two commands. `plan` scans a source path and writes a **task list** (one entry per source file) plus a **checkpoint** (progress for that task list). `run` reads those files and upserts into Qdrant.
 
 ```bash
 python -m rag plan -t <job_type> -p <path> -c <collection_name> --tasks <tasks.json> [--checkpoint <checkpoint.json>]

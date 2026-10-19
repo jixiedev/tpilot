@@ -9,6 +9,7 @@ from typing import Any
 from qdrant_client.http import models as qmodels
 
 from rag.config import EmbeddingConfig, get_rag_config
+from rag.models import resolve_model_dir
 
 HybridEmbedding = tuple[list[float], dict[int, float]]
 
@@ -47,7 +48,7 @@ def _bge_model(device_key: str) -> Any:
     cfg = get_rag_config().embedding
     devices = None if device_key == "__auto__" else device_key
     return BGEM3FlagModel(
-        cfg.model,
+        resolve_model_dir(cfg.model, embedder=True),
         use_fp16=_use_fp16(devices or ""),
         devices=devices,
         normalize_embeddings=True,
