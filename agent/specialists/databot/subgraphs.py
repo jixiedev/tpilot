@@ -100,7 +100,7 @@ def build_fetch_cards_subgraph(
     route_reason, route_action = _stage_state_exit_router(
         max_tool_calls=max_tool_calls,
         max_idle_rounds=max_idle_rounds,
-        state_exit_keys=("committed_cards",),
+        state_exit_keys=("cards_committed",),
     )
     return build_react_graph(
         model,

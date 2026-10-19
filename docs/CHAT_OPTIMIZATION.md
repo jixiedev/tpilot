@@ -1112,5 +1112,111 @@ Implementation notes (behavior only): detect emits intentions + plan steps; publ
 | Visual system | Arial, flat white panes, hard gray borders, native checkbox | Plus Jakarta type, lake-blue tokens, rounded panes, switch + pill actions |
 | Workspace chrome | Header and columns sat on a blank page with 1990s form controls | Soft canvas, glass topbar, card columns, Copilot input restyled to match |
 
+## 2026-09-07 — RAG document graph and shared ingest
+
+**Goal**: One document → paragraph → chunk model for Jira, Drive, and dbt ingest, with a single embed/upsert path.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| Ingest shape | Each source built ad-hoc dicts and copied the embed/upsert loop | Shared `Document` / `Paragraph` / `Chunk` graph plus `upsert_documents` |
+| Markdown / PDF sections | A file was one blob before character chunking | Heading-aware paragraphs, then the same length splitter |
+| Neighbor navigation | Chunk seq lived only in unused dataclasses | Payload carries `prev_chunk_seq` / `next_chunk_seq` for later expansion |
+
+## 2026-09-08 — RAG source packages
+
+**Goal**: Keep the shared ingest graph with the rest of RAG, and name modules after what they do.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| Package layout | Shared graph lived in `nrag/`; Jira was split across wrappers; Drive and dbt sat as extra ingest modules | Shared graph lives in `rag/`; each source has its own package |
+| Module names | `data`, `split`, `pipeline`, `pdf`, `store`, `google_drive`, `model` | `document`, `chunking`, `ingest`, `markdown`, `qdrant`, `drive`, `dbt` |
+
+## 2026-09-08 — Hybrid search and rerank
+
+**Goal**: Make BGE-M3 dense+sparse retrieval actually run, then rerank fused hits.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| Sparse embeddings | `SentenceTransformer.encode` called with FlagEmbedding kwargs; ingest reused the wrong batch vectors | Local path uses `BGEM3FlagModel`; each chunk upserts its own dense vector plus a sorted sparse vector |
+| Retrieval | Dense `.tolist()` / raw lexical dict, filter only after RRF, rerank object used as a point | Qdrant hybrid prefetch (filter on each branch) → RRF → cached BGE reranker; OpenAI embeddings stay dense-only |
+
+## 2026-09-08 — dbt hybrid retrieve
+
+**Goal**: Let dbt model search use the same dense+sparse path as Jira, and keep old collections from 400ing.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| dbt collection | Unnamed dense `dbt_models`; hybrid `using="dense"` failed; rerank only saw `description` | All search is dense+sparse RRF on hybrid collections; non-hybrid collections error and must be re-ingested with `--recreate-collection` |
+
+## 2026-09-08 — Ingest plan and checkpoint resume
+
+**Goal**: Split ingest into a file-level task list plus a resumable checkpoint, so a long job can stop and continue without re-scanning the source tree.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| Ingest CLI | One command scanned the source and upserted everything in a single run | `plan` writes a task list and empty checkpoint; `run` reads them and upserts |
+| Interrupt recovery | A failed job had to start over (Jira could only skip leading CSV rows) | If `--checkpoint` is set, `run` resumes from that file; a missing checkpoint starts from the beginning; progress is saved after each file batch |
+
+## 2026-09-08 — Drive unzip-first, dbt pack, local hybrid only
+
+**Goal**: Match ingest to how sources are prepared, and keep every dbt description in the index.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| Drive zips | plan/run ingested zip archives plus extracted files | Zip files are skipped; ingest the unzipped tree |
+| dbt text | Two points per model; embed/payload truncated at a char cap | Columns and metrics packed into as many chunks as needed; no truncation |
+| Embeddings | Local BGE or OpenAI dense-only (empty sparse) | Local BGE-M3 only; empty dense or sparse is an error |
+
+## 2026-09-08 — Ingest failures, Jira ids, embedding-sized chunks
+
+**Goal**: Failed batches must not look complete, Jira ids must be stable, and Drive/Jira chunks must fit the encoder window.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| Batch failure | Embed/upsert errors were printed and the file was checkpointed | Remaining batches still run, then ingest raises so `run` does not mark the file complete |
+| Jira point id | Missing Issue id used `hash(issue_key)` (process-unstable) | `stable_point_id(issue_key)`; integer Issue id still used for single-chunk tickets |
+| Chunk window | Drive split at 4000 chars then embed-truncated to 2000; Jira was one truncated blob | Drive and Jira length-split to `[embedding].max_chars`; Jira comments are their own paragraph |
+
+## 2026-09-21 — BGE-M3 sparse on macOS
+
+**Goal**: Jira ingest must not fail mid-run with empty sparse vectors on Apple Silicon.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| Embed device | FlagEmbedding auto-used `mps:0`; batched encode often returned empty lexical weights | Unset device defaults to `mps` on macOS; `mps:N` → `mps`; empty sparse re-encodes on CPU, then tokenizer lexical fallback if still empty |
+
+## 2026-10-08 — Fetch stage can end with no RAG cards
+
+**Goal**: A failed or empty model search must not trap the fetch stage.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| Fetch exit | Stage ended only when `committed_cards` was non-empty, so a broken `fetch_related_models` left nothing to commit | `commit_cards` sets `cards_committed`, including `selections=[]`, and that ends the stage with no models |
+
+## 2026-10-08 — Search tools use hybrid aug collections
+
+**Goal**: Point retrieval at the named dense+sparse indexes instead of the old dense-only collections.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| dbt search | `fetch_related_models` read dense-only `dbt_models` and failed the hybrid check | Reads `aug_dbt_models` (289 schemas, hybrid) |
+| Jira search | Profiles targeted `jira_tahoe` / `jira_core` / `jira_data_engineer` / `jira_data_science` / `jira_sqd` | Reads `aug_jira_tahoe`, `aug_jira_core`, `aug_jira_de`, `aug_jira_ds`, `aug_jira_sqd` |
+
+## 2026-10-08 — Rerank loads from a local snapshot
+
+**Goal**: Search must rerank with the configured cross-encoder when huggingface.co resets the connection.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| Rerank load | Each search HEAD-requested `BAAI/bge-reranker-v2-m3` from huggingface.co and stalled on connection reset | Weights download once, via the mirror when the default host resets, then every search loads that snapshot and reranks |
+
+## 2026-10-19 — BGE models download before search
+
+**Goal**: Search loads the two local BAAI models from disk instead of fetching them on the first tool call.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| Model download | First `fetch_related_models` downloaded `BAAI/bge-m3` and `BAAI/bge-reranker-v2-m3`; the embedder snapshot failed on `imgs/.DS_Store` | `python -m rag download` fetches both into `~/.cache/tahoepilot/models`, skipping that file; search only loads those directories |
+
 <!-- Append the next optimization section above this line -->
 

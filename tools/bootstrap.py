@@ -6,11 +6,18 @@ from typing import Any
 
 _REGISTERED = False
 _ORIGINAL_REGISTER_TOOLS: dict[str, dict[str, list[Any]]] | None = None
+_RAG_IMPORT_ERROR: ImportError | None = None
+
+
+def rag_tools_import_error() -> ImportError | None:
+    """Return the ``tools.rag`` import error when the RAG extra is not installed."""
+    ensure_tools_registered()
+    return _RAG_IMPORT_ERROR
 
 
 def ensure_tools_registered() -> None:
     """Load every static tool module once (decorators populate ``register_tools``)."""
-    global _REGISTERED, _ORIGINAL_REGISTER_TOOLS
+    global _REGISTERED, _ORIGINAL_REGISTER_TOOLS, _RAG_IMPORT_ERROR
     if _REGISTERED:
         return
 
@@ -27,9 +34,9 @@ def ensure_tools_registered() -> None:
     import tools.plan  # noqa: F401
     try:
         import tools.rag  # noqa: F401
-    except ImportError:
-        # Optional: pip install tahoepilot[rag]
-        pass
+    except ImportError as exc:
+        # Leave RAG tools unregistered; callers read this via rag_tools_import_error().
+        _RAG_IMPORT_ERROR = exc
     import tools.web.search  # noqa: F401
 
     from agent.registry import AGENTS

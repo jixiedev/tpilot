@@ -28,7 +28,7 @@ from agent.specialists.databot.card_staging import (
     merge_staging_cards,
     staging_entry_from_card,
 )
-from rag.store import search as qdrant_search
+from rag.qdrant import search as qdrant_search
 from tools.common import bind_tool_to_agent, encode_tool_summary
 
 """
@@ -160,9 +160,9 @@ class SemanticProfile(TypedDict):
 SEMANTIC_PROFILES: list[SemanticProfile] = [
     {
         "layer": "hive_analytics",
-        "collection": "dbt_models",
+        "collection": "aug_dbt_models",
         "description": (
-            "Analytics-layer dbt semantic models in the Hive warehouse. "
+            "Hive dbt semantic models (hybrid dense+sparse index). "
             "Use for merchant, transaction, and product analytics tables; "
             "primary source for BI / Tableau / report work."
         ),
@@ -187,9 +187,9 @@ def _tool_description() -> str:
     return (
         "Search indexed dbt semantic models and return candidate `TableCard`s.\n\n"
         "Use when the user asks which dbt model holds a column / dimension / metric, "
-        "or how a metric is computed. Each model is indexed as two Qdrant points "
-        "(`model+columns` and `model+metrics`); the `chunk_type` filter lets you "
-        "narrow the search to one side.\n\n"
+        "or how a metric is computed. Each model is indexed as one or more Qdrant "
+        "points (`model+columns` and/or `model+metrics`, packed to the embedding "
+        "window); the `chunk_type` filter lets you narrow the search to one side.\n\n"
         "Pick `layer` from the catalog below. Default `chunk_type=\"any\"` searches "
         "both; use `\"model+columns\"` for column / entity / dimension matches, "
         "`\"model+metrics\"` for metric / aggregation matches.\n\n"
@@ -368,9 +368,9 @@ def fetch_related_models(
     chunk_filter = _normalize_chunk_type(chunk_type)
     limit = max(1, min(int(limit), 20))
 
-    # Each model has 2 points (columns + metrics), so we over-fetch and
-    # deduplicate by model_name to honor the requested `limit` of unique models.
-    fetch_limit = max(limit * 2, 10)
+    # A model may have several packed column/metric points, so over-fetch
+    # and deduplicate by model_name to honor the requested `limit`.
+    fetch_limit = max(limit * 6, 20)
     query_filter = _payload_filter(chunk_filter)
     hits = qdrant_search(
         profile["collection"],
@@ -449,6 +449,10 @@ def commit_cards(
     turn under a new id), the matching row is used. Do not echo the entire
     TableCard dict.
 
+    Calling this tool sets ``cards_committed`` and ends the fetch stage,
+    including ``selections=[]`` when ``fetch_related_models`` failed or
+    staged nothing. Do not invent staging ids.
+
     Why ``list[Any]``: keeps the tool JSON schema provider-friendly.
     """
     full_state = runtime.state if runtime is not None else {}
@@ -473,10 +477,13 @@ def commit_cards(
         approved_cards=approved_cards,
         selections=selections,
     )
+    if not updated:
+        note += " Fetch stage exit is recorded with no cards."
     tool_call_id = (runtime.tool_call_id if runtime else None) or "missing"
     return Command(
         update={
             "committed_cards": updated,
+            "cards_committed": True,
             "messages": [
                 ToolMessage(
                     content=note,

@@ -62,10 +62,10 @@ you intend to use for this question (required fields on each selection).
 auto-edit hive models or dbt yml — surface the conflict for the user to act on.
 
 Hard rules:
-- **Exit contract (required):** You MUST call ``commit_cards`` so ``state.committed_cards`` \
-is non-empty before this subgraph can end. The router exits only when ``committed_cards`` \
-is populated; stopping tool calls or plain text alone will not finish \
-the stage.
+- **Exit contract (required):** You MUST call ``commit_cards``. That call sets \
+``cards_committed`` and ends this subgraph, even when ``selections`` is empty. \
+Stopping tool calls or plain text alone will not finish the stage. \
+``committed_cards`` stays empty when nothing was staged — that is valid.
 - One tool call per model step in this stage (do not batch ``fetch_related_models`` and
   glossary tools in the same assistant message — strict providers reject mixed tool results).
 - Do not run SQL, do not call warehouse tools, do not call ``trino_run_query`` in this stage.
@@ -80,21 +80,23 @@ and gate-reason text are filled by the outer ``prepare_cards_for_gate`` node —
     2. ``commit_cards(selections=[...])`` — one object per card, each with \
 ``staging_id``, ``selected_dimensions``, and ``selected_metrics`` (use exact column/metric \
 names from the staged card). Only these land in ``committed_cards``.
-- After ``commit_cards`` succeeds and ``committed_cards`` reflects your best answer, stop \
-calling tools; the router will end the stage automatically.
+- After ``commit_cards`` returns, stop calling tools; the router ends the stage.
+- If ``fetch_related_models`` errors or stages nothing, do not invent ids. Call \
+``commit_cards`` with ``selections=[]`` so the stage can end with no models.
 """
 
 FETCH_CARDS_NEXT_STEP_PROMPT = """\
 Pick the next single step toward the stage goal. Review the latest tool \
 results (if any), then take exactly one action: one tool call, optionally \
-with a short user-facing status line (see Chat style). If staging is done but \
-``committed_cards`` is still empty, your next step MUST be ``commit_cards`` — \
-do not exit or reply with plain text until that contract is met.
+with a short user-facing status line (see Chat style). If you have staged or \
+approved models to keep, call ``commit_cards`` with those ids. If nothing was \
+staged (RAG failed or returned no hits), call ``commit_cards`` with \
+``selections=[]``. Do not exit with plain text before that call.
 """
 
 FETCH_CARDS_TOOL_BUDGET_PROMPT = """\
-You have used the per-stage tool budget. If you have candidate models, you MUST call \
-``commit_cards`` now so ``committed_cards`` is populated — the stage cannot end without it. \
-If you truly have no viable candidates, stop; the outer graph will handle the empty case. \
+You have used the per-stage tool budget. Call ``commit_cards`` now — with staged \
+ids if you have them, or ``selections=[]`` if ``fetch_related_models`` failed or \
+returned nothing. The stage cannot end without that call. \
 One tool call per turn; optional one user-facing status line (see Chat style).
 """

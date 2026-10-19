@@ -6,7 +6,7 @@ from typing import Any, Literal, TypedDict
 
 from langchain_core.tools import tool
 
-from rag.store import search as qdrant_search
+from rag.qdrant import search as qdrant_search
 from tools.common import bind_tool_to_agent
 
 JiraProject = Literal["tahoe", "core", "de", "ds", "sqd"]
@@ -25,7 +25,7 @@ JIRA_PROFILES: list[JiraProfile] = [
         "project": "tahoe",
         "jira_key": "TAHOE",
         "jira_name": "Tahoe",
-        "collection": "jira_tahoe",
+        "collection": "aug_jira_tahoe",
         "description": (
             "Historical Wish offline data platform / lakehouse board (issue keys TAHOE-*). "
             "Covers older Airflow DAGs & images, Hive/Presto/Trino, Spark/EMR, Flink & Kafka / MSK, "
@@ -40,7 +40,7 @@ JIRA_PROFILES: list[JiraProfile] = [
         "project": "core",
         "jira_key": "CORE",
         "jira_name": "Infrastructure Core",
-        "collection": "jira_core",
+        "collection": "aug_jira_core",
         "description": (
             "Company-wide infrastructure and multi-project board (issue keys CORE-*). "
             "Includes Storage & Compute capacity, Kubernetes/k8s clusters & nodes, "
@@ -57,7 +57,7 @@ JIRA_PROFILES: list[JiraProfile] = [
         "project": "de",
         "jira_key": "DSE",
         "jira_name": "Data Science and Engineering",
-        "collection": "jira_data_engineer",
+        "collection": "aug_jira_de",
         "description": (
             "Data Science & Engineering delivery board (issue keys DSE-*; often labeled mde). "
             "Use for EXP / experimentation framework (assignment, metrics, stats, DQ), "
@@ -72,7 +72,7 @@ JIRA_PROFILES: list[JiraProfile] = [
         "project": "ds",
         "jira_key": "CXDS",
         "jira_name": "Consumer Data Science",
-        "collection": "jira_data_science",
+        "collection": "aug_jira_ds",
         "description": (
             "Consumer Data Science (issue keys CXDS-*). "
             "Use for CX product analytics and experiment analysis around Video / Wish Clips, "
@@ -86,7 +86,7 @@ JIRA_PROFILES: list[JiraProfile] = [
         "project": "sqd",
         "jira_key": "SQD",
         "jira_name": "SQD",
-        "collection": "jira_sqd",
+        "collection": "aug_jira_sqd",
         "description": (
             "SQD support / queue tickets (issue keys SQD-*) when indexed. "
             "Use for cross-team support requests and escalations filed in SQD rather than "
@@ -148,7 +148,6 @@ def _format_hit(hit: dict[str, Any]) -> dict[str, Any]:
         "description": description,
     }
 
-
 @bind_tool_to_agent("knowledge,default")
 @tool(description=_tool_description())
 def fetch_related_jira_tickets(
@@ -168,8 +167,21 @@ def fetch_related_jira_tickets(
         known = ", ".join(sorted(_PROJECT_BY_NAME))
         raise ValueError(f"Unknown Jira project {project!r}; choose one of: {known}")
     limit = max(1, min(int(limit), 20))
-    hits = qdrant_search(profile["collection"], cleaned, limit=limit)
-    return [_format_hit(hit) for hit in hits]
+    # Tickets may occupy several chunks; over-fetch then dedupe by issue_key.
+    fetch_limit = max(limit * 4, 10)
+    hits = qdrant_search(profile["collection"], cleaned, limit=fetch_limit)
+    seen: set[str] = set()
+    results: list[dict[str, Any]] = []
+    for hit in hits:
+        payload = hit.get("payload") or {}
+        key = str(payload.get("issue_key") or "").strip() or str(hit.get("id"))
+        if key in seen:
+            continue
+        seen.add(key)
+        results.append(_format_hit(hit))
+        if len(results) >= limit:
+            break
+    return results
 
 
 TOOLS = [fetch_related_jira_tickets]
