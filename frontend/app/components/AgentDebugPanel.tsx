@@ -26,8 +26,8 @@ import { useAgent } from "@copilotkit/react-core/v2";
  * ``CopilotSidebar``; it is intentionally low-noise so it does not
  * distract from the chat during normal use.
  */
-export function AgentDebugPanel() {
-  const { agent, isReady } = useAgent({ agentId: "databot" });
+export function AgentDebugPanel({ agentId }: { agentId: string }) {
+  const { agent, isReady } = useAgent({ agentId });
 
   // ``agent`` is a class instance whose fields are mutated in place by
   // the AG-UI client when ``STATE_SNAPSHOT`` / ``MESSAGES_SNAPSHOT``

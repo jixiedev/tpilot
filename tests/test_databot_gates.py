@@ -91,6 +91,7 @@ def test_gate_prompt_sql_uses_default_reasons_when_state_empty() -> None:
     )
     reasons_by_id = {opt["id"]: opt["reason"] for opt in payload["options"]}
     assert reasons_by_id == DEFAULT_SQL_GATE_REASONS
+    assert payload["draft_sql"] == "SELECT 1"
 
 
 def test_gate_prompt_cards_preserves_llm_reasons_over_defaults() -> None:

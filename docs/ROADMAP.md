@@ -19,7 +19,7 @@
 | M3 | 能查知识 | 用自然语言问 Tahoe 团队知识：代码库、Google Docs、Wiki/FAQ、Jira；Agent 检索并解释 | 已完成（v1）：`KnowledgeAgent`（`--agent knowledge` / Intent `KNOWLEDGE`）；Jira Qdrant 检索；DataHub + 只读 K8s。Drive zip 与 dbt semantic model 可入库；`fetch_related_models` 工具已接；代码库 / Wiki / Drive 检索工具待接 |
 | M4 | 能协作 | 复杂任务拆给多个专精 Agent，彼此传递中间结果 | 已完成（进程内）：`IntentOrchestrator` 复合意图 → `execution_plan` → `PlannedAgentChain`；上游输出喂下游；子 Agent 短时会话。跨服务组合见 F16（A2A） |
 | M5 | 能诊断 | 描述数据异常，Agent 跑质量检查、推根因、出报告 | 未开始 |
-| M6 | 可部署 | 从本地 CLI 变成可对外提供的服务（UI、API、权限、观测） | 进行中（本地）：Next.js + CopilotKit v2 + LangGraph AG-UI 联调（Databot 聊天、Gate、Cards/SQL/Results 面板）；对外 API、权限、生产部署与观测待做 |
+| M6 | 可部署 | 从本地 CLI 变成可对外提供的服务（UI、API、权限、观测） | 进行中（本地）：Next.js + CopilotKit v2 + LangGraph AG-UI 联调（Databot 聊天、Gate、Cards/SQL/Results 面板；Plan 聊天、任务树、嵌套 specialist 门弹窗）；对外 API、权限、生产部署与观测待做 |
 
 ## Features
 
@@ -30,7 +30,7 @@
 | F3 | Memory | 跨 Session 状态持久化；用户偏好与历史上下文召回 | P0 | 已完成：checkpointer 会话 + `FileProfileStore` / `refine_user_profile` |
 | F4 | Memory Compression | 长对话自动压缩/摘要，保留关键事实，控制 context 窗口 | P0 | 已完成：三层压缩流水线 + `compact_context` |
 | F5 | Planning | 任务规划与分解，Plan-and-Execute | P1 | 已完成：Intent 有序 `execution_plan` + AgentChain 执行 |
-| F6 | Human-in-the-Loop | 关键节点 interrupt，等待用户确认或补充 | P1 | 已完成：Intent 低置信澄清 interrupt + CLI resume；Databot v2 cards/SQL 人工门（AG-UI v2 interrupt + CopilotKit Gate / Artifact 面板、卡片勾选与 SQL 编辑） |
+| F6 | Human-in-the-Loop | 关键节点 interrupt，等待用户确认或补充 | P1 | 已完成：Intent 低置信澄清 interrupt + CLI resume；Databot v2 cards/SQL 人工门（AG-UI v2 interrupt + CopilotKit Gate / Artifact 面板、卡片勾选与 SQL 编辑）；Plan 嵌套 specialist 门（父图 interrupt + `/plan` 弹窗选择） |
 | F7 | Reflective Reasoning | 输出前自我审查与修正（一致性检查、retry） | P1 | 未开始 |
 | F8 | Parallel Tool Use | 并行工具调用与结果聚合 | P1 | 未开始 |
 | F9 | Eval Loop | 评测集回归、Prompt/Agent 行为持续迭代 | P2 | 已完成（v1）：`observability` 用例 JSON + Observer 打分（工具序/轮次/答案）+ `python -m observability` |
@@ -57,7 +57,7 @@
 | M4 | 计划确认 HITL；比纯文本更结构化的 handoff payload |
 | M4 | A2A 跨服务编排（F16）：专精 Agent 以 A2A endpoint + Agent Card 暴露；Intent / 编排层用 A2A task + artifact 组合 databot、knowledge、未来 diagnostic；远程鉴权、超时与降级 |
 | M5 | 仍按未开始推进（诊断 Agent） |
-| M6 | 生产部署、鉴权、多租户、观测（F10）；checkpoint / thread 管理；Intent 全链路 Web UI（当前以 Databot 专精 UI 为主） |
+| M6 | 生产部署、鉴权、多租户、观测（F10）；checkpoint / thread 管理；Intent 全链路 Web UI（当前以 Databot 专精 UI 为主）；Plan 页弹窗目前是决策面（无 Cards 勾选 / SQL 编辑器） |
 
 ### 特性相关
 
@@ -67,7 +67,7 @@
 | F2 | 对外用户回复的 typed / JSON schema |
 | F3 | 跨会话语义召回（不止画像与 checkpointer） |
 | F5 | 通用 Plan 节点（非仅 Intent 编排）；计划修订与重规划；与 F16 A2A 组合时的跨 Agent 任务分解 |
-| F6 | 通用确认门（写操作、高成本工具、发布计划前确认）；chart gate Web UI；Databot profile sidecar 并入 `UserProfile` |
+| F6 | 通用确认门（写操作、高成本工具、发布计划前确认）；chart gate Web UI；Databot profile sidecar 并入 `UserProfile`；Plan 弹窗目前仅为决策，不包含 Cards 勾选 / SQL 编辑 |
 | F7–F8、F10–F13 | F7/F8/F10–F13 仍按未开始推进（反思、并行工具、监控、语义缓存、选模、程序性记忆）；F9 评测见下文 **F9 Eval Loop** |
 | F16 | Agent Card 注册与发现；A2A task / artifact 映射到现有 handoff 结构；与 M6 服务化部署对齐（鉴权、观测、多租户） |
 | F14 | 失败观测指标；更完整的集成测试覆盖 |

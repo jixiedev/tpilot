@@ -89,7 +89,6 @@ DATABOT = AgentSpec(
     create_agent=_create_databot_agent,
     accepted_mcp={
         "default": (MCP_ALL_SERVERS,),
-        "fetch": ("datahub",),
     },
     intention="DATA",
     intention_description=(
@@ -103,11 +102,7 @@ KNOWLEDGE = AgentSpec(
     name="knowledge",
     description="Tahoe team knowledge specialist (code, docs, wikis, Jira)",
     create_agent=_create_knowledge_agent,
-    accepted_mcp={
-        "catalog": ("datahub",),
-        "default": ("datahub",),
-    },
-    mcp_replace_identifiers=frozenset({"catalog"}),
+    accepted_mcp={},
     intention="KNOWLEDGE",
     intention_description=(
         "team knowledge — Tahoe codebase, architecture docs, Google Docs, "
