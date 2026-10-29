@@ -41,6 +41,22 @@ export default function Page() {
           </div>
         </div>
         <div className="databot-topbar-actions">
+          <nav className="databot-topbar-nav" aria-label="Agent switcher">
+            <span
+              className="databot-nav-link databot-nav-link--active"
+              aria-current="page"
+              data-testid="databot-nav-databot"
+            >
+              Databot
+            </span>
+            <a
+              className="databot-nav-link"
+              href="/plan"
+              data-testid="databot-nav-plan"
+            >
+              Plan
+            </a>
+          </nav>
           <ColorSchemeToggle />
           <label className="databot-switch-field">
             <input

@@ -47,6 +47,12 @@ def _register_langgraph_tool_invocation_errors() -> None:
 _register_langgraph_tool_invocation_errors()
 
 
+def _is_graph_interrupt(exc: BaseException) -> bool:
+    """True when ``exc`` is LangGraph control-flow, not a tool failure."""
+    names = {type(exc).__name__, *(base.__name__ for base in type(exc).__mro__)}
+    return bool(names & {"GraphInterrupt", "GraphBubbleUp", "NodeInterrupt"})
+
+
 def make_handle_tool_errors(
     *,
     tool_name_resolver: Callable[[Exception], str] | None = None,
@@ -54,6 +60,8 @@ def make_handle_tool_errors(
     """Build a ToolNode error formatter that returns structured TOOL ERROR content."""
 
     def handle_tool_errors(exc: Exception) -> str:
+        if _is_graph_interrupt(exc):
+            raise exc
         tool_name = "unknown"
         if tool_name_resolver is not None:
             tool_name = tool_name_resolver(exc)

@@ -1112,6 +1112,55 @@ Implementation notes (behavior only): detect emits intentions + plan steps; publ
 | Visual system | Arial, flat white panes, hard gray borders, native checkbox | Plus Jakarta type, lake-blue tokens, rounded panes, switch + pill actions |
 | Workspace chrome | Header and columns sat on a blank page with 1990s form controls | Soft canvas, glass topbar, card columns, Copilot input restyled to match |
 
+## 2026-09-06 — Plan nested specialist HITL
+
+**Goal**: When Plan delegates to Databot, cards/SQL gates pause the Plan chat so the user can choose in a modal, instead of the tool failing.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| Nested Databot gates | `invoke_agent` had no HITL handler; the gate raised and became a tool error | Child interrupt is re-emitted on the Plan graph; `/plan` shows a modal and `resolve`s the same gate payload |
+| Tool replay | N/A (run failed) | On resume, skip `prepare_turn_input` when the child thread is still at a gate; an in-process resume count keeps cards → SQL interrupt order aligned |
+| SQL gate payload | Snippet only inside the question text | Full `draft_sql` in the interrupt JSON so Plan can render without Databot live state |
+| Plan chat monologue | Execute/adjust plain text and reasoning rows appeared in the sidebar | ReAct subgraphs use `persist_plain_text=False`; `/plan` reuses Databot message filtering and hides reasoning rows |
+| Plan UI parity | No tool cards, no gate banner, no client reset; tools showed “View in Inspector” | `PlanToolRenderers`, `PlanGateChatBanner`, `planClientReset`, debug toggle; patterns documented in `docs/FRONTEND_AGENTS_UI.md` |
+
+**Why this is not “Databot as a Plan subgraph node”**
+
+Plan still picks the specialist at runtime with `invoke_agent(agent_name=...)`. A compiled subgraph node (`add_node("databot", databot_graph)`) would bubble interrupts automatically and resume from the child checkpoint without Python scratchpad alignment — but it needs a static node (or a new router node) per specialist, and it would replace the current ReAct execute loop. The parent node would still re-enter on resume either way. Nested `ainvoke` on a child `thread_id` keeps dynamic delegation; the extra cost is replay-safe `SpecialistRunner` plus a Plan-page modal. Revisit a subgraph node if execute is rewritten away from tools.
+
+## 2026-09-06 — Plan gate interrupt through StepActionNode
+
+**Goal**: Let nested Databot cards/SQL gates pause the Plan run so `/plan` can show the gate modal instead of a tool-error chat loop.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| `invoke_agent` + human gate | `StepActionNode` treated `GraphInterrupt` as a tool failure; Plan finished the turn and the LLM asked for approve/dryrun in chat | Tool error handler re-raises LangGraph control-flow interrupts; Plan `RUN_FINISHED` carries `outcome: interrupt` and `PlanInterruptDialog` opens |
+
+## 2026-09-06 — Agent UI & AG-UI event documentation
+
+**Goal**: Document how Databot and Plan UIs consume AG-UI events end-to-end, with shared vs per-agent handling.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| UI architecture doc | Feature parity checklist only | `docs/FRONTEND_AGENTS_UI.md` — event catalog, SSE pipeline, per-agent consumers, side channels |
+
+## 2026-09-07 — Plan SQL gate dialog vs stale Action-required banner
+
+**Goal**: After approving model cards, show the SQL confirmation dialog instead of a leftover Action-required banner over a nested tool-call stream.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| Plan gate banner | Any parseable `pendingInterrupts[0]`, including the cards payload kept during the SQL-draft run | Hide while the Plan run is in progress; skip nested-HITL replay placeholders |
+| Plan confirmation dialog | `useInterrupt` rendered `interrupts[0]` only after `onRunFinalized` | Prefer the cards/sql/chart payload in the open interrupt list; if the hook never mounts, resume from `pendingInterrupts` once the run is idle |
+
+## 2026-09-07 — Stop run must not open the SQL gate dialog
+
+**Goal**: CopilotKit “stop” should end the turn, not surface a leftover draft-SQL confirmation.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| Stop / abort | `isRunning` went false while `pendingInterrupts` still held the SQL (or cards) gate, so the idle fallback opened the modal | Abort clears pending gates and ignores them until the next run |
+
 ## 2026-09-07 — RAG document graph and shared ingest
 
 **Goal**: One document → paragraph → chunk model for Jira, Drive, and dbt ingest, with a single embed/upsert path.
@@ -1218,5 +1267,61 @@ Implementation notes (behavior only): detect emits intentions + plan steps; publ
 |--------------|--------|-------|
 | Model download | First `fetch_related_models` downloaded `BAAI/bge-m3` and `BAAI/bge-reranker-v2-m3`; the embedder snapshot failed on `imgs/.DS_Store` | `python -m rag download` fetches both into `~/.cache/tahoepilot/models`, skipping that file; search only loads those directories |
 
+## 2026-10-19 — Databot chat stays inside its column
+
+**Goal**: A Databot turn should show tool cards and the final reply, with the transcript and the working panels in separate regions.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| Inspector | CopilotKit Web Inspector sat on the New chat button | Inspector is off; the top bar is clear |
+| In-flight prose | The latest assistant message streamed planning text into the transcript | That message stays hidden until the turn ends; tool cards and the finished reply remain |
+| Transcript scroll | The message scroller could grow past the chat column and sit under the composer | The scroller stays inside the column, and the latest line clears the input |
+
+## 2026-10-19 — Plan confirmation dialog stays on screen
+
+**Goal**: A Plan confirmation should show the model cards or SQL and every action, and an empty model list should not open another blank dialog.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| Dialog height | A long model list pushed Halt, Dry-run, and the feedback box below the window | The list scrolls inside the dialog; the actions and feedback stay on screen |
+| Empty model gate | Approving a dialog with no models opened another empty SQL dialog | That choice closes the turn so the reply can use the result already produced |
+
+## 2026-10-29 — Plan tree follows each specialist
+
+**Goal**: The plan window on the right should change status while a specialist is working, and that specialist should still open its own confirmation.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| Stage pill | A specialist stage such as `sql` overwrote the plan stage, so the pill dropped to Idle while a step was still in progress | A step that is in progress keeps the pill on Executing |
+| Step status | The tree kept the first claim for the whole round, so later steps stayed pending until the round ended | Each delegation publishes the tree when the step starts and when it finishes, so the next step moves to in progress |
+
+## 2026-10-29 — Plan tree survives a later snapshot
+
+**Goal**: The plan window should keep showing steps that have already moved, including after the page reconnects to a paused run.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| Step status on a later snapshot | The round's parent checkpoint stayed on the first claimed step, so the next snapshot put the tree back to the start | Each snapshot uses the live plan, so a finished step stays finished while a specialist is still running |
+| Reconnect | A paused run replayed the confirmation and left the plan window empty or on the opening claim | The replay includes the current plan, so the tree is on screen with the confirmation |
+
 <!-- Append the next optimization section above this line -->
+
+---
+
+## 2026-10-23 — AG-UI backend URL must be `127.0.0.1`, not `localhost`
+
+**Goal**: Stop the Plan agent from failing with `HTTP 403` / `INCOMPLETE_STREAM`. The 2026-08-29 entry fixed the same root cause, but only by adding `frontend/.env.local` — a gitignored file that is no longer present, so the default in the route handlers took over again.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| `AGUI_BACKEND_URL` default | `http://localhost:8000/agui` | `http://127.0.0.1:8000/agui` (literal IPv4, cannot resolve to `::1`) |
+| `localhost` resolution | `::1` first on macOS → anything bound to the IPv6 loopback port wins | Never used for the loopback backend |
+| Symptom when `[::1]:8000` is taken | `kubectl port-forward` to JupyterHub answered the request → JupyterHub's HTML login page with `HTTP 403`; the CopilotKit runtime could not parse it as AG-UI events and reported `INCOMPLETE_STREAM` | The request reaches `langgraph dev` and returns a real AG-UI SSE stream |
+| Symptom when `[::1]:8000` is free | Node's dual-stack fetch tried `[::1]:8000` first and waited ~20 s for `ECONNREFUSED` before falling back to IPv4 | One hop, no delay |
+| Mitigation | `frontend/.env.local` with an override — gitignored, so it silently disappears | The default itself is unambiguous; `AGUI_BACKEND_URL` still overrides it |
+| `frontend/.gitignore` | Did not list the local env file | `/.env.local` and `/.env.development.local` ignored |
+
+Also fixed in the same round: the Plan agent's step statuses never advanced (`plan_snapshot` stayed `not_started` forever). The execution path now owns them — `invoke_agent` marks the step completed or blocked and the round node claims the next step — with `Annotated` reducers on the multi-writer channels so two tools writing the same key in one step no longer raise `InvalidUpdateError`.
+
+---
 

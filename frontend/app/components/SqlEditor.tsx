@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
 // ---------------------------------------------------------------------------
 // SqlEditor
@@ -11,9 +11,17 @@ import { useEffect, useState } from "react";
 //                  request a regenerate (which re-runs the SQL subgraph with
 //                  a feedback comment written into the next-turn state).
 //
-// We keep the textarea's local state in sync with the upstream prop so
-// backend-driven updates (LLM regenerated, gate approved) replace what
-// the human was typing — we never silently drop human edits.
+// The upstream ``draft`` prop is produced by the agent and can change under
+// the human's feet (the SQL subgraph regenerates it). The editor therefore
+// keeps its own copy and reconciles the two:
+//
+//   - upstream changed, human has NOT edited  -> adopt the upstream draft
+//   - upstream changed, human HAS edited      -> keep the human's text and
+//     surface the divergence with a "load / keep" choice
+//
+// The previous implementation overwrote the textarea unconditionally from
+// an effect, which silently discarded in-progress human edits — the exact
+// opposite of what its comment claimed.
 // ---------------------------------------------------------------------------
 
 export type SqlEditorMode = "interactive" | "readonly";
@@ -32,6 +40,15 @@ export interface SqlEditorProps {
 
 const MAX_FEEDBACK = 500;
 
+type EditorState = {
+  /** The last upstream draft we have reconciled with. */
+  synced: string;
+  /** What the textarea shows. */
+  text: string;
+  /** A newer upstream draft the human has not accepted yet. */
+  conflict: string | null;
+};
+
 export function SqlEditor({
   draft,
   approved,
@@ -44,20 +61,35 @@ export function SqlEditor({
 }: SqlEditorProps) {
   const interactive = mode === "interactive";
   const source = approved || draft;
-  const [localDraft, setLocalDraft] = useState(draft);
+
+  const [editor, setEditor] = useState<EditorState>({
+    synced: draft,
+    text: draft,
+    conflict: null,
+  });
   const [feedback, setFeedback] = useState("");
 
-  // Keep the editor in sync with the upstream draft when the LLM
-  // regenerates the SQL — but only if the user isn't currently typing
-  // a different version. We use a key change check to avoid stomping
-  // a half-written local edit on every render.
-  useEffect(() => {
-    setLocalDraft(draft);
-  }, [draft]);
+  // Reconcile with the upstream draft. React's "adjust state while
+  // rendering" pattern — no effect, so no cascading render, and the
+  // comparison below keeps it to a single pass per upstream change.
+  if (editor.synced !== draft) {
+    const humanEdited = editor.text !== editor.synced;
+    // The upstream now matches what the human has: their own save landed
+    // (the backend strips surrounding whitespace, so compare loosely).
+    const matchesHuman = editor.text.trim() === draft.trim();
+    setEditor(
+      humanEdited && !matchesHuman
+        ? { synced: draft, text: editor.text, conflict: draft }
+        : { synced: draft, text: draft, conflict: null },
+    );
+  }
+
+  const dirty = editor.text !== editor.synced;
+  const hasConflict = editor.conflict !== null;
 
   const handleSave = () => {
-    if (onSaveDraft && localDraft.trim().length > 0) {
-      onSaveDraft(localDraft);
+    if (onSaveDraft && editor.text.trim().length > 0) {
+      onSaveDraft(editor.text);
     }
   };
 
@@ -71,16 +103,50 @@ export function SqlEditor({
         {!approved && validated && <span className="tag tag-validated">EXPLAIN ✓</span>}
         {!approved && !validated && interactive && <span className="tag tag-draft">draft</span>}
         {!approved && !validated && !interactive && <span className="tag tag-draft">no validation</span>}
+        {dirty && !approved && (
+          <span className="tag tag-draft" data-testid="sql-unsaved-badge">
+            unsaved edits
+          </span>
+        )}
       </header>
+
+      {hasConflict && (
+        <div className="sql-conflict" role="status" data-testid="sql-conflict">
+          <span>
+            The agent produced a new draft while you were editing. Your text was kept.
+          </span>
+          <button
+            type="button"
+            className="btn btn-ghost"
+            onClick={() =>
+              setEditor((prev) => ({ ...prev, text: prev.conflict ?? "", conflict: null }))
+            }
+          >
+            Load agent&apos;s version
+          </button>
+          <button
+            type="button"
+            className="btn btn-ghost"
+            onClick={() => setEditor((prev) => ({ ...prev, conflict: null }))}
+          >
+            Keep mine
+          </button>
+        </div>
+      )}
 
       {interactive ? (
         <textarea
           className="sql-textarea"
-          value={localDraft}
+          value={editor.text}
           disabled={disabled}
-          onChange={(e) => setLocalDraft(e.target.value)}
+          onChange={(e) =>
+            setEditor((prev) => ({
+              ...prev,
+              text: e.target.value,
+            }))
+          }
           spellCheck={false}
-          rows={Math.max(4, Math.min(20, localDraft.split("\n").length + 1))}
+          rows={Math.max(4, Math.min(20, editor.text.split("\n").length + 1))}
           aria-label="SQL draft"
         />
       ) : (
@@ -94,7 +160,7 @@ export function SqlEditor({
             className="btn btn-primary"
             onClick={handleSave}
             disabled={
-              disabled || localDraft === draft || localDraft.trim().length === 0
+              disabled || !dirty || editor.text.trim().length === 0
             }
           >
             Save draft

@@ -7,6 +7,7 @@ import { SqlEditor } from "./SqlEditor";
 import { TableCardList } from "./TableCardList";
 import { useDatabotActions } from "./useDatabotActions";
 import { databotDisplayCardPool } from "./databotCardPool";
+import { selectGateInterrupt } from "./databotGateUtils";
 import { hasExecutionResult } from "./executionResultUtils";
 import type { DatabotAgentState, DatabotStage } from "./types";
 
@@ -20,6 +21,15 @@ import type { DatabotAgentState, DatabotStage } from "./types";
 //
 // User edits dispatch to the LangGraph checkpoint via
 // ``POST /api/databot/actions`` (see ``useDatabotActions``).
+//
+// Two rules drive the interaction model here:
+//
+//  1. A control is only editable while the agent is *idle*. While the SQL
+//     subgraph is running it overwrites ``draft_sql`` at the end, so any
+//     human edit made in that window would be silently lost.
+//  2. "The gate is open" is proven by a pending interrupt, not by the
+//     agent's ``stage`` field — the SQL subgraph flips ``stage`` to
+//     ``gate_sql`` before the gate actually interrupts.
 // ---------------------------------------------------------------------------
 
 type Tab = "cards" | "sql" | "results";
@@ -34,8 +44,19 @@ export function DatabotArtifactPanel() {
   const { agent, isReady } = useAgent({ agentId: "databot" });
   const rawState = isReady ? (agent as unknown as { state: unknown }).state : undefined;
   const ds = (rawState as DatabotAgentState | undefined) ?? undefined;
+  const stage = ds?.stage;
+
+  // The tab follows the agent's stage until the human picks one. Picking a
+  // tab is a temporary override: the next stage change re-syncs the panel,
+  // otherwise a single early click would strand the user on the wrong tab
+  // (e.g. on "Results" while the SQL gate opens).
   const [manualTab, setManualTab] = useState<Tab | null>(null);
-  const activeTab = manualTab ?? stageToTab(ds?.stage);
+  const [lastStage, setLastStage] = useState<DatabotStage | undefined>(stage);
+  if (stage !== lastStage) {
+    setLastStage(stage);
+    setManualTab(null);
+  }
+  const activeTab = manualTab ?? stageToTab(stage);
 
   const {
     updateCardSelection,
@@ -46,13 +67,20 @@ export function DatabotArtifactPanel() {
     clearError,
   } = useDatabotActions(isReady ? agent : undefined, isReady);
 
-  const interactiveCards = ds?.stage === "gate_cards";
-  const interactiveSql = ds?.stage === "sql" || ds?.stage === "gate_sql";
-  const sqlGateOpen = ds?.stage === "gate_sql";
+  const agentBusy = Boolean(agent?.isRunning);
+  const pendingInterrupts = agent?.pendingInterrupts;
+  const cardsGateOpen =
+    Boolean(selectGateInterrupt(pendingInterrupts, "cards")) && !agentBusy;
+  const sqlGateOpen =
+    Boolean(selectGateInterrupt(pendingInterrupts, "sql")) && !agentBusy;
+
+  // Editing is only safe while the agent waits for a human.
+  const interactiveCards = cardsGateOpen;
+  const interactiveSql = sqlGateOpen;
 
   const displayCards = databotDisplayCardPool(ds);
 
-  const stageLabel = ds?.stage ?? "idle";
+  const stageLabel = stage ?? "idle";
   const halted = Boolean(ds?.halt_reason);
 
   return (
@@ -135,8 +163,13 @@ export function DatabotArtifactPanel() {
         {activeTab === "sql" && sqlGateOpen && (
           <p className="artifact-gate-hint" role="status">
             SQL gate is open: edit and <strong>Save draft</strong> here if you want to fix SQL
-            yourself. To ask the agent to rewrite, use <strong>Request changes</strong> in the gate
-            panel — not Regenerate here.
+            yourself. To ask the agent to rewrite it, use <strong>Regenerate with feedback</strong>{" "}
+            below or <strong>Request changes</strong> in the gate panel.
+          </p>
+        )}
+        {activeTab === "sql" && agentBusy && (
+          <p className="artifact-gate-hint" role="status">
+            The agent is drafting the SQL — the editor opens once it asks for your review.
           </p>
         )}
         {activeTab === "sql" && (
@@ -146,7 +179,7 @@ export function DatabotArtifactPanel() {
             validated={ds?.sql_validated ?? false}
             mode={interactiveSql ? "interactive" : "readonly"}
             disabled={isPending}
-            allowRegenerate={interactiveSql && !sqlGateOpen}
+            allowRegenerate={sqlGateOpen}
             onSaveDraft={(sql) => {
               void saveSqlDraft(sql).catch(() => undefined);
             }}

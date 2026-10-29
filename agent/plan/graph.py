@@ -35,11 +35,11 @@ from agent.plan.subgraphs import (
     build_run_subagent_subgraph,
 )
 from graph.builder import make_inject_system_prompt_node, static_system_prompt
-from state.state import SessionAgentState
+from agent.session import config_thread_id
 from graph.error_recovery import invoke_with_transient_retry
 from graph.messages import message_content_to_str
-from state.state import latest_human_text
-from tools.plan import run_planning
+from state.state import SessionAgentState, latest_human_text
+from tools.plan import claim_next_step, release_step_claims, run_planning
 
 logger = logging.getLogger(__name__)
 
@@ -47,7 +47,18 @@ logger = logging.getLogger(__name__)
 def make_increment_subagent_round_node() -> Callable[[PlanState], dict[str, Any]]:
     def increment_round(state: PlanState) -> dict[str, Any]:
         rounds = int(state.get("subagent_rounds") or 0) + 1
-        return {"subagent_rounds": rounds, "stage": STAGE_EXECUTE, "adjust_had_tool_calls": False}
+        patch: dict[str, Any] = {
+            "subagent_rounds": rounds,
+            "stage": STAGE_EXECUTE,
+            "adjust_had_tool_calls": False,
+        }
+        # Mark the next step as in progress so the task tree in the UI shows
+        # what the agent is working on. Without this every step stays
+        # "not started" until the model remembers to call ``mark_step``.
+        snapshot = claim_next_step(state.get("plan_id"))
+        if snapshot is not None:
+            patch["plan_snapshot"] = snapshot
+        return patch
 
     return increment_round
 
@@ -111,7 +122,16 @@ def make_summary_node(model: BaseChatModel) -> Callable[[PlanState], dict[str, A
             text = str(last.get("output") or "").strip()
         if not text:
             text = "Plan turn finished but no summary was produced."
-        return {"messages": [AIMessage(content=text)], "stage": STAGE_DONE}
+        patch: dict[str, Any] = {
+            "messages": [AIMessage(content=text)],
+            "stage": STAGE_DONE,
+        }
+        # Nothing is running any more — drop open step claims so the final
+        # task tree does not leave a step stuck on "in progress".
+        released = release_step_claims(state.get("plan_id"))
+        if released is not None:
+            patch["plan_snapshot"] = released
+        return patch
 
     return summary
 
@@ -130,6 +150,10 @@ def make_plan_entry_node(
         if stage == STAGE_DONE and question:
             patch.update(fresh_turn_state_defaults())
             patch["user_question"] = question
+        if not str(state.get("session_name") or "").strip():
+            thread_id = config_thread_id()
+            if thread_id:
+                patch["session_name"] = thread_id
         return patch
 
     return entry

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
+from typing import Any
 
 from langchain.tools import tool
 
@@ -134,6 +135,131 @@ _plans: dict[str, Plan] = {}
 
 def clear_plans() -> None:
     _plans.clear()
+
+
+def get_plan_dict(plan_id: str | None) -> dict[str, Any] | None:
+    """Return a JSON-serializable view of the named plan, or ``None``.
+
+    The frontend subscribes to this snapshot via the AG-UI ``plan_snapshot``
+    state field; the plan agent writes it back to the LangGraph checkpoint
+    after every modify so it survives process restarts.
+
+    Shape (stable — the UI binds to these keys):
+      {
+        "plan_id": str,
+        "title": str,
+        "steps": [{"index": int, "text": str, "status": str, "notes": str}, ...],
+        "progress": {"total": int, "completed": int, "in_progress": int,
+                     "blocked": int, "not_started": int},
+        "updated_at": str  # ISO-8601 UTC, last write time
+      }
+    """
+    key = (plan_id or "").strip()
+    if not key:
+        return None
+    plan = _plans.get(key)
+    if plan is None:
+        return None
+    step_views: list[dict[str, Any]] = []
+    for i, step in enumerate(plan.steps):
+        status = plan.step_statuses[i]
+        step_views.append(
+            {
+                "index": i,
+                "text": step,
+                "status": status.status_id,
+                "notes": plan.step_notes[i],
+            }
+        )
+    total = plan.step_count()
+    in_progress = sum(1 for s in plan.step_statuses if s is StepStatus.IN_PROGRESS)
+    blocked = sum(1 for s in plan.step_statuses if s is StepStatus.BLOCKED)
+    not_started = sum(1 for s in plan.step_statuses if s is StepStatus.NOT_STARTED)
+    return {
+        "plan_id": plan.plan_id,
+        "title": plan.title,
+        "steps": step_views,
+        "progress": {
+            "total": total,
+            "completed": plan.completed_step_count(),
+            "in_progress": in_progress,
+            "blocked": blocked,
+            "not_started": not_started,
+        },
+    }
+
+
+def snapshot_for(plan_id: str | None) -> dict[str, Any] | None:
+    """Alias for :func:`get_plan_dict` — used by stage_tools to read after writes."""
+    return get_plan_dict(plan_id)
+
+
+def get_plan(plan_id: str | None) -> Plan | None:
+    """Return the live :class:`Plan` for ``plan_id``, or ``None`` when unknown.
+
+    Callers outside the ``planning`` tool use this to move step statuses
+    without going through the tool (the Plan agent marks a step done when a
+    specialist returns, instead of trusting the model to call
+    ``planning(mark_step)``).
+    """
+    key = (plan_id or "").strip()
+    if not key:
+        return None
+    return _plans.get(key)
+
+
+def claim_next_step(plan_id: str | None) -> dict[str, Any] | None:
+    """Mark the next unfinished step as in-progress; return the fresh snapshot.
+
+    Stale ``in_progress`` claims are reset first: the Plan agent runs one
+    step at a time, so a claim still open when the next round starts means
+    that step never ran. Returns ``None`` when there is no plan or nothing
+    left to claim.
+    """
+    plan = get_plan(plan_id)
+    if plan is None:
+        return None
+    for i, status in enumerate(plan.step_statuses):
+        if status is StepStatus.IN_PROGRESS:
+            plan.mark_step(i, StepStatus.NOT_STARTED, None)
+    for i, status in enumerate(plan.step_statuses):
+        if status is StepStatus.NOT_STARTED:
+            plan.mark_step(i, StepStatus.IN_PROGRESS, None)
+            break
+    return get_plan_dict(plan_id)
+
+
+def release_step_claims(plan_id: str | None) -> dict[str, Any] | None:
+    """Reset open ``in_progress`` claims — nothing is running any more.
+
+    Returns the fresh snapshot when something actually changed, else
+    ``None``.
+    """
+    plan = get_plan(plan_id)
+    if plan is None:
+        return None
+    changed = False
+    for i, status in enumerate(plan.step_statuses):
+        if status is StepStatus.IN_PROGRESS:
+            plan.mark_step(i, StepStatus.NOT_STARTED, None)
+            changed = True
+    return get_plan_dict(plan_id) if changed else None
+
+
+def mark_step_status(
+    plan_id: str | None,
+    step_index: int,
+    status: StepStatus,
+    notes: str | None = None,
+) -> dict[str, Any] | None:
+    """Set one step's status (and optional note); return the fresh snapshot."""
+    plan = get_plan(plan_id)
+    if plan is None:
+        return None
+    if step_index < 0 or step_index >= plan.step_count():
+        return None
+    plan.mark_step(step_index, status, notes)
+    return get_plan_dict(plan_id)
 
 
 def _reply(headline: str, plan: Plan) -> str:

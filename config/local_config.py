@@ -171,6 +171,18 @@ def reset_local_paths_cache() -> None:
     get_local_paths.cache_clear()
 
 
+def ensure_dir(path: Path) -> None:
+    """Create ``path`` (and its parents) when it does not exist yet.
+
+    ``Path.mkdir(exist_ok=True)`` calls ``os.mkdir`` *even when the directory
+    is already there*, and ``langgraph dev`` refuses blocking syscalls inside
+    the ASGI event loop. Checking first keeps the common path syscall-free:
+    ``is_dir`` uses ``os.stat``, which is allowed.
+    """
+    if not path.is_dir():
+        path.mkdir(parents=True, exist_ok=True)
+
+
 def ensure_local_dirs() -> LocalPaths:
     paths = get_local_paths()
     for path in (
@@ -179,6 +191,6 @@ def ensure_local_dirs() -> LocalPaths:
         paths.offload_dir,
         paths.logs_dir,
     ):
-        path.mkdir(parents=True, exist_ok=True)
-    paths.log_file.parent.mkdir(parents=True, exist_ok=True)
+        ensure_dir(path)
+    ensure_dir(paths.log_file.parent)
     return paths

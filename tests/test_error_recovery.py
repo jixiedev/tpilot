@@ -221,6 +221,14 @@ def test_message_content_round_trip() -> None:
     assert parsed == structured
 
 
+def test_handle_tool_errors_reraises_graph_interrupt() -> None:
+    from langgraph.errors import GraphInterrupt
+
+    handler = make_handle_tool_errors()
+    with pytest.raises(GraphInterrupt):
+        handler(GraphInterrupt())
+
+
 def test_handle_tool_errors_callable_formats_structured_message() -> None:
     register_alternative_tool("hive_desc_table", "trino_desc_table")
     handler = make_handle_tool_errors(tool_name_resolver=lambda _exc: "hive_desc_table")

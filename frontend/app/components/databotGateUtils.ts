@@ -10,6 +10,60 @@ export interface GateInterruptValue {
   review_cards?: unknown[];
   /** Factual committed-model summary (cards gate only). */
   selection_summary?: string;
+  /** Full draft SQL (sql gate); Plan modal has no live Databot state. */
+  draft_sql?: string;
+}
+
+/** Matches ``agent.plan.nested_hitl.REPLAY_INTERRUPT_ID``. */
+export const PLAN_NESTED_HITL_REPLAY_ID = "plan-nested-hitl-replay";
+
+export interface PlanInterruptLike {
+  id?: string;
+  reason?: string;
+  message?: unknown;
+}
+
+export function isPlanReplayInterrupt(
+  interrupt: PlanInterruptLike | null | undefined,
+): boolean {
+  if (!interrupt) return false;
+  if (interrupt.id === PLAN_NESTED_HITL_REPLAY_ID) return true;
+  const reason = interrupt.reason?.trim().toLowerCase();
+  if (reason === "replay" && !parseGateInterruptMessage(interrupt.message)) {
+    return true;
+  }
+  return false;
+}
+
+/** Prefer a real cards/sql/chart payload; skip nested-HITL replay placeholders. */
+export function selectPlanGateInterrupt<T extends PlanInterruptLike>(
+  interrupts: T[] | null | undefined,
+): T | null {
+  if (!interrupts?.length) return null;
+  for (const item of interrupts) {
+    if (isPlanReplayInterrupt(item)) continue;
+    if (parseGateInterruptMessage(item.message)) return item;
+  }
+  return null;
+}
+
+/**
+ * The pending interrupt for one specific gate.
+ *
+ * The agent's `stage` field is not a reliable "the gate is open" signal: the
+ * SQL subgraph flips it to ``gate_sql`` as soon as the model writes the gate
+ * reasons, which is *before* the gate node actually interrupts. Only the
+ * pending interrupt proves that a decision is being waited on.
+ */
+export function selectGateInterrupt<T extends PlanInterruptLike>(
+  interrupts: T[] | null | undefined,
+  gate: GateKind,
+): T | null {
+  if (!interrupts?.length) return null;
+  for (const item of interrupts) {
+    if (parseGateInterruptMessage(item.message)?.gate === gate) return item;
+  }
+  return null;
 }
 
 export function parseGateInterruptMessage(message: unknown): GateInterruptValue | null {
@@ -49,7 +103,36 @@ export interface GateUserInstructions {
   steps: string[];
 }
 
-export function gateUserInstructions(gate: GateKind): GateUserInstructions {
+export function gateUserInstructions(
+  gate: GateKind,
+  surface: "dock" | "dialog" = "dock",
+): GateUserInstructions {
+  if (surface === "dialog") {
+    if (gate === "cards") {
+      return {
+        headline: "Review Databot's model picks",
+        steps: [
+          "Check the selected models listed in this dialog.",
+          "Approve to continue, Request changes with feedback to redraft, Halt, or Dry-run.",
+        ],
+      };
+    }
+    if (gate === "sql") {
+      return {
+        headline: "Review the drafted SQL",
+        steps: [
+          "Read the SQL in this dialog.",
+          "Approve to run it, Request changes with feedback to rewrite, Halt, or Dry-run.",
+        ],
+      };
+    }
+    return {
+      headline: "Optional chart",
+      steps: [
+        "Choose whether to generate a visualization or end the turn with the table results.",
+      ],
+    };
+  }
   if (gate === "cards") {
     return {
       headline: "Review Databot's model picks",

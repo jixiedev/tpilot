@@ -19,7 +19,7 @@ An AI Agent platform for data teams: chatbot, intelligent data retrieval, team k
 | M3 | Knowledge Q&A | Ask about Tahoe team knowledge — codebase, Google Docs, Wiki/FAQ, Jira; Agent retrieves and explains | Done (v1) — `KnowledgeAgent` (`--agent knowledge` / Intent `KNOWLEDGE`); Jira Qdrant search; DataHub + read-only K8s. Drive zip ingest works; codebase / Wiki / Drive search tools remain follow-ups |
 | M4 | Collaborative | Complex tasks split across specialized agents that pass intermediate results | Done (in-process) — `IntentOrchestrator` composite intentions → `execution_plan` → `PlannedAgentChain`; upstream feeds downstream; ephemeral specialist sessions. Cross-service composition: F16 (A2A) |
 | M5 | Diagnostic | Describe data anomalies; Agent runs quality checks, reasons about root cause, produces reports | Not started |
-| M6 | Deployable | Move from local CLI to an outward-facing service (UI, API, auth, observability) | In progress (local) — Next.js + CopilotKit v2 + LangGraph AG-UI dev stack (Databot chat, gates, Cards/SQL/Results panel); outward API, auth, production deploy, and observability remain |
+| M6 | Deployable | Move from local CLI to an outward-facing service (UI, API, auth, observability) | In progress (local) — Next.js + CopilotKit v2 + LangGraph AG-UI dev stack (Databot chat, gates, Cards/SQL/Results panel; Plan chat, task tree, nested specialist gate modal); outward API, auth, production deploy, and observability remain |
 
 ## Features
 
@@ -30,7 +30,7 @@ An AI Agent platform for data teams: chatbot, intelligent data retrieval, team k
 | F3 | Memory | Cross-session state persistence; user preferences and historical context retrieval | P0 | Done — checkpointer sessions + `FileProfileStore` / `refine_user_profile` |
 | F4 | Memory Compression | Auto-compress/summarize long conversations; retain key facts within context window | P0 | Done — three-layer compression pipeline + `compact_context` |
 | F5 | Planning | Task planning and decomposition; Plan-and-Execute | P1 | Done — Intent ordered `execution_plan` + AgentChain execution |
-| F6 | Human-in-the-Loop | Interrupt at key nodes; wait for user confirmation or input | P1 | Done — Intent low-confidence clarification interrupt + CLI resume; Databot v2 cards/SQL human gates (AG-UI v2 interrupt + CopilotKit Gate / Artifact panel, card selection and SQL editing) |
+| F6 | Human-in-the-Loop | Interrupt at key nodes; wait for user confirmation or input | P1 | Done — Intent low-confidence clarification interrupt + CLI resume; Databot v2 cards/SQL human gates (AG-UI v2 interrupt + CopilotKit Gate / Artifact panel, card selection and SQL editing); Plan nested specialist gates (parent-graph interrupt + `/plan` modal) |
 | F7 | Reflective Reasoning | Self-review and correction before delivery (consistency checks, retry) | P1 | Not started |
 | F8 | Parallel Tool Use | Parallel tool invocation and result aggregation | P1 | Not started |
 | F9 | Eval Loop | Eval set regression; continuous iteration on prompts and agent behavior | P2 | Done (v1) — `observability` case JSON + Observer scoring (tool order / rounds / answer) + `python -m observability` |
@@ -57,7 +57,7 @@ Items marked **Done** mean the main path works. The list below is optional deepe
 | M4 | Plan-confirmation HITL; richer structured handoff payloads |
 | M4 | A2A cross-service orchestration (F16): expose specialists as A2A endpoints + Agent Cards; Intent / orchestrator composes databot, knowledge, future diagnostic via A2A tasks + artifacts; remote auth, timeouts, and degradation |
 | M5 | Still tracked as not started (diagnostic agent) |
-| M6 | Production deploy, auth, multi-tenant, observability (F10); checkpoint / thread management; full Intent web UI (Databot specialist UI is the current focus) |
+| M6 | Production deploy, auth, multi-tenant, observability (F10); checkpoint / thread management; full Intent web UI (Databot specialist UI is the current focus); Plan-page gate modal is decision-only (no Cards checkboxes / SQL editor) |
 
 ### Feature-related
 
@@ -67,7 +67,7 @@ Items marked **Done** mean the main path works. The list below is optional deepe
 | F2 | Typed / JSON schema for user-facing replies |
 | F3 | Cross-session semantic recall (beyond profile + checkpointer) |
 | F5 | Generic Plan node (not only Intent orchestration); plan revise / replan; cross-agent task decomposition when combined with F16 A2A |
-| F6 | General confirmation gates (writes, costly tools, confirm-before-plan-run); chart gate web UI; fold Databot profile sidecar into `UserProfile` |
+| F6 | General confirmation gates (writes, costly tools, confirm-before-plan-run); chart gate web UI; fold Databot profile sidecar into `UserProfile`; Plan gate modal is decision-only (no Cards checkboxes / SQL editor) |
 | F7–F8, F10–F13 | F7/F8/F10–F13 still not started (reflection, parallel tools, monitoring, semantic cache, model routing, procedural memory); F9 eval — see **F9 Eval Loop** below |
 | F16 | Agent Card registration and discovery; map A2A tasks / artifacts to existing handoff structures; align with M6 service deploy (auth, observability, multi-tenant) |
 | F14 | Failure metrics; broader integration-test coverage |

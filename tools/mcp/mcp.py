@@ -13,7 +13,7 @@ from langchain_core.tools import BaseTool
 from langchain_mcp_adapters.client import MultiServerMCPClient
 from langchain_mcp_adapters.tools import load_mcp_tools
 
-from config.local_config import get_local_paths
+from config.local_config import ensure_dir, get_local_paths
 
 _CONFIG_PATH = Path(__file__).resolve().parent / "mcp.json"
 _ENV_VAR_RE = re.compile(r"\$\{([^}]+)\}")
@@ -59,7 +59,10 @@ def _redirect_stdio_server_stderr(log_file: Path | None = None) -> None:
     def _ensure_sink_open() -> object:
         sink = _stderr_sink_holder["sink"]
         if sink is None:
-            resolved.parent.mkdir(parents=True, exist_ok=True)
+            # ``ensure_dir`` only calls ``os.mkdir`` when the directory is
+            # really missing — an unconditional mkdir is a blocking syscall
+            # and ``langgraph dev`` refuses those inside the event loop.
+            ensure_dir(resolved.parent)
             sink = resolved.open("a", encoding="utf-8")
             _stderr_sink_holder["sink"] = sink
         return sink
