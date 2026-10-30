@@ -7,8 +7,14 @@ from typing import Any, Union
 
 from langchain_core.messages import AnyMessage
 from pydantic import BaseModel
+from agent.runtime.prompt import (
+            NEXT_STEP_PROMPT,
+            REFINE_USER_PROFILE_PROMPT,
+            TOOL_BUDGET_EXHAUSTED_PROMPT,
+        )
 
 StateLike = Union[list[AnyMessage], dict[str, Any], BaseModel]
+
 
 
 @dataclass
@@ -24,27 +30,27 @@ class AgentRunContext:
     max_idle_rounds: int = 1
     max_tool_steps: int | None = None
 
-    def __post_init__(self) -> None:
-        if self.max_tool_steps is None:
-            self.max_tool_steps = self.max_tool_calls
-        if not self.idle_step:
-            self.idle_step = self.idle_nudge_prompt
+    def __init__(self,
+                 next_step: str = NEXT_STEP_PROMPT,
+                 idle_nudge_prompt: str = "",
+                 tool_budget_exhausted_prompt: str = TOOL_BUDGET_EXHAUSTED_PROMPT,
+                 refine_user_profile_prompt: str = REFINE_USER_PROFILE_PROMPT,
+                 idle_step: str = "",
+                 max_tool_calls: int = 10,
+                 max_idle_rounds: int = 1,
+                 max_tool_steps: int | None = None
+    ):
+        self.next_step = next_step
+        self.idle_nudge_prompt = idle_nudge_prompt
+        self.tool_budget_exhausted_prompt = tool_budget_exhausted_prompt
+        self.refine_user_profile_prompt = refine_user_profile_prompt
+        self.idle_step = idle_step or self.idle_nudge_prompt
+        self.max_tool_calls = max_tool_calls
+        self.max_idle_rounds = max_idle_rounds
+        self.max_tool_steps = max_tool_steps or self.max_tool_calls
 
-    @classmethod
-    def default(cls) -> AgentRunContext:
-        from agent.runtime.prompt import (
-            NEXT_STEP_PROMPT,
-            REFINE_USER_PROFILE_PROMPT,
-            TOOL_BUDGET_EXHAUSTED_PROMPT,
-        )
 
-        return cls(
-            next_step=NEXT_STEP_PROMPT,
-            idle_nudge_prompt="",
-            tool_budget_exhausted_prompt=TOOL_BUDGET_EXHAUSTED_PROMPT,
-            refine_user_profile_prompt=REFINE_USER_PROFILE_PROMPT,
-        )
-
+DEFAULT_AGENT_RUN_CONTEXT = AgentRunContext()
 
 @dataclass
 class RouterConfig:

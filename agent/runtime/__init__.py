@@ -14,7 +14,6 @@ from agent.runtime.tahoe_runtime_helper import (
     default_profile_store,
     tahoe_react_agent_kwargs,
     tahoe_router_config,
-    tahoe_run_context,
 )
 
 __all__ = [
@@ -31,5 +30,4 @@ __all__ = [
     "default_profile_store",
     "tahoe_react_agent_kwargs",
     "tahoe_router_config",
-    "tahoe_run_context",
 ]

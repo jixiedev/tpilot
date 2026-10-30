@@ -4,9 +4,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import getpass
 import logging
-import os
 import sys
 import uuid
 from pathlib import Path
@@ -18,6 +16,7 @@ load_dotenv(Path(__file__).resolve().parent / ".env")
 
 from agent.registry import AGENTS, DEFAULT_AGENT, get_agent
 from agent.runtime.tahoe_runtime_helper import default_profile_store
+from memory.profile_store import resolve_user_id
 from config.local_config import ensure_local_dirs, get_local_paths
 from config.logging_config import configure_logging
 from graph.error_recovery import format_turn_failure
@@ -28,16 +27,6 @@ from tools.mcp.mcp import check_mcp_servers, format_mcp_startup_lines
 logger = logging.getLogger(__name__)
 
 _EXIT_COMMANDS = frozenset({"quit", "exit", "q", ":q"})
-
-
-def resolve_cli_user_id(explicit: str | None = None) -> str:
-    """CLI user id: flag / env / process username."""
-    if explicit and explicit.strip():
-        return explicit.strip()
-    env_value = os.getenv("TAHOEPILOT_USER_ID", "").strip()
-    if env_value:
-        return env_value
-    return getpass.getuser()
 
 
 def _read_line(prompt: str) -> str | None:
@@ -92,7 +81,6 @@ async def run_repl(
         await agent.bind(
             get_default_model(),
             checkpointer,
-            compression_config=CompressionConfig(enabled=True),
         )
 
         while True:
@@ -171,7 +159,7 @@ def main(argv: list[str] | None = None) -> None:
     configure_logging(verbose=args.verbose)
     ensure_local_dirs()
     session = args.session or str(uuid.uuid4())
-    user_id = resolve_cli_user_id(args.user_id)
+    user_id = resolve_user_id(args.user_id)
     checkpoint_db = Path(args.checkpoint_db) if args.checkpoint_db else get_local_paths().checkpoint_db
     profile_dir = Path(args.profile_dir) if args.profile_dir else get_local_paths().profiles_dir
     asyncio.run(

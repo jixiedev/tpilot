@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import getpass
 import json
 import re
 from typing import Any
@@ -118,10 +117,13 @@ def parse_user_profile_update(raw: Any) -> UserProfile:
 def coerce_user_profile(value: UserProfile | dict | str | None = None) -> UserProfile:
     """Normalize checkpoint / node payloads into a ``UserProfile``.
 
-    When ``value`` is missing, create a new profile with the process user as ``user_id``.
+    When ``value`` is missing, create a profile whose ``user_id`` comes from
+    :func:`memory.profile_store.resolve_user_id`.
     """
     if value is None:
-        return UserProfile(user_id=getpass.getuser())
+        from memory.profile_store import resolve_user_id
+
+        return UserProfile(user_id=resolve_user_id())
     if isinstance(value, UserProfile):
         return value
     if isinstance(value, dict):

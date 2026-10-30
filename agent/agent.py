@@ -26,13 +26,11 @@ class BaseAgent(ABC):
 
     def __init__(
         self,
-        system_prompt: Callable[[SessionAgentState], str] | None = None,
+        system_prompt: Callable[[SessionAgentState], str],
         *args: Any,
         **kwargs: Any,
     ) -> None:
-        self.system_prompt: Callable[[SessionAgentState], str] = (
-            system_prompt if system_prompt is not None else self.render_system_prompt
-        )
+        self.system_prompt = system_prompt
         self.session_state: Any = None
         self._model: BaseChatModel | None = None
         self._checkpointer: BaseCheckpointSaver | None = None
@@ -53,24 +51,9 @@ class BaseAgent(ABC):
     def is_bound(self) -> bool:
         return self._graph is not None
 
-    async def bind(
-        self,
-        model: BaseChatModel,
-        checkpointer: BaseCheckpointSaver,
-        **build_kwargs: Any,
-    ) -> BaseAgent:
-        """Compile and retain the agent graph for subsequent ``run`` calls."""
-        self._model = model
-        self._checkpointer = checkpointer
-        self._bind_kwargs = dict(build_kwargs)
-        self._graph = await self.build_graph(model, checkpointer, **build_kwargs)
-        return self
-
     @abstractmethod
     async def build_graph(
         self,
-        model: BaseChatModel,
-        checkpointer: BaseCheckpointSaver,
         *args: Any,
         **kwargs: Any,
     ) -> CompiledStateGraph:
@@ -104,7 +87,6 @@ class BaseAgent(ABC):
         session: str,
         user_id: str | None = None,
         on_interrupt: OnInterrupt | None = None,
-        print_output: bool = True,
     ) -> AgentTurnResult:
         """Prepare one turn, invoke the graph (with interrupt resume), print output."""
         turn_input = await self.prepare_turn_input(
@@ -121,6 +103,5 @@ class BaseAgent(ABC):
         )
         if result.cancelled:
             return result
-        if print_output:
-            self.on_turn_output(result.state)
+        self.on_turn_output(result.state)
         return result

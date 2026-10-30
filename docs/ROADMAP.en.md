@@ -1,6 +1,6 @@
 # TahoePilot Project Roadmap
 
-> [中文](ROADMAP.md) | English
+> [Chinese (ROADMAP.md)](ROADMAP.md) | English
 
 An AI Agent platform for data teams: chatbot, intelligent data retrieval, team knowledge Q&A, data diagnosis, development assistance, and data analysis.
 
@@ -41,6 +41,31 @@ An AI Agent platform for data teams: chatbot, intelligent data retrieval, team k
 | F14 | Error Handling | Classify, retry, and degrade on LLM/tool failures; friendly errors and recoverable interrupts | P1 | Done — TOOL ERROR, transient retries, Hive↔Trino anti-oscillation, CLI-friendly errors |
 | F15 | RAG | Local Qdrant vector store; ingest and semantic search over Jira / Google Drive (and later Wiki) for Knowledge Agent | P1 | Done (Jira + dbt main path) — Docker Qdrant, ingest CLI (Jira CSV / Drive zip / dbt semantic model), `fetch_related_jira_tickets` and `fetch_related_models` (Databot card candidates). Drive/Wiki search tools and eval still open |
 | F16 | A2A Multi-Agent Composition | Compose multiple specialist agents via the [Agent-to-Agent (A2A)](https://google.github.io/A2A/) protocol to solve complex cross-domain problems; standardized task delegation, artifact handoff, status streaming, and Agent Card discovery | P1 | Not started — M4 today is in-process `AgentChain`; target is A2A endpoints for Databot / Knowledge / future diagnostic agents, orchestrated via A2A tasks |
+| F17 | Databot runtime | Make Databot an embeddable specialist: layered graph, in-process responsibility objects, nodes that advance by operating on the Agent; leveled HITL defaulting to off; a retrieval turn ends with a summary and a cleared working state | P1 | Not started — see **F17 Databot runtime** below |
+
+GitHub issues:
+
+| ID | Issue |
+|----|--------|
+| F1 | [#15](https://github.com/jixiedev/tpilot/issues/15) Dynamic per-agent system prompt assembly with user profile injection |
+| F2 | [#16](https://github.com/jixiedev/tpilot/issues/16) Schema-validated intent detection, execution plans, and profile refinement |
+| F3 | [#12](https://github.com/jixiedev/tpilot/issues/12) SQLite-backed LangGraph checkpoints and file-backed user profiles |
+| F4 | [#13](https://github.com/jixiedev/tpilot/issues/13) Three-layer conversation compression with tool result offload to disk |
+| F5 | [#21](https://github.com/jixiedev/tpilot/issues/21) Multi-step intent orchestration with ephemeral specialist agent chains |
+| F6 | [#20](https://github.com/jixiedev/tpilot/issues/20) AG-UI human gates for intent clarification and Databot card and SQL approval |
+| F7 | [#22](https://github.com/jixiedev/tpilot/issues/22) Pre-delivery self-check and retry against tool evidence before final reply |
+| F8 | [#23](https://github.com/jixiedev/tpilot/issues/23) Safe parallel tool execution within a ReAct turn and stage subgraphs |
+| F9 | [#24](https://github.com/jixiedev/tpilot/issues/24) Observability eval harness with JSON cases, Observer traces, and CLI scorers |
+| F10 | [#25](https://github.com/jixiedev/tpilot/issues/25) Production metrics for LLM tokens, tool latency, cache hits, and error rates |
+| F11 | [#26](https://github.com/jixiedev/tpilot/issues/26) Embedding-based semantic request cache with version-aware invalidation |
+| F12 | [#27](https://github.com/jixiedev/tpilot/issues/27) Configurable LLM tier selection by task complexity and cost budget |
+| F13 | [#28](https://github.com/jixiedev/tpilot/issues/28) Learn and suggest proven multi-tool workflows from successful agent turns |
+| F14 | [#14](https://github.com/jixiedev/tpilot/issues/14) Structured tool errors, transient retries, and Hive–Trino fallback guardrails |
+| F15 | [#17](https://github.com/jixiedev/tpilot/issues/17) Qdrant RAG ingest, hybrid retrieval, and search tools for specialists |
+| F16 | [#29](https://github.com/jixiedev/tpilot/issues/29) Cross-service specialist orchestration via the Agent-to-Agent (A2A) protocol |
+| F17 | [#18](https://github.com/jixiedev/tpilot/issues/18) Layered Databot graph · [#19](https://github.com/jixiedev/tpilot/issues/19) In-process Databot state |
+| M5 | [#30](https://github.com/jixiedev/tpilot/issues/30) Data diagnostic specialist for anomaly checks and root-cause reports |
+| M6 | [#31](https://github.com/jixiedev/tpilot/issues/31) Production deploy with public API, auth, multi-tenant ops, and full intent web UI |
 
 ---
 
@@ -53,6 +78,7 @@ Items marked **Done** mean the main path works. The list below is optional deepe
 | Related | Possible follow-ups |
 |---------|---------------------|
 | M2 | Dedicated retrieval eval set; SQL gate request-changes redraft loop; user-facing chat status copy (not inner monologue); chart gate / Superset emit; see [DATABOT_V2_PROGRESS.md](DATABOT_V2_PROGRESS.md) and [CHAT_OPTIMIZATION.md](CHAT_OPTIMIZATION.md) |
+| M2 | Databot runtime refactor (F17): layered graph, embeddable under Plan and other hosts, clear working state after the turn summary; see **F17 Databot runtime** |
 | M3 | Drive / Wiki / code search tools and Knowledge prompts; soak Intent composite chains against a real knowledge corpus; see [rag/README.md](../rag/README.md) |
 | M4 | Plan-confirmation HITL; richer structured handoff payloads |
 | M4 | A2A cross-service orchestration (F16): expose specialists as A2A endpoints + Agent Cards; Intent / orchestrator composes databot, knowledge, future diagnostic via A2A tasks + artifacts; remote auth, timeouts, and degradation |
@@ -70,6 +96,7 @@ Items marked **Done** mean the main path works. The list below is optional deepe
 | F6 | General confirmation gates (writes, costly tools, confirm-before-plan-run); chart gate web UI; fold Databot profile sidecar into `UserProfile` |
 | F7–F8, F10–F13 | F7/F8/F10–F13 still not started (reflection, parallel tools, monitoring, semantic cache, model routing, procedural memory); F9 eval — see **F9 Eval Loop** below |
 | F16 | Agent Card registration and discovery; map A2A tasks / artifacts to existing handoff structures; align with M6 service deploy (auth, observability, multi-tenant) |
+| F17 | See **F17 Databot runtime** below |
 | F14 | Failure metrics; broader integration-test coverage |
 | F15 | Google Drive / Wiki search tools; incremental refresh and dedupe; retrieval quality eval; multi-collection routing |
 
@@ -100,6 +127,43 @@ Items marked **Done** mean the main path works. The list below is optional deepe
 
 **Next steps** — case `tags` + CLI filter; mock-LLM intent cases in CI; document env deps per group; scorer weights in case JSON; spike one-run trace JSON export from `Observer`.
 
+### F17 Databot runtime
+
+Turn Databot from a tightly coupled state machine on a flat state into an embeddable specialist. The retrieval path stays: find tables, write SQL, execute, and answer. What changes is the graph's layering, where state lives, and whether human confirmation interrupts the host by default.
+
+**Current state**
+
+- The outer graph places table discovery, both human gates, SQL authoring, execution, follow-up classification, and knowledge follow-up on one layer. Route maps name each other's nodes, and `stage` is bound to the edges. Adding a path means editing several routers.
+- `DatabotState` is a flat set of fields. Nodes change it by returning a JSON patch. The code reads as a function handing back a dict, where the step should read as an operation on the Agent.
+- The cards and SQL gates sit on the main path. When Plan or another host calls Databot as one step, the interrupt surfaces in the host conversation.
+- After a retrieval turn, pipeline fields stay in state. The next user message first runs follow-up classification (knowledge question vs new query), then either a knowledge subgraph or the full pipeline. That is an extra model call and a more tangled graph.
+
+**Direction**
+
+F17 is two pieces of work, built and accepted separately. They meet at one contract: the graph decides how a turn finishes (it ends after the summary); state clears this turn's working objects once that summary is in the conversation.
+
+### Graph
+
+| Point | Approach |
+|-------|----------|
+| Layering | The outer layer orchestrates one retrieval turn: prepare → retrieve → summarize and finish. Card selection, SQL, and execution live in inner layers. An inner router sees only the next step in its own layer, and does not name every outer node. |
+| HITL levels, default off | Human confirmation is a configurable level, defaulting to disable. It is not a required edge on the main path. Embedded in a Plan agent, Databot runs as an ordinary step. The caller turns on card review, SQL review, or both. Platform-level confirmation stays with F6. |
+| The turn ends at the summary | The end of a retrieval turn is a summary written into the conversation, and then the graph finishes. The next user message is a new turn. Context continues through that summary and existing conversation compression (F4). |
+
+This piece removes follow-up intention classification and the graph path that continues from the previous result. Clarifications and revised asks are new turns, with the previous summary as context.
+
+### Agent state
+
+| Point | Approach |
+|-------|----------|
+| Nodes operate on the Agent | Business nodes advance the turn by calling operations on the Agent. Returning a state JSON is not their interface. LangGraph still requires a node to submit a state update to the runtime. That translation sits in an adapter, so checkpoints and the graph engine stay compatible. |
+| In-process responsibility objects | Inside the Agent, split objects by responsibility (cards, SQL, execution result, turn summary) in place of one flat dict. The objects live in the process. The checkpoint keeps only the minimum snapshot required to resume a pause, and does not promote every intermediate structure to a graph-state field. |
+| Clear after the summary | Once the summary is in the conversation, clear this turn's working objects. The next turn starts from an empty working state. |
+
+LangGraph stays the engine. Nodes still submit a checkpointable update; that conversion stays in the adapter.
+
+**Related**: structure of the M2 retrieval path. When embedded in F5 Plan / M4 in-process orchestration, Databot does not take HITL by default. The graph refactor uses the "nodes advance through operations" interface, so the objects and the adapter land first.
+
 ---
 
-*Last updated: 2026-09-01*
+*Last updated: 2026-10-30*

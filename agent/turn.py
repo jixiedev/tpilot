@@ -108,13 +108,13 @@ def interrupt_question(result: Any) -> str | None:
 
 async def ainvoke_resolving_interrupts(
     graph: Any,
-    turn_input: Any,
+    state: Any,
     config: dict[str, Any],
     *,
     on_interrupt: OnInterrupt | None = None,
 ) -> AgentTurnResult:
     """Invoke a compiled graph, resuming interrupts via ``on_interrupt`` until done."""
-    state = await graph.ainvoke(turn_input, config)
+    state = await graph.ainvoke(state, config)
     while interrupt_values(state):
         if on_interrupt is None:
             raise RuntimeError(
