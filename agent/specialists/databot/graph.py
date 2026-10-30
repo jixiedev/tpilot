@@ -366,9 +366,7 @@ def build_databot_graph(
     *,
     checkpointer: BaseCheckpointSaver,
     runner: SpecialistRunner,
-    system_prompt: Callable[[SessionAgentState], str] = static_system_prompt(
-        DATABOT_SYSTEM_PROMPT
-    ),
+    system_prompt: Callable[[SessionAgentState], str],
     max_tool_calls: int = DEFAULT_STAGE_MAX_TOOL_CALLS,
     profile_dir: Path | None = None,
 ) -> CompiledStateGraph:
@@ -424,37 +422,4 @@ def build_databot_graph(
     graph.add_node(NODE_EXECUTE_SQL, make_execute_sql_node(trino_run_query))
     graph.add_node(NODE_END_WITH_SUMMARY, make_turn_summary_node(model))
     graph.add_node(NODE_END_WITH_REFUSAL, _end_with_refusal_node())
-
-    graph.add_edge(START, NODE_INJECT_SYSTEM_PROMPT)
-    graph.add_conditional_edges(
-        NODE_INJECT_SYSTEM_PROMPT,
-        _route_after_entry,
-        _AFTER_CLASSIFY_FOLLOW_UP_ROUTES,
-    )
-    graph.add_conditional_edges(
-        NODE_CLASSIFY_FOLLOW_UP,
-        _route_after_classify_follow_up,
-        _AFTER_CLASSIFY_FOLLOW_UP_ROUTES,
-    )
-    graph.add_edge(NODE_KNOWLEDGE_FOLLOW_UP, NODE_FINISH_KNOWLEDGE_FOLLOW_UP)
-    graph.add_edge(NODE_FINISH_KNOWLEDGE_FOLLOW_UP, END)
-    graph.add_edge(NODE_FETCH_CARDS, NODE_PREPARE_CARDS_FOR_GATE)
-    graph.add_edge(NODE_PREPARE_CARDS_FOR_GATE, NODE_GATE_CARDS)
-    graph.add_conditional_edges(
-        NODE_GATE_CARDS,
-        _after_gate_cards,
-        _AFTER_GATE_CARDS_ROUTES,
-    )
-    graph.add_edge(NODE_WRITE_CARDS_ARTIFACT, NODE_GENERATE_SQL)
-    graph.add_conditional_edges(NODE_GENERATE_SQL, _after_generate_sql, NODE_ROUTE_MAP)
-    graph.add_conditional_edges(
-        NODE_GATE_SQL,
-        _after_gate_sql,
-        _AFTER_GATE_SQL_ROUTES,
-    )
-    graph.add_edge(NODE_WRITE_SQL_ARTIFACT, NODE_EXECUTE_SQL)
-    graph.add_edge(NODE_EXECUTE_SQL, NODE_END_WITH_SUMMARY)
-    graph.add_edge(NODE_END_WITH_SUMMARY, END)
-    graph.add_edge(NODE_END_WITH_REFUSAL, END)
-
-    return graph.compile(checkpointer=checkpointer)
+    return graph

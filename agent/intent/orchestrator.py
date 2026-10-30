@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import getpass
 import json
 import logging
 import re
@@ -22,7 +21,7 @@ from agent.intent.prompt import build_intention_system_prompt, default_clarifica
 from agent.session import specialist_session_id
 from agent.turn import AgentTurnResult, OnInterrupt
 from graph.error_recovery import invoke_with_transient_retry
-from memory.profile_store import ProfileStore
+from memory.profile_store import ProfileStore, resolve_user_id
 from state.state import (
     DEFAULT_INTENTION_STATUS,
     DEFAULT_USER_INTENTION,
@@ -548,7 +547,7 @@ class IntentOrchestrator(BaseAgent):
         *,
         user_id: str | None = None,
     ) -> IntentionState:
-        resolved_user = (user_id or "").strip() or getpass.getuser()
+        resolved_user = resolve_user_id(user_id)
         text = user_prompt.strip()
         turn_input: IntentionState = {
             "messages": [HumanMessage(content=text)],

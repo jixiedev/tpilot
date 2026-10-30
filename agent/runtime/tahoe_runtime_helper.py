@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import getpass
 from collections.abc import Callable, Sequence
 from dataclasses import replace
 from pathlib import Path
@@ -28,18 +27,6 @@ DEFAULT_PROFILE_DIR = get_local_paths().profiles_dir
 
 def default_profile_store(root: Path | None = None) -> FileProfileStore:
     return FileProfileStore(root or DEFAULT_PROFILE_DIR)
-
-
-def tahoe_run_context(
-    *,
-    max_tool_calls: int = DEFAULT_MAX_TOOL_CALLS,
-    max_idle_rounds: int = DEFAULT_MAX_IDLE_ROUNDS,
-) -> AgentRunContext:
-    return replace(
-        AgentRunContext.default(),
-        max_tool_calls=max_tool_calls,
-        max_idle_rounds=max_idle_rounds,
-    )
 
 
 def tahoe_router_config(run_context: AgentRunContext) -> RouterConfig:
@@ -95,16 +82,13 @@ class TahoeRuntimeHelper:
         self.profile_store = profile_store
         self.prompt_assembler = prompt_assembler
         self.turn_boundary = turn_boundary
-        self.session = SessionTurnBuilder(turn_boundary)
+        self.session = SessionTurnBuilder(turn_boundary, profile_store=profile_store)
         self.system_prompt = (
             system_prompt if system_prompt is not None else self.render_system_prompt
         )
 
     def render_system_prompt(self, state: SessionAgentState) -> str:
-        user_id = state.get("user_id", "")
-        if not isinstance(user_id, str) or not user_id.strip():
-            user_id = getpass.getuser()
-        profile = self.profile_store.load(user_id)
+        profile = self.profile_store.load_for_turn(state)
         return self.prompt_assembler.with_profile(profile).build()
 
     async def prepare_turn_input(
@@ -141,5 +125,4 @@ __all__ = [
     "default_profile_store",
     "tahoe_react_agent_kwargs",
     "tahoe_router_config",
-    "tahoe_run_context",
 ]

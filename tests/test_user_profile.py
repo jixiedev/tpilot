@@ -20,9 +20,10 @@ def test_user_profile_defaults() -> None:
 
 
 def test_coerce_user_profile_none_uses_process_user_id(monkeypatch) -> None:
-    import memory.profile as profile_mod
+    import memory.profile_store as store_mod
 
-    monkeypatch.setattr(profile_mod.getpass, "getuser", lambda: "os_user")
+    monkeypatch.delenv("TAHOEPILOT_USER_ID", raising=False)
+    monkeypatch.setattr(store_mod.getpass, "getuser", lambda: "os_user")
     assert coerce_user_profile(None) == UserProfile(user_id="os_user")
 
 
@@ -155,12 +156,30 @@ class _FakeGraph:
         return _FakeSnapshot(self._values)
 
 
+def test_resolve_user_id_prefers_explicit_then_prior_then_env(monkeypatch, tmp_path: Path) -> None:
+    import memory.profile_store as store_mod
+
+    monkeypatch.setattr(store_mod.getpass, "getuser", lambda: "os_user")
+    monkeypatch.setenv("TAHOEPILOT_USER_ID", "env_user")
+    assert store_mod.resolve_user_id("flag_user", prior="checkpoint_user") == "flag_user"
+    assert store_mod.resolve_user_id(None, prior="checkpoint_user") == "checkpoint_user"
+    assert store_mod.resolve_user_id(None, prior=None, active="active_user") == "active_user"
+    assert store_mod.resolve_user_id() == "env_user"
+    monkeypatch.delenv("TAHOEPILOT_USER_ID")
+    assert store_mod.resolve_user_id("  ") == "os_user"
+
+    store = FileProfileStore(tmp_path)
+    assert store.activate_user(prior="erin") == "erin"
+    assert store.resolve_user_id() == "erin"
+    assert store.load_for_turn({"user_id": "bob"}).user_id == "bob"
+
+
 async def test_prepare_turn_input_sets_user_id_only(monkeypatch) -> None:
-    import memory.profile as profile_mod
+    import memory.profile_store as store_mod
     from agent.runtime import TahoeRuntimeHelper, TahoeSystemPrompt, default_profile_store
 
-    monkeypatch.setattr(profile_mod.getpass, "getuser", lambda: "os_user")
-    monkeypatch.setattr("agent.session.getpass.getuser", lambda: "os_user")
+    monkeypatch.delenv("TAHOEPILOT_USER_ID", raising=False)
+    monkeypatch.setattr(store_mod.getpass, "getuser", lambda: "os_user")
 
     runtime = TahoeRuntimeHelper(
         profile_store=default_profile_store(),

@@ -41,6 +41,31 @@
 | F14 | Error Handling | LLM/工具失败分类、重试与降级；友好报错与可恢复中断 | P1 | 已完成：TOOL ERROR、瞬时重试、Hive↔Trino 防振荡、CLI 友好报错 |
 | F15 | RAG | 本地 Qdrant 向量库；Jira / Google Drive 等知识入库与语义检索，供 Knowledge Agent 使用 | P1 | 已完成（Jira + dbt 主路径）：Docker Qdrant、ingest CLI（Jira CSV / Drive zip / dbt semantic model）、`fetch_related_jira_tickets` 与 `fetch_related_models`（Databot 卡片候选）。Drive / Wiki 检索工具与 RAG 评测待接 |
 | F16 | A2A 多 Agent 组合 | 基于 [Agent-to-Agent（A2A）](https://google.github.io/A2A/) 协议，跨进程/跨服务编排多个专精 Agent 协作解决复杂问题；标准化任务委派、artifact 传递、状态流式回传与 Agent Card 发现 | P1 | 未开始：当前 M4 为进程内 `AgentChain`；目标将 Databot / Knowledge / 未来诊断等以 A2A endpoint 暴露，由编排层通过 A2A task 组合 |
+| F17 | Databot 运行时 | 把 Databot 收成可嵌入的 specialist：分层图、进程内职责对象、节点以操作 Agent 的方式推进；HITL 分级且默认关闭；取数回合以 summary 结束并清空工作状态 | P1 | 未开始 — 见下文 **F17 Databot 运行时** |
+
+GitHub issues:
+
+| ID | Issue |
+|----|--------|
+| F1 | [#15](https://github.com/jixiedev/tpilot/issues/15) Dynamic per-agent system prompt assembly with user profile injection |
+| F2 | [#16](https://github.com/jixiedev/tpilot/issues/16) Schema-validated intent detection, execution plans, and profile refinement |
+| F3 | [#12](https://github.com/jixiedev/tpilot/issues/12) SQLite-backed LangGraph checkpoints and file-backed user profiles |
+| F4 | [#13](https://github.com/jixiedev/tpilot/issues/13) Three-layer conversation compression with tool result offload to disk |
+| F5 | [#21](https://github.com/jixiedev/tpilot/issues/21) Multi-step intent orchestration with ephemeral specialist agent chains |
+| F6 | [#20](https://github.com/jixiedev/tpilot/issues/20) AG-UI human gates for intent clarification and Databot card and SQL approval |
+| F7 | [#22](https://github.com/jixiedev/tpilot/issues/22) Pre-delivery self-check and retry against tool evidence before final reply |
+| F8 | [#23](https://github.com/jixiedev/tpilot/issues/23) Safe parallel tool execution within a ReAct turn and stage subgraphs |
+| F9 | [#24](https://github.com/jixiedev/tpilot/issues/24) Observability eval harness with JSON cases, Observer traces, and CLI scorers |
+| F10 | [#25](https://github.com/jixiedev/tpilot/issues/25) Production metrics for LLM tokens, tool latency, cache hits, and error rates |
+| F11 | [#26](https://github.com/jixiedev/tpilot/issues/26) Embedding-based semantic request cache with version-aware invalidation |
+| F12 | [#27](https://github.com/jixiedev/tpilot/issues/27) Configurable LLM tier selection by task complexity and cost budget |
+| F13 | [#28](https://github.com/jixiedev/tpilot/issues/28) Learn and suggest proven multi-tool workflows from successful agent turns |
+| F14 | [#14](https://github.com/jixiedev/tpilot/issues/14) Structured tool errors, transient retries, and Hive–Trino fallback guardrails |
+| F15 | [#17](https://github.com/jixiedev/tpilot/issues/17) Qdrant RAG ingest, hybrid retrieval, and search tools for specialists |
+| F16 | [#29](https://github.com/jixiedev/tpilot/issues/29) Cross-service specialist orchestration via the Agent-to-Agent (A2A) protocol |
+| F17 | [#18](https://github.com/jixiedev/tpilot/issues/18) Layered Databot graph · [#19](https://github.com/jixiedev/tpilot/issues/19) In-process Databot state |
+| M5 | [#30](https://github.com/jixiedev/tpilot/issues/30) Data diagnostic specialist for anomaly checks and root-cause reports |
+| M6 | [#31](https://github.com/jixiedev/tpilot/issues/31) Production deploy with public API, auth, multi-tenant ops, and full intent web UI |
 
 ---
 
@@ -53,6 +78,7 @@
 | 关联 | 可能优化 |
 |------|----------|
 | M2 | 独立取数评测集；SQL gate Request changes 重写闭环；聊天面向用户的 status 文案（非内心独白）；chart gate / Superset 出图；详见 [DATABOT_V2_PROGRESS.md](DATABOT_V2_PROGRESS.md) 与 [CHAT_OPTIMIZATION.md](CHAT_OPTIMIZATION.md) |
+| M2 | Databot 运行时重构（F17）：分层图、可嵌入 Plan 等宿主、回合摘要后清空工作状态；详见 **F17 Databot 运行时** |
 | M3 | Drive / Wiki / 代码检索工具与 Knowledge prompt；Intent 复合链路用真实知识库联调；详见 [rag/README.md](../rag/README.md) |
 | M4 | 计划确认 HITL；比纯文本更结构化的 handoff payload |
 | M4 | A2A 跨服务编排（F16）：专精 Agent 以 A2A endpoint + Agent Card 暴露；Intent / 编排层用 A2A task + artifact 组合 databot、knowledge、未来 diagnostic；远程鉴权、超时与降级 |
@@ -70,6 +96,7 @@
 | F6 | 通用确认门（写操作、高成本工具、发布计划前确认）；chart gate Web UI；Databot profile sidecar 并入 `UserProfile` |
 | F7–F8、F10–F13 | F7/F8/F10–F13 仍按未开始推进（反思、并行工具、监控、语义缓存、选模、程序性记忆）；F9 评测见下文 **F9 Eval Loop** |
 | F16 | Agent Card 注册与发现；A2A task / artifact 映射到现有 handoff 结构；与 M6 服务化部署对齐（鉴权、观测、多租户） |
+| F17 | 见下文 **F17 Databot 运行时** |
 | F14 | 失败观测指标；更完整的集成测试覆盖 |
 | F15 | Google Drive / Wiki 检索工具；增量更新与去重；检索质量评测；多 collection 路由 |
 
@@ -100,6 +127,43 @@
 
 **近期** — case `tags` + CLI 过滤；CI 内 mock-LLM intent 用例；各 group 环境依赖说明；case 内 scorer 权重；`Observer` 单次 run trace JSON 导出试验。
 
+### F17 Databot 运行时
+
+把 Databot 从「一张扁平 state 上的强耦合状态机」收成可嵌入的 specialist。取数主路径（找表、写 SQL、执行、给出答复）保留；变的是图的层次、状态放在哪里、以及人工确认是否默认打断宿主。
+
+**现状**
+
+- 外层图把找表、两道人工闸门、写 SQL、执行、追问分类、知识追问铺在同一层。路由表互相点名 node，`stage` 和边绑在一起，加一条路径就要改多处路由。
+- `DatabotState` 是扁平字段集合。节点以返回 JSON patch 的方式改状态。读代码时看到的是「函数交出一份 dict」，而不是「这一步对 Agent 做了什么」。
+- Cards / SQL 人工闸门写在主路径上。Plan 等宿主把 Databot 当一步调用时，interrupt 会冒到宿主对话里。
+- 一轮取数结束后，pipeline 字段还留在 state 里。下一条用户消息先做一次 follow-up 分类（知识追问或重新查数），再决定走知识子图还是整条流水线。多一次模型调用，图也更绕。
+
+**方向**
+
+F17 拆成两块，分别做、分别验收。交界处只有一条约定：图负责回合怎么走完（摘要之后结束）；state 负责摘要写入对话后清空本回合工作对象。
+
+### 图
+
+| 点 | 做法 |
+|----|------|
+| 分层 | 外层只编排一个取数回合：准备 → 取数 → 摘要并结束。选表、写 SQL、执行放在内层。内层路由只看见本层的下一步，不引用外层的全部 node。 |
+| HITL 分级，默认关闭 | 人工确认是可配置级别，默认 disable，不写进主路径的必经边。嵌入 Plan agent 时，Databot 作为普通步骤跑完。需要审表、审 SQL 或两者都审时，由调用方打开对应级别。平台级确认能力仍归 F6。 |
+| 回合在摘要处结束 | 取数回合的终点是一份 summary，写入对话后图结束。下一条用户消息是新回合。上下文靠这份 summary，以及既有的对话压缩（F4）。 |
+
+这一块去掉 follow-up 意图分类，以及「接着上一轮结果追问」的图路径。澄清或改口径都作为新回合，以上一轮 summary 为上下文。
+
+### Agent state
+
+| 点 | 做法 |
+|----|------|
+| 节点操作 Agent | 业务节点对 Agent 调用操作来推进回合，不以「返回一份 state JSON」为接口。LangGraph 仍要求节点向运行时提交 state update：这份差异收在适配层，checkpoint 与图引擎保持兼容。 |
+| 进程内职责对象 | Agent 内部按职责拆对象（例如卡片、SQL、执行结果、本回合摘要），替代一整张扁平 dict。对象留在进程中。Checkpoint 只保留恢复暂停所需的最小快照，不把每个中间结构都做成 graph state 的字段。 |
+| 摘要之后清空 | summary 写入对话后，清空本回合工作对象。下一回合从空的工作状态开始。 |
+
+这一块不替换 LangGraph。节点对引擎仍然交出它能 checkpoint 的更新；转换留在适配层。
+
+**关联**：M2 取数主路径的结构；嵌入 F5 Plan / M4 进程内编排时，Databot 默认不抢 HITL。图的重构用「节点通过操作推进」这条接口，state 先把对象和适配层立住。
+
 ---
 
-*最后更新：2026-09-01*
+*最后更新：2026-10-30*

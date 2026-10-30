@@ -12,30 +12,31 @@ from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph.state import CompiledStateGraph
 
 from agent.agent import BaseAgent
-from agent.config import AgentRunContext, RouterConfig
+from agent.config import AgentRunContext, RouterConfig, DEFAULT_AGENT_RUN_CONTEXT
 from agent.listener import CliReactListener, ReactAgentListener
-from agent.specialists.databot.tool_scopes import REGISTRY_NAME, TOOL_ID_DEFAULT
+from agent.plan.stage_tools import SpecialistRunner
+from agent.runtime import (
+    DEFAULT_PROFILE_DIR,
+    TahoeRuntimeHelper,
+    default_profile_store,
+)
 from agent.scoped_tools import RegistryScopedTools
 from agent.specialists.databot.graph import (
     DEFAULT_STAGE_MAX_TOOL_CALLS,
     build_databot_graph,
 )
-from agent.specialists.databot.state import fresh_turn_state_defaults
+
+from agent.specialists.databot.state import DatabotState
 from agent.specialists.databot.prompts.system import DatabotSystemPrompt
-from agent.plan.stage_tools import SpecialistRunner
-from agent.runtime import (
-    DEFAULT_MAX_IDLE_ROUNDS,
-    DEFAULT_MAX_TOOL_CALLS,
-    DEFAULT_PROFILE_DIR,
-    TahoeRuntimeHelper,
-    default_profile_store,
-    tahoe_run_context,
-)
+from agent.specialists.databot.state import fresh_turn_state_defaults
+from agent.specialists.databot.tool_scopes import REGISTRY_NAME, TOOL_ID_DEFAULT
 from agent.turn import AgentTurnResult, OnInterrupt, ainvoke_resolving_interrupts
+from graph.builder import static_system_prompt
 from memory.profile_store import ProfileStore
 from state.state import SessionAgentState
 from tools.dynamic import register_dynamic_tool_bindings
 
+from agent.specialists.databot.prompts.system import SYSTEM_PROMPT as DATABOT_SYSTEM_PROMPT
 
 class DatabotAgent(BaseAgent, RegistryScopedTools):
     """Data-retrieval specialist with a staged, human-gated pipeline.
@@ -51,34 +52,31 @@ class DatabotAgent(BaseAgent, RegistryScopedTools):
 
     def __init__(
         self,
+        model: BaseChatModel,
+        checkpointer: BaseCheckpointSaver | None,
         *,
         profile_store: ProfileStore,
         tools: Sequence[BaseTool],
-        run_context: AgentRunContext | None = None,
-        router_config: RouterConfig | None = None,
+        run_context: AgentRunContext,
+        router_config: RouterConfig,
         react_listener: ReactAgentListener | None = None,
-        system_prompt: Callable[[SessionAgentState], str] | None = None,
-        prompt_assembler: DatabotSystemPrompt | None = None,
+        system_prompt: Callable[[SessionAgentState], str] = None,
     ) -> None:
-        super().__init__(system_prompt=None)
-        self.profile_store = profile_store
+        super().__init__(system_prompt)
         self.tools = list(tools)
-        self.run_context = run_context or tahoe_run_context()
-        self.router_config = router_config or RouterConfig()
-        self.prompt_assembler = prompt_assembler or DatabotSystemPrompt()
+        self.run_context = run_context
+        self.router_config = router_config
+        self.prompt_assembler = DatabotSystemPrompt()
         self.react_listener = react_listener or CliReactListener()
         self._runtime = TahoeRuntimeHelper(
             profile_store=profile_store,
             react_listener=self.react_listener,
             system_prompt=system_prompt,
-            prompt_assembler=self.prompt_assembler,
+            prompt_assembler=DatabotSystemPrompt()
         )
-        self.system_prompt = self._runtime.system_prompt
-        self.session = self._runtime.session
         self._graph: CompiledStateGraph | None = None
-        self._model: BaseChatModel | None = None
-        self._checkpointer: BaseCheckpointSaver | None = None
-        self._bind_kwargs: dict[str, Any] = {}
+        self._model = model
+        self._checkpointer = checkpointer
         self._specialists: dict[str, BaseAgent] = {}
         self.session_state: Any = None
 
@@ -96,30 +94,16 @@ class DatabotAgent(BaseAgent, RegistryScopedTools):
             raise RuntimeError("DatabotAgent.bind() must be called before specialist delegation")
         spec = get_agent(name)
         specialist = await spec.create_agent(
-            profile_store=self.profile_store,
+            profile_store=self._runtime.profile_store,
             max_tool_calls=self.run_context.max_tool_calls,
             max_idle_rounds=self.run_context.max_idle_rounds,
         )
-        await specialist.bind(self._model, self._checkpointer, **self._bind_kwargs)
+        await specialist.build_graph()
         self._specialists[name] = specialist
         return specialist
 
-    async def bind(
-        self,
-        model: BaseChatModel,
-        checkpointer: BaseCheckpointSaver,
-        **build_kwargs: Any,
-    ) -> DatabotAgent:
-        self._model = model
-        self._checkpointer = checkpointer
-        self._bind_kwargs = dict(build_kwargs)
-        self._specialists.clear()
-        return await super().bind(model, checkpointer, **build_kwargs)
-
     async def build_graph(
         self,
-        model: BaseChatModel,
-        checkpointer: BaseCheckpointSaver,
         **kwargs: Any,
     ) -> CompiledStateGraph:
         """Compile the Databot state machine.
@@ -129,11 +113,11 @@ class DatabotAgent(BaseAgent, RegistryScopedTools):
         not use message compression.
         """
         graph = build_databot_graph(
-            model,
-            checkpointer=checkpointer,
+            self._model,
+            checkpointer=self._checkpointer,
             runner=SpecialistRunner(get_specialist=self._get_specialist),
             system_prompt=self.system_prompt,
-            max_tool_calls=self.run_context.max_tool_calls or DEFAULT_STAGE_MAX_TOOL_CALLS,
+            max_tool_calls=self.run_context.max_tool_calls,
             profile_dir=self.default_profile_dir,
         )
         self._graph = graph
@@ -142,15 +126,6 @@ class DatabotAgent(BaseAgent, RegistryScopedTools):
     def on_turn_output(self, state: Any) -> None:
         self._runtime.on_turn_output(state)
 
-    def render_system_prompt(self, state: Any) -> str:
-        return self._runtime.render_system_prompt(state)
-
-    def register_secondary(self, listener: ReactAgentListener) -> None:
-        self._runtime.register_secondary(listener)
-
-    def clear_secondaries(self) -> None:
-        self._runtime.clear_secondaries()
-
     async def prepare_turn_input(
         self,
         graph: CompiledStateGraph,
@@ -158,16 +133,16 @@ class DatabotAgent(BaseAgent, RegistryScopedTools):
         user_prompt: str,
         *,
         user_id: str | None = None,
-    ) -> Any:
-        turn_input = await self._runtime.prepare_turn_input(
+    ) -> DatabotState:
+        session_state = await self._runtime.prepare_turn_input(
             graph, session, user_prompt, user_id=user_id
         )
-        if not isinstance(turn_input, dict):
-            return turn_input
+        databot_state = DatabotState.__new__(DatabotState)
+        databot_state.__dict__.update(session_state.__dict__)
         for key, value in fresh_turn_state_defaults().items():
-            turn_input.setdefault(key, value)
-        self.session_state = turn_input
-        return turn_input
+            databot_state.setdefault(key, value)
+        self.session_state = databot_state
+        return databot_state
 
     async def run(
         self,
@@ -176,56 +151,48 @@ class DatabotAgent(BaseAgent, RegistryScopedTools):
         session: str,
         user_id: str | None = None,
         on_interrupt: OnInterrupt | None = None,
-        print_output: bool = True,
     ) -> AgentTurnResult:
         """Run one Databot turn."""
         if self._graph is None:
             raise RuntimeError("DatabotAgent.run called before build_graph")
-        turn_input = await self.prepare_turn_input(
+        databot_state = await self.prepare_turn_input(
             self._graph, session, user_prompt, user_id=user_id
         )
         result = await ainvoke_resolving_interrupts(
             self._graph,
-            turn_input,
+            databot_state,
             self.graph_config(session),
             on_interrupt=on_interrupt,
         )
         if result.cancelled:
             return result
-        if print_output:
-            self.on_turn_output(result.state)
+        self.on_turn_output(result.state)
         return result
 
     @classmethod
     async def create(
         cls,
+        model: BaseChatModel,
+        checkpointer: BaseCheckpointSaver | None,
+        system_prompt: Callable[[SessionAgentState], str] | None,
         *,
         profile_store: ProfileStore | None = None,
-        max_tool_calls: int = DEFAULT_MAX_TOOL_CALLS,
-        max_idle_rounds: int = DEFAULT_MAX_IDLE_ROUNDS,
-        enable_compression_tools: bool = True,
         react_listener: ReactAgentListener | None = None,
-        system_prompt: Callable[[SessionAgentState], str] | None = None,
         run_context: AgentRunContext | None = None,
         router_config: RouterConfig | None = None,
     ) -> DatabotAgent:
         store = profile_store or cls.default_profile_store()
         await register_dynamic_tool_bindings()
         tools = cls.tools_for_scope(TOOL_ID_DEFAULT)
-        if not enable_compression_tools:
-            from memory.tools import COMPACT_CONTEXT_TOOL_NAME, READ_OFFLOADED_FILE_TOOL_NAME
-
-            skip = {COMPACT_CONTEXT_TOOL_NAME, READ_OFFLOADED_FILE_TOOL_NAME}
-            tools = [tool for tool in tools if getattr(tool, "name", "") not in skip]
+        if not system_prompt:
+            system_prompt = static_system_prompt(DATABOT_SYSTEM_PROMPT)
         return cls(
+            model,
+            checkpointer,
             profile_store=store,
             tools=tools,
-            run_context=run_context
-            or tahoe_run_context(
-                max_tool_calls=max_tool_calls,
-                max_idle_rounds=max_idle_rounds,
-            ),
-            router_config=router_config,
+            run_context=run_context or DEFAULT_AGENT_RUN_CONTEXT,
+            router_config=router_config or RouterConfig(),
             react_listener=react_listener,
             system_prompt=system_prompt,
         )

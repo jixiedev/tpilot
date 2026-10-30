@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import getpass
 import json
 import logging
 from collections.abc import Callable
@@ -24,11 +23,6 @@ _PROFILE_JSON_HINT = (
     "Respond with JSON only: a single UserProfile object with keys matching the schema "
     "(no markdown fences or commentary)."
 )
-
-
-def _session_user_id(state: SessionAgentState) -> str:
-    user_id = state.get("user_id", "")
-    return user_id.strip() if isinstance(user_id, str) and user_id.strip() else getpass.getuser()
 
 
 def _invoke_profile_update(model: BaseChatModel, messages: list) -> UserProfile:
@@ -58,7 +52,7 @@ def make_refine_user_profile_node(
     system_prompt = f"{refine_prompt.strip()}\n\n{_PROFILE_JSON_HINT}"
 
     def refine_user_profile(state: SessionAgentState) -> dict[str, Any]:
-        user_id = _session_user_id(state)
+        user_id = profile_store.resolve_user_id(prior=state.get("user_id"))
         current = profile_store.load(user_id)
         user_text = latest_human_text(state) or ""
         reply = last_user_visible_reply(state) or ""

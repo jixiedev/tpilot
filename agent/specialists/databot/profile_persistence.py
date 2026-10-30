@@ -10,13 +10,13 @@ from pathlib import Path
 from typing import Any
 
 from agent.specialists.databot.state import DatabotState
+from memory.profile_store import resolve_user_id, safe_profile_filename
 
 logger = logging.getLogger(__name__)
 
 
 def _sidecar_path(profile_dir: Path, user_id: str) -> Path:
-    safe = "".join(ch if ch.isalnum() or ch in ("-", "_", ".") else "_" for ch in user_id)
-    return profile_dir / f"{safe}.databot_turns.jsonl"
+    return profile_dir / f"{safe_profile_filename(user_id)}.databot_turns.jsonl"
 
 
 def make_persist_turn_artifact_node(
@@ -24,15 +24,14 @@ def make_persist_turn_artifact_node(
 ) -> Callable[[DatabotState], dict[str, Any]]:
     """Return a node function that writes the per-turn artifact.
 
-    Skips on ``dryrun`` (preview-only). Skips on missing ``user_id``.
+    Skips on ``dryrun`` (preview-only). The user id comes from ``ProfileStore``
+    resolution (checkpoint prior, then env, then the process user).
     """
 
     def persist_turn_artifact(state: DatabotState) -> dict[str, Any]:
         if state.get("dryrun"):
             return {}
-        user_id = (state.get("user_id") or "").strip()
-        if not user_id:
-            return {}
+        user_id = resolve_user_id(prior=state.get("user_id"))
         # Only persist if at least one approve happened.
         audit = state.get("gate_decisions") or []
         if not any(entry.get("decision") == "approve" for entry in audit):

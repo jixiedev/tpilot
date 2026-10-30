@@ -1,0 +1,437 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Databot 状态机 · build_databot_graph</title>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Noto+Sans+SC:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --paper: #ffffff;
+      --paper-2: #f2fbf7;
+      --accent-soft: #dcf7ea;
+      --ink: #0b1220;
+      --muted: #334155;
+      --soft: #5f6f80;
+      --rule: rgba(11, 18, 32, 0.14);
+      --rule-solid: #cbd5e1;
+      --accent: #00875a;
+      --accent-deep: #047857;
+      --accent-bright: #00a165;
+      --accent-tint: rgba(0, 135, 90, 0.13);
+      --sans: 'Outfit', 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', system-ui, sans-serif;
+      --mono: 'JetBrains Mono', ui-monospace, monospace;
+    }
+
+    body {
+      font-family: var(--sans);
+      background: var(--paper);
+      color: var(--ink);
+      min-height: 100vh;
+      padding: 3rem 2rem 2rem;
+    }
+    .frame { max-width: 1360px; width: 100%; margin: 0 auto; }
+
+    .eyebrow {
+      font-size: 0.68rem; font-weight: 600; letter-spacing: 0.18em; text-transform: uppercase;
+      color: var(--accent); margin-bottom: 0.5rem;
+    }
+    h1 {
+      font-size: clamp(1.5rem, 2.4vw + 0.75rem, 2rem); font-weight: 600; letter-spacing: -0.02em;
+      line-height: 1.2; margin-bottom: 0.6rem;
+    }
+    .subtitle { font-size: 0.95rem; line-height: 1.65; color: var(--muted); max-width: 76ch; }
+    .subtitle code { font-family: var(--mono); font-size: 0.86em; color: var(--accent); }
+
+    .diagram-container { width: 100%; overflow-x: auto; margin: 1.75rem 0 0.5rem; }
+    svg { width: 100%; min-width: 1280px; display: block; }
+    @media print {
+      .diagram-container { overflow-x: visible; }
+      svg { min-width: 0; }
+    }
+
+    figcaption {
+      font-size: 0.82rem; line-height: 1.7; color: var(--soft);
+      border-left: 3px solid var(--accent); padding-left: 0.85rem; margin: 0.5rem 0 2.25rem;
+      max-width: 92ch;
+    }
+    figcaption b { color: var(--muted); font-weight: 600; }
+    figcaption code { font-family: var(--mono); font-size: 0.92em; color: var(--accent-deep); }
+
+    h2 {
+      font-size: 1.05rem; font-weight: 600; letter-spacing: -0.01em;
+      margin: 2.5rem 0 0.9rem; padding-left: 0.6rem; border-left: 3px solid var(--accent);
+    }
+    h2 code { font-family: var(--mono); font-size: 0.9em; color: var(--accent); }
+    table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
+    caption { text-align: left; font-size: 0.8rem; color: var(--soft); padding-bottom: 0.5rem; }
+    th, td { text-align: left; padding: 0.55rem 0.75rem; border-bottom: 1px solid var(--rule); vertical-align: top; }
+    th {
+      font-weight: 600; color: var(--muted); font-size: 0.74rem; letter-spacing: 0.1em; text-transform: uppercase;
+      background: rgba(0, 135, 90, 0.10); border-bottom: 1px solid var(--rule-solid);
+    }
+    tbody tr:hover { background: rgba(0, 135, 90, 0.05); }
+    td code, th code {
+      font-family: var(--mono); font-size: 0.88em; color: var(--accent);
+      background: #ffffff; border: 1px solid rgba(0, 135, 90, 0.32); border-radius: 4px; padding: 0 5px;
+    }
+    td:first-child code { white-space: nowrap; }
+
+    .cards { display: grid; grid-template-columns: 1.1fr 1fr 0.9fr; gap: 1rem; margin-top: 1rem; }
+    .card { background: #ffffff; border: 1px solid var(--rule); border-radius: 6px; padding: 1.25rem; }
+    .card .eyebrow { font-size: 0.62rem; margin-bottom: 0.45rem; }
+    .card h3 { font-size: 0.98rem; font-weight: 600; margin-bottom: 0.5rem; }
+    .card p, .card li { font-size: 0.85rem; line-height: 1.7; color: var(--muted); }
+    .card code { font-family: var(--mono); font-size: 0.9em; color: var(--accent); }
+    .card-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); margin-right: 0.45rem; }
+
+    footer {
+      margin-top: 3rem; padding-top: 1rem; border-top: 2px solid var(--accent-tint);
+      font-size: 0.76rem; line-height: 1.7; color: var(--soft);
+    }
+    footer code { font-family: var(--mono); font-size: 0.92em; color: var(--accent-deep); }
+
+    /* ---- SVG type roles (shared by both figures) ---- */
+    .n-name  { font-family: var(--sans); font-size: 16px; font-weight: 600; fill: #0b1220; }
+    .n-sub   { font-family: var(--sans); font-size: 11px; font-weight: 400; fill: #334155; }
+    .n-sub2  { font-family: var(--sans); font-size: 11px; font-weight: 400; fill: #5f6f80; }
+    .tag     { font-family: var(--sans); font-size: 9px;  font-weight: 600; letter-spacing: 0.06em; fill: #334155; }
+    .tag-acc { font-family: var(--sans); font-size: 9px;  font-weight: 600; letter-spacing: 0.06em; fill: #00875a; }
+    .band    { font-family: var(--sans); font-size: 11px; font-weight: 600; letter-spacing: 0.14em; fill: #5f6f80; }
+    .alab    { font-family: var(--sans); font-size: 12px; font-weight: 500; letter-spacing: 0.06em; fill: #334155; }
+    .leg     { font-family: var(--sans); font-size: 12px; font-weight: 500; fill: #334155; }
+  </style>
+</head>
+<body>
+<div class="frame">
+
+  <p class="eyebrow">LangGraph · State machine</p>
+  <h1>Databot 主流水线：<code>build_databot_graph</code> 的状态机</h1>
+  <p class="subtitle">
+    一轮提问由外层状态机驱动：<code>stage</code> 字段决定下一个节点，五个阶段里有三个是 LLM 的 ReAct 子图、
+    两个是 <code>interrupt()</code> 人工闸门。闸门的四种裁决决定「前进 / 退回重做 / 中止」三条去路。
+  </p>
+
+  <!-- ============================================================ FIGURE 1 -->
+  <figure>
+    <div class="diagram-container">
+      <svg viewBox="0 0 1280 588" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="databot-lifecycle-title databot-lifecycle-desc">
+        <title id="databot-lifecycle-title">Databot 主流水线状态机</title>
+        <desc id="databot-lifecycle-desc">一轮 Databot 提问经过检索模型卡片、人工审阅卡片、起草 SQL、人工审阅 SQL、执行查询五个阶段；人工选择退回意见会回到上一阶段重做，选择中止则进入终止态，执行完成后进入总结终态。</desc>
+        <defs>
+          <marker id="dl-arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#334155"/></marker>
+          <marker id="dl-arrow-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#00a165"/></marker>
+        </defs>
+
+        <rect width="100%" height="100%" fill="#ffffff"/>
+
+        <!-- bands (containers, painted first) -->
+        <rect x="40" y="40" width="1200" height="196" rx="8" fill="#f2fbf7" stroke="rgba(0,135,90,0.28)"/>
+        <rect x="40" y="268" width="1200" height="104" rx="8" fill="#f2fbf7" stroke="rgba(0,135,90,0.28)"/>
+        <rect x="40" y="404" width="1200" height="112" rx="8" fill="#f2fbf7" stroke="rgba(0,135,90,0.28)"/>
+        <text x="56" y="60" class="band">PRIMARY RAIL</text>
+        <text x="56" y="288" class="band">SIDE EFFECTS</text>
+        <text x="56" y="424" class="band">TERMINAL OUTCOMES</text>
+
+        <!-- ============ transitions (drawn before nodes) ============ -->
+        <!-- main rail -->
+        <line x1="66"  y1="156" x2="100"  y2="156" stroke="#334155" stroke-width="1.4" marker-end="url(#dl-arrow)"/>
+        <line x1="278" y1="156" x2="340"  y2="156" stroke="#334155" stroke-width="1.4" marker-end="url(#dl-arrow)"/>
+        <line x1="518" y1="156" x2="580"  y2="156" stroke="#334155" stroke-width="1.4" marker-end="url(#dl-arrow)"/>
+        <line x1="758" y1="156" x2="820"  y2="156" stroke="#334155" stroke-width="1.4" marker-end="url(#dl-arrow)"/>
+        <line x1="998" y1="156" x2="1060" y2="156" stroke="#334155" stroke-width="1.4" marker-end="url(#dl-arrow)"/>
+
+        <!-- retry loops (deny-comments) -->
+        <path d="M400 112 V100 Q400 92 392 92 H188 Q180 92 180 100 V112" fill="none" stroke="#334155" stroke-width="1.4" marker-end="url(#dl-arrow)"/>
+        <path d="M880 112 V100 Q880 92 872 92 H668 Q660 92 660 100 V112" fill="none" stroke="#334155" stroke-width="1.4" marker-end="url(#dl-arrow)"/>
+
+        <!-- terminal transitions -->
+        <path d="M370 200 V414" fill="none" stroke="#334155" stroke-width="1.4" marker-end="url(#dl-arrow)"/>
+        <path d="M910 200 V382 Q910 390 902 390 H446 Q438 390 438 398 V414" fill="none" stroke="#334155" stroke-width="1.4" marker-end="url(#dl-arrow)"/>
+        <path d="M1130 200 V414" fill="none" stroke="#00a165" stroke-width="1.6" marker-end="url(#dl-arrow-accent)"/>
+
+        <!-- side-effect writes, branching off the approve transitions -->
+        <path d="M550 156 V314" fill="none" stroke="#00a165" stroke-width="1.4" stroke-dasharray="4,3" marker-end="url(#dl-arrow-accent)"/>
+        <path d="M1030 156 V314" fill="none" stroke="#00a165" stroke-width="1.4" stroke-dasharray="4,3" marker-end="url(#dl-arrow-accent)"/>
+
+        <!-- ============ transition labels (opaque masks + gap) ============ -->
+        <g text-anchor="middle">
+          <!-- inside the primary band -> mask matches band fill -->
+          <rect x="66"  y="132" width="32" height="16" rx="2" fill="#f2fbf7"/><text x="82"  y="144" class="alab">NEW</text>
+          <rect x="283" y="132" width="52" height="16" rx="2" fill="#f2fbf7"/><text x="309" y="144" class="alab">COMMIT</text>
+          <rect x="520" y="132" width="58" height="16" rx="2" fill="#f2fbf7"/><text x="549" y="144" class="alab">APPROVE</text>
+          <rect x="760" y="132" width="58" height="16" rx="2" fill="#f2fbf7"/><text x="789" y="144" class="alab">DRAFTED</text>
+          <rect x="1000" y="132" width="58" height="16" rx="2" fill="#f2fbf7"/><text x="1029" y="144" class="alab">APPROVE</text>
+          <rect x="238" y="68" width="104" height="16" rx="2" fill="#f2fbf7"/><text x="290" y="80" class="alab">DENY-COMMENTS</text>
+          <rect x="718" y="68" width="104" height="16" rx="2" fill="#f2fbf7"/><text x="770" y="80" class="alab">DENY-COMMENTS</text>
+          <!-- in the open gap between bands -> mask matches paper -->
+          <rect x="380" y="240" width="73" height="16" rx="2" fill="#ffffff"/><text x="416" y="252" class="alab">DENY-HALT</text>
+          <rect x="827" y="240" width="73" height="16" rx="2" fill="#ffffff"/><text x="863" y="252" class="alab">DENY-HALT</text>
+          <rect x="1140" y="240" width="51" height="16" rx="2" fill="#ffffff"/><text x="1165" y="252" class="alab">RESULT</text>
+          <!-- inside the side-effects band -->
+          <rect x="560" y="276" width="80" height="16" rx="2" fill="#f2fbf7"/><text x="600" y="288" class="alab">ON APPROVE</text>
+          <rect x="1040" y="276" width="80" height="16" rx="2" fill="#f2fbf7"/><text x="1080" y="288" class="alab">ON APPROVE</text>
+        </g>
+
+        <!-- ============ primary rail nodes ============ -->
+        <!-- fetch_cards -->
+        <g>
+          <rect x="102" y="112" width="176" height="88" rx="8" fill="#ffffff" stroke="#0b1220" stroke-width="1.4"/>
+          <rect x="114" y="122" width="74" height="14" rx="2" fill="#ffffff" stroke="rgba(0,135,90,0.40)" stroke-width="0.8"/>
+          <text x="151" y="132" class="tag" text-anchor="middle">stage=fetch</text>
+          <text x="190" y="158" class="n-name" text-anchor="middle">检索模型卡片</text>
+          <text x="190" y="176" class="n-sub" text-anchor="middle">fetch_cards</text>
+          <text x="190" y="192" class="n-sub2" text-anchor="middle">ReAct · RAG + DataHub</text>
+        </g>
+        <!-- gate_cards -->
+        <g>
+          <rect x="342" y="112" width="176" height="88" rx="8" fill="#dcf7ea" stroke="#00875a" stroke-width="1.4"/>
+          <rect x="354" y="122" width="104" height="14" rx="2" fill="#ffffff" stroke="rgba(0,135,90,0.55)" stroke-width="0.8"/>
+          <text x="406" y="132" class="tag" text-anchor="middle">stage=gate_cards</text>
+          <text x="430" y="158" class="n-name" text-anchor="middle">人工审阅卡片</text>
+          <text x="430" y="176" class="n-sub" text-anchor="middle">gate_cards</text>
+          <text x="430" y="192" class="n-sub2" text-anchor="middle">interrupt · 4 options</text>
+        </g>
+        <!-- generate_sql -->
+        <g>
+          <rect x="582" y="112" width="176" height="88" rx="8" fill="#ffffff" stroke="#0b1220" stroke-width="1.4"/>
+          <rect x="594" y="122" width="62" height="14" rx="2" fill="#ffffff" stroke="rgba(0,135,90,0.40)" stroke-width="0.8"/>
+          <text x="625" y="132" class="tag" text-anchor="middle">stage=sql</text>
+          <text x="670" y="158" class="n-name" text-anchor="middle">起草 SQL</text>
+          <text x="670" y="176" class="n-sub" text-anchor="middle">generate_sql</text>
+          <text x="670" y="192" class="n-sub2" text-anchor="middle">desc + EXPLAIN</text>
+        </g>
+        <!-- gate_sql -->
+        <g>
+          <rect x="822" y="112" width="176" height="88" rx="8" fill="#dcf7ea" stroke="#00875a" stroke-width="1.4"/>
+          <rect x="834" y="122" width="100" height="14" rx="2" fill="#ffffff" stroke="rgba(0,135,90,0.55)" stroke-width="0.8"/>
+          <text x="884" y="132" class="tag" text-anchor="middle">stage=gate_sql</text>
+          <text x="910" y="158" class="n-name" text-anchor="middle">人工审阅 SQL</text>
+          <text x="910" y="176" class="n-sub" text-anchor="middle">gate_sql</text>
+          <text x="910" y="192" class="n-sub2" text-anchor="middle">interrupt · 4 options</text>
+        </g>
+        <!-- execute_sql -->
+        <g>
+          <rect x="1062" y="112" width="176" height="88" rx="8" fill="#ffffff" stroke="#0b1220" stroke-width="1.4"/>
+          <rect x="1074" y="122" width="86" height="14" rx="2" fill="#ffffff" stroke="rgba(0,135,90,0.40)" stroke-width="0.8"/>
+          <text x="1117" y="132" class="tag" text-anchor="middle">stage=execute</text>
+          <text x="1150" y="158" class="n-name" text-anchor="middle">执行查询</text>
+          <text x="1150" y="176" class="n-sub" text-anchor="middle">execute_sql</text>
+          <text x="1150" y="192" class="n-sub2" text-anchor="middle">trino_run_query</text>
+        </g>
+        <!-- start marker -->
+        <circle cx="60" cy="156" r="6" fill="#00a165"/>
+
+        <!-- ============ side-effect nodes ============ -->
+        <g>
+          <rect x="470" y="316" width="160" height="48" rx="6" fill="#ffffff" stroke="#00a165" stroke-width="1.4" stroke-dasharray="4,3"/>
+          <text x="550" y="338" class="n-name" text-anchor="middle">持久化卡片</text>
+          <text x="550" y="354" class="n-sub" text-anchor="middle">write_cards_artifact</text>
+        </g>
+        <g>
+          <rect x="950" y="316" width="160" height="48" rx="6" fill="#ffffff" stroke="#00a165" stroke-width="1.4" stroke-dasharray="4,3"/>
+          <text x="1030" y="338" class="n-name" text-anchor="middle">持久化 SQL</text>
+          <text x="1030" y="354" class="n-sub" text-anchor="middle">write_sql_artifact</text>
+        </g>
+
+        <!-- ============ terminal nodes ============ -->
+        <g>
+          <rect x="280" y="416" width="200" height="68" rx="8" fill="#eef2f7" stroke="#334155" stroke-width="1.2"/>
+          <rect x="292" y="426" width="68" height="14" rx="2" fill="#ffffff" stroke="rgba(51,65,85,0.45)" stroke-width="0.8"/>
+          <text x="326" y="436" class="tag" text-anchor="middle">stage=done</text>
+          <text x="380" y="456" class="n-name" text-anchor="middle">用户中止</text>
+          <text x="380" y="474" class="n-sub" text-anchor="middle">end_with_refusal</text>
+        </g>
+        <g>
+          <rect x="1030" y="416" width="200" height="68" rx="8" fill="rgba(0,135,90,0.13)" stroke="#00875a" stroke-width="1.6"/>
+          <rect x="1042" y="426" width="68" height="14" rx="2" fill="#ffffff" stroke="#00875a" stroke-width="0.9"/>
+          <text x="1076" y="436" class="tag-acc" text-anchor="middle">stage=done</text>
+          <circle cx="1064" cy="460" r="8" fill="none" stroke="#00875a" stroke-width="1.6"/>
+          <circle cx="1064" cy="460" r="5" fill="#00875a"/>
+          <text x="1150" y="456" class="n-name" text-anchor="middle">生成总结</text>
+          <text x="1150" y="474" class="n-sub" text-anchor="middle">end_with_summary</text>
+        </g>
+
+        <!-- ============ legend strip ============ -->
+        <line x1="40" y1="544" x2="1240" y2="544" stroke="rgba(0,135,90,0.28)" stroke-width="1"/>
+        <g>
+          <rect x="40" y="556" width="16" height="12" rx="2" fill="#ffffff" stroke="#0b1220" stroke-width="1.4"/>
+          <text x="64" y="566" class="leg">LLM / ReAct 阶段</text>
+
+          <rect x="220" y="556" width="16" height="12" rx="2" fill="#dcf7ea" stroke="#00875a" stroke-width="1.4"/>
+          <text x="244" y="566" class="leg">人工闸门（interrupt）</text>
+
+          <rect x="420" y="556" width="16" height="12" rx="2" fill="rgba(0,135,90,0.13)" stroke="#00875a" stroke-width="1.6"/>
+          <text x="444" y="566" class="leg">终态：完成</text>
+
+          <rect x="580" y="556" width="16" height="12" rx="2" fill="#ffffff" stroke="#00a165" stroke-width="1.4" stroke-dasharray="4,3"/>
+          <text x="604" y="566" class="leg">副作用写盘</text>
+
+          <rect x="760" y="556" width="16" height="12" rx="2" fill="#eef2f7" stroke="#334155" stroke-width="1.2"/>
+          <text x="784" y="566" class="leg">终态：中止</text>
+
+          <path d="M960 562 H986" fill="none" stroke="#00a165" stroke-width="1.4" stroke-dasharray="4,3" marker-end="url(#dl-arrow-accent)"/>
+          <text x="998" y="566" class="leg">闸门通过时落盘</text>
+        </g>
+      </svg>
+    </div>
+    <figcaption>
+      <b>图 1 · 主干流水线。</b>外层状态机由 <code>stage</code> 字段驱动，<code>_stage_route()</code> 把 stage 映射到下一个节点。
+      <code>prepare_cards_for_gate</code> 只负责生成四个选项的说服文案，已并入「人工审阅卡片」框；
+      <code>write_cards_artifact</code> / <code>write_sql_artifact</code> 是 approve 之后的落盘副作用，用虚线挂在 approve 迁移上（<code>dryrun</code> 时跳过）。
+      注意 <code>generate_sql</code> 退出时若没有同时填好 <code>draft_sql</code> 与 <code>sql_reasons</code>，<code>_after_generate_sql</code> 会兜底直接跳到闸门。
+    </figcaption>
+  </figure>
+
+  <!-- ============================================================ FIGURE 2 -->
+  <figure>
+    <div class="diagram-container">
+      <svg viewBox="0 0 1280 400" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="databot-entry-title databot-entry-desc">
+        <title id="databot-entry-title">Databot 入口与追问分流</title>
+        <desc id="databot-entry-desc">入口节点注入系统提示并识别追问；追问被判定为 knowledge 时委派知识专员并结束，判定为 requery 时重置流水线回到卡片检索阶段。</desc>
+        <defs>
+          <marker id="de-arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#334155"/></marker>
+          <marker id="de-arrow-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#00a165"/></marker>
+        </defs>
+
+        <rect width="100%" height="100%" fill="#ffffff"/>
+
+        <!-- transitions -->
+        <line x1="66" y1="84" x2="102" y2="84" stroke="#334155" stroke-width="1.4" marker-end="url(#de-arrow)"/>
+        <line x1="280" y1="84" x2="378" y2="84" stroke="#334155" stroke-width="1.4" marker-end="url(#de-arrow)"/>
+        <line x1="556" y1="84" x2="654" y2="84" stroke="#334155" stroke-width="1.4" marker-end="url(#de-arrow)"/>
+        <line x1="832" y1="84" x2="918" y2="84" stroke="#00a165" stroke-width="1.6" marker-end="url(#de-arrow-accent)"/>
+        <line x1="184" y1="128" x2="184" y2="214" stroke="#334155" stroke-width="1.4" marker-end="url(#de-arrow)"/>
+        <path d="M460 128 V164 Q460 172 452 172 H248 Q240 172 240 180 V214" fill="none" stroke="#334155" stroke-width="1.4" marker-end="url(#de-arrow)"/>
+
+        <!-- transition labels -->
+        <g text-anchor="middle">
+          <rect x="66"  y="60" width="32"  height="16" rx="2" fill="#ffffff"/><text x="82"  y="72" class="alab">NEW</text>
+          <rect x="290" y="60" width="79"  height="16" rx="2" fill="#ffffff"/><text x="329" y="72" class="alab">FOLLOW-UP</text>
+          <rect x="566" y="60" width="79"  height="16" rx="2" fill="#ffffff"/><text x="605" y="72" class="alab">KNOWLEDGE</text>
+          <rect x="851" y="60" width="63"  height="16" rx="2" fill="#ffffff"/><text x="882" y="72" class="alab">ANSWER</text>
+          <rect x="104" y="172" width="71" height="16" rx="2" fill="#ffffff"/><text x="139" y="184" class="alab">NEW TURN</text>
+          <rect x="319" y="140" width="63" height="16" rx="2" fill="#ffffff"/><text x="350" y="152" class="alab">REQUERY</text>
+        </g>
+
+        <!-- nodes -->
+        <g>
+          <rect x="104" y="40" width="176" height="88" rx="8" fill="#ffffff" stroke="#0b1220" stroke-width="1.4"/>
+          <rect x="116" y="50" width="52" height="14" rx="2" fill="#ffffff" stroke="rgba(0,135,90,0.40)" stroke-width="0.8"/>
+          <text x="142" y="60" class="tag" text-anchor="middle">ENTRY</text>
+          <text x="192" y="86" class="n-name" text-anchor="middle">注入系统提示</text>
+          <text x="192" y="104" class="n-sub" text-anchor="middle">inject_system_prompt</text>
+          <text x="192" y="120" class="n-sub2" text-anchor="middle">follow-up detect</text>
+        </g>
+        <g>
+          <rect x="380" y="40" width="176" height="88" rx="8" fill="#ffffff" stroke="#0b1220" stroke-width="1.4"/>
+          <rect x="392" y="50" width="40" height="14" rx="2" fill="#ffffff" stroke="rgba(0,135,90,0.40)" stroke-width="0.8"/>
+          <text x="412" y="60" class="tag" text-anchor="middle">LLM</text>
+          <text x="468" y="86" class="n-name" text-anchor="middle">判定追问意图</text>
+          <text x="468" y="104" class="n-sub" text-anchor="middle">classify_follow_up</text>
+          <text x="468" y="120" class="n-sub2" text-anchor="middle">knowledge | requery</text>
+        </g>
+        <g>
+          <rect x="656" y="40" width="176" height="88" rx="8" fill="#ffffff" stroke="#0b1220" stroke-width="1.4"/>
+          <rect x="668" y="50" width="56" height="14" rx="2" fill="#ffffff" stroke="rgba(0,135,90,0.40)" stroke-width="0.8"/>
+          <text x="696" y="60" class="tag" text-anchor="middle">REACT</text>
+          <text x="744" y="86" class="n-name" text-anchor="middle">委派 Knowledge</text>
+          <text x="744" y="104" class="n-sub" text-anchor="middle">knowledge_follow_up</text>
+          <text x="744" y="120" class="n-sub2" text-anchor="middle">finish_knowledge → END</text>
+        </g>
+        <g>
+          <rect x="104" y="216" width="176" height="88" rx="8" fill="#dcf7ea" stroke="#00875a" stroke-width="1.4"/>
+          <rect x="116" y="226" width="64" height="14" rx="2" fill="#ffffff" stroke="rgba(0,135,90,0.55)" stroke-width="0.8"/>
+          <text x="148" y="236" class="tag" text-anchor="middle">STAGE 1</text>
+          <text x="192" y="262" class="n-name" text-anchor="middle">回到主流程</text>
+          <text x="192" y="280" class="n-sub" text-anchor="middle">fetch_cards</text>
+          <text x="192" y="296" class="n-sub2" text-anchor="middle">reset stage = fetch</text>
+        </g>
+
+        <!-- start / end markers -->
+        <circle cx="60" cy="84" r="6" fill="#00a165"/>
+        <circle cx="928" cy="84" r="8" fill="none" stroke="#00875a" stroke-width="1.6"/>
+        <circle cx="928" cy="84" r="5" fill="#00a165"/>
+
+        <!-- legend -->
+        <line x1="40" y1="336" x2="1240" y2="336" stroke="rgba(0,135,90,0.28)" stroke-width="1"/>
+        <g>
+          <rect x="40" y="348" width="16" height="12" rx="2" fill="#ffffff" stroke="#0b1220" stroke-width="1.4"/>
+          <text x="64" y="358" class="leg">LLM / ReAct 节点</text>
+
+          <rect x="240" y="348" width="16" height="12" rx="2" fill="#dcf7ea" stroke="#00875a" stroke-width="1.4"/>
+          <text x="264" y="358" class="leg">回到图 1 主流程</text>
+
+          <circle cx="470" cy="354" r="7" fill="none" stroke="#00875a" stroke-width="1.6"/>
+          <circle cx="470" cy="354" r="4" fill="#00a165"/>
+          <text x="486" y="358" class="leg">对话结束</text>
+        </g>
+      </svg>
+    </div>
+    <figcaption>
+      <b>图 2 · 入口与追问分流。</b>CLI 每轮用一份全新的 partial state 调用，因此 <code>stage</code> 从 <code>fetch</code> 起；
+      CopilotKit / AG-UI 则把 <code>HumanMessage</code> 追加进 checkpoint 并以 <code>stage=done</code> 再次调用，靠
+      <code>_trailing_human_wants_new_turn()</code> 识别出「新的一轮」并置 <code>follow_up_turn=True</code>。
+      追问经 <code>classify_follow_up</code> 判定：<code>knowledge</code> 走 <code>knowledge_follow_up</code> 委派知识专员后直接结束；
+      <code>requery</code> 则清空流水线产物、<code>stage</code> 复位为 <code>fetch</code>，重新走图 1。
+    </figcaption>
+  </figure>
+
+  <!-- ============================================================ TABLES -->
+  <h2>stage 路由表（<code>_stage_route</code>）</h2>
+  <table>
+    <caption>外层状态机唯一的「stage → 下一个节点」映射，<code>VALID_STAGES</code> 之外的值会落到 <code>end_with_summary</code>。</caption>
+    <thead>
+      <tr><th>stage</th><th>路由到节点</th><th>这一段发生什么</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code>fetch</code></td><td><code>fetch_cards</code></td><td>RAG + DataHub 并行检索，LLM 用 <code>commit_cards</code> 选定模型卡片</td></tr>
+      <tr><td><code>gate_cards</code></td><td><code>gate_cards</code></td><td>人工审阅卡片，可退回重选</td></tr>
+      <tr><td><code>sql</code></td><td><code>write_cards_artifact</code></td><td>先落盘已通过的卡片，再起草 SQL</td></tr>
+      <tr><td><code>gate_sql</code></td><td><code>gate_sql</code></td><td>人工审阅 SQL，可退回重写</td></tr>
+      <tr><td><code>execute</code></td><td><code>write_sql_artifact</code></td><td>先落盘已通过的 SQL，再执行查询</td></tr>
+      <tr><td><code>done</code></td><td><code>end_with_summary</code></td><td>终态，生成面向用户的总结</td></tr>
+    </tbody>
+  </table>
+
+  <h2>人工闸门的四种裁决</h2>
+  <table>
+    <caption>两个闸门共用同一组选项与解析逻辑（<code>_parse_resume</code>）；无法识别的裁决一律按 <code>dryrun</code> 处理。</caption>
+    <thead>
+      <tr><th>裁决</th><th>行为</th><th>stage 变化</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code>approve</code></td><td>通过，推进到下一阶段</td><td><code>gate_cards → sql</code>；<code>gate_sql → execute</code></td></tr>
+      <tr><td><code>deny-comments</code></td><td>带意见退回重做，并清空本阶段产物</td><td>退回 <code>fetch</code> / <code>sql</code></td></tr>
+      <tr><td><code>deny-halt</code></td><td>中止本轮，不执行 SQL、不写 profile</td><td>→ <code>done</code>（<code>end_with_refusal</code>）</td></tr>
+      <tr><td><code>dryrun</code></td><td>预览通过，但不写 profile artifact</td><td>同 <code>approve</code>，另置 <code>dryrun=True</code></td></tr>
+    </tbody>
+  </table>
+
+  <div class="cards">
+    <div class="card">
+      <p class="eyebrow">结构</p>
+      <h3>外层状态机 + 每阶段 ReAct 子图</h3>
+      <p>外层只管 <code>stage</code> 指针；每个 LLM 阶段是一个独立子图（<code>build_fetch_cards_subgraph</code> / <code>build_generate_sql_subgraph</code>），用 <code>state_exit_keys</code> 判断何时退出。</p>
+    </div>
+    <div class="card">
+      <p class="eyebrow">人机协作</p>
+      <h3>闸门是 <code>interrupt()</code></h3>
+      <p>闸门节点用 <code>interrupt()</code> 挂起等待人，四个选项各带一段 LLM 生成的说明文案；<code>gate_decisions</code> 记录完整审计轨迹。</p>
+    </div>
+    <div class="card">
+      <p class="eyebrow">副作用</p>
+      <h3>只有 approve 才落盘</h3>
+      <p>两张卡片 + 一条 SQL 追加写进 <code>&lt;profile_dir&gt;/&lt;user&gt;.databot_turns.jsonl</code>；<code>dryrun</code> 或无 <code>approve</code> 记录时直接跳过。</p>
+    </div>
+  </div>
+
+  <footer>
+    依据 <code>agent/specialists/databot/graph.py</code>（<code>build_databot_graph</code>）及其 <code>subgraphs.py</code> / <code>gates.py</code> / <code>stage_prep.py</code> / <code>execute.py</code> / <code>turn_summary.py</code> / <code>profile_persistence.py</code> 绘制。
+    图中省略：<code>inject_system_prompt</code> 的系统提示注入细节、<code>prepare_cards_for_gate</code> 的独立节点（并入闸门框）、各子图内部的 ReAct 循环与工具作用域。
+  </footer>
+
+</div>
+</body>
+</html>

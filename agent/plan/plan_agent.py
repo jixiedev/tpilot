@@ -104,14 +104,13 @@ class PlanAgent(BaseAgent, RegistryScopedTools):
     async def bind(
         self,
         model: BaseChatModel,
-        checkpointer: BaseCheckpointSaver,
+        checkpointer: BaseCheckpointSaver | None,
         **build_kwargs: Any,
-    ) -> PlanAgent:
+    ):
         self._model = model
         self._checkpointer = checkpointer
         self._bind_kwargs = dict(build_kwargs)
         self._specialists.clear()
-        return await super().bind(model, checkpointer, **build_kwargs)
 
     async def build_graph(
         self,
@@ -170,7 +169,6 @@ class PlanAgent(BaseAgent, RegistryScopedTools):
         session: str,
         user_id: str | None = None,
         on_interrupt: OnInterrupt | None = None,
-        print_output: bool = True,
     ) -> AgentTurnResult:
         if self._graph is None:
             raise RuntimeError("PlanAgent.run called before build_graph")

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import getpass
 from collections.abc import Callable, Sequence
 from dataclasses import replace
 from pathlib import Path
@@ -74,7 +73,7 @@ class BaseReactAgent(BaseAgent):
         self.react_listener: ListenerHub = (
             primary if isinstance(primary, ListenerHub) else ListenerHub(primary)
         )
-        self.session = SessionTurnBuilder(self.turn_boundary)
+        self.session = SessionTurnBuilder(self.turn_boundary, profile_store=profile_store)
         self.router = CompletionToolRouter(self.run_context, self.router_config)
         self.system_prompt = (
             system_prompt if system_prompt is not None else self.render_system_prompt
@@ -86,10 +85,7 @@ class BaseReactAgent(BaseAgent):
         return FileProfileStore(root or cls.default_profile_dir)
 
     def render_system_prompt(self, state: SessionAgentState) -> str:
-        user_id = state.get("user_id", "")
-        if not isinstance(user_id, str) or not user_id.strip():
-            user_id = getpass.getuser()
-        profile = self.profile_store.load(user_id)
+        profile = self.profile_store.load_for_turn(state)
         return self.prompt_assembler.with_profile(profile).build()
 
     def route_after_reason(self) -> Callable[[StateLike], str]:
@@ -103,10 +99,6 @@ class BaseReactAgent(BaseAgent):
     @staticmethod
     def graph_config(session: str) -> dict:
         return SessionTurnBuilder.graph_config(session)
-
-    @staticmethod
-    def resolve_user_id(prior_user_id: object | None, *, explicit: str | None = None) -> str:
-        return SessionTurnBuilder.resolve_user_id(prior_user_id, explicit=explicit)
 
     async def prepare_turn_input(
         self,
