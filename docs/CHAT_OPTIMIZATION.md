@@ -1218,5 +1218,15 @@ Implementation notes (behavior only): detect emits intentions + plan steps; publ
 |--------------|--------|-------|
 | Model download | First `fetch_related_models` downloaded `BAAI/bge-m3` and `BAAI/bge-reranker-v2-m3`; the embedder snapshot failed on `imgs/.DS_Store` | `python -m rag download` fetches both into `~/.cache/tahoepilot/models`, skipping that file; search only loads those directories |
 
+## 2026-11-02 — OOP eval harness
+
+**Goal**: Express eval cases, loading, scoring, and suite runs as objects instead of module-level procedures.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| Case model | One ReAct fixture type plus separate intent helpers | `EvalCase` subtypes (`React` / `Databot` / `Intention`) each own run and score |
+| Loading and scoring | Module functions and JSON-key dispatch | `CaseLoader` plus instance scorers; agent name selects the case type |
+| Eval slices | Case groups named after agents or topics (`databot`, `jira`) | `eval_set` is functional / performance / harness; each slice picks its own score mix |
+
 <!-- Append the next optimization section above this line -->
 

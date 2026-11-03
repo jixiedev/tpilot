@@ -1,0 +1,12 @@
+{
+  "models": ["sensenova-6.7-flash-lite"],
+  "cases": [
+    {
+      "name": "reject_small_talk",
+      "query": "hello",
+      "expected_status": "rejected",
+      "expected_intentions": [],
+      "expected_routes": []
+    }
+  ]
+}

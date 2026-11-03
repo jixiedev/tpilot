@@ -1,0 +1,19 @@
+{
+  "models": ["sensenova-6.7-flash-lite"],
+  "cases": [
+    {
+      "name": "data_gmv_query",
+      "query": "What was yesterday's GMV? Use the warehouse and run SQL if needed.",
+      "expected_status": "published",
+      "expected_intentions": ["DATA"],
+      "expected_routes": ["databot"]
+    },
+    {
+      "name": "composite_gmv_definition_then_query",
+      "query": "Look up the GMV metric definition in team docs, then query yesterday's GMV from the warehouse.",
+      "expected_status": "published",
+      "expected_intentions": ["KNOWLEDGE", "DATA"],
+      "expected_routes": ["plan"]
+    }
+  ]
+}
