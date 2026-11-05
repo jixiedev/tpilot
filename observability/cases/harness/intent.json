@@ -1,5 +1,5 @@
 {
-  "models": ["sensenova-6.7-flash-lite"],
+  "models": ["MiniMax-M3"],
   "cases": [
     {
       "name": "reject_small_talk",

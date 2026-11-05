@@ -1,17 +1,25 @@
 {
-  "models": ["sensenova-6.7-flash-lite"],
+  "models": ["MiniMax-M3"],
   "cases": [
     {
       "name": "jira_superset_security",
       "query": "How should we address security vulnerabilities in Superset? Reply with a single JSON object only. Do not wrap it in markdown fences and do not add any other text. Required shape: {\"jira_ticket\": \"<value>\"}",
-      "expected_tools": ["fetch_related_jira_tickets"],
-      "total_rounds": 2
+      "tools": {
+        "required": ["fetch_related_jira_tickets"],
+        "allowed": ["fetch_related_jira_tickets"],
+        "forbidden": []
+      },
+      "max_tool_calls": 2
     },
     {
       "name": "create_plan_before_reply",
       "query": "I need to migrate a Python script from cron to Airflow. Create a short plan with the planning tool, then summarize the plan.",
-      "expected_tools": ["planning"],
-      "total_rounds": 2
+      "tools": {
+        "required": ["planning"],
+        "allowed": ["planning"],
+        "forbidden": []
+      },
+      "max_tool_calls": 2
     }
   ]
 }

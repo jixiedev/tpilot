@@ -1,12 +1,21 @@
-"""Bind eval agents and run loaded cases."""
+"""Eval pipeline: bind agents, load cases, run suites, and report scores."""
 
 from __future__ import annotations
+
+from pathlib import Path
 
 from langchain_core.language_models import BaseChatModel
 
 from agent.agent import BaseAgent
-from observability.some.cases import CaseAggregate
-from observability.some.loader import CaseLoader
+from observability.case import CASES_DIR, CaseAggregate, CaseLoader, EvalCase
+
+DEFAULT_MODEL = "MiniMax-M3"
+EVAL_AGENTS = ("databot", "knowledge", "intent")
+DEFAULT_EVAL_SETS: dict[str, list[str]] = {
+    "databot": ["functional"],
+    "knowledge": ["functional", "harness"],
+    "intent": ["functional", "harness"],
+}
 
 
 class EvalSuiteReport:
@@ -103,3 +112,54 @@ class EvalHarness:
                     result = await case.run(agent, model_name=model_name)
                     aggregate.model_results.append(result)
         return EvalSuiteReport([aggregates_by_key[key] for key in order])
+
+
+def default_cases_dir(cases_dir: Path | None = None) -> Path:
+    return cases_dir or CASES_DIR
+
+
+def build_loader(
+    agent_name: str,
+    *,
+    cases_dir: Path | None = None,
+    model_name: str = DEFAULT_MODEL,
+) -> CaseLoader:
+    return CaseLoader(
+        default_cases_dir(cases_dir),
+        {agent_name: model_name},
+    )
+
+
+def format_case_listing(case: EvalCase) -> str:
+    """One-line listing: ``eval_set/agent/name  models=...``."""
+    models = ",".join(case.models) if case.models else "-"
+    return (
+        f"{case.resolved_eval_set().name}/{case.agent_name}/{case.name}  "
+        f"models={models}"
+    )
+
+
+def list_cases(
+    *,
+    agent_name: str,
+    eval_sets: list[str],
+    cases_dir: Path | None = None,
+    model_name: str = DEFAULT_MODEL,
+) -> list[str]:
+    """Return formatted case lines for the selected agent and eval-set slices."""
+    loader = build_loader(agent_name, cases_dir=cases_dir, model_name=model_name)
+    cases = loader.list_cases({agent_name}, set(eval_sets))
+    return [format_case_listing(case) for case in cases]
+
+
+async def run_eval(
+    *,
+    agent_name: str,
+    eval_sets: list[str],
+    cases_dir: Path | None = None,
+    model_name: str = DEFAULT_MODEL,
+) -> EvalSuiteReport:
+    """Load and run the selected agent against one or more eval-set slices."""
+    loader = build_loader(agent_name, cases_dir=cases_dir, model_name=model_name)
+    harness = EvalHarness(loader)
+    return await harness.run({agent_name}, {model_name}, set(eval_sets))

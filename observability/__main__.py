@@ -1,4 +1,4 @@
-"""CLI: python -m observability --agent databot --groups databot"""
+"""CLI: python -m observability --agent databot --eval-set functional"""
 
 from __future__ import annotations
 
@@ -8,16 +8,17 @@ import sys
 from pathlib import Path
 
 from dotenv import load_dotenv
-from langchain_core.language_models import BaseChatModel
 
 load_dotenv(Path(__file__).resolve().parents[1] / ".env")
 
-EVAL_AGENTS = ("databot", "knowledge", "intent")
-DEFAULT_GROUPS: dict[str, list[str]] = {
-    "databot": ["databot"],
-    "knowledge": ["knowledge", "general", "tahoe"],
-    "intent": ["intent"],
-}
+from observability.runner import (  # noqa: E402
+    DEFAULT_EVAL_SETS,
+    DEFAULT_MODEL,
+    EVAL_AGENTS,
+    build_loader,
+    list_cases,
+    run_eval,
+)
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
@@ -34,15 +35,22 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "-g",
         "--groups",
+        "--eval-set",
+        dest="eval_sets",
         nargs="+",
         default=None,
-        help="case group keys matching cases/<group>.json (default: agent-specific)",
+        help="eval-set slices under cases/<eval_set>/ (default: agent-specific)",
     )
     parser.add_argument(
         "--cases-dir",
         type=Path,
         default=None,
-        help="directory containing case JSON files (default: observability/cases)",
+        help="directory containing eval-set folders (default: observability/cases)",
+    )
+    parser.add_argument(
+        "--model",
+        default=DEFAULT_MODEL,
+        help=f"model name from models/models.toml (default: {DEFAULT_MODEL})",
     )
     parser.add_argument(
         "--fail-under",
@@ -52,8 +60,15 @@ def build_arg_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--list-groups",
+        "--list-eval-sets",
+        dest="list_eval_sets",
         action="store_true",
-        help="list available case group keys and exit",
+        help="list available eval-set directories and exit",
+    )
+    parser.add_argument(
+        "--list-cases",
+        action="store_true",
+        help="list cases for --agent / --eval-set and exit",
     )
     parser.add_argument(
         "--list-models",
@@ -63,90 +78,12 @@ def build_arg_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def resolve_eval_model(model_name: str) -> BaseChatModel:
-    from models.models import get_model_by_name
-
-    try:
-        return get_model_by_name(model_name)
-    except KeyError as exc:
-        raise ValueError(str(exc)) from exc
-
-
-async def create_eval_agent(agent_name: str, model_name: str):
-    from langgraph.checkpoint.memory import MemorySaver
-
-    from agent.listener import ReactAgentListener
-    from agent.registry import get_agent
-    from agent.runtime.tahoe_runtime_helper import default_profile_store
-    from memory import CompressionConfig
-
-    model = resolve_eval_model(model_name)
-    spec = get_agent(agent_name)
-    if agent_name == "intent":
-        agent = await spec.create_agent()
-        await agent.bind(model, MemorySaver())
-        return agent
-
-    agent = await spec.create_agent(
-        profile_store=default_profile_store(),
-        react_listener=ReactAgentListener(),
-    )
-    await agent.bind(
-        model,
-        MemorySaver(),
-        compression_config=CompressionConfig(enabled=False),
-    )
-    return agent
-
-
-async def run_eval(
-    *,
-    agent_name: str,
-    groups: list[str],
-    cases_dir: Path | None,
-) -> tuple[float, list]:
-    async def agent_factory(model_name: str):
-        return await create_eval_agent(agent_name, model_name)
-
-    if agent_name == "intent":
-        from observability.intent_case import (
-            format_intent_case_aggregate,
-            run_intent_cases,
-        )
-
-        average, aggregates = await run_intent_cases(
-            groups,
-            agent_factory,
-            cases_dir=cases_dir,
-        )
-        for aggregate in aggregates:
-            print(format_intent_case_aggregate(aggregate))
-    else:
-        from observability.case import format_case_aggregate, run_cases
-
-        average, aggregates = await run_cases(
-            groups,
-            agent_factory,
-            cases_dir=cases_dir,
-        )
-        for aggregate in aggregates:
-            print(format_case_aggregate(aggregate))
-
-    model_runs = sum(len(item.model_results) for item in aggregates)
-    print(
-        f"Average score: {average:.3f} "
-        f"({len(aggregates)} case(s), {model_runs} model run(s))"
-    )
-    return average, aggregates
-
-
 def main(argv: list[str] | None = None) -> int:
-    from observability.case import list_case_groups
-
     args = build_arg_parser().parse_args(argv)
-    if args.list_groups:
-        for group in list_case_groups(cases_dir=args.cases_dir):
-            print(group)
+    if args.list_eval_sets:
+        loader = build_loader(args.agent, cases_dir=args.cases_dir, model_name=args.model)
+        for name in loader.list_eval_sets():
+            print(name)
         return 0
     if args.list_models:
         from models.models import _model_configs, default_model_name
@@ -156,28 +93,40 @@ def main(argv: list[str] | None = None) -> int:
             print(f"{name}{marker}")
         return 0
 
-    groups = args.groups or DEFAULT_GROUPS[args.agent]
+    eval_sets = args.eval_sets or DEFAULT_EVAL_SETS[args.agent]
+    if args.list_cases:
+        try:
+            for line in list_cases(
+                agent_name=args.agent,
+                eval_sets=eval_sets,
+                cases_dir=args.cases_dir,
+                model_name=args.model,
+            ):
+                print(line)
+        except (FileNotFoundError, ValueError, TypeError) as exc:
+            print(str(exc), file=sys.stderr)
+            return 2
+        return 0
     try:
-        average, _ = asyncio.run(
+        report = asyncio.run(
             run_eval(
                 agent_name=args.agent,
-                groups=groups,
+                eval_sets=eval_sets,
                 cases_dir=args.cases_dir,
+                model_name=args.model,
             )
         )
-    except FileNotFoundError as exc:
+    except (FileNotFoundError, ValueError, TypeError) as exc:
         print(str(exc), file=sys.stderr)
         return 2
-    except ValueError as exc:
-        print(str(exc), file=sys.stderr)
-        return 2
-    except TypeError as exc:
-        print(str(exc), file=sys.stderr)
+    except Exception as exc:
+        print(f"Eval failed: {type(exc).__name__}: {exc}", file=sys.stderr)
         return 2
 
-    if args.fail_under is not None and average < args.fail_under:
+    print(report.render())
+    if args.fail_under is not None and report.average < args.fail_under:
         print(
-            f"Average {average:.3f} is below --fail-under {args.fail_under:.3f}",
+            f"Average {report.average:.3f} is below --fail-under {args.fail_under:.3f}",
             file=sys.stderr,
         )
         return 1

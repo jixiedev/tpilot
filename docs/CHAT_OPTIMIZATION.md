@@ -1228,5 +1228,60 @@ Implementation notes (behavior only): detect emits intentions + plan steps; publ
 | Loading and scoring | Module functions and JSON-key dispatch | `CaseLoader` plus instance scorers; agent name selects the case type |
 | Eval slices | Case groups named after agents or topics (`databot`, `jira`) | `eval_set` is functional / performance / harness; each slice picks its own score mix |
 
+## 2026-11-05 — Eval case contract for tools, budget, and output
+
+**Goal**: Make eval fixtures declare tool constraints, a tool-call budget, and typed expected output in a form that supports later golden-trace scoring.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| Tool expectation | Flat `expected_tools` subsequence only | `tools.required` / `allowed` / `forbidden` with order + allow-list checks |
+| Budget field | `total_rounds` scored ReAct reason steps | `max_tool_calls` scored against actual tool-call count |
+| Output contract | `answer` JSON fields; free-form table/metric prompts | `expected_output`; table cases require `{database}.{table}`, metric cases require `{"result": <number>}` |
+| Default models | Mixed flash-lite names in fixtures | All shipped cases use `MiniMax-M3` |
+
+## 2026-11-05 — Observability package layout
+
+**Goal**: Split the eval package into clear modules for cases, scoring, traces, and the run pipeline.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| Module layout | Parallel flat helpers plus `some/` OOP copy | `case.py` / `evaluator.py` / `trace.py` / `runner.py` as the single package surface |
+| Entry path | CLI used legacy group JSON + separate intent helpers | CLI runs `EvalHarness` against `cases/<eval_set>/<agent>.json` |
+
+## 2026-11-05 — Align functional fixtures with outcome scoring
+
+**Goal**: Make `functional` cases assert real outcomes, not just tool presence or unused budget fields.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| Functional knowledge | Mixed gold-answer Jira with tool-only planning; unused `max_tool_calls` | Jira-only functional case; planning moved to harness smoke |
+| Functional databot | Required `search` but empty output / no cards | Asserts `core_data.fct_dau` reply and `fct_dau` table card |
+| Slice fields | Functional JSON carried budget fields the slice never scores | Budget stays on performance / harness only |
+
+## 2026-11-05 — Drop bare case files under cases/
+
+**Goal**: Keep eval fixtures only under category directories.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| Case layout | Nested `functional` / `performance` / `harness` plus leftover root `*.json` | Only `cases/<eval_set>/<agent>.json` |
+
+## 2026-11-05 — Quieter eval MCP loading
+
+**Goal**: Stop eval CLI runs from looking like crashes when local MCP servers are down.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| MCP load failure | Full nested `ExceptionGroup` stack traces on stderr while “continuing” | One-line warning with a flattened error summary |
+| Eval agent bind | Always attempted MCP registration | Eval sets `TAHOEPILOT_SKIP_MCP=1` and uses local registry tools only |
+
+## 2026-11-05 — Eval loads MCP again
+
+**Goal**: Remove the eval-only MCP skip so registration matches normal agent bind.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| Eval MCP | `TAHOEPILOT_SKIP_MCP=1` forced local-only tools | Env flag removed; eval registers MCP like production (failures still one-line warnings) |
+
 <!-- Append the next optimization section above this line -->
 

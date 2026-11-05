@@ -6,26 +6,27 @@ from pathlib import Path
 import pytest
 
 from agent.turn import AgentTurnResult
-from observability.intent_case import (
-    IntentRouterCase,
+from observability.case import (
+    CaseLoader,
+    IntentionEvalCase,
     extract_routing_outcome,
-    find_intent_cases,
-    format_intent_case_result,
 )
 
 
-def _intent_case(**overrides) -> IntentRouterCase:
-    defaults = {
-        "name": "sample",
-        "case_group": "intent/router",
-        "query": "hello",
-        "expected_status": "published",
-        "expected_intentions": ["DATA"],
-        "expected_routes": ["databot"],
-        "models": ["sensenova-6.7-flash-lite"],
-    }
-    defaults.update(overrides)
-    return IntentRouterCase(**defaults)
+def _intent_case(**overrides) -> IntentionEvalCase:
+    values = dict(
+        agent_name="intent",
+        eval_set="functional",
+        name="sample",
+        prompt="hello",
+        expected_output={},
+        models=["MiniMax-M3"],
+        expected_status="published",
+        expected_intentions=["DATA"],
+        expected_routes=["databot"],
+    )
+    values.update(overrides)
+    return IntentionEvalCase(**values)
 
 
 def test_extract_routing_outcome_published() -> None:
@@ -64,16 +65,18 @@ def test_score_status_and_routes() -> None:
         expected_intentions=["KNOWLEDGE", "DATA"],
         expected_routes=["plan"],
     )
-    outcome = {
-        "status": "published",
-        "intentions": ["KNOWLEDGE", "DATA"],
-        "routes": ["plan"],
-    }
-    status_score, _ = case._score_status(outcome)
-    route_score, route_details = case._score_routes(outcome)
-    assert status_score == 1.0
-    assert route_score == 1.0
-    assert route_details["reason"] == "ordered match"
+    result = case.score(
+        AgentTurnResult(
+            state={
+                "status": "published",
+                "user_intentions": ["KNOWLEDGE", "DATA"],
+                "route_target": "plan",
+            }
+        )
+    )
+    assert result.score.value_of("status") == 1.0
+    assert result.score.value_of("routes") == 1.0
+    assert result.score.named("routes").details["reason"] == "ordered match"
 
 
 def test_score_reject_case() -> None:
@@ -84,7 +87,10 @@ def test_score_reject_case() -> None:
     )
     result = case.score(AgentTurnResult(state={"status": "rejected"}, cancelled=False))
     assert result.score.total == 1.0
-    assert "status=1.00 intentions=1.00 routes=1.00" in format_intent_case_result(result)
+    rendered = case.render(result)
+    assert "status=1.00" in rendered
+    assert "intentions=1.00" in rendered
+    assert "routes=1.00" in rendered
 
 
 def test_score_unordered_route_partial_credit() -> None:
@@ -92,45 +98,55 @@ def test_score_unordered_route_partial_credit() -> None:
         expected_intentions=["KNOWLEDGE", "DATA"],
         expected_routes=["plan"],
     )
-    outcome = {
-        "status": "published",
-        "intentions": ["DATA", "KNOWLEDGE"],
-        "routes": ["databot"],
-    }
-    intention_score, _ = case._score_intentions(outcome)
-    route_score, route_details = case._score_routes(outcome)
-    assert intention_score == 0.5
-    assert route_score == 0.0
-    assert route_details["reason"] == "unordered partial"
-
-
-def test_find_intent_cases_requires_expected_status(tmp_path: Path) -> None:
-    payload = {
-        "models": ["sensenova-6.7-flash-lite"],
-        "router": [
-            {
-                "name": "ok",
-                "query": "What was GMV?",
-                "expected_status": "published",
-                "expected_intentions": ["DATA"],
-                "expected_routes": ["databot"],
+    result = case.score(
+        AgentTurnResult(
+            state={
+                "status": "published",
+                "user_intentions": ["DATA", "KNOWLEDGE"],
+                "route_target": "databot",
             }
-        ],
-    }
-    (tmp_path / "intent.json").write_text(json.dumps(payload), encoding="utf-8")
-    cases = find_intent_cases(["intent"], cases_dir=tmp_path)
+        )
+    )
+    assert result.score.value_of("intentions") == 0.5
+    assert result.score.value_of("routes") == 0.0
+    assert result.score.named("routes").details["reason"] == "unordered partial"
+
+
+def test_case_loader_intent_requires_expected_status(tmp_path: Path) -> None:
+    directory = tmp_path / "functional"
+    directory.mkdir(parents=True)
+    (directory / "intent.json").write_text(
+        json.dumps(
+            {
+                "models": ["MiniMax-M3"],
+                "cases": [
+                    {
+                        "name": "ok",
+                        "query": "What was GMV?",
+                        "expected_status": "published",
+                        "expected_intentions": ["DATA"],
+                        "expected_routes": ["databot"],
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    cases = CaseLoader(tmp_path, {"intent": "MiniMax-M3"}).load(
+        {"intent"}, {"MiniMax-M3"}, {"functional"}
+    )["intent"]["MiniMax-M3"]
     assert len(cases) == 1
     assert cases[0].expected_routes == ["databot"]
-    assert cases[0].models == ["sensenova-6.7-flash-lite"]
+    assert cases[0].models == ["MiniMax-M3"]
 
-    (tmp_path / "bad.json").write_text(
+    (directory / "intent.json").write_text(
         json.dumps(
             {
                 "models": ["m"],
-                "router": [{"name": "missing-status", "query": "hello"}],
+                "cases": [{"name": "missing-status", "query": "hello"}],
             }
         ),
         encoding="utf-8",
     )
     with pytest.raises(ValueError, match="expected_status"):
-        find_intent_cases(["bad"], cases_dir=tmp_path)
+        CaseLoader(tmp_path, {"intent": "m"}).load({"intent"}, {"m"}, {"functional"})

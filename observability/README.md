@@ -1,106 +1,150 @@
 # Observability (eval loop)
 
-Run JSON case suites against TahoePilot agents and score tool order, ReAct rounds, and answers (or intent routing for `--agent intent`).
+Run JSON case suites against TahoePilot agents. Cases are grouped by **eval-set category**, then by agent file.
 
-Each case lists one or more model names from `models/models.toml`. The harness runs the case once per model, averages those scores for the case, then averages across cases.
+## Layout
 
-Requires the same LLM / tool setup as the main CLI (repo-root `.env`, `models/models.toml`, and any Hive/Trino/Qdrant/MCP deps used by the selected agent).
+```
+observability/
+  case.py         # case models, ToolsSpec, EvalCase subtypes, CaseLoader
+  evaluator.py    # scorers and expected_output matching
+  trace.py        # EvalReactListener, TracedAgentTurn
+  runner.py       # EvalHarness, agent pool, CLI defaults
+  cases/
+    functional/   # outcome correctness
+      databot.json
+      knowledge.json
+      intent.json
+    performance/  # tool-call / status budget
+      databot.json
+      knowledge.json
+      intent.json
+    harness/      # cheap smoke / tool-path without gold answers
+      knowledge.json
+      intent.json
+```
+
+Only `cases/<eval_set>/<agent>.json` is loaded. Do not put bare `*.json` under `cases/`.
 
 ## Run
 
 From the repo root (after `uv sync`):
 
 ```bash
-# default: --agent tahoe, groups general + tahoe
+# default: --agent databot --eval-set functional, model MiniMax-M3
 uv run python -m observability
 
-# pick an agent (default groups are agent-specific)
-uv run python -m observability --agent tahoe
-uv run python -m observability --agent databot
 uv run python -m observability --agent knowledge
-uv run python -m observability --agent intent
+uv run python -m observability --agent intent --eval-set functional harness
+uv run python -m observability -a databot -g functional performance --model MiniMax-M3
 
-# override case groups (files under observability/cases/<group>.json)
-uv run python -m observability --agent tahoe --groups general
-uv run python -m observability -a tahoe -g general tahoe
-
-# list available group keys / model names
-uv run python -m observability --list-groups
+uv run python -m observability --list-eval-sets
+uv run python -m observability --list-cases
+uv run python -m observability --agent knowledge --eval-set harness --list-cases
 uv run python -m observability --list-models
-
-# custom cases directory
-uv run python -m observability --cases-dir path/to/cases
-
-# fail CI / scripts when average score is below a threshold (exit 1)
-uv run python -m observability --agent tahoe --fail-under 0.8
+uv run python -m observability --fail-under 0.8
 ```
 
-Equivalent without `uv`:
+| Flag | Meaning |
+|------|---------|
+| `-a` / `--agent` | `databot` \| `knowledge` \| `intent` (default: `databot`) |
+| `-g` / `--groups` / `--eval-set` | One or more of `functional` `performance` `harness` |
+| `--model` | Name from `models/models.toml` (default: `MiniMax-M3`) |
+| `--cases-dir` | Override the cases root |
+| `--fail-under` | Exit `1` if suite average is below this value |
+| `--list-eval-sets` | Print available eval-set directories |
+| `--list-cases` | Print `eval_set/agent/name` lines for `-a` / `-g` |
+| `--list-models` | Print model names from `models.toml` |
 
-```bash
-python -m observability --agent tahoe
-```
+### Default eval sets
 
-## Case `models`
+| `--agent` | Default `--eval-set` |
+|-----------|----------------------|
+| `databot` | `functional` |
+| `knowledge` | `functional` `harness` |
+| `intent` | `functional` `harness` |
 
-Top-level file default (applies to every case unless overridden):
+## Eval-set meaning
+
+Each directory is a scoring slice. The same prompt may appear in more than one slice with different fields filled in.
+
+| Eval set | What it scores | What fixtures should carry |
+|----------|----------------|----------------------------|
+| `functional` | Tools / routing / expected output (Databot also cards) | Gold outcomes (`expected_output`, cards). No `max_tool_calls`. |
+| `performance` | `max_tool_calls` budget (intent: status only) | `max_tool_calls` (or intent status). Outcome fields optional. |
+| `harness` | Tools + budget + output (smoke) | Cheap cases; free-form tool-path OK with empty `expected_output`. |
+
+## Case schema
+
+Shared file shape:
 
 ```json
 {
-  "models": ["sensenova-6.7-flash-lite", "glm-4.7-flash"],
-  "default": [
+  "models": ["MiniMax-M3"],
+  "cases": [
     {
-      "name": "arithmetic",
+      "name": "example",
       "query": "...",
-      "expected_tools": [],
-      "total_rounds": 1,
-      "answer": { "result": "3" }
+      "models": ["MiniMax-M3"]
     }
   ]
 }
 ```
 
-Per-case override:
+File-level `models` apply to every case unless a case overrides `models`.
+
+### ReAct / Databot
 
 ```json
 {
-  "name": "local_only",
-  "models": ["qwen3-ctx40k"],
-  "query": "..."
+  "name": "find_dataset_metadata",
+  "query": "… Reply with only {database}.{table} …",
+  "tools": {
+    "required": ["search"],
+    "allowed": ["search"],
+    "forbidden": []
+  },
+  "expected_table_cards": ["fct_dau"],
+  "expected_output": "core_data.fct_dau"
 }
 ```
 
-Names must exist under `[model.*]` in `models/models.toml`.
+| Field | Meaning |
+|-------|---------|
+| `tools.required` | Must appear (order-aware; unordered → partial credit) |
+| `tools.allowed` | If non-empty, every actual tool must be in this set |
+| `tools.forbidden` | Any hit → tools score 0 |
+| `max_tool_calls` | Soft budget on tool-call count (`performance` / `harness`) |
+| `expected_output` | JSON object fields, a `{database}.{table}` string, or `{}` to skip |
+| `expected_table_cards` | Databot only: ordered card names from committed/review/approved |
 
-Scoring:
+Empty `required` + empty `allowed` means no tools may be called.
 
-1. Run case × each listed model → per-model score  
-2. **Case average** = mean of those model scores  
-3. **Suite average** = mean of case averages (`--fail-under` uses this)
+Metric-style replies should require `{"result": <number>}`. Table-style replies should require `{database}.{table}`.
 
-## Agents and default groups
+### Intent
 
-| `--agent` | Default `--groups` | Case file(s) |
-|-----------|--------------------|--------------|
-| `tahoe` | `general` `tahoe` | `cases/general.json`, `cases/tahoe.json` |
-| `databot` | `databot` | `cases/databot.json` |
-| `knowledge` | `knowledge` | `cases/knowledge.json` |
-| `intent` | `intent` | `cases/intent.json` |
+```json
+{
+  "name": "data_gmv_query",
+  "query": "…",
+  "expected_status": "published",
+  "expected_intentions": ["DATA"],
+  "expected_routes": ["databot"]
+}
+```
 
-## CLI flags
+| Field | Meaning |
+|-------|---------|
+| `expected_status` | `published` \| `rejected` \| `clarify` \| … |
+| `expected_intentions` | Ordered intention labels |
+| `expected_routes` | Ordered specialist routes (`databot`, `knowledge`, `plan`, …) |
 
-| Flag | Meaning |
-|------|---------|
-| `-a` / `--agent` | `tahoe` \| `databot` \| `knowledge` \| `intent` (default: `tahoe`) |
-| `-g` / `--groups` | One or more group keys matching `cases/<group>.json` |
-| `--cases-dir` | Directory of case JSON files (default: `observability/cases`) |
-| `--fail-under` | Exit `1` if suite average is below this value |
-| `--list-groups` | Print available group keys and exit |
-| `--list-models` | Print `models.toml` names and exit |
+Intent cases run with `handoff=False` and score routing only.
 
-## Scoring dimensions
+## Scoring flow
 
-- **ReAct agents** (`tahoe`, `databot`, `knowledge`): equal-weight average of tool-order (subsequence), round budget, and JSON answer fields (`answer` empty → answer score skipped).
-- **Intent** (`intent`): router status, intention labels, and specialist route order (`execute_plan=False`).
-
-Each run prints per-model lines, a `case avg`, then `Average score: …`.
+1. Load `cases/<eval_set>/<agent>.json` for the selected agents, models, and eval sets.
+2. Run each case once per allowed model; attach a turn trace.
+3. Score only the dimensions owned by that eval set; skip empty `expected_output`.
+4. Case average = mean over models; suite average = mean over cases (`--fail-under` uses this).

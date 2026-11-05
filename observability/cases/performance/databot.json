@@ -1,11 +1,15 @@
 {
-  "models": ["sensenova-6.7-flash-lite"],
+  "models": ["MiniMax-M3"],
   "cases": [
     {
       "name": "find_dataset_metadata",
-      "query": "Which DataHub dataset stores daily active users for the Tahoe product? Reply with the dataset URN or name if you find it.",
-      "expected_tools": ["search"],
-      "total_rounds": 3
+      "query": "Which DataHub dataset stores daily active users for the Tahoe product? Reply with only the table identity in the form {database}.{table}. Do not wrap it in markdown fences and do not add any other text.",
+      "tools": {
+        "required": ["search"],
+        "allowed": ["search"],
+        "forbidden": []
+      },
+      "max_tool_calls": 3
     }
   ]
 }

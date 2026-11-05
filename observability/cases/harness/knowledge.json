@@ -1,21 +1,40 @@
 {
-  "models": ["sensenova-6.7-flash-lite"],
+  "models": ["MiniMax-M3"],
   "cases": [
     {
       "name": "arithmetic",
-      "query": "What is 1 + 2? Reply with a single JSON object only. Do not wrap it in markdown fences and do not add any other text. Required shape: {\"result\": \"<value>\"}",
-      "expected_tools": [],
-      "total_rounds": 1,
-      "answer": {
-        "result": "3"
+      "query": "What is 1 + 2? Reply with a single JSON object only. Do not wrap it in markdown fences and do not add any other text. Required shape: {\"result\": <number>}",
+      "tools": {
+        "required": [],
+        "allowed": [],
+        "forbidden": []
+      },
+      "max_tool_calls": 0,
+      "expected_output": {
+        "result": 3
       }
     },
     {
       "name": "greeting",
       "query": "Say hello in one short sentence.",
-      "expected_tools": [],
-      "total_rounds": 1,
-      "answer": {}
+      "tools": {
+        "required": [],
+        "allowed": [],
+        "forbidden": []
+      },
+      "max_tool_calls": 0,
+      "expected_output": {}
+    },
+    {
+      "name": "create_plan_before_reply",
+      "query": "I need to migrate a Python script from cron to Airflow. Create a short plan with the planning tool, then summarize the plan.",
+      "tools": {
+        "required": ["planning"],
+        "allowed": ["planning"],
+        "forbidden": []
+      },
+      "max_tool_calls": 2,
+      "expected_output": {}
     }
   ]
 }

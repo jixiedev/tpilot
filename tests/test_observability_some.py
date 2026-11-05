@@ -8,17 +8,18 @@ import pytest
 from langchain_core.messages import AIMessage
 
 from agent.turn import AgentTurnResult
-from observability.some.cases import (
+from observability.case import (
+    CaseLoader,
     DatabotEvalCase,
     IntentionEvalCase,
     IntentRoutingView,
     ReactEvalCase,
+    ToolsSpec,
 )
-from observability.some.eval_set import FunctionalEvalSet, HarnessEvalSet, PerformanceEvalSet
-from observability.some.harness import EvalHarness
-from observability.some.loader import CaseLoader
-from observability.some.observe import EvalReactListener
-from observability.some.scoring import AnswerMatcher, OrderedSequenceScorer
+from observability.evaluator import AnswerMatcher, OrderedSequenceScorer
+from observability.runner import EvalHarness
+from observability.trace import EvalReactListener
+from observability.case import FunctionalEvalSet, HarnessEvalSet, PerformanceEvalSet
 
 
 def _react_case(**overrides) -> ReactEvalCase:
@@ -27,10 +28,10 @@ def _react_case(**overrides) -> ReactEvalCase:
         eval_set="harness",
         name="sample",
         prompt="hello",
-        expected_answer={},
-        models=["sensenova-6.7-flash-lite"],
-        expected_tools=[],
-        expected_total_rounds=1,
+        expected_output={},
+        models=["MiniMax-M3"],
+        tools=ToolsSpec.empty(),
+        max_tool_calls=0,
     )
     values.update(overrides)
     return ReactEvalCase(**values)
@@ -56,10 +57,14 @@ def test_ordered_sequence_scorer() -> None:
     scorer = OrderedSequenceScorer()
     assert scorer.is_subsequence(["a", "b"], ["x", "a", "y", "b"])
     assert not scorer.is_subsequence(["a", "b"], ["b", "a"])
-    ordered = scorer.score(["planning", "bash"], ["planning", "bash"], name="tools", empty_reason="x")
+    ordered = scorer.score(
+        ["planning", "bash"], ["planning", "bash"], name="tools", empty_reason="x"
+    )
     assert ordered.value == 1.0
     assert ordered.details["reason"] == "ordered match"
-    partial = scorer.score(["planning", "bash"], ["bash", "planning"], name="tools", empty_reason="x")
+    partial = scorer.score(
+        ["planning", "bash"], ["bash", "planning"], name="tools", empty_reason="x"
+    )
     assert partial.value == 0.5
     empty = scorer.score([], ["planning"], name="tools", empty_reason="no tools expected")
     assert empty.value == 0.0
@@ -67,7 +72,7 @@ def test_ordered_sequence_scorer() -> None:
 
 def test_answer_matcher() -> None:
     matcher = AnswerMatcher()
-    score = matcher.score('{"result": "3"}', {"result": "3"})
+    score = matcher.score('{"result": 3}', {"result": 3})
     assert score.value == 1.0
     skipped = matcher.score("anything", {})
     assert skipped.value == 1.0
@@ -75,7 +80,7 @@ def test_answer_matcher() -> None:
     missing = matcher.score("TAHOE-949 in prose", {"jira_ticket": "TAHOE-949"})
     assert missing.value == 0.0
     assert missing.details["parse_error"]
-    mismatch = matcher.score('{"result": "4"}', {"result": "3", "note": "ok"})
+    mismatch = matcher.score('{"result": "4"}', {"result": 3, "note": "ok"})
     assert mismatch.details["mismatched"] == ["result"]
     assert mismatch.details["missing"] == ["note"]
     parsed, error = matcher.extract_json_object('{"a": 1, "b": "two"}')
@@ -90,53 +95,60 @@ def test_eval_set_selects_score_dimensions() -> None:
     turn = AgentTurnResult(state={"reply": '{"ticket": "TAHOE-949"}'})
     functional = _react_case(
         eval_set="functional",
-        expected_tools=["planning", "bash"],
-        expected_total_rounds=1,
-        expected_answer={"ticket": "TAHOE-949"},
+        tools=ToolsSpec(required=["planning", "bash"], allowed=["planning", "bash"]),
+        max_tool_calls=1,
+        expected_output={"ticket": "TAHOE-949"},
     ).score(turn, listener)
     assert functional.score.named("tools") is not None
     assert functional.score.named("answer") is not None
-    assert functional.score.named("rounds") is None
+    assert functional.score.named("max_tool_calls") is None
 
     performance = _react_case(
         eval_set="performance",
-        expected_tools=["planning", "bash"],
-        expected_total_rounds=2,
+        tools=ToolsSpec(required=["planning", "bash"], allowed=["planning", "bash"]),
+        max_tool_calls=2,
     ).score(turn, listener)
-    assert [item.name for item in performance.score.dimensions] == ["rounds"]
-    assert performance.score.value_of("rounds") == 1.0
+    assert [item.name for item in performance.score.dimensions] == ["max_tool_calls"]
+    assert performance.score.value_of("max_tool_calls") == 1.0
 
     harness = _react_case(
         eval_set="harness",
-        expected_tools=["planning", "bash"],
-        expected_total_rounds=2,
-        expected_answer={"ticket": "TAHOE-949"},
+        tools=ToolsSpec(required=["planning", "bash"], allowed=["planning", "bash"]),
+        max_tool_calls=2,
+        expected_output={"ticket": "TAHOE-949"},
     ).score(turn, listener)
-    assert {item.name for item in harness.score.dimensions} == {"tools", "rounds", "answer"}
+    assert {item.name for item in harness.score.dimensions} == {
+        "tools",
+        "max_tool_calls",
+        "answer",
+    }
 
 
-def test_react_case_scores_tools_rounds_and_answer() -> None:
-    case = _react_case(expected_tools=["planning", "bash"], expected_total_rounds=2)
+def test_react_case_scores_tools_budget_and_answer() -> None:
+    case = _react_case(
+        tools=ToolsSpec(required=["planning", "bash"], allowed=["planning", "bash"]),
+        max_tool_calls=2,
+    )
     result = case.score(
         AgentTurnResult(state={"reply": '{"ticket": "TAHOE-949"}'}),
         _listener_with_tools("planning", "bash"),
     )
     assert result.score.value_of("tools") == 1.0
-    assert result.score.value_of("rounds") == 1.0
+    assert result.score.value_of("max_tool_calls") == 1.0
 
-    overshoot = _react_case(expected_total_rounds=1).score(
+    overshoot = _react_case(max_tool_calls=1).score(
         AgentTurnResult(),
         _listener_with_tools("planning", "bash", "web_search"),
     )
-    assert overshoot.score.value_of("rounds") == pytest.approx(0.0)
+    assert overshoot.score.value_of("max_tool_calls") == pytest.approx(0.0)
 
-    answer = _react_case(expected_answer={"ticket": "TAHOE-949"}).score(
+    answer = _react_case(expected_output={"ticket": "TAHOE-949"}).score(
         AgentTurnResult(state={"reply": '{"ticket": "TAHOE-949"}'}),
         EvalReactListener(),
     )
     assert answer.score.value_of("answer") == 1.0
 
-    cancelled_case = _react_case(expected_answer={"x": "1"})
+    cancelled_case = _react_case(expected_output={"x": "1"})
     cancelled = cancelled_case.score(
         AgentTurnResult(cancelled=True),
         EvalReactListener(),
@@ -176,7 +188,7 @@ def test_intent_routing_and_scores() -> None:
         eval_set="functional",
         name="sample",
         prompt="hello",
-        expected_answer={},
+        expected_output={},
         expected_status="published",
         expected_intentions=["KNOWLEDGE", "DATA"],
         expected_routes=["plan"],
@@ -208,7 +220,7 @@ def test_intent_routing_and_scores() -> None:
         eval_set="performance",
         name="sample",
         prompt="hello",
-        expected_answer={},
+        expected_output={},
         expected_status="published",
         expected_intentions=["KNOWLEDGE", "DATA"],
         expected_routes=["plan"],
@@ -229,15 +241,15 @@ def test_databot_case_scores_prepare_and_cards() -> None:
     prepare = _react_case(
         agent_name="databot",
         eval_set="functional",
-        expected_tools=["search"],
-        expected_total_rounds=2,
+        tools=ToolsSpec(required=["search"], allowed=["search"]),
+        max_tool_calls=2,
     )
     case = DatabotEvalCase(
         agent_name="databot",
         eval_set="functional",
         name="find_dataset",
         prompt="find dau",
-        expected_answer={},
+        expected_output={},
         prepare_eval_case=prepare,
         expected_table_cards=["analytics.users"],
     )
@@ -248,11 +260,11 @@ def test_databot_case_scores_prepare_and_cards() -> None:
                 "reply": "done",
             }
         ),
-        _listener_with_tools("search", "commit_cards"),
+        _listener_with_tools("search"),
     )
     assert result.score.value_of("prepare_tools") == 1.0
     assert result.score.value_of("cards") == 1.0
-    assert result.score.named("rounds") is None
+    assert result.score.named("max_tool_calls") is None
     assert result.score.named("draft_tools") is None
 
 
@@ -267,8 +279,13 @@ def test_case_loader_eval_set_layout(tmp_path: Path) -> None:
                 {
                     "name": "ok",
                     "query": "hello",
-                    "expected_tools": ["planning"],
-                    "answer": {"x": "y"},
+                    "tools": {
+                        "required": ["planning"],
+                        "allowed": ["planning"],
+                        "forbidden": [],
+                    },
+                    "max_tool_calls": 1,
+                    "expected_output": {"x": "y"},
                 }
             ],
         },
@@ -278,7 +295,9 @@ def test_case_loader_eval_set_layout(tmp_path: Path) -> None:
     case = loaded["knowledge"]["model-a"][0]
     assert isinstance(case, ReactEvalCase)
     assert isinstance(case.resolved_eval_set(), FunctionalEvalSet)
-    assert case.expected_tools == ["planning"]
+    assert case.tools.required == ["planning"]
+    assert case.max_tool_calls == 1
+    assert case.expected_output == {"x": "y"}
 
     _write_agent_cases(
         tmp_path,
@@ -290,8 +309,21 @@ def test_case_loader_eval_set_layout(tmp_path: Path) -> None:
                 {
                     "name": "staged",
                     "query": "find table",
-                    "prepare_eval_case": {"expected_tools": ["search"], "total_rounds": 3},
-                    "draft_eval_case": {"expected_tools": ["trino_run_query"]},
+                    "prepare_eval_case": {
+                        "tools": {
+                            "required": ["search"],
+                            "allowed": ["search"],
+                            "forbidden": [],
+                        },
+                        "max_tool_calls": 3,
+                    },
+                    "draft_eval_case": {
+                        "tools": {
+                            "required": ["trino_run_query"],
+                            "allowed": ["trino_run_query"],
+                            "forbidden": [],
+                        }
+                    },
                     "expected_table_cards": ["analytics.users"],
                 }
             ],
@@ -301,7 +333,7 @@ def test_case_loader_eval_set_layout(tmp_path: Path) -> None:
         {"databot"}, {"model-a"}, {"功能"}
     )["databot"]["model-a"][0]
     assert isinstance(staged, DatabotEvalCase)
-    assert staged.prepare_eval_case.expected_tools == ["search"]
+    assert staged.prepare_eval_case.tools.required == ["search"]
     assert staged.draft_eval_case is not None
     assert staged.expected_table_cards == ["analytics.users"]
 
@@ -332,30 +364,79 @@ def test_case_loader_reads_shipped_fixtures() -> None:
     loader = CaseLoader(
         root,
         {
-            "databot": "sensenova-6.7-flash-lite",
-            "intent": "sensenova-6.7-flash-lite",
-            "knowledge": "sensenova-6.7-flash-lite",
+            "databot": "MiniMax-M3",
+            "intent": "MiniMax-M3",
+            "knowledge": "MiniMax-M3",
         },
     )
     assert loader.list_eval_sets() == ["functional", "harness", "performance"]
-    databot = loader.load(
-        {"databot"}, {"sensenova-6.7-flash-lite"}, {"functional"}
-    )["databot"]["sensenova-6.7-flash-lite"]
+    databot = loader.load({"databot"}, {"MiniMax-M3"}, {"functional"})["databot"][
+        "MiniMax-M3"
+    ]
     assert isinstance(databot[0], DatabotEvalCase)
-    assert databot[0].prepare_eval_case.expected_tools == ["search"]
+    assert databot[0].prepare_eval_case.tools.required == ["search"]
     assert isinstance(databot[0].resolved_eval_set(), FunctionalEvalSet)
 
-    harness_knowledge = loader.load(
-        {"knowledge"}, {"sensenova-6.7-flash-lite"}, {"harness"}
-    )["knowledge"]["sensenova-6.7-flash-lite"]
-    assert {case.name for case in harness_knowledge} == {"arithmetic", "greeting"}
+    harness_knowledge = loader.load({"knowledge"}, {"MiniMax-M3"}, {"harness"})[
+        "knowledge"
+    ]["MiniMax-M3"]
+    assert {case.name for case in harness_knowledge} == {
+        "arithmetic",
+        "greeting",
+        "create_plan_before_reply",
+    }
     assert isinstance(harness_knowledge[0].resolved_eval_set(), HarnessEvalSet)
 
-    intent = loader.load(
-        {"intent"}, {"sensenova-6.7-flash-lite"}, {"performance"}
-    )["intent"]["sensenova-6.7-flash-lite"]
+    intent = loader.load({"intent"}, {"MiniMax-M3"}, {"performance"})["intent"][
+        "MiniMax-M3"
+    ]
     assert isinstance(intent[0], IntentionEvalCase)
     assert isinstance(intent[0].resolved_eval_set(), PerformanceEvalSet)
+
+
+def test_case_loader_list_cases(tmp_path: Path) -> None:
+    _write_agent_cases(
+        tmp_path,
+        "functional",
+        "knowledge",
+        {
+            "models": ["MiniMax-M3"],
+            "cases": [
+                {"name": "b", "query": "second", "expected_output": {}},
+                {"name": "a", "query": "first", "expected_output": {}},
+            ],
+        },
+    )
+    _write_agent_cases(
+        tmp_path,
+        "harness",
+        "knowledge",
+        {
+            "models": ["MiniMax-M3"],
+            "cases": [{"name": "smoke", "query": "hi", "expected_output": {}}],
+        },
+    )
+    loader = CaseLoader(tmp_path, {"knowledge": "MiniMax-M3"})
+    cases = loader.list_cases({"knowledge"}, {"functional", "harness"})
+    assert [case.name for case in cases] == ["a", "b", "smoke"]
+    assert [case.resolved_eval_set().name for case in cases] == [
+        "functional",
+        "functional",
+        "harness",
+    ]
+
+    from observability.runner import format_case_listing, list_cases
+
+    lines = list_cases(
+        agent_name="knowledge",
+        eval_sets=["functional"],
+        cases_dir=tmp_path,
+    )
+    assert lines == [
+        "functional/knowledge/a  models=MiniMax-M3",
+        "functional/knowledge/b  models=MiniMax-M3",
+    ]
+    assert format_case_listing(cases[0]).startswith("functional/knowledge/a")
 
 
 @pytest.mark.asyncio
@@ -366,7 +447,7 @@ async def test_eval_harness_averages_across_models(tmp_path: Path) -> None:
         "knowledge",
         {
             "models": ["model-a", "model-b"],
-            "cases": [{"name": "arith", "query": "1+1", "answer": {}}],
+            "cases": [{"name": "arith", "query": "1+1", "expected_output": {}}],
         },
     )
     loader = CaseLoader(tmp_path, {"knowledge": ["model-a", "model-b"]})
@@ -380,8 +461,8 @@ async def test_eval_harness_averages_across_models(tmp_path: Path) -> None:
             return agent
 
     async def fake_run(self, agent, *, model_name: str = ""):
-        from observability.some.cases import EvalResult
-        from observability.some.scoring import CaseScore, DimensionScore
+        from observability.case import EvalResult
+        from observability.evaluator import CaseScore, DimensionScore
 
         value = scores[model_name]
         return EvalResult(

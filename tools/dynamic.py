@@ -16,6 +16,14 @@ _logger = logging.getLogger(__name__)
 _DYNAMIC_REGISTERED = False
 
 
+def _format_load_error(exc: BaseException) -> str:
+    """Flatten ExceptionGroup trees into a short one-line message."""
+    if isinstance(exc, BaseExceptionGroup):
+        parts = [_format_load_error(item) for item in exc.exceptions]
+        return f"{type(exc).__name__}({'; '.join(parts)})"
+    return f"{type(exc).__name__}: {exc}"
+
+
 async def _load_mcp_tools_for_servers(server_names: tuple[str, ...]) -> list[BaseTool]:
     """Load tools from named MCP servers (``"*"`` = every server in mcp.json)."""
     configured = configured_mcp_server_names()
@@ -34,11 +42,12 @@ async def _load_mcp_tools_for_servers(server_names: tuple[str, ...]) -> list[Bas
         seen_servers.add(server)
         try:
             tools.extend(await get_tools_for_server(server))
-        except Exception:
+        except Exception as exc:
+            # ExceptionGroup MCP failures dump multi-page traces with exc_info=True.
             _logger.warning(
-                "Failed to load MCP tools from server %r; continuing",
+                "Failed to load MCP tools from server %r (%s); continuing",
                 server,
-                exc_info=True,
+                _format_load_error(exc),
             )
     return tools
 

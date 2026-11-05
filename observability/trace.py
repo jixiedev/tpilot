@@ -1,13 +1,14 @@
-"""Eval listeners and scoring types for observability."""
+"""Collect per-turn tool and reason traces for eval runs."""
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 from langchain_core.messages import AIMessage
 
 from agent.listener import ReactAgentListener
+from agent.turn import AgentTurnResult
 from state.state import SessionAgentState
 
 
@@ -30,13 +31,11 @@ class EvalReactListener(ReactAgentListener):
         self.tool_calls: list[ToolCallRecord] = []
         self.tool_results: list[ToolResultRecord] = []
         self.reason_steps: list[AIMessage] = []
-        self.turn_output: str | None = None
 
     def reset(self) -> None:
         self.tool_calls.clear()
         self.tool_results.clear()
         self.reason_steps.clear()
-        self.turn_output = None
 
     def on_tool_call(self, name: str, args: dict) -> None:
         self.tool_calls.append(ToolCallRecord(name=name, args=dict(args or {})))
@@ -63,15 +62,34 @@ class EvalReactListener(ReactAgentListener):
         return count
 
 
-@dataclass
-class CaseScore:
-    """Per-dimension scores in ``[0, 1]`` plus an equal-weight total."""
+class TracedAgentTurn:
+    """Run one agent turn with an eval listener attached for the duration."""
 
-    tool_score: float
-    round_score: float
-    answer_score: float
-    details: dict[str, Any] = field(default_factory=dict)
-
-    @property
-    def total(self) -> float:
-        return (self.tool_score + self.round_score + self.answer_score) / 3.0
+    async def run(
+        self,
+        agent: Any,
+        prompt: str,
+        *,
+        session: str,
+        user_id: str,
+        run_kwargs: dict[str, Any] | None = None,
+    ) -> tuple[AgentTurnResult, EvalReactListener]:
+        if not hasattr(agent, "register_secondary"):
+            raise TypeError(
+                f"{type(agent).__name__} does not support secondary listeners"
+            )
+        listener = EvalReactListener()
+        agent.clear_secondaries()
+        agent.register_secondary(listener)
+        extra = dict(run_kwargs or {})
+        try:
+            result = await agent.run(
+                prompt,
+                session=session,
+                user_id=user_id,
+                print_output=False,
+                **extra,
+            )
+            return result, listener
+        finally:
+            agent.clear_secondaries()
