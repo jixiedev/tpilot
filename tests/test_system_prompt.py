@@ -2,24 +2,23 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from agent.specialists.databot.prompts.idle import NEXT_STEP_PROMPT as DATABOT_NEXT_STEP_PROMPT
-from agent.specialists.databot.prompts.system import (
-    DATA_RETRIEVAL_SYSTEM_PROMPT,
-    SYSTEM_PROMPT as DATABOT_SYSTEM_PROMPT,
-    DatabotSystemPrompt,
-    DataRetrievalSystemPrompt,
-)
+from agent.specialists.databot.databot_agent import DatabotSystemPrompt
 from agent.runtime import (
     NEXT_STEP_PROMPT,
     SYSTEM_PROMPT as TAHOE_SYSTEM_PROMPT,
     TahoeSystemPrompt,
 )
 from agent.prompt import SystemPromptAssembler
+from config.agent_config import AgentConfig, DatabotAgentConfig, agent_config_path
 from memory.profile import UserProfile
 
 
+def _assembler(name: str) -> SystemPromptAssembler:
+    return SystemPromptAssembler(AgentConfig(agent_config_path(name)))
+
+
 def test_base_assembler_has_core_sections() -> None:
-    text = SystemPromptAssembler().build()
+    text = _assembler("base").build()
     assert "Role:" in text
     assert "General rules:" in text
     assert "Session message layout:" in text
@@ -42,7 +41,7 @@ def test_assembler_includes_user_profile_section() -> None:
         favorite_metrics=["gmv", "pay_uv"],
         favorite_dimensions=["channel"],
     )
-    text = SystemPromptAssembler(user_profile=profile).build()
+    text = _assembler("base").build(profile)
     assert "User profile:" in text
     assert "User id: alice" in text
     assert "Role: growth analyst" in text
@@ -52,11 +51,12 @@ def test_assembler_includes_user_profile_section() -> None:
     assert text.find("User profile:") < text.find("General rules:")
 
 
-def test_build_user_profile_override() -> None:
-    base = TahoeSystemPrompt(user_profile=UserProfile(user_id="old"))
-    text = base.build(user_profile=UserProfile(user_id="new"))
+def test_build_user_profile_is_per_request() -> None:
+    assembler = TahoeSystemPrompt()
+    text = assembler.build(UserProfile(user_id="new"))
     assert "User id: new" in text
-    assert "User id: old" not in text
+    assert "User profile:" in text
+    assert assembler.build().find("User id:") == -1
 
 
 def test_tahoe_base_has_no_data_domain_sections() -> None:
@@ -76,10 +76,9 @@ def test_tahoe_base_has_no_data_domain_sections() -> None:
 
 
 def test_databot_owns_data_and_retrieval_sections() -> None:
-    text = DatabotSystemPrompt().build()
-    assert text == DATABOT_SYSTEM_PROMPT
-    assert text == DATA_RETRIEVAL_SYSTEM_PROMPT
-    assert DataRetrievalSystemPrompt is DatabotSystemPrompt
+    assembler = DatabotSystemPrompt()
+    text = assembler.build()
+    assert text == assembler.build()
     assert "Data prohibitions:" in text
     assert "Data required practices:" in text
     assert "Data answer requirements:" in text
@@ -89,51 +88,48 @@ def test_databot_owns_data_and_retrieval_sections() -> None:
     assert "glossary terms" in text
     assert "entity_type = GLOSSARY_TERM" in text
     assert len(text) > len(TAHOE_SYSTEM_PROMPT)
-    assert "Retrieval pipeline" in DATABOT_NEXT_STEP_PROMPT
-    assert "Glossary-first" in DATABOT_NEXT_STEP_PROMPT
+    fetch_next = (DatabotAgentConfig(agent_config_path("databot")).run_context.get("react") or {})["fetch"]["next_step"]
+    assert "commit_cards" in fetch_next
+    assert "history_cards" in fetch_next
 
 
-def test_subclass_can_append_extra_section() -> None:
-    class CustomRetrieval(DatabotSystemPrompt):
-        def extra_notes(self) -> list[str]:
-            return ["Always prefer partition pruning."]
-
-        def extension_blocks(self) -> list[tuple[str, str]]:
-            return [
-                *super().extension_blocks(),
-                ("Custom notes", self._bullets(self.extra_notes())),
-            ]
-
-    text = CustomRetrieval().build()
-    assert "Custom notes:" in text
-    assert "partition pruning" in text
-    assert "Data retrieval practices:" in text
-    assert text.rfind("Session message layout:") > text.rfind("Custom notes:")
+def _prompt(name: str):
+    spec = AgentConfig(agent_config_path(name)).system_prompt
+    assert spec is not None
+    return spec
 
 
-def test_stage_user_facing_output_style_matches_chat_audience_rules() -> None:
-    from agent.specialists.databot.prompts.system import (
-        DATABOT_CHAT_STYLE_RULES,
-        DatabotSystemPrompt,
-        STAGE_USER_FACING_OUTPUT_STYLE,
-        _STATUS_LINE_BAD,
+def test_databot_layout_lists_extension_sections() -> None:
+    spec = _prompt("databot")
+    assert spec.layout == (
+        "role",
+        "general_rules",
+        "chat_style",
+        "data_prohibitions",
+        "data_required_practices",
+        "data_answer_requirements",
+        "data_retrieval_practices",
+        "output",
+        "session_layout",
     )
+    assembled = _assembler("databot").config.system_prompt
+    assert assembled is not None
+    assert assembled.layout == spec.layout
 
-    assert _STATUS_LINE_BAD in STAGE_USER_FACING_OUTPUT_STYLE
-    assert DatabotSystemPrompt().chat_audience_rules() == list(DATABOT_CHAT_STYLE_RULES)
-    for rule in DATABOT_CHAT_STYLE_RULES:
-        assert rule in STAGE_USER_FACING_OUTPUT_STYLE
+
+def test_databot_chat_style_forbids_tool_narration() -> None:
+    section = _prompt("databot").section("chat_style")
+    assert "trino_explain" in section.text
+    assert "I've validated the SQL" in section.text
 
 
 def test_render_databot_system_prompt_uses_profile_store(tmp_path: Path) -> None:
-    from agent.specialists.databot.databot_agent import DatabotAgent
     from memory.profile_store import FileProfileStore
 
     store = FileProfileStore(tmp_path)
     store.save("bob", UserProfile(user_id="bob", role="analyst", timezone="UTC"))
-    agent = DatabotAgent(profile_store=store, tools=[])
-
-    text = agent.render_system_prompt({"user_id": "bob"})
+    profile = store.load("bob")
+    text = DatabotSystemPrompt().build(profile)
     assert "User id: bob" in text
     assert "Role: analyst" in text
     assert "Data retrieval practices:" in text
@@ -141,17 +137,12 @@ def test_render_databot_system_prompt_uses_profile_store(tmp_path: Path) -> None
 
 
 def test_render_tahoe_system_prompt_uses_profile_store(tmp_path: Path) -> None:
-    from agent.runtime import TahoeRuntimeHelper, TahoeSystemPrompt
     from memory.profile_store import FileProfileStore
 
     store = FileProfileStore(tmp_path)
     store.save("bob", UserProfile(user_id="bob", role="SRE", timezone="UTC"))
-    runtime = TahoeRuntimeHelper(
-        profile_store=store,
-        prompt_assembler=TahoeSystemPrompt(),
-    )
-
-    text = runtime.render_system_prompt({"user_id": "bob"})
+    profile = store.load("bob")
+    text = TahoeSystemPrompt().build(profile)
     assert "User id: bob" in text
     assert "Role: SRE" in text
     assert "Timezone: UTC" in text

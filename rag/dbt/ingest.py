@@ -132,6 +132,10 @@ class ModelDocument(Document):
     columns_embeds: list[str] = field(default_factory=list)
     metrics_embeds: list[str] = field(default_factory=list)
 
+    @property
+    def doc_key(self) -> str:
+        return f"dbt:{self.yml_path_str}::{self.model_name}"
+
     def split_paragraphs(self) -> list[Paragraph]:
         if self.paragraphs:
             return self.paragraphs

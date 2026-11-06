@@ -8,10 +8,19 @@ from langgraph.graph import END, START, StateGraph
 from typing_extensions import TypedDict
 
 from agent.agent import BaseAgent
-from graph.builder import static_system_prompt
+from agent.catalog import AgentCatalog, AgentCatalogSettings
+from agent.listener import AgentListener
+from agent.prompt import SystemPromptAssembler
+from agent.turn_messages import DefaultTurnMessagePolicy
+from config.agent_config import AgentConfig, agent_config_path
 from agent.intent.orchestrator import IntentOrchestrator, IntentionResponse
-from agent.turn import AgentTurnResult, ainvoke_resolving_interrupts, interrupt_question
+from agent.turn import AgentTurnResult
 from langgraph.types import interrupt
+from memory.profile import UserProfile
+from memory.profile_store import FileProfileStore
+from memory.session_runtime import SessionRuntime
+from agent.session import SessionUserRequest
+from tests.minimal_chat_model import MinimalChatModel
 
 
 class _State(TypedDict):
@@ -31,44 +40,55 @@ def _interrupt_graph():
     return g.compile(checkpointer=MemorySaver())
 
 
+def _user_request(session: str, state: dict[str, Any]) -> SessionUserRequest:
+    return SessionUserRequest(
+        session,
+        "u1",
+        "hi",
+        UserProfile(user_id="u1"),
+        state,  # type: ignore[arg-type]
+    )
+
+
 async def test_ainvoke_resolving_interrupts_resumes() -> None:
     graph = _interrupt_graph()
-    config = {"configurable": {"thread_id": "t-interrupt"}}
 
     async def on_interrupt(question: str) -> str:
         assert question == "confirm?"
         return "yes"
 
-    result = await ainvoke_resolving_interrupts(
+    result = await AgentTurnResult.ainvoke(
         graph,
-        {"messages": [], "value": ""},
-        config,
+        _user_request("t-interrupt", {"messages": [], "value": ""}),
         on_interrupt=on_interrupt,
     )
-    assert result.ok
+    assert not result.cancelled
     assert result.state["value"] == "yes"
 
 
 async def test_ainvoke_resolving_interrupts_cancelled() -> None:
     graph = _interrupt_graph()
-    config = {"configurable": {"thread_id": "t-cancel"}}
 
     async def on_interrupt(_question: str) -> str | None:
         return None
 
-    result = await ainvoke_resolving_interrupts(
+    result = await AgentTurnResult.ainvoke(
         graph,
-        {"messages": [], "value": ""},
-        config,
+        _user_request("t-cancel", {"messages": [], "value": ""}),
         on_interrupt=on_interrupt,
     )
     assert result.cancelled
-    assert interrupt_question(result.state) == "confirm?"
+    assert AgentTurnResult.interrupt_question(result.state) == "confirm?"
 
 
-async def test_intent_orchestrator_run_publishes_without_handoff_target_when_rejected() -> None:
+async def test_intent_orchestrator_run_publishes_without_handoff_target_when_rejected(
+    tmp_path,
+) -> None:
     class _Model:
         def with_structured_output(self, _schema):
+            return self
+
+        def bind_tools(self, tools, **kwargs):
             return self
 
         def invoke(self, _messages):
@@ -78,8 +98,15 @@ async def test_intent_orchestrator_run_publishes_without_handoff_target_when_rej
                 need_clarification="",
             )
 
-    agent = await IntentOrchestrator.create()
-    await agent.bind(_Model(), MemorySaver())
+    catalog = AgentCatalog(
+        AgentCatalogSettings.for_agent(
+            "intent",
+            profile_store=FileProfileStore(tmp_path),
+            model=_Model(),
+            checkpointer=MemorySaver(),
+        )
+    )
+    agent = await catalog.create("intent")
     result = await agent.run(
         "ambiguous",
         session="s-run",
@@ -87,15 +114,18 @@ async def test_intent_orchestrator_run_publishes_without_handoff_target_when_rej
         print_output=False,
     )
     assert isinstance(result, AgentTurnResult)
-    assert result.ok
+    assert not result.cancelled
     assert result.state["status"] == "rejected"
 
 
-async def test_intent_orchestrator_run_hands_off_composite_to_plan() -> None:
+async def test_intent_orchestrator_run_hands_off_composite_to_plan(tmp_path) -> None:
     from langgraph.graph import END, START, StateGraph
 
     class _Model:
         def with_structured_output(self, _schema):
+            return self
+
+        def bind_tools(self, tools, **kwargs):
             return self
 
         def invoke(self, _messages):
@@ -105,11 +135,21 @@ async def test_intent_orchestrator_run_hands_off_composite_to_plan() -> None:
             )
 
     class _PlanWorker(BaseAgent):
-        def __init__(self) -> None:
-            super().__init__(system_prompt=static_system_prompt("plan"))
+        def __init__(self, profile_store: FileProfileStore) -> None:
+            model = MinimalChatModel()
+            checkpointer = MemorySaver()
+            super().__init__(
+                model=model,
+                checkpointer=checkpointer,
+                session_runtime=SessionRuntime(profile_store),
+                prompt_assembler=SystemPromptAssembler(AgentConfig(agent_config_path("base"))),
+                turn_message_policy=DefaultTurnMessagePolicy(),
+                agent_config=AgentConfig(agent_config_path("base")),
+                listener=AgentListener(),
+            )
             self.prompts: list[str] = []
 
-        async def build_graph(self, model, checkpointer, **_kwargs):
+        def build_graph(self, **_kwargs):
             def node(state: _State) -> dict[str, Any]:
                 return {"value": "planned"}
 
@@ -117,23 +157,32 @@ async def test_intent_orchestrator_run_hands_off_composite_to_plan() -> None:
             g.add_node("n", node)
             g.add_edge(START, "n")
             g.add_edge("n", END)
-            return g.compile(checkpointer=checkpointer)
+            self.graph = g.compile(checkpointer=self.checkpointer)
+            return self.graph
 
-        async def prepare_turn_input(self, graph, session, user_prompt, *, user_id):
+        async def accept_user_request(self, user_prompt, session, user_id=None):
+            request = await super().accept_user_request(user_prompt, session, user_id)
             self.prompts.append(user_prompt)
-            return {"messages": [HumanMessage(content=user_prompt)], "value": ""}
+            return request
 
-    plan = _PlanWorker()
-    await plan.bind(object(), MemorySaver())  # type: ignore[arg-type]
+    plan = _PlanWorker(FileProfileStore(tmp_path))
+    plan.build_graph()
 
-    agent = await IntentOrchestrator.create()
-    await agent.bind(_Model(), MemorySaver())
+    catalog = AgentCatalog(
+        AgentCatalogSettings.for_agent(
+            "intent",
+            profile_store=FileProfileStore(tmp_path),
+            model=_Model(),
+            checkpointer=MemorySaver(),
+        )
+    )
+    agent = await catalog.create("intent")
 
-    async def _get_target_agent(name: str) -> BaseAgent:
-        assert name == "plan"
+    async def _get_plan(_name: str) -> BaseAgent:
+        assert _name == "plan"
         return plan
 
-    agent._get_target_agent = _get_target_agent  # type: ignore[method-assign]
+    agent._catalog.get_or_create = _get_plan  # type: ignore[method-assign]
 
     result = await agent.run(
         "GMV yesterday with official definition",
@@ -141,36 +190,39 @@ async def test_intent_orchestrator_run_hands_off_composite_to_plan() -> None:
         user_id="u1",
         print_output=False,
     )
-    assert result.ok
+    assert not result.cancelled
     assert result.state["value"] == "planned"
     assert result.state["route_target"] == "plan"
     assert plan.prompts == ["GMV yesterday with official definition"]
 
 
-async def test_base_agent_run_requires_bind() -> None:
+async def test_base_agent_run_builds_graph_on_demand(tmp_path) -> None:
+    from langgraph.checkpoint.memory import MemorySaver
+
     class _Tiny(BaseAgent):
         @classmethod
         async def create(cls, **_kwargs):
-            return cls("sys")
+            model = MinimalChatModel()
+            checkpointer = MemorySaver()
+            return cls(
+                model=model,
+                checkpointer=checkpointer,
+                session_runtime=SessionRuntime(FileProfileStore(tmp_path)),
+                prompt_assembler=SystemPromptAssembler(AgentConfig(agent_config_path("base"))),
+                turn_message_policy=DefaultTurnMessagePolicy(),
+                agent_config=AgentConfig(agent_config_path("base")),
+                listener=AgentListener(),
+            )
 
-        async def build_graph(self, model, checkpointer, **_kwargs):
+        def build_graph(self, **_kwargs):
             g = StateGraph(_State)
             g.add_node("n", lambda s: {"value": "ok"})
             g.add_edge(START, "n")
             g.add_edge("n", END)
-            return g.compile(checkpointer=checkpointer)
-
-        async def prepare_turn_input(self, graph, session, user_prompt, *, user_id):
-            return {"messages": [HumanMessage(content=user_prompt)], "value": ""}
+            self.graph = g.compile(checkpointer=self.checkpointer)
+            return self.graph
 
     agent = await _Tiny.create()
-    try:
-        _ = agent.graph
-        raise AssertionError("expected RuntimeError")
-    except RuntimeError:
-        pass
-
-    await agent.bind(object(), MemorySaver())  # type: ignore[arg-type]
-    result = await agent.run("hi", session="s", print_output=False)
-    assert result.ok
+    result = await agent.run("hi", session="s")
+    assert not result.cancelled
     assert result.state["value"] == "ok"

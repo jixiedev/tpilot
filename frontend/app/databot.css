@@ -352,13 +352,10 @@
   background: var(--db-accent-soft);
   color: var(--db-accent-text);
 }
-.stage-fetch       { background: rgba(99, 102, 241, 0.12);  color: rgb(67, 56, 202); }
-.stage-gate_cards  { background: rgba(245, 158, 11, 0.15);  color: rgb(180, 83, 9); }
-.stage-sql         { background: rgba(20, 184, 166, 0.12);  color: rgb(15, 118, 110); }
-.stage-gate_sql    { background: rgba(245, 158, 11, 0.15);  color: rgb(180, 83, 9); }
-.stage-execute     { background: rgba(16, 185, 129, 0.12);  color: rgb(5, 150, 105); }
-.stage-chart       { background: rgba(139, 92, 246, 0.12);  color: rgb(124, 58, 237); }
-.stage-done        { background: rgba(107, 114, 128, 0.15); color: rgb(75, 85, 99); }
+.stage-prepare_cards { background: rgba(99, 102, 241, 0.12);  color: rgb(67, 56, 202); }
+.stage-prepare_sql   { background: rgba(20, 184, 166, 0.12);  color: rgb(15, 118, 110); }
+.stage-execute_sql   { background: rgba(16, 185, 129, 0.12);  color: rgb(5, 150, 105); }
+.stage-summary       { background: rgba(107, 114, 128, 0.15); color: rgb(75, 85, 99); }
 
 .halt-banner {
   margin: 0.5rem 0 0;

@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import ssl
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -16,11 +17,61 @@ from urllib.parse import parse_qs, unquote, urlparse
 from langchain.tools import tool
 
 from config.tool_config import tool_config, web_search_api_key
-from tools.common import bind_tool_to_agent
+from tools.errors import ToolErrorType, register_exception, resolve_exception
+from tools.registry import register_tool
 
 USER_AGENT = "TahoePilot/0.1 (+https://github.com/wish/tahoepilot)"
 DEFAULT_MAX_RESULTS = 5
 _logger = logging.getLogger(__name__)
+
+
+class WebSearchError(RuntimeError):
+    """A web search provider call failed; carries its own classification."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        error_type: ToolErrorType = ToolErrorType.UNKNOWN,
+        retryable: bool = False,
+    ) -> None:
+        super().__init__(message)
+        self.error_type = error_type
+        self.retryable = retryable
+
+
+register_exception(
+    WebSearchError,
+    classifier=lambda exc: (
+        getattr(exc, "error_type", ToolErrorType.UNKNOWN),
+        bool(getattr(exc, "retryable", False)),
+        str(exc),
+    ),
+)
+
+
+def _http_status_error(code: int, detail: str) -> WebSearchError:
+    message = f"Web search failed: HTTP {code}: {detail}" if detail else (
+        f"Web search failed: HTTP {code}"
+    )
+    if code == 408:
+        return WebSearchError(message, error_type=ToolErrorType.TIMEOUT, retryable=True)
+    if code in {502, 503, 504}:
+        return WebSearchError(message, error_type=ToolErrorType.CONNECTION, retryable=True)
+    if code in {401, 403}:
+        return WebSearchError(message, error_type=ToolErrorType.PERMISSION)
+    return WebSearchError(message)
+
+
+def _url_error(exc: urllib.error.URLError) -> WebSearchError:
+    reason = exc.reason if exc.reason is not None else exc
+    message = f"Web search failed: {reason}"
+    if isinstance(reason, TimeoutError) or "timed out" in str(reason).lower():
+        return WebSearchError(message, error_type=ToolErrorType.TIMEOUT, retryable=True)
+    if isinstance(reason, ssl.SSLError) or "certificate" in str(reason).lower():
+        # TLS/certificate problems do not fix themselves on a retry.
+        return WebSearchError(message, error_type=ToolErrorType.CONNECTION)
+    return WebSearchError(message, error_type=ToolErrorType.CONNECTION, retryable=True)
 
 
 @dataclass(frozen=True)
@@ -57,9 +108,9 @@ def _http_json(
             payload = response.read().decode("utf-8")
     except urllib.error.HTTPError as exc:
         detail = exc.read().decode("utf-8", errors="replace")[:500]
-        raise RuntimeError(f"HTTP {exc.code}: {detail}") from exc
+        raise _http_status_error(exc.code, detail) from exc
     except urllib.error.URLError as exc:
-        raise RuntimeError(str(exc.reason or exc)) from exc
+        raise _url_error(exc) from exc
     return json.loads(payload) if payload.strip() else {}
 
 
@@ -207,9 +258,9 @@ class DuckDuckGoWebSearchClient:
             with urllib.request.urlopen(request, timeout=20.0) as response:
                 html = response.read().decode("utf-8", errors="replace")
         except urllib.error.HTTPError as exc:
-            raise RuntimeError(f"DuckDuckGo search HTTP {exc.code}") from exc
+            raise _http_status_error(exc.code, "DuckDuckGo") from exc
         except urllib.error.URLError as exc:
-            raise RuntimeError(str(exc.reason or exc)) from exc
+            raise _url_error(exc) from exc
         return parse_duckduckgo_html(html, limit)
 
 
@@ -257,24 +308,30 @@ def _format_hits(hits: list[WebSearchHit]) -> list[dict[str, str]]:
     return [{"title": hit.title, "url": hit.url, "snippet": hit.snippet} for hit in hits]
 
 
-@bind_tool_to_agent("databot,default")
-@bind_tool_to_agent("knowledge,default")
-@bind_tool_to_agent("swe,default")
+@register_tool
 @tool
 def web_search(query: str, num_results: int = DEFAULT_MAX_RESULTS) -> dict[str, Any]:
     """Search the public web for up-to-date information. Use for facts, news, company
     background, product docs, and other non-local knowledge. Returns titles, URLs, and snippets.
     Not for searching DataHub/metadata catalogs—use MCP search tools for internal data assets.
     """
+    # Failures raise (classified via ``WebSearchError``) so the ReAct loop can
+    # retry transient ones and record the tool in ``failed_tools``. An empty
+    # result set is a valid answer and is still returned as a dict.
     text = (query or "").strip()
     if not text:
-        return {"success": False, "query": query, "error": "query must not be blank"}
+        raise WebSearchError("query must not be blank")
     cfg = tool_config.web_search
     limit = _clamp_results(num_results, default=cfg.max_results)
     try:
         hits = _active_client().search(text, limit)
+    except WebSearchError:
+        raise
     except Exception as exc:
-        return {"success": False, "query": text, "error": f"Web search failed: {exc}"}
+        error_type, retryable, _message = resolve_exception(exc)
+        raise WebSearchError(
+            f"Web search failed: {exc}", error_type=error_type, retryable=retryable
+        ) from exc
     if not hits:
         return {
             "success": False,

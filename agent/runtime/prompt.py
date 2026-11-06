@@ -1,40 +1,33 @@
-"""Prompt templates shared by Tahoe team agents."""
+"""Prompt templates and the profile store used by process entry points."""
 
 from __future__ import annotations
 
-from agent.prompt import SystemPromptAssembler
+from pathlib import Path
 
-SESSION_TURN_BOUNDARY = """\
---- Session turn boundary ---
-Messages above this line are prior session history (context only).
-Messages below this line are the current user request for this turn.
-Use history for reference; focus tool calls and your reply on the current request.
-"""
+from agent.prompt import SystemPromptAssembler
+from agent.agent import SESSION_TURN_BOUNDARY
+from config.agent_config import AgentConfig, agent_config_path
+from config.local_config import get_local_paths
+from memory.profile_store import FileProfileStore
+
+DEFAULT_PROFILE_DIR = get_local_paths().profiles_dir
+
+
+class TahoeRuntimeHelper:
+    """Profile store used by CLI, UI, and evals entry points."""
+
+    @staticmethod
+    def default_profile_store(root: Path | None = None) -> FileProfileStore:
+        return FileProfileStore(root or DEFAULT_PROFILE_DIR)
+
+# Re-export for callers that import from ``agent.runtime.prompt``.
 
 
 class TahoeSystemPrompt(SystemPromptAssembler):
     """Tahoe team base prompt: CLI assistant contract + final text reply."""
 
-    def role(self) -> str:
-        return (
-            "You are TahoePilot, an interactive CLI assistant for the Tahoe team. "
-            "Help users complete their requests with clear reasoning, the available tools, "
-            "and transparent, verifiable answers."
-        )
-
-    def output(self) -> str:
-        return (
-            "When you are ready to answer the user, write the complete reply in assistant "
-            "message text and do not call any tools. Tool calls continue the loop; an empty "
-            "tool-call list ends the turn. As soon as evidence is enough, stop calling tools. "
-            "Reply earlier if a required tool is unavailable and you must stop."
-        )
-
-    def extension_blocks(self) -> list[tuple[str, str]]:
-        return [
-            *super().extension_blocks(),
-            ("Output", self.output()),
-        ]
+    def __init__(self, config: AgentConfig | None = None) -> None:
+        super().__init__(config or AgentConfig(agent_config_path("tahoe")))
 
 
 SYSTEM_PROMPT = TahoeSystemPrompt().build()

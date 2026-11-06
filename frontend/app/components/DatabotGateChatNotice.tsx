@@ -2,7 +2,7 @@
 
 import { useAgent } from "@copilotkit/react-core/v2";
 import type { DatabotAgentState } from "./types";
-import { gateKindFromStage } from "./databotGateUtils";
+import { gateKindFromStage, pendingGateKind } from "./databotGateUtils";
 import { GateHelpPopover } from "./GateHelpPopover";
 import { useAgentRefresh } from "./useAgentRefresh";
 
@@ -12,7 +12,10 @@ export function DatabotGateChatBanner() {
   useAgentRefresh(isReady ? agent : undefined, isReady);
 
   const stage = (agent?.state as DatabotAgentState | undefined)?.stage;
-  const gateKind = gateKindFromStage(stage);
+  const interrupts = agent?.pendingInterrupts ?? [];
+  const gateKind =
+    pendingGateKind(interrupts) ??
+    (interrupts.length > 0 ? gateKindFromStage(stage) : null);
 
   if (!isReady || !gateKind) {
     return null;

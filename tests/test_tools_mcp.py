@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from tools.mcp import mcp as mcp_module
+from tools.mcp import client as mcp_module
 
 
 def test_expand_env_vars_substitutes_when_set(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -106,7 +106,7 @@ async def test_get_tools_for_server_uses_session(tmp_path: Path) -> None:
         patch.object(mcp_module, "mcp_config_path", return_value=config_file),
         patch.object(mcp_module, "get_client", return_value=client),
         patch(
-            "tools.mcp.mcp.load_mcp_tools",
+            "tools.mcp.client.load_mcp_tools",
             new_callable=AsyncMock,
             return_value=expected,
         ) as mock_load,

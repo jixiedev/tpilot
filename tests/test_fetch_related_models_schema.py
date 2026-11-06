@@ -6,7 +6,7 @@ import json
 
 from langchain_core.utils.function_calling import convert_to_openai_function
 
-from tools.rag.semantic import fetch_related_models
+from tools.rag.dbt_models import fetch_related_models
 
 
 def test_fetch_related_models_openai_schema_has_no_literal_or_union_traps() -> None:

@@ -12,6 +12,9 @@ from abc import ABC
 from dataclasses import dataclass, field
 from typing import Any, Generic, Iterator, Sequence, TypeVar
 
+DOC_KEY_FIELD = "doc_key"
+"""Payload field holding ``Document.doc_key``; re-ingest deletes points by it."""
+
 TLinked = TypeVar("TLinked", bound="Linked")
 T = TypeVar("T")
 
@@ -61,6 +64,16 @@ class Document:
     @property
     def size(self) -> int:
         return len(self.content)
+
+    @property
+    def doc_key(self) -> str:
+        """Stable per-document key stored on every chunk as payload ``doc_key``.
+
+        Re-ingest deletes all points carrying this key before upserting the
+        document's new chunks, so it must not depend on chunk layout or on the
+        ``plan -p`` root. Subclasses override with a source-specific key.
+        """
+        return f"{type(self).__name__}:{self.doc_id}"
 
     def metadata(self) -> dict[str, Any]:
         return {}
@@ -165,10 +178,6 @@ class Chunk(Linked):
         prv = self.prev
         return prv.chunk_seq if isinstance(prv, Chunk) else self.chunk_seq - 1
 
-    @classmethod
-    def is_valid_chunk_seq(cls, chunk_seq: int) -> bool:
-        return chunk_seq >= 0
-
     def payload(self) -> dict[str, Any]:
         raw: dict[str, Any] = {
             "doc_url": self.ref_doc.url,
@@ -180,6 +189,7 @@ class Chunk(Linked):
             "next_chunk_seq": self.next_chunk_seq,
         }
         raw.update(self.ref_doc.chunk_payload(self))
+        raw[DOC_KEY_FIELD] = self.ref_doc.doc_key
         return raw
 
     def embed_text(self) -> str:

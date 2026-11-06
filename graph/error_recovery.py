@@ -5,15 +5,22 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from dataclasses import replace
 from collections.abc import Awaitable, Callable
 from typing import Any, TypeVar
 
-from langchain_core.messages import SystemMessage, ToolMessage
+from langchain_core.messages import AIMessage, ToolMessage
 from langgraph.errors import NodeError
 from langgraph.prebuilt.tool_node import ToolCallRequest
 from langgraph.types import Command, RetryPolicy
 
-from tools.errors import StructuredToolError, ToolErrorType, register_exception
+from tools.errors import (
+    StructuredToolError,
+    ToolErrorType,
+    is_transient_error,
+    register_exception,
+    resolve_exception,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -193,11 +200,14 @@ def make_async_retrying_tool_wrapper(
 
 
 def transient_retry_on(exc: BaseException) -> bool:
-    """Retry node execution only for infrastructure-level transient failures."""
-    from tools.errors import resolve_exception
+    """Retry node execution only for infrastructure-level transient failures.
 
-    _error_type, retryable, _message = resolve_exception(exc)
-    return retryable
+    Uses the same predicate as ``StructuredToolError.is_transient`` (the
+    tool-call wrapper), so both retry layers agree on what is transient.
+    """
+    error_type, retryable, _message = resolve_exception(exc)
+    return is_transient_error(error_type, retryable)
+
 
 def transient_llm_retry_on(exc: BaseException) -> bool:
     """Whether an LLM / API failure is worth retrying."""
@@ -272,12 +282,39 @@ def invoke_with_transient_retry(
     raise last_error
 
 
+async def ainvoke_with_transient_retry(
+    call: Callable[[], Awaitable[T]],
+    *,
+    max_attempts: int = DEFAULT_LLM_RETRY_ATTEMPTS,
+    base_delay: float = DEFAULT_LLM_RETRY_BASE_DELAY,
+    is_transient: Callable[[BaseException], bool] = transient_llm_retry_on,
+) -> T:
+    """Async ``invoke_with_transient_retry`` for code running on the event loop.
+
+    Sync graph nodes run in executor threads under ``graph.ainvoke`` and can use
+    the sync variant; code that runs on the loop itself (``async def`` nodes,
+    post-turn hooks awaited by ``Agent.run``) should use this one.
+    """
+    for attempt in range(max_attempts):
+        try:
+            return await call()
+        except Exception as exc:
+            if not is_transient(exc) or attempt >= max_attempts - 1:
+                raise
+            delay = base_delay * (attempt + 1)
+            logger.warning(
+                "transient LLM/API error; retrying attempt=%s/%s delay=%ss error=%s",
+                attempt + 2,
+                max_attempts,
+                delay,
+                exc,
+            )
+            await asyncio.sleep(delay)
+    raise RuntimeError("unreachable: max_attempts must be >= 1")
+
+
 def default_tool_retry_policy() -> RetryPolicy:
     return RetryPolicy(max_attempts=2, initial_interval=0.5, retry_on=transient_retry_on)
-
-
-def default_llm_retry_policy() -> RetryPolicy:
-    return RetryPolicy(max_attempts=2, initial_interval=0.5, retry_on=transient_llm_retry_on)
 
 
 def format_turn_failure(exc: BaseException) -> str:
@@ -315,12 +352,41 @@ def format_turn_failure(exc: BaseException) -> str:
     return f"Request failed ({name}: {short}). See logs for details."
 
 
+def _unanswered_tool_calls(messages: list[Any]) -> list[dict[str, Any]]:
+    """Tool calls of the latest AIMessage that have no ToolMessage yet."""
+    for index in range(len(messages) - 1, -1, -1):
+        message = messages[index]
+        if not isinstance(message, AIMessage):
+            continue
+        answered = {
+            str(m.tool_call_id)
+            for m in messages[index + 1 :]
+            if isinstance(m, ToolMessage)
+        }
+        return [
+            call
+            for call in (message.tool_calls or [])
+            if call.get("id") and str(call["id"]) not in answered
+        ]
+    return []
+
+
 def make_step_action_error_handler(
     *,
     recovery_prompt: str = _TOOL_RECOVERY_PROMPT,
     goto: str = "step_reason",
 ) -> Callable[[dict[str, Any], NodeError], Command]:
-    """Recover when the action step fails after retries are exhausted."""
+    """Recover when the action step fails after retries are exhausted.
+
+    The node failed, so the latest AIMessage's tool calls have no results.
+    Instead of appending a standalone ``SystemMessage`` (which would be
+    checkpointed and accumulate across failures and turns), answer each
+    unanswered call with a structured ``=== TOOL ERROR ===`` ToolMessage whose
+    ``hint`` carries the recovery guidance. That is the tool result the
+    history needs anyway (strict providers reject dangling tool calls), the
+    model sees the guidance on the next ``step_reason``, and
+    ``failed_tools`` is updated like a normal tool failure.
+    """
 
     def step_action_error_handler(state: dict[str, Any], error: NodeError) -> Command:
         logger.exception(
@@ -328,8 +394,37 @@ def make_step_action_error_handler(
             error.node,
             exc_info=error.error,
         )
+        messages = list((state or {}).get("messages") or [])
+        failed = _failed_tools_from_state(state)
+        cause = error.error if isinstance(error.error, Exception) else RuntimeError(str(error))
+        guidance = " ".join(recovery_prompt.split())
+
+        tool_messages: list[ToolMessage] = []
+        for call in _unanswered_tool_calls(messages):
+            name = str(call.get("name") or "unknown")
+            structured = StructuredToolError.from_exception(name, cause).against_prior_failures(
+                failed
+            )
+            structured = replace(
+                structured,
+                retryable=False,
+                hint=f"{structured.hint} {guidance}".strip(),
+            )
+            tool_messages.append(
+                ToolMessage(
+                    content=structured.to_message_content(),
+                    name=name,
+                    tool_call_id=str(call["id"]),
+                    status="error",
+                )
+            )
+            if name not in failed:
+                failed.append(name)
+
+        if not tool_messages:
+            return Command(goto=goto)
         return Command(
-            update={"messages": [SystemMessage(content=recovery_prompt)]},
+            update={"messages": tool_messages, "failed_tools": failed},
             goto=goto,
         )
 

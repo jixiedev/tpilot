@@ -10,7 +10,7 @@ import pytest
 from qdrant_client.http import models as qmodels
 
 from rag.embeddings import to_sparse_vector
-from rag.models import download_repo
+from rag.local_models import download_repo
 from rag.qdrant import passage_text, rerank_points, search
 
 

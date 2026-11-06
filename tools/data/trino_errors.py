@@ -36,6 +36,41 @@ def _classify_trino_external_error(exc: BaseException) -> tuple[ToolErrorType, b
     return ToolErrorType.CONNECTION, True, message
 
 
+# Trino INTERNAL_ERROR codes caused by cluster churn (workers restarting, nodes
+# leaving, exchange hiccups). A second attempt usually lands on healthy nodes.
+_TRANSIENT_INTERNAL_CONNECTION = frozenset(
+    {
+        "NO_NODES_AVAILABLE",
+        "REMOTE_TASK_ERROR",
+        "REMOTE_TASK_FAILED",
+        "REMOTE_HOST_GONE",
+        "REMOTE_BUFFER_CLOSE_FAILED",
+        "TOO_MANY_REQUESTS_FAILED",
+        "PAGE_TRANSPORT_ERROR",
+        "SERVER_SHUTTING_DOWN",
+        "SERVER_STARTING_UP",
+        "ABANDONED_TASK",
+    }
+)
+_TRANSIENT_INTERNAL_TIMEOUT = frozenset({"PAGE_TRANSPORT_TIMEOUT"})
+
+
+def _classify_trino_internal_error(exc: BaseException) -> tuple[ToolErrorType, bool, str] | None:
+    """Retry only cluster-churn internal errors; other internal errors are bugs.
+
+    ``GENERIC_INTERNAL_ERROR``, ``COMPILER_ERROR``, ``OPTIMIZER_TIMEOUT`` and
+    the like fail the same way on every attempt, so they are ``UNKNOWN`` and
+    not retryable.
+    """
+    message = _trino_exception_message(exc)
+    error_name = (getattr(exc, "error_name", None) or "").upper()
+    if error_name in _TRANSIENT_INTERNAL_TIMEOUT:
+        return ToolErrorType.TIMEOUT, True, message
+    if error_name in _TRANSIENT_INTERNAL_CONNECTION:
+        return ToolErrorType.CONNECTION, True, message
+    return ToolErrorType.UNKNOWN, False, message
+
+
 def _classify_trino_query_error(exc: BaseException) -> tuple[ToolErrorType, bool, str] | None:
     message = _trino_exception_message(exc)
     lower = message.lower()
@@ -90,8 +125,7 @@ def register_trino_exception_mappings() -> None:
     )
     register_exception(
         TrinoInternalError,
-        error_type=ToolErrorType.UNKNOWN,
-        retryable=True,
+        classifier=_classify_trino_internal_error,
         message=_trino_exception_message,
     )
     register_exception(

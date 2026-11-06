@@ -1,12 +1,14 @@
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
+from langgraph.checkpoint.memory import MemorySaver
 
-from agent.registry import AGENTS, get_agent_tools
-from agent.specialists.diagnostic.diagnostic_agent import DiagnosticAgent
-from agent.specialists.diagnostic.prompt import DiagnosticSystemPrompt
+from agent.catalog import AgentCatalog, AgentCatalogSettings
+from agent.specialists.diagnostic import DiagnosticAgent, DiagnosticSystemPrompt
+from memory.profile_store import FileProfileStore
+from tests.minimal_chat_model import MinimalChatModel
 from tools.dynamic import register_dynamic_tool_bindings, reset_dynamic_tool_bindings
 
 
@@ -16,10 +18,10 @@ def _reset_dynamic_bindings() -> None:
 
 
 def test_diagnostic_agent_registered() -> None:
-    spec = AGENTS["diagnostic"]
-    assert spec.name == "diagnostic"
-    assert spec.accepted_mcp["default"] == ("airflow_tahoe", "airflow_legacy")
-    assert spec.intention is None
+    config = AgentCatalog.config("diagnostic")
+    assert config.name == "diagnostic"
+    assert config.accepted_mcp["default"] == ("airflow_tahoe", "airflow_legacy")
+    assert config.intention == "DIAGNOSTIC"
 
 
 def test_diagnostic_system_prompt_covers_infra_tools() -> None:
@@ -33,7 +35,7 @@ def test_diagnostic_system_prompt_covers_infra_tools() -> None:
 
 
 @pytest.mark.asyncio
-async def test_diagnostic_tools_include_infra_and_airflow_mcp() -> None:
+async def test_diagnostic_tools_include_infra_and_airflow_mcp(tmp_path) -> None:
     tahoe_tool = MagicMock()
     tahoe_tool.name = "get_dag_runs"
     legacy_tool = MagicMock()
@@ -49,8 +51,16 @@ async def test_diagnostic_tools_include_infra_and_airflow_mcp() -> None:
     with patch(
         "tools.dynamic.get_tools_for_server",
         side_effect=_fake_get_tools,
-    ):
-        agent = await DiagnosticAgent.create(enable_compression_tools=False)
+    ), patch.object(DiagnosticAgent, "build_graph", lambda self, **_kwargs: None):
+        catalog = AgentCatalog(
+            AgentCatalogSettings.for_agent(
+                "diagnostic",
+                profile_store=FileProfileStore(tmp_path),
+                model=MinimalChatModel(),
+                checkpointer=MemorySaver(),
+            )
+        )
+        agent = await catalog.create("diagnostic")
 
     names = {getattr(tool, "name", "") for tool in agent.tools}
     assert "get_dag_runs" in names
@@ -77,7 +87,7 @@ async def test_register_dynamic_bindings_loads_both_airflow_servers() -> None:
     ):
         await register_dynamic_tool_bindings()
 
-    names = [t.name for t in get_agent_tools("diagnostic", "default")]
+    names = [t.name for t in AgentCatalog.tools_for("diagnostic", "default")]
     assert "airflow_tahoe_tool" in names
     assert "airflow_legacy_tool" in names
     assert "airflow_tahoe" in calls

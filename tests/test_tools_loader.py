@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from agent.registry import get_agent_tools
+from agent.catalog import AgentCatalog
 from tools import loader as loader_mod
 from tools.dynamic import register_dynamic_tool_bindings, reset_dynamic_tool_bindings
 
@@ -57,7 +57,7 @@ async def test_load_knowledge_tools_falls_back_to_native_datahub() -> None:
 async def test_knowledge_catalog_identifier_replaced_by_mcp() -> None:
     native_before = [
         t.name
-        for t in get_agent_tools("knowledge", "catalog")
+        for t in AgentCatalog.tools_for("knowledge", "catalog")
         if t.name.startswith("datahub_")
     ]
     assert native_before
@@ -76,7 +76,7 @@ async def test_knowledge_catalog_identifier_replaced_by_mcp() -> None:
     ):
         await register_dynamic_tool_bindings()
 
-    catalog_names = [t.name for t in get_agent_tools("knowledge", "catalog")]
+    catalog_names = [t.name for t in AgentCatalog.tools_for("knowledge", "catalog")]
     assert catalog_names == ["search"]
 
 

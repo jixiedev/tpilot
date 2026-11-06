@@ -1,29 +1,18 @@
-"""Import tool modules so ``bind_tool_to_agent`` registrations run."""
+"""Import tool modules (``register_tool``), then bind tools per agent config."""
 
 from __future__ import annotations
 
-from typing import Any
-
 _REGISTERED = False
-_ORIGINAL_REGISTER_TOOLS: dict[str, dict[str, list[Any]]] | None = None
-_RAG_IMPORT_ERROR: ImportError | None = None
-
-
-def rag_tools_import_error() -> ImportError | None:
-    """Return the ``tools.rag`` import error when the RAG extra is not installed."""
-    ensure_tools_registered()
-    return _RAG_IMPORT_ERROR
 
 
 def ensure_tools_registered() -> None:
-    """Load every static tool module once (decorators populate ``register_tools``)."""
-    global _REGISTERED, _ORIGINAL_REGISTER_TOOLS, _RAG_IMPORT_ERROR
+    """Register every static tool once, then fill agent scopes from ``[tools]``."""
+    global _REGISTERED
     if _REGISTERED:
         return
 
     import agent.specialists.databot.stage_tools  # noqa: F401
     import agent.plan.stage_tools  # noqa: F401
-    import agent.runtime.tahoe_runtime_helper  # noqa: F401
     import memory.tools  # noqa: F401
     import tools.code  # noqa: F401
     import tools.data.hive  # noqa: F401
@@ -34,31 +23,12 @@ def ensure_tools_registered() -> None:
     import tools.plan  # noqa: F401
     try:
         import tools.rag  # noqa: F401
-    except ImportError as exc:
-        # Leave RAG tools unregistered; callers read this via rag_tools_import_error().
-        _RAG_IMPORT_ERROR = exc
+    except ImportError:
+        pass
     import tools.web.search  # noqa: F401
 
-    from agent.registry import AGENTS
+    from agent.catalog import AgentCatalog
 
-    _ORIGINAL_REGISTER_TOOLS = {
-        name: {ident: list(tools) for ident, tools in spec.register_tools.items()}
-        for name, spec in AGENTS.items()
-    }
+    AgentCatalog.bind_configured_tools()
+    AgentCatalog.capture_tools_snapshot()
     _REGISTERED = True
-
-
-def restore_register_tools_snapshot() -> None:
-    """Test helper: reset ``register_tools`` to the post-bootstrap snapshot."""
-    global _ORIGINAL_REGISTER_TOOLS
-    if _ORIGINAL_REGISTER_TOOLS is None:
-        ensure_tools_registered()
-    if _ORIGINAL_REGISTER_TOOLS is None:
-        return
-    from agent.registry import AGENTS
-
-    for agent_name, buckets in _ORIGINAL_REGISTER_TOOLS.items():
-        spec = AGENTS[agent_name]
-        spec.register_tools.clear()
-        for ident, tools in buckets.items():
-            spec.register_tools[ident] = list(tools)

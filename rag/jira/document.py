@@ -121,6 +121,10 @@ class JiraDocument(Document):
     comments: str = ""
     stored_point_id: int | str = 0
 
+    @property
+    def doc_key(self) -> str:
+        return f"jira:{self.issue_key or self.issue_id or self.doc_id}"
+
     def metadata(self) -> dict[str, Any]:
         return {name: getattr(self, name) for name in _PAYLOAD_KEEP}
 

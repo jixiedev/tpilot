@@ -7,7 +7,7 @@ from typing import Any, Literal, TypedDict
 from langchain_core.tools import tool
 
 from rag.qdrant import search as qdrant_search
-from tools.common import bind_tool_to_agent
+from tools.registry import register_tool
 
 JiraProject = Literal["tahoe", "core", "de", "ds", "sqd"]
 
@@ -44,7 +44,7 @@ JIRA_PROFILES: list[JiraProfile] = [
         "description": (
             "Company-wide infrastructure and multi-project board (issue keys CORE-*). "
             "Includes Storage & Compute capacity, Kubernetes/k8s clusters & nodes, "
-            "MongoDB / Vitess / RDS, AWS cost & rightsizing, Prometheus/PagerDuty observability, "
+            "MongoDB / Vitess / RDS, AWS cost & rightsizing, Prometheus/PagerDuty evals, "
             "platform services, tech-debt, SRE/CICD, and shared infra libraries. "
             "Also hosts Tahoe work after the TAHOE→CORE migration: Airflow, "
             "Hive/Presto/Trino, Spark/EMR, Flink & Kafka / MSK, Superset, DataHub, Hudi, "
@@ -148,7 +148,7 @@ def _format_hit(hit: dict[str, Any]) -> dict[str, Any]:
         "description": description,
     }
 
-@bind_tool_to_agent("knowledge,default")
+@register_tool
 @tool(description=_tool_description())
 def fetch_related_jira_tickets(
     query: str,

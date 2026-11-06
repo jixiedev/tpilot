@@ -185,6 +185,12 @@ class DriveDocument(Document):
     source_zip: str = ""
     rel_path: str = ""
     suffix: str = ""
+    source_file: str = ""
+    """Resolved absolute path of the file; ``rel_path`` depends on the plan root."""
+
+    @property
+    def doc_key(self) -> str:
+        return f"drive:{self.source_file or self.rel_path}"
 
     def split_paragraphs(self) -> list[Paragraph]:
         if self.paragraphs:
@@ -301,6 +307,7 @@ def documents_from_path(
             source_zip="",
             rel_path=rel,
             suffix=file_path.suffix.lower(),
+            source_file=str(file_path),
         )
     ]
 

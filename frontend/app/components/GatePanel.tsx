@@ -27,7 +27,7 @@ import { stripThinkBlocks } from "./databotChatUtils";
 // ``Command(resume=...)`` to unblock the graph.
 //
 // We parse the ``message`` field of each interrupt as a JSON payload
-// matching the contract in ``agent/react/databot/gates.py``:
+// matching the contract in ``agent/specialists/databot/gates.py``:
 //   {
 //     "question": "...", "options": [{"id": "approve", ...}, ...],
 //     "default": "approve|deny-comments|deny-halt|dryrun|skip|chart",
@@ -98,14 +98,14 @@ const DECISION_LABEL: Record<GateDecision, string> = {
   approve: "Approve",
   "deny-comments": "Request changes",
   "deny-halt": "Halt",
-  dryrun: "Dry-run (preview)",
+  dryrun: "Dry-run (don't save)",
 };
 
 const DECISION_HINT: Record<GateDecision, string> = {
   approve: "Continue the pipeline with this selection or SQL.",
   "deny-comments": "Send feedback — I'll revise models or SQL and re-run the gate.",
   "deny-halt": "Stop here; no query execution or profile writes.",
-  dryrun: "Preview the rest of the flow without writing to your profile.",
+  dryrun: "Continue like Approve (the query still runs) but don't save this retrieval to history.",
 };
 
 function gateOptionCopy(raw: string | undefined, fallback: string): string {

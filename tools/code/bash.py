@@ -10,7 +10,7 @@ from pathlib import Path
 
 from langchain.tools import tool
 
-from tools.common import bind_tool_to_agent
+from tools.registry import register_tool
 
 from tools.errors import ToolErrorType, register_exception
 
@@ -38,9 +38,18 @@ class BashSessionError(RuntimeError):
 
 
 def _classify_bash_session_error(exc: BaseException) -> tuple[ToolErrorType, bool, str] | None:
+    """Session failures are structured but never auto-retried.
+
+    Shell commands are not idempotent, and a command that hit the 120 s
+    timeout would just time out again, so the model decides what to do next
+    (the tool description tells it to rerun long commands in the background).
+    """
     message = str(exc)
+    system = getattr(exc, "system", None)
+    if system:
+        message = f"{message} ({system})"
     if "timed out" in message.lower() or "timeout" in message.lower():
-        return ToolErrorType.TIMEOUT, True, message
+        return ToolErrorType.TIMEOUT, False, message
     return ToolErrorType.UNKNOWN, False, message
 
 
@@ -169,11 +178,6 @@ class _BashSession:
             buffer.extend(chunk)
 
 
-def set_working_directory(path: str | Path | None) -> None:
-    global _working_directory
-    _working_directory = Path(path).resolve() if path else None
-
-
 def clear_sessions() -> None:
     with _lock:
         for session in _sessions.values():
@@ -204,9 +208,7 @@ def _strip_trailing_newline(text: str) -> str:
     return text
 
 
-@bind_tool_to_agent("databot,default")
-@bind_tool_to_agent("knowledge,default")
-@bind_tool_to_agent("swe,default")
+@register_tool
 @tool(description=DESCRIPTION)
 def bash(command: str, restart: bool = False) -> str:
     """Execute a bash command in a persistent terminal session.
@@ -229,11 +231,11 @@ def bash(command: str, restart: bool = False) -> str:
         if command == "ctrl+c":
             holder.send_control_c()
             return _format_cli_result(holder.drain_output(), holder.drain_error(), None)
-        try:
-            output, error = holder.run(command)
-            return _format_cli_result(output, error, None)
-        except BashSessionError as exc:
-            return _format_cli_result(None, str(exc), exc.system)
+        # ``BashSessionError`` (dead or timed-out session) propagates so ToolNode
+        # turns it into a structured TOOL ERROR; a command's own stderr is
+        # still ordinary output ("Error: ...").
+        output, error = holder.run(command)
+        return _format_cli_result(output, error, None)
 
 
 TOOLS = [bash]

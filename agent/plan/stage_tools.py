@@ -3,28 +3,42 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Awaitable, Callable
+import contextlib
+import contextvars
+from collections.abc import Awaitable, Callable, Iterator
 from dataclasses import dataclass
 from typing import Any
 
-from langchain_core.messages import ToolMessage
+from langchain_core.messages import AIMessage, ToolMessage
 from langchain_core.tools import BaseTool, tool
 from langgraph.prebuilt import ToolRuntime
 from langgraph.types import Command
 
-from agent.plan._constants import STAGE_ADJUST, STAGE_EXECUTE
-from agent.plan.prompt import DELEGATABLE_AGENTS
-from agent.session import specialist_session_id
-from tools.common import bind_tool_to_agent
+from agent.listener import AgentListener, ListenerHub
+from agent.plan.plan_agent import (
+    DELEGATABLE_AGENTS,
+    INVOKE_AGENT_TOOL_NAME,
+    STAGE_ADJUST,
+    STAGE_EXECUTE,
+    PlanStepStatus,
+)
+from agent.session import SpecialistSession
+from agent.turn import OnInterrupt
+from graph.state import SessionAgentState
+from tools.registry import register_tool
 from tools.plan import PlanToolError, run_planning
 
 
-def _ok_tool_message(tool_call_id: str, text: str) -> ToolMessage:
-    return ToolMessage(content=text, tool_call_id=tool_call_id)
+class PlanCommands:
+    """Shared ToolMessage construction for Plan stage tools."""
+
+    @staticmethod
+    def tool_message(tool_call_id: str, text: str) -> ToolMessage:
+        return ToolMessage(content=text, tool_call_id=tool_call_id)
 
 
-@bind_tool_to_agent("plan,create")
-@bind_tool_to_agent("plan,default")
+# LangChain ``@tool`` + catalog binding requires module-level decorated callables.
+@register_tool
 @tool
 def create_plan(
     plan_id: str,
@@ -49,7 +63,7 @@ def create_plan(
         return Command(
             update={
                 "messages": [
-                    _ok_tool_message(tool_call_id, f"Plan create failed: {exc}"),
+                    PlanCommands.tool_message(tool_call_id, f"Plan create failed: {exc}"),
                 ],
             }
         )
@@ -58,14 +72,12 @@ def create_plan(
         update={
             "plan_id": key,
             "stage": STAGE_EXECUTE,
-            "messages": [_ok_tool_message(tool_call_id, text)],
+            "messages": [PlanCommands.tool_message(tool_call_id, text)],
         }
     )
 
 
-@bind_tool_to_agent("plan,subagent")
-@bind_tool_to_agent("plan,adjust")
-@bind_tool_to_agent("plan,default")
+@register_tool(key="plan.planning")
 @tool
 def planning(
     command: str,
@@ -99,12 +111,12 @@ def planning(
         return Command(
             update={
                 "messages": [
-                    _ok_tool_message(tool_call_id, f"Planning command failed: {exc}"),
+                    PlanCommands.tool_message(tool_call_id, f"Planning command failed: {exc}"),
                 ],
             }
         )
     update: dict[str, Any] = {
-        "messages": [_ok_tool_message(tool_call_id, text)],
+        "messages": [PlanCommands.tool_message(tool_call_id, text)],
     }
     stage = ""
     if isinstance(full_state, dict):
@@ -116,6 +128,18 @@ def planning(
     return Command(update=update)
 
 
+# The plan run's human-in-the-loop callback. ``PlanAgent.run`` sets it for the
+# duration of a turn; the compiled plan graph is shared across sessions, so the
+# callback cannot live on the runner instance.
+_PLAN_ON_INTERRUPT: contextvars.ContextVar[OnInterrupt | None] = contextvars.ContextVar(
+    "plan_on_interrupt", default=None
+)
+
+
+class SpecialistNeedsInputError(RuntimeError):
+    """A delegated specialist paused for human input and no handler is available."""
+
+
 @dataclass
 class SpecialistRunner:
     """Run registered specialists from the invoke_agent tool."""
@@ -123,7 +147,42 @@ class SpecialistRunner:
     get_specialist: Callable[[str], Awaitable[Any]]
     parent_session: str = ""
 
-    async def run(self, agent_name: str, task: str, *, parent_session: str) -> str:
+    @staticmethod
+    @contextlib.contextmanager
+    def interrupt_handler(on_interrupt: OnInterrupt | None) -> Iterator[None]:
+        """Make ``on_interrupt`` available to specialists delegated in this context."""
+        token = _PLAN_ON_INTERRUPT.set(on_interrupt)
+        try:
+            yield
+        finally:
+            _PLAN_ON_INTERRUPT.reset(token)
+
+    @staticmethod
+    def _no_handler(agent_name: str) -> OnInterrupt:
+        async def refuse(question: str) -> str | None:
+            raise SpecialistNeedsInputError(
+                f"specialist {agent_name} paused for human input ({question!r}), "
+                "but this plan run has no interactive handler, so the step cannot "
+                "continue. Do not retry this step; report what is missing in the "
+                "final answer or choose a step that needs no human approval."
+            )
+
+        return refuse
+
+    async def run(
+        self,
+        agent_name: str,
+        task: str,
+        *,
+        parent_session: str,
+        on_interrupt: OnInterrupt | None = None,
+    ) -> str:
+        """Run one delegated step.
+
+        Interrupts inside the specialist (for example databot gates) go to
+        ``on_interrupt``, else to the plan run's handler (``interrupt_handler``).
+        Without either, :class:`SpecialistNeedsInputError` explains the problem.
+        """
         name = agent_name.strip().lower()
         if name not in DELEGATABLE_AGENTS:
             allowed = ", ".join(sorted(DELEGATABLE_AGENTS))
@@ -133,18 +192,20 @@ class SpecialistRunner:
         task_text = (task or "").strip()
         if not task_text:
             raise ValueError("`task` must be non-empty")
+        handler = on_interrupt or _PLAN_ON_INTERRUPT.get() or self._no_handler(name)
         specialist = await self.get_specialist(name)
-        session = specialist_session_id(parent_session or self.parent_session, name)
+        session = SpecialistSession.id(parent_session or self.parent_session, name)
         result = await specialist.run(
             task_text,
             session=session,
+            on_interrupt=handler,
             print_output=False,
         )
         if result.cancelled:
             raise RuntimeError(f"specialist {name} run was cancelled")
-        from agent.turn import extract_turn_output
+        from agent.turn import AgentTurnResult
 
-        output = extract_turn_output(result.state)
+        output = AgentTurnResult.extract_output(result.state)
         return output or "(specialist returned no text output)"
 
     async def run_isolated(
@@ -167,62 +228,119 @@ class SpecialistRunner:
 
         return await asyncio.to_thread(_work)
 
+    def invoke_tool(self) -> BaseTool:
+        """Build the subagent delegation tool bound to this runner."""
+        runner = self
 
-def make_invoke_agent_tool(runner: SpecialistRunner) -> BaseTool:
-    """Build the subagent delegation tool bound to ``runner``."""
+        @tool
+        async def invoke_agent(
+            agent_name: str,
+            task: str,
+            runtime: ToolRuntime = None,  # type: ignore[assignment]
+        ) -> Command:
+            """Delegate one plan step to a specialist agent.
 
-    @tool
-    async def invoke_agent(
-        agent_name: str,
-        task: str,
-        runtime: ToolRuntime = None,  # type: ignore[assignment]
-    ) -> Command:
-        """Delegate one plan step to a specialist agent.
-
-        ``agent_name`` must be one of the catalogued specialists (e.g. databot, swe).
-        ``task`` is the full instruction for that agent for this step.
-        """
-        tool_call_id = (runtime.tool_call_id if runtime else None) or "missing"
-        full_state = runtime.state if runtime is not None else {}
-        session = ""
-        if isinstance(full_state, dict):
-            session = str(full_state.get("session_name") or "").strip()
-        try:
-            output = await runner.run(
-                agent_name,
-                task,
-                parent_session=session,
-            )
-        except Exception as exc:
+            ``agent_name`` must be one of the catalogued specialists (e.g. databot, swe).
+            ``task`` is the full instruction for that agent for this step.
+            """
+            tool_call_id = (runtime.tool_call_id if runtime else None) or "missing"
+            full_state = runtime.state if runtime is not None else {}
+            session = ""
+            if isinstance(full_state, dict):
+                session = str(full_state.get("session_name") or "").strip()
+            try:
+                output = await runner.run(
+                    agent_name,
+                    task,
+                    parent_session=session,
+                )
+            except Exception as exc:
+                return Command(
+                    update={
+                        "messages": [
+                            PlanCommands.tool_message(
+                                tool_call_id,
+                                f"invoke_agent failed for {agent_name}: {exc}",
+                            ),
+                        ],
+                    }
+                )
+            prev: list[dict[str, Any]] = []
+            if isinstance(full_state, dict):
+                prev = list(full_state.get("step_results") or [])
+            entry = {
+                "agent": agent_name.strip().lower(),
+                "task": task.strip(),
+                "output": output,
+            }
             return Command(
                 update={
+                    "stage": STAGE_EXECUTE,
+                    "step_results": prev + [entry],
                     "messages": [
-                        _ok_tool_message(
+                        PlanCommands.tool_message(
                             tool_call_id,
-                            f"invoke_agent failed for {agent_name}: {exc}",
+                            f"Specialist `{agent_name}` finished.\n\n{output}",
                         ),
                     ],
                 }
             )
-        prev: list[dict[str, Any]] = []
-        if isinstance(full_state, dict):
-            prev = list(full_state.get("step_results") or [])
-        entry = {
-            "agent": agent_name.strip().lower(),
-            "task": task.strip(),
-            "output": output,
-        }
-        return Command(
-            update={
-                "stage": STAGE_EXECUTE,
-                "step_results": prev + [entry],
-                "messages": [
-                    _ok_tool_message(
-                        tool_call_id,
-                        f"Specialist `{agent_name}` finished.\n\n{output}",
-                    ),
-                ],
-            }
+
+        return invoke_agent
+
+
+class PlanSubagentListener(AgentListener):
+    """Execute-stage tool hooks for ``invoke_agent`` status and result filtering."""
+
+    def __init__(self, delegate: AgentListener) -> None:
+        self._delegate = delegate
+
+    def on_status(self, message: str) -> None:
+        self._delegate.on_status(message)
+
+    def on_reason_start(
+        self,
+        tool_call_count: int = 0,
+        max_tool_calls: int = 0,
+        idle_reason_rounds: int = 0,
+    ) -> None:
+        self._delegate.on_reason_start(
+            tool_call_count=tool_call_count,
+            max_tool_calls=max_tool_calls,
+            idle_reason_rounds=idle_reason_rounds,
         )
 
-    return invoke_agent
+    def on_tool_call(self, name: str, args: dict[str, Any]) -> None:
+        if name == INVOKE_AGENT_TOOL_NAME:
+            self._delegate.on_status(
+                PlanStepStatus.format(
+                    str(args.get("agent_name") or ""),
+                    str(args.get("task") or ""),
+                )
+            )
+            return
+        self._delegate.on_tool_call(name, args)
+
+    def on_tool_result(self, name: str, content: Any) -> None:
+        if name == INVOKE_AGENT_TOOL_NAME:
+            return
+        self._delegate.on_tool_result(name, content)
+
+    def on_reason_step(self, message: AIMessage) -> None:
+        self._delegate.on_reason_step(message)
+
+    def on_turn_output(self, state: SessionAgentState) -> None:
+        self._delegate.on_turn_output(state)
+
+    @classmethod
+    def hub(cls, hub: ListenerHub) -> ListenerHub:
+        """Listener hub for the subagent execute subgraph."""
+        return ListenerHub(cls(hub))
+
+    def tool_call_callback(self) -> Callable[[str, dict[str, Any]], None]:
+        """Emit a short user-facing status before ``invoke_agent`` runs a plan step."""
+
+        def on_tool_call(name: str, args: dict[str, Any]) -> None:
+            self.on_tool_call(name, args)
+
+        return on_tool_call

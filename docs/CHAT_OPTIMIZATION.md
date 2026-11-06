@@ -1218,5 +1218,421 @@ Implementation notes (behavior only): detect emits intentions + plan steps; publ
 |--------------|--------|-------|
 | Model download | First `fetch_related_models` downloaded `BAAI/bge-m3` and `BAAI/bge-reranker-v2-m3`; the embedder snapshot failed on `imgs/.DS_Store` | `python -m rag download` fetches both into `~/.cache/tahoepilot/models`, skipping that file; search only loads those directories |
 
+## 2026-11-01 — Turn invoke takes SessionUserRequest
+
+**Goal**: One accepted user request is the input to graph invoke and interrupt resume.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| Turn invoke | `ainvoke` took a raw state dict plus a separate thread config | `ainvoke_resolving_interrupts` takes `SessionUserRequest`; first invoke uses `state`, thread id comes from `session_id` |
+| Agent run | `run` prepared a partial state, then invoked | `run` awaits `accept_user_request` and passes that request through |
+| ReAct turn prep | `BaseReactAgent` built input via `SessionTurnBuilder` | Constructs `PromptProcessor` and reuses `accept_user_request` |
+| ReAct inheritance | React reimplemented turn accept, output, and duplicated store/listener | Shared lifecycle stays on `BaseAgent`; React only adds tools, router, and graph build |
+| Session state | `SessionAgentState` carried ReAct counters (`tool_call_count`, idle, failed tools) | Base session state is identity + messages; `ReactAgentState` adds loop bookkeeping |
+| Compression switch | `enable_compression` could turn the compressor off | Flag removed; ReAct always builds the compressor |
+| Compression config | Resolved inside `BaseReactAgent.build_graph` | Stored on `BaseAgent` at init / `bind`; ReAct reads `self.compression_config` |
+| Compressor | Built in ReAct `build_graph` from config + model | `BaseAgent` owns the compressor; init takes config, rebuilds when model or config is set |
+| ReAct system inject | `build_react_graph` started with `inject_system_prompt` | Loop starts at compress / `step_reason`; system prompt is expected in the initial messages |
+
+## 2026-11-01 — System prompt layout from config
+
+**Goal**: Assemble each agent's system prompt from an ordered config layout instead of hardcoded Python sections.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| System prompt text | Role, rules, and extras lived in assembler subclasses | Each agent has a TOML spec: ordered `layout` plus named sections |
+| Extension blocks | Python `extension_blocks()` appended after general rules | Extra sections are ordinary layout entries in the same file |
+| Assembler init | Instantiating a subclass built the prompt in code | `SystemPromptAssembler.from_config(name)` loads that agent's spec |
+| Shared vs specialist | Inheritance copied and overrode methods | Child specs `extends` a parent and replace or append sections |
+
+## 2026-11-01 — One config file per agent
+
+**Goal**: Keep each agent's settings in a single file, with the system-prompt assembler as one table in that file.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| Agent settings | Description, intention, and MCP lists lived in the Python registry; prompts were separate TOML files | `config/agents/<name>.toml` holds identity, MCP, and `[system_prompt]` |
+| Assembler | The prompt file *was* the agent prompt config | `[system_prompt]` is one item: `layout`, `extends`, and named sections |
+
+## 2026-11-01 — Typed run context from agent TOML
+
+**Goal**: Centralize per-agent loop limits and ReAct prompt snippets in config instead of scattered constructor kwargs.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| Run limits | `max_tool_calls` passed ad hoc into agents and `AgentCatalogSettings` | ReAct limits live only on `ReactRunContext`; TOML `[run_context]` merges from `tahoe` (not `BaseAgent`) |
+| ReAct prompts | Dataclass or inline kwargs at each call site | Same `ReactRunContext` dict for loop limits and step prompts; subgraphs override via `react_run_context_with` |
+| Factory defaults | Catalog stored loose int fields | `AgentCatalogSettings.for_agent(name, **overrides)` loads TOML then applies CLI/eval overrides |
+
+## 2026-11-01 — Unified request finalization
+
+**Goal**: One turn-teardown path for checkpoint snapshot policy, profile refine, and agent sidecars.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| Profile refine | Optional ``refine_user_profile`` node inside ``build_react_graph`` | ``BaseReactAgent.request_teardown`` + ``run_refine_user_profile`` after ``run`` |
+| Checkpoint shaping | ``TurnMessagePolicy.convert_to_snapshot`` stub | ``finalize_request`` merges policy patch via ``graph.aupdate_state`` |
+| Databot JSONL | Removed standalone graph nodes | ``DatabotAgent.request_teardown`` calls ``persist_databot_turn_artifact`` |
+| In-graph option | N/A | ``make_finalize_request_node`` when a graph must finalize before ``END`` |
+
+## 2026-11-01 — Databot package consolidation
+
+**Goal**: Fewer modules and OOP-centered graph, routing, gates, nodes, and subgraphs.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| Package layout | ~30 modules plus split ``prompts/*`` | Core types: ``graph``, ``nodes``, ``routing``, ``gates``, ``subgraphs``, ``scopes``, ``state``, ``stage_tools``, ``ui_actions``, ``card_staging``; thin re-export shims only where tests still import old paths |
+| Graph assembly | Free functions and deleted segment wrappers | ``DatabotGraphBuilder.compile()`` wires nodes and ``DatabotRouter`` |
+| Pipeline nodes | Separate ``execute``, ``stage_prep``, ``turn_summary``, ``follow_up_intention`` files | ``DatabotNodes`` factory class with entry, gates prep, execute, summary, classify |
+| Human gates | ``gate_defaults`` plus procedural makers | ``HumanGateNodes`` plus defaults merged into ``gates.py`` |
+| Prompts | Eight files under ``prompts/`` | Single ``prompts/__init__.py`` (stage strings + ``DatabotSystemPrompt``) |
+
+## 2026-11-01 — Databot retrieval-only (no follow-up / knowledge)
+
+**Goal**: Databot only runs the warehouse retrieval pipeline; knowledge Q&A stays on other agents.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| Follow-up classify | Extra LLM node split knowledge vs requery | Removed; a new message after ``done`` resets pipeline and starts ``fetch`` |
+| Knowledge subgraph | ``invoke_knowledge`` delegated to KnowledgeAgent | Databot graph has no specialist runner or knowledge nodes |
+| Agent wiring | ``DatabotAgent`` held an ``AgentCatalog`` only to spawn Knowledge | Catalog / ``SpecialistRunner`` dropped from Databot |
+
+## 2026-11-01 — Retrieval history cards
+
+**Goal**: Reuse this user's previously approved table cards before fetching new models.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| Turn artifact | JSONL dump of cards, SQL, and execution preview | Immutable ``DataRetrievalRecord`` (question, cards, SQL) appended per approved turn |
+| New turn context | Only last-turn ``approved_cards`` in checkpoint | ``history_cards`` unpacked from that user's records into Databot state |
+| Fetch order | Always ``fetch_related_models`` first | Check ``history_cards`` first; fetch only when history cannot cover the question |
+
+## 2026-11-01 — In-process session and profile memory
+
+**Goal**: Hydrate a session from the checkpointer and profile files only the first time it appears in the process.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| Turn start | Every turn called ``aget_state`` and read the user profile JSON | First sighting hydrates; later turns use ``SessionRuntime`` |
+| User profile | ``FileProfileStore.load`` hit disk on every accept and refine | Profile stays in process memory; saves still write through to disk |
+| Retrieval history | Databot re-read the JSONL sidecar on every new turn | Records and ``history_cards`` stay in memory after the first load |
+
+## 2026-11-03 — Base agent vs ReAct listener hub
+
+**Goal**: Keep ``BaseAgent`` on generic ``AgentListener`` only; wrap ReAct listeners in ``ListenerHub`` at the ReAct layer.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| Listener init | ``BaseAgent`` coerced ``ReactAgentListener`` into ``ListenerHub`` | ``BaseAgent`` stores ``agent_listener`` as given |
+| ReAct / eval hooks | ``register_secondary`` on ``BaseAgent`` | ``ReactListenerAgentMixin`` + ``react_listener_hub`` on ReAct agents (and Plan/Databot) |
+
+## 2026-11-03 — BaseAgent takes SessionRuntime
+
+**Goal**: Construct agents with in-process session/profile runtime directly instead of wrapping ``ProfileStore`` inside ``BaseAgent``.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| ``BaseAgent`` init | ``profile_store`` coerced to ``SessionRuntime`` in the base class | Required ``session_runtime: SessionRuntime`` |
+| Factory / ``create`` | Passed disk store into agent constructors | ``ensure_session_runtime(profile_store)`` at registry and CLI boundaries |
+| Agent profile access | ``profile_store`` property on ``BaseAgent`` | ``session_runtime`` only |
+
+## 2026-11-03 — TurnMessagePolicy rename
+
+**Goal**: Name the checkpoint message restore/snapshot hook after its behavior, not system prompt assembly.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| Policy type | ``PromptStrategy`` / ``DefaultPromptStrategy`` | ``TurnMessagePolicy`` / ``DefaultTurnMessagePolicy`` |
+| ``BaseAgent`` init | ``prompt_strategy=`` | ``turn_message_policy=`` |
+
+## 2026-11-03 — SessionRecord without embedded profile
+
+**Goal**: Keep one in-process copy of each ``UserProfile`` in ``SessionRuntime._profiles``, not again on every ``SessionRecord``.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| Session cache | ``SessionRecord`` held ``profile`` plus ``_profiles[user_id]`` | ``SessionRecord`` is ``session_id``, ``user_id``, ``values`` only |
+| Turn accept | Used ``record.profile`` | ``runtime.load(record.user_id)`` from the user cache |
+| Agent profile access | ``profile_store`` property aliased ``SessionRuntime`` as ``ProfileStore`` | Use ``session_runtime`` only (``load`` / ``save`` / ``root`` / ``disk``) |
+
+## 2026-11-03 — BaseAgent graph lifecycle
+
+**Goal**: Graph is compiled in ``build_graph`` only; no optional constructor injection or ``compile_graph_if_ready`` helper.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| ``BaseAgent.__init__`` | Optional ``graph=`` pre-built | ``_graph`` starts ``None``; tests assign ``agent._graph`` when needed |
+| Agent ``create`` | ``await compile_graph_if_ready()`` | ``await build_graph()`` when ``model`` and ``checkpointer`` are set |
+| Catalog | Also calls ``build_graph`` when graph missing | Unchanged |
+
+## 2026-11-03 — ``inject_history_state`` hook name
+
+**Goal**: Name the accept-turn state hook for merging prior / sidecar state into the invoke payload.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| ``BaseAgent`` hook | ``fresh_turn_fields`` | ``inject_history_state`` |
+| Plan/Databot defaults helper | ``fresh_turn_state_defaults`` | ``inject_history_state_defaults`` |
+
+## 2026-11-03 — Turn commit naming (``inject`` / ``commit`` pair)
+
+**Goal**: Replace ``finalize_request`` / ``request_teardown`` with names that match ``inject_history_state`` and separate patch assembly from subclass hooks.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| End-of-turn patch | ``finalize_request`` | ``turn_commit_patch`` (policy + extras) |
+| Subclass hook | ``request_teardown`` | ``commit_turn_extras`` |
+| Persist patch | ``apply_finalize_request`` | ``commit_turn`` |
+| In-graph node | ``make_finalize_request_node`` | ``make_turn_commit_node`` (``agent/turn_commit.py``) |
+
+## 2026-11-03 — Drop ``agent.session_state``
+
+**Goal**: Session checkpoint state lives on ``SessionRuntime`` and the LangGraph checkpointer, not on the reusable agent instance.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| After ``run`` / ``accept`` | Copied state onto ``self.session_state`` | Callers use ``AgentTurnResult.state`` / ``SessionUserRequest.state`` only |
+
+## 2026-11-03 — Turn commit on ``TurnMessagePolicy``
+
+**Goal**: Turn-end side effects and checkpoint patches belong on the injected ``TurnMessagePolicy``, not ``BaseAgent`` overrides.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| ReAct profile refine | ``BaseReactAgent.commit_turn_patch`` | ``ReactTurnMessagePolicy.commit_turn_state`` |
+| Databot history sidecar | ``DatabotAgent.commit_turn_patch`` | ``DatabotTurnMessagePolicy.commit_turn_state`` |
+| ``BaseAgent`` | Subclass ``commit_turn_patch`` hook | ``commit_turn`` → ``TurnMessagePolicy.commit_turn_state`` (full state) |
+
+## 2026-11-03 — ``commit_turn_state`` returns merged checkpoint
+
+**Goal**: Policy returns the full post-commit checkpoint dict; ``commit_turn`` persists it as-is.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| Policy return | Incremental patch merged in ``BaseAgent`` | ``commit_turn_state`` returns ``dict(state)`` plus updates |
+| API name | ``commit_turn_patch`` | ``commit_turn_state`` |
+
+## 2026-11-03 — ``history_state`` at turn accept
+
+**Goal**: Name the accept-turn hook ``history_state(prior)`` — fields derived from prior checkpoint / sidecars.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| ``BaseAgent`` hook | ``from_history_state`` | ``history_state`` |
+
+## 2026-11-03 — Turn input builder and policy-owned history
+
+**Goal**: One type assembles full invoke input (messages + session fields + history-derived state); agents no longer override accept-turn hooks.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| Turn accept assembly | ``PromptProcessor`` for messages; ``BaseAgent.history_state`` for other fields | ``SessionTurnProcessor.new_turn_state_with_messages`` delegates non-message fields via ``history_fields`` |
+| Plan/Databot history | Overrides on ``PlanAgent`` / ``DatabotAgent`` | ``PlanTurnMessagePolicy`` / ``DatabotTurnMessagePolicy`` |
+| ReAct per-turn counters | Implicit via agent hook | ``ReactTurnMessagePolicy.history_state`` → ``ReactAgentState.fresh_turn_defaults()`` |
+| Agent surface | ``_prompt_processor`` | ``session_turn_processor`` (``SessionTurnProcessor``) |
+
+## 2026-11-03 — Full assistant messages in step_reason checkpoint
+
+**Goal**: Stop filtering what ``step_reason`` appends to checkpoint history.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| Checkpoint append | ``_response_for_checkpoint`` / ``persist_plain_text`` could drop plain text or strip tool-turn prose | Always append the model ``AIMessage`` as returned |
+| Builder | ``persist_plain_text`` on ``build_react_graph`` | Removed |
+
+## 2026-11-03 — Single ReAct tool budget key
+
+**Goal**: One limit field for tool rounds per turn.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| Run context | ``max_tool_calls`` plus optional ``max_tool_steps`` (router) | ``max_tool_calls`` only for prompt, routing, and ``tool_call_count`` |
+
+## 2026-11-03 — Unified agent listener
+
+**Goal**: One ``AgentListener`` type for turn output and ReAct graph hooks; no separate react listener or mixin.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| Listener types | ``AgentListener`` vs ``ReactAgentListener`` + ``ReactListenerAgentMixin`` | Single ``AgentListener``; ``BaseAgent`` always holds ``ListenerHub`` |
+| Graph / agents | ``react_listener`` / ``agent_listener`` split | ``listener`` on ``BaseAgent``; ``register_secondary`` on ``BaseAgent`` |
+
+## 2026-11-03 — Typed run context per agent kind
+
+**Goal**: Match run configuration types and TOML shape to each agent architecture (ReAct, staged, handoff, nested ReAct).
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| Run context | Single ``ReactRunContext`` on every agent | ``HandoffRunContext`` (intent), ``StageRunContext`` / plan (Plan), ``DatabotRunContext`` with nested ``react.*``, ``ReactRunContext`` for pure ReAct specialists |
+| TOML | All ``extends = tahoe`` | ``stage`` parent for Plan/Databot; intent handoff-only; ``[run_context.react.fetch|sql]`` on databot |
+| Catalog → specialist | Catalog dict replaced agent config | ``react_context_for_agent`` merges handoff/plan overrides into specialist ReAct settings |
+
+## 2026-11-03 — Databot four pipeline phases
+
+**Goal**: Collapse fine-grained checkpoint `stage` values into four product phases while keeping gate/fetch nodes in the graph.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| Checkpoint `stage` | Micro-stages (`fetch`, `gate_cards`, `sql`, `gate_sql`, `execute`, `done`) | Four phases: `prepare_cards`, `prepare_sql`, `execute_sql`, `summary` |
+| Routing | Stage string doubled as node name in places | `DatabotPhase` + `node_for_state()` pick graph nodes (fetch, gates, generate) inside each phase |
+| Frontend | Tab/gate UX keyed on micro-stages | Tabs follow phase; gate banner and SQL regenerate use pending interrupts + phase guards |
+
+## 2026-11-03 — Databot module collapse
+
+**Goal**: Cut the databot package down to the modules that still own behavior.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| Package shape | Phase, routing, layers, and a stack of re-export shims as separate modules | One `pipeline` module for phase names and routing; graph wiring lives in `graph`; shims removed |
+| Stage prompts | Long fetch/SQL system prompts and a parallel `DatabotPhase.next()` machine that the graph never called | Live step prompts and gate/summary prompts only; phase changes are written by the gate nodes |
+| Turn policy | Own module plus a profile-persistence wrapper | Policy sits on `DatabotAgent`; retrieval history stays in `DataRetrievalStore` |
+
+## 2026-11-03 — Databot behavior on types
+
+**Goal**: Keep databot behavior on the type that owns it, with module functions only where a framework requires them.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| Routing and gates | Free functions for phase routing, gate prompts, and reason parsing | `DatabotRoute` and `HumanGates` |
+| UI patches and staging | Free functions shared by the server, tools, and gates | `DatabotUi` and `CardStaging` |
+| Tool registration | Helper functions beside `@tool` wrappers | Wrappers stay at module scope for registry binding; command text and replies live on `StageCommands` / `HumanGates` |
+
+## 2026-11-04 — Databot outer state vs layer ReAct
+
+**Goal**: Keep the staged pipeline checkpoint lean; run fetch/SQL ReAct in isolated subgraphs and merge only pipeline fields plus session messages back to the outer graph.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| Checkpoint schema | Outer `DatabotState` carried ReAct counters (`tool_call_count`, etc.) with pipeline fields | Outer state is session + pipeline snapshots only; ReAct bookkeeping lives on inner `DatabotReactState` |
+| Fetch / SQL loop | ReAct compiled as shared-state subgraph on the same checkpoint thread | Layer node invokes inner ReAct once (`checkpointer=None`); explicit input/output merge onto outer state |
+| Stage guidance | Mixed attempts to extend generic ReAct builder | Fetch/SQL opening copy from agent TOML, injected on layer entry into session `messages` |
+| Turn reset | Unused `fresh_pipeline` helper for partial pipeline clears | Turn accept uses policy `history_state` / baseline only; dead reset path removed |
+| Package layout | Separate `pipeline`, `topology`, `graph`, `react_state`, `react_layer` modules | `graph.py` for routing, layer compile, and outer builder; all checkpoint/ReAct schemas and merge helpers on `state.py`; phase strings on `state.py` to avoid import cycles |
+
+## 2026-11-04 — AgentConfig from file path
+
+**Goal**: Give each agent one `AgentConfig` loaded from its TOML path, instead of a shared catalog of load methods.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| Config object | `AgentCatalog` cached files and `AgentConfig.load(name)` resolved `extends` | `AgentConfig(path)` is the only constructor; `extends` is resolved while reading that file |
+| Agent wiring | Identity, prompt spec, and run context were loaded again inside each factory | Registry and `create()` pass the same `AgentConfig` into the agent |
+
+## 2026-11-04 — System prompt from AgentConfig
+
+**Goal**: Build the system prompt only from an `AgentConfig`, with sections as title plus text.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| Assembler input | `from_config(name)` and a `PromptSpec` with styles, bullets, includes, and runtime sources | `SystemPromptAssembler(config)`; each section is `title` + `text` |
+| Section rendering | Assembler formatted bullets, numbered lists, mixed blocks, and `append_sources` | File text is used as written; Plan appends specialist cards after `build()` |
+
+## 2026-11-04 — Agent file loader module name
+
+**Goal**: Name the TOML loader after agent settings, not prompts.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| Module | `config/prompt_config.py` held identity, MCP, run context, and system prompt | `config/agent_config.py` loads `config/agents/<name>.toml` |
+
+## 2026-11-04 — Agent creation and tools live on AgentCatalog
+
+**Goal**: Create every agent through one catalog, and inject tools at construction instead of looking them up from a spec object.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| Agent identity | `AgentSpec` held factory, config, intention, and mutable tool buckets | `AgentCatalog` registers factories and `AgentConfig`; `AgentSpec` is gone |
+| Tool registration | `@bind_tool_to_agent` wrote onto `AgentSpec.register_tools` | Decorators call `AgentCatalog.register_tool`; MCP uses `register_mcp_tools` |
+| Construction | Callers and tests called `XxxAgent.create()`, which loaded tools itself | `catalog.create(name)` loads tools and passes identifier buckets into the factory |
+
+## 2026-11-04 — AgentConfig subclasses own run context
+
+**Goal**: Stop passing a typed run context beside `AgentConfig`; each agent kind is a config subclass.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| Construction | Databot (and others) took `run_context=` and `agent_config=` | One `DatabotAgentConfig` / `ReactAgentConfig` / `PlanAgentConfig` / `IntentAgentConfig` |
+| Run context | Loaders rebuilt a TypedDict from the generic config | The subclass resolves and types `run_context`; agents read `agent_config.run_context` |
+
+## 2026-11-04 — Agent package behavior lives on classes
+
+**Goal**: Stop scattering agent behavior as module-level functions; each operation belongs to the type that owns the data.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| Run context | `agent.run_context` loaders and dict accessors sat beside `AgentConfig` | Subclasses resolve context; `AgentConfig.as_int` / `DatabotAgentConfig.gates_from` read it |
+| Routing and tools | `agent.registry` and `scoped_tools` wrapped the catalog | `AgentCatalog` owns intention routes and identifier buckets |
+| Turn / chain / intent | Free functions parsed replies, interrupts, and intention payloads | Methods on `AgentTurnResult`, `ChainRunResult`, `IntentionResponse`, and `IntentOrchestrator` |
+
+## 2026-11-06 — Agent tool sets live in agent config
+
+**Goal**: Tools should not know which agents use them; an agent's tool set should be readable in one place.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| Tool ownership | `@bind_tool_to_agent("agent,scope")` stacks in ~15 tool modules; a pending queue covered import cycles | Tools only `@register_tool` (by name, or `key=` when names collide); `[tools]` in `config/agents/<agent>.toml` lists them per scope |
+| Shared sets | Same trino / s3 / k8s / datahub lists repeated per decorator | `config/tool_groups.toml` groups, referenced as `"@trino"` etc. |
+| Typos | A misspelled `"agent,scope"` string bound nothing, silently | `tests/test_agent_tool_scopes.py` fails on any unregistered configured name; runtime logs a warning (optional extras) |
+| Name collision | Plan's stage `planning` and the generic `planning` both bound by decorator | Stage tool is registry key `plan.planning`; model-facing name unchanged |
+
+`register_tool_binding` remains for runtime binding (tests, dynamic wiring). Static-only helper classes (`HumanGates`, `CardStaging`, `DatabotUi`, `DatabotRoute`, `PlanGraph`) became module functions; classes that own data keep their methods.
+
+## 2026-11-06 — Module names match their contents
+
+| Before | After | Why |
+|--------|-------|-----|
+| `observability/` (`observe.py`, `case.py`) | `evals/` (`listeners.py`, `tool_case.py`) | Holds eval suites, scoring and eval listeners; CLI is now `python -m evals` |
+| `state/state.py` + `graph/edge.py` | `graph/state.py` | LangGraph state schemas and the readers ReAct routing uses |
+| `agent/config.py` | `agent/run_context.py` | Run-context TypedDicts; distinct from `config/agent_config.py` |
+| `agent/prompt.py` (turn classes) | `agent/turn_messages.py` | `TurnMessagePolicy` / `SessionTurnProcessor` build and commit turn messages; `agent/prompt.py` keeps `SystemPromptAssembler` |
+| `models/models.py` | `models/llm.py` | LLM config and factory |
+| `rag/models.py` | `rag/local_models.py` | Downloads local BGE weights |
+| `tools/common.py` | `tools/registry.py` | Tool registry and lookups |
+| `tools/mcp/mcp.py` | `tools/mcp/client.py` | MCP config and client |
+| `tools/rag/semantic.py` | `tools/rag/dbt_models.py` | dbt semantic-model search and table cards |
+| `ui.py` | `langgraph_graphs.py` | Graph entry points for `langgraph.json` |
+
+## 2026-11-06 — Safety and correctness sweep
+
+**Goal**: Fix the defects found while documenting every subsystem, each with a regression test.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| CLI turns | Every non-intent agent failed with `TypeError` (`print_output` dropped from `run`) | `run(print_output=...)` restored; plan delegation and evals work again |
+| Read-only SQL | `EXPLAIN ANALYZE INSERT/DELETE …` passed the guard and executed | The statement inside `EXPLAIN` must be read-only too |
+| Databot gates | A typo or blank reply counted as dry-run and could run the query; a finished SQL redraft looped to the recursion limit | Unrecognized or empty replies re-ask; the SQL layer routes on draft completeness |
+| Databot turns | Dry-run text promised no execution; halted turns saved history; stage instructions only on turn 1; web threads never reset | Dry-run text matches behavior; halts save nothing; instructions per turn; a new web question starts a fresh pipeline |
+| Intent and plan | Turn 2 reused turn 1's question; clarification ran out per session; plan budgets leaked across stages and turns and ignored config; delegated Databot could not ask the user | Per-turn intent reset; per-stage plan budgets from config; plan passes its interrupt handler to specialists |
+| Tool budgets | `Command`-returning tools never counted; budget exhaustion could end a turn with no reply | Every tool batch counts; the last step at budget answers in text |
+| Tool errors | Several tools returned errors as text; a retryable Trino error was never retried; recovery prompts piled up in history | Failures raise classified errors; one retry rule for wrapper and node; guidance rides in the tool result |
+| Context memory | `enabled = false` ignored; one-line results re-offloaded forever; fold archives unreachable; offload store never pruned; agents shared one store | Flag honored; previews capped; archive path in state; `offload_max_age_days` retention; reads resolve every store |
+| Event loop | Profile refinement ran a model call on the event loop | Turn commit runs in a worker thread |
+| RAG ingest | Failed files exited 0; `--recreate-collection` failed on a stale checkpoint; re-ingest left stale or duplicate points | Exit 1 with a summary; recreate starts fresh; points replaced per stable document key |
+| Evals and dev script | No-tool cases capped at 0.67; `dev.sh stop` killed matching processes machine-wide and `status` called 404 alive | No-tool cases can score 1.0; `dev.sh` stops only its own process groups and reports 404 as not mounted |
+
+## 2026-11-06 — One package per specialist
+
+**Goal**: Every specialist lives in its own package, like Databot and Plan.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| Layout | `agent/specialists/<name>.py` beside empty leftover `<name>/` directories | `agent/specialists/<name>/<name>_agent.py`, re-exported from the package `__init__` |
+
+## 2026-11-06 — Plan is routed like a specialist
+
+**Goal:** Make intent the single entry point that hands each request to exactly one agent, with Plan as one of the choices.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| How Plan is chosen | Implicit: any request classified with two or more labels went to Plan | Plan declares the `PLAN` label and the classifier picks it, like any specialist, when a request needs several specialists |
+| Classifier output | One or more labels, in execution order | Exactly one label; several labels are still accepted and go to Plan |
+| Routable specialists | Only Databot (`DATA`) and Knowledge (`KNOWLEDGE`) | Every agent except intent: also `DIAGNOSTIC`, `ANALYSIS`, `SWE` |
+| DATA vs ANALYSIS | Databot described as "retrieval or analysis" | Databot answers concrete data questions; exploration with Python and charts goes to data_analysis |
+
 <!-- Append the next optimization section above this line -->
+
+
+
+
+
 

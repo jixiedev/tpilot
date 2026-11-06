@@ -15,12 +15,7 @@ from langchain_core.messages import HumanMessage
 
 from graph.messages import message_content_to_str
 
-from agent.specialists.databot._constants import (
-    STAGE_FETCH,
-    STAGE_GATE_CARDS,
-    STAGE_GATE_SQL,
-    STAGE_SQL,
-)
+from agent.specialists.databot.state import PHASE_PREPARE_CARDS, PHASE_PREPARE_SQL
 
 DatabotUiAction = Literal[
     "update_card_selection",
@@ -29,9 +24,9 @@ DatabotUiAction = Literal[
 ]
 
 ACTION_ALLOWED_STAGES: dict[DatabotUiAction, frozenset[str]] = {
-    "update_card_selection": frozenset({STAGE_GATE_CARDS}),
-    "propose_sql": frozenset({STAGE_SQL, STAGE_GATE_SQL}),
-    "request_sql_regenerate": frozenset({STAGE_SQL}),
+    "update_card_selection": frozenset({PHASE_PREPARE_CARDS}),
+    "propose_sql": frozenset({PHASE_PREPARE_SQL}),
+    "request_sql_regenerate": frozenset({PHASE_PREPARE_SQL}),
 }
 
 DATABOT_STATE_KEYS: tuple[str, ...] = (
@@ -40,6 +35,7 @@ DATABOT_STATE_KEYS: tuple[str, ...] = (
     "committed_cards",
     "review_cards",
     "approved_cards",
+    "history_cards",
     "metric_conflicts",
     "draft_sql",
     "approved_sql",
@@ -51,10 +47,14 @@ DATABOT_STATE_KEYS: tuple[str, ...] = (
     "sql_reasons",
     "dryrun",
     "halt_reason",
-    "chart_requested",
     "deny_feedback",
 )
 
+
+
+# ---------------------------------------------------------------------------
+# State patches for card selection, SQL edits, and gate redrafts.
+# ---------------------------------------------------------------------------
 
 def databot_state_subset(state: Mapping[str, Any]) -> dict[str, Any]:
     """Return databot fields from a LangGraph state dict for the frontend."""
@@ -133,12 +133,8 @@ def user_question_from_messages(messages: list[Any]) -> str:
 
 
 def _subgraph_redraft_counters() -> dict[str, Any]:
-    """Reset per-subgraph ReAct bookkeeping so a gate redraft gets a fresh budget."""
-    return {
-        "tool_call_count": 0,
-        "idle_rounds": 0,
-        "failed_tools": [],
-    }
+    """Reset markers on gate redraft (ReAct counters reset inside layer ReAct)."""
+    return {}
 
 
 def _feedback_human_message(feedback: str, *, gate: str) -> dict[str, Any]:
@@ -156,7 +152,7 @@ def apply_cards_gate_redraft(feedback: str) -> dict[str, Any]:
     """Reset card-gate outputs so the fetch subgraph must re-run."""
     cleaned = (feedback or "").strip()
     return {
-        "stage": STAGE_FETCH,
+        "stage": PHASE_PREPARE_CARDS,
         "staging_cards": [],
         "committed_cards": [],
         "review_cards": [],
@@ -172,7 +168,7 @@ def apply_sql_gate_redraft(feedback: str) -> dict[str, Any]:
     """Reset SQL-gate outputs so the generate_sql subgraph must re-run."""
     cleaned = (feedback or "").strip()
     return {
-        "stage": STAGE_SQL,
+        "stage": PHASE_PREPARE_SQL,
         **apply_request_sql_regenerate(cleaned),
         **_subgraph_redraft_counters(),
         **_feedback_human_message(cleaned, gate="SQL"),

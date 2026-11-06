@@ -1,4 +1,4 @@
-"""ReAct turn listeners for CLI, UI, and eval hooks."""
+"""Agent turn listeners for CLI, UI, eval, and ReAct graph hooks."""
 
 from __future__ import annotations
 
@@ -7,14 +7,14 @@ from typing import Any
 
 from langchain_core.messages import AIMessage
 
-from agent.turn import current_turn_messages, last_user_visible_reply
-from state.state import SessionAgentState, last_ai_message, message_text
+from agent.turn import AgentTurnResult
+from graph.state import SessionAgentState, last_ai_message, message_text
 
 _DEFAULT_RESULT_PREVIEW_CHARS = 2000
 
 
-class ReactAgentListener:
-    """Hooks for CLI / UI / eval feedback during a ReAct turn."""
+class AgentListener:
+    """Hooks for turn lifecycle and ReAct step feedback."""
 
     def on_status(self, message: str) -> None:
         return None
@@ -23,7 +23,7 @@ class ReactAgentListener:
         self,
         tool_call_count: int = 0,
         max_tool_calls: int = 0,
-        idle_rounds: int = 0,
+        idle_reason_rounds: int = 0,
     ) -> None:
         return None
 
@@ -40,25 +40,31 @@ class ReactAgentListener:
         return None
 
 
-class ListenerHub(ReactAgentListener):
+class ListenerHub(AgentListener):
     """Fan-out listener: a primary hook plus optional secondary listeners.
 
     Graph callbacks close over this instance at bind time, so secondaries can be
     registered or cleared between turns without rebuilding the graph.
     """
 
-    def __init__(self, primary: ReactAgentListener | None = None) -> None:
-        self.primary = primary or ReactAgentListener()
-        self._secondaries: list[ReactAgentListener] = []
+    def __init__(self, primary: AgentListener | None = None) -> None:
+        self.primary = primary or AgentListener()
+        self._secondaries: list[AgentListener] = []
 
-    def register_secondary(self, listener: ReactAgentListener) -> None:
+    @classmethod
+    def from_listener(cls, listener: AgentListener | ListenerHub | None = None) -> ListenerHub:
+        """Stable fan-out hub for graph callbacks and optional secondaries."""
+        if listener is None:
+            return cls()
+        if isinstance(listener, ListenerHub):
+            return listener
+        return cls(listener)
+
+    def register_secondary(self, listener: AgentListener) -> None:
         if listener is self or listener is self.primary:
             return
         if listener not in self._secondaries:
             self._secondaries.append(listener)
-
-    def unregister_secondary(self, listener: ReactAgentListener) -> None:
-        self._secondaries = [item for item in self._secondaries if item is not listener]
 
     def clear_secondaries(self) -> None:
         self._secondaries.clear()
@@ -75,13 +81,13 @@ class ListenerHub(ReactAgentListener):
         self,
         tool_call_count: int = 0,
         max_tool_calls: int = 0,
-        idle_rounds: int = 0,
+        idle_reason_rounds: int = 0,
     ) -> None:
         self._fan_out(
             "on_reason_start",
             tool_call_count,
             max_tool_calls,
-            idle_rounds,
+            idle_reason_rounds,
         )
 
     def on_tool_call(self, name: str, args: dict) -> None:
@@ -97,8 +103,8 @@ class ListenerHub(ReactAgentListener):
         self._fan_out("on_turn_output", state)
 
 
-class CliReactListener(ReactAgentListener):
-    """CLI implementation: format ReAct hooks and write to stdout."""
+class CliListener(AgentListener):
+    """CLI implementation: format hooks and write to stdout."""
 
     def __init__(
         self,
@@ -169,10 +175,10 @@ class CliReactListener(ReactAgentListener):
         self,
         tool_call_count: int = 0,
         max_tool_calls: int = 0,
-        idle_rounds: int = 0,
+        idle_reason_rounds: int = 0,
     ) -> str:
         return self.format_status(
-            f"LLM thinking (tools={tool_call_count}/{max_tool_calls}, idle={idle_rounds})"
+            f"LLM thinking (tools={tool_call_count}/{max_tool_calls}, idle={idle_reason_rounds})"
         )
 
     def on_status(self, message: str) -> None:
@@ -182,13 +188,13 @@ class CliReactListener(ReactAgentListener):
         self,
         tool_call_count: int = 0,
         max_tool_calls: int = 0,
-        idle_rounds: int = 0,
+        idle_reason_rounds: int = 0,
     ) -> None:
         print(
             self.format_reason_start(
                 tool_call_count=tool_call_count,
                 max_tool_calls=max_tool_calls,
-                idle_rounds=idle_rounds,
+                idle_reason_rounds=idle_reason_rounds,
             ),
             flush=True,
         )
@@ -219,7 +225,6 @@ class CliReactListener(ReactAgentListener):
         return f"Result> {name}: {text}"
 
     def format_reason_step_lines(self, message: AIMessage) -> list[str]:
-        # Intermediate ReAct traces only: plain-text idle retries stay quiet.
         if not (getattr(message, "tool_calls", None) or []):
             return []
         lines: list[str] = []
@@ -252,12 +257,17 @@ class CliReactListener(ReactAgentListener):
             print(line)
 
     def on_turn_output(self, state: SessionAgentState) -> None:
-        reply = last_user_visible_reply(state)
+        reply = AgentTurnResult.last_user_visible_reply(state)
         if reply:
             print(f"Assistant> {reply}")
             return
-        fallback = last_ai_message(current_turn_messages(state))
+        fallback = last_ai_message(AgentTurnResult.current_turn_messages(state))
         if fallback is not None:
             print(f"Assistant> {self.message_text_content(fallback.content)}")
             return
         print("Assistant> (no reply)")
+
+
+# Backward-compatible aliases (prefer AgentListener / CliListener).
+ReactAgentListener = AgentListener
+CliReactListener = CliListener

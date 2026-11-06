@@ -1,4 +1,4 @@
-from tools.mcp.mcp import (
+from tools.mcp.client import (
     DATAHUB_MCP_SERVER_NAME,
     check_mcp_servers,
     format_mcp_startup_lines,

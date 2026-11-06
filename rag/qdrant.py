@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from functools import lru_cache
 from typing import Any
 
@@ -9,8 +10,9 @@ from qdrant_client import QdrantClient
 from qdrant_client.http import models as qmodels
 
 from rag.config import get_rag_config, resolve_qdrant_api_key
+from rag.document import DOC_KEY_FIELD
 from rag.embeddings import get_embedding, resolve_bge_devices, to_sparse_vector
-from rag.models import resolve_model_dir
+from rag.local_models import resolve_model_dir
 
 _EMBED_TEXT_KEYS = ("chunk_data", "text")
 _TITLE_KEYS = ("description", "summary")
@@ -62,6 +64,13 @@ def ensure_collection(
             "sparse": qmodels.SparseVectorParams(),
         },
     )
+    # Re-ingest deletes a document's points by ``doc_key``; index it so the
+    # delete filter does not scan the whole collection.
+    qdrant.create_payload_index(
+        collection_name=collection_name,
+        field_name=DOC_KEY_FIELD,
+        field_schema=qmodels.PayloadSchemaType.KEYWORD,
+    )
 
 
 def _params(info: Any) -> Any:
@@ -105,6 +114,49 @@ def upsert_points(
     qdrant = client or get_client()
     ensure_collection(collection_name, client=qdrant)
     qdrant.upsert(collection_name=collection_name, points=points)
+
+
+_DELETE_KEYS_PER_REQUEST = 256
+
+
+def delete_points_by_doc_keys(
+    collection_name: str,
+    doc_keys: Iterable[str],
+    *,
+    client: QdrantClient | None = None,
+) -> int:
+    """Delete every point whose payload ``doc_key`` is in ``doc_keys``.
+
+    Ingest calls this before upserting a document's new chunks so re-ingest
+    does not leave stale points behind when the chunk layout (and therefore
+    the point ids) changes. Returns the number of delete requests sent; a
+    missing collection is a no-op.
+    """
+    keys = sorted({str(key) for key in doc_keys if key and str(key).strip()})
+    if not keys:
+        return 0
+    qdrant = client or get_client()
+    if not qdrant.collection_exists(collection_name):
+        return 0
+    requests = 0
+    for offset in range(0, len(keys), _DELETE_KEYS_PER_REQUEST):
+        batch = keys[offset : offset + _DELETE_KEYS_PER_REQUEST]
+        qdrant.delete(
+            collection_name=collection_name,
+            points_selector=qmodels.FilterSelector(
+                filter=qmodels.Filter(
+                    must=[
+                        qmodels.FieldCondition(
+                            key=DOC_KEY_FIELD,
+                            match=qmodels.MatchAny(any=batch),
+                        )
+                    ]
+                )
+            ),
+            wait=True,
+        )
+        requests += 1
+    return requests
 
 
 def search(

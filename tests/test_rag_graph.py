@@ -19,6 +19,13 @@ from rag.ingest import upsert_documents
 from rag.chunking import IdentitySplitStrategy, LengthSplitStrategy, split_text
 
 
+@pytest.fixture(autouse=True)
+def _no_qdrant_delete():
+    """Ingest deletes a document's old points before upsert; keep tests offline."""
+    with patch("rag.ingest.delete_points_by_doc_keys") as mock_delete:
+        yield mock_delete
+
+
 def test_split_text_keeps_a_remainder_chunk() -> None:
     text = "a" * 50 + "\n\n" + "b" * 50
     chunks = split_text(text, chunk_chars=40, overlap=8)

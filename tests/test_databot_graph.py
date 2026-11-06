@@ -15,53 +15,25 @@ from langchain_core.tools import tool
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.types import Command
 
-from agent.specialists.databot._constants import (
-    FOLLOW_UP_INTENTION_KNOWLEDGE,
-    FOLLOW_UP_INTENTION_REQUERY,
-    NODE_CLASSIFY_FOLLOW_UP,
+from agent.specialists.databot.graph import DatabotGraphBuilder
+from config.agent_config import DatabotAgentConfig, agent_config_path
+from agent.specialists.databot.graph import (
+    LAYER_PREPARE_CARDS,
+    LAYER_SUMMARY,
     NODE_END_WITH_SUMMARY,
-    NODE_FETCH_CARDS,
-    NODE_GENERATE_SQL,
-    NODE_KNOWLEDGE_FOLLOW_UP,
-    NODE_WRITE_SQL_ARTIFACT,
-    STAGE_DONE,
-    STAGE_EXECUTE,
-    STAGE_FETCH,
-    STAGE_GATE_CARDS,
-    STAGE_GATE_SQL,
-    STAGE_SQL,
-)
-from agent.plan.stage_tools import SpecialistRunner
-from agent.specialists.databot.graph import build_databot_graph
-from agent.specialists.databot.state import DatabotState
-from graph.builder import static_system_prompt
-from agent.specialists.databot.tool_scopes import (
+    NODE_EXECUTE_SQL,
+    PHASE_EXECUTE_SQL,
+    PHASE_PREPARE_CARDS,
+    PHASE_PREPARE_SQL,
+    PHASE_SUMMARY,
     REGISTRY_NAME,
     TOOL_ID_EXECUTE,
     TOOL_ID_FETCH,
     TOOL_ID_SQL,
 )
+from agent.specialists.databot.state import DatabotState
 from tools.bootstrap import ensure_tools_registered
-from tools.common import register_tool_binding
-
-
-from agent.turn import AgentTurnResult
-
-
-class _FakeKnowledgeSpecialist:
-    async def run(self, task: str, *, session: str, print_output: bool = False) -> AgentTurnResult:
-        return AgentTurnResult(
-            state={"messages": [AIMessage(content=f"knowledge answer for: {task}")]},
-            cancelled=False,
-        )
-
-
-async def _fake_get_specialist(_name: str) -> _FakeKnowledgeSpecialist:
-    return _FakeKnowledgeSpecialist()
-
-
-def _test_runner() -> SpecialistRunner:
-    return SpecialistRunner(get_specialist=_fake_get_specialist)
+from tools.registry import register_tool_binding
 
 
 class _ExitStageModel(FakeMessagesListChatModel):
@@ -104,19 +76,43 @@ def compiled_graph():
     trino_desc = _make_tool("trino_desc_table")
     hive_desc = _make_tool("hive_desc_table")
 
-    for tool in (fetch_related, add_card, search, get_entities):
+    register_tool_binding(f"{REGISTRY_NAME},{TOOL_ID_FETCH}", fetch_related, replace=True)
+    for tool in (add_card, search, get_entities):
         register_tool_binding(f"{REGISTRY_NAME},{TOOL_ID_FETCH}", tool)
-    for tool in (trino_explain, trino_desc, hive_desc):
+    register_tool_binding(f"{REGISTRY_NAME},{TOOL_ID_SQL}", trino_explain, replace=True)
+    for tool in (trino_desc, hive_desc):
         register_tool_binding(f"{REGISTRY_NAME},{TOOL_ID_SQL}", tool)
-    register_tool_binding(f"{REGISTRY_NAME},{TOOL_ID_EXECUTE}", trino_run)
+    register_tool_binding(f"{REGISTRY_NAME},{TOOL_ID_EXECUTE}", trino_run, replace=True)
 
     model = _ExitStageModel(responses=[AIMessage(content="ok")])
-    graph = build_databot_graph(
+    graph = DatabotGraphBuilder.build(
         model,
         checkpointer=MemorySaver(),
-        runner=_test_runner(),
+        run_context=DatabotAgentConfig(agent_config_path("databot")).run_context,
     )
     return graph, trino_run
+
+
+def test_root_graph_exposes_pipeline_nodes(compiled_graph):
+    from agent.specialists.databot.graph import (
+        LAYER_EXECUTE_SQL,
+        LAYER_PREPARE_CARDS,
+        LAYER_PREPARE_SQL,
+        LAYER_SUMMARY,
+    )
+
+    graph, _ = compiled_graph
+    nodes = set(graph.get_graph().nodes)
+    assert {
+        LAYER_PREPARE_CARDS,
+        LAYER_PREPARE_SQL,
+        LAYER_EXECUTE_SQL,
+        LAYER_SUMMARY,
+    }.issubset(nodes)
+    assert "dispatch" not in nodes
+    assert "layer_entry" not in nodes
+    assert "classify_follow_up" not in nodes
+    assert "knowledge_follow_up" not in nodes
 
 
 def _seed(stage: str, **overrides) -> DatabotState:
@@ -124,10 +120,7 @@ def _seed(stage: str, **overrides) -> DatabotState:
         "messages": [HumanMessage(content="how many orders yesterday?")],
         "session_name": "t1",
         "user_id": "alice",
-        "tool_call_count": 0,
-        "idle_rounds": 0,
-        "autonomous_compact_requested": False,
-        "failed_tools": [],
+        "history_cards": [],
         "stage": stage,  # type: ignore[typeddict-item]
         "staging_cards": [],
         "committed_cards": [],
@@ -149,10 +142,8 @@ def _seed(stage: str, **overrides) -> DatabotState:
         },
         "dryrun": False,
         "halt_reason": "",
-        "chart_requested": False,
         "deny_feedback": "",
-        "follow_up_turn": False,
-        "follow_up_intention": "",
+        "cards_selection_summary": "",
     }
     base.update(overrides)  # type: ignore[arg-type]
     return base
@@ -161,7 +152,7 @@ def _seed(stage: str, **overrides) -> DatabotState:
 async def test_cards_gate_interrupt_carries_reasons(compiled_graph):
     graph, _ = compiled_graph
     result = await graph.ainvoke(
-        _seed(STAGE_GATE_CARDS),
+        _seed(PHASE_PREPARE_CARDS),
         config={"configurable": {"thread_id": "t1"}},
     )
     assert "__interrupt__" in result
@@ -185,7 +176,7 @@ async def test_cards_gate_interrupt_carries_reasons(compiled_graph):
 async def test_cards_gate_approve_promotes_to_sql_stage(compiled_graph):
     graph, _ = compiled_graph
     config = {"configurable": {"thread_id": "t1"}, "recursion_limit": 50}
-    await graph.ainvoke(_seed(STAGE_GATE_CARDS), config=config)
+    await graph.ainvoke(_seed(PHASE_PREPARE_CARDS), config=config)
     # After the gate approves, the state machine moves to the SQL stage
     # and its subgraph fires. The stub returns text with no tool calls so
     # the subgraph idle-exits, then the SQL gate interrupts.
@@ -216,7 +207,7 @@ async def test_sql_gate_approve_runs_execute(compiled_graph):
     graph, _ = compiled_graph
     config = {"configurable": {"thread_id": "t1"}, "recursion_limit": 50}
     seed = _seed(
-        STAGE_GATE_SQL,
+        PHASE_PREPARE_SQL,
         approved_cards=[{"name": "orders_daily"}],
         draft_sql="SELECT count(*) FROM orders_daily",
         sql_validated=True,
@@ -227,18 +218,18 @@ async def test_sql_gate_approve_runs_execute(compiled_graph):
     result = r2.get("execution_result") or {}
     # The stub trino_run_query returns {} but the node wraps it.
     assert result.get("ok") is True
-    assert r2.get("stage") == STAGE_DONE
+    assert r2.get("stage") == PHASE_SUMMARY
 
 
 async def test_cards_gate_deny_halt_routes_to_refusal(compiled_graph):
     graph, _ = compiled_graph
     config = {"configurable": {"thread_id": "t1"}}
-    await graph.ainvoke(_seed(STAGE_GATE_CARDS), config=config)
+    await graph.ainvoke(_seed(PHASE_PREPARE_CARDS), config=config)
     r2 = await graph.ainvoke(
         Command(resume="deny-halt"),
         config=config,
     )
-    assert r2.get("stage") == STAGE_DONE
+    assert r2.get("stage") == PHASE_SUMMARY
     # The refusal branch appended a final AI message.
     assert any(
         getattr(m, "type", None) == "ai" and "halted" in m.content
@@ -249,20 +240,17 @@ async def test_cards_gate_deny_halt_routes_to_refusal(compiled_graph):
 async def test_cards_gate_deny_with_comments_loops_back(compiled_graph):
     graph, _ = compiled_graph
     config = {"configurable": {"thread_id": "t1"}, "recursion_limit": 50}
-    await graph.ainvoke(_seed(STAGE_GATE_CARDS), config=config)
+    await graph.ainvoke(_seed(PHASE_PREPARE_CARDS), config=config)
     r2 = await graph.ainvoke(
         Command(resume='{"decision":"deny-comments","comments":"use daily_orders instead"}'),
         config=config,
     )
-    # After deny-comments the gate writes ``stage="fetch"`` and routes
-    # back into ``fetch_cards``. The subgraph (stub model) idle-exits;
-    # the post-subgraph bridge node then advances
-    # ``stage`` to ``"gate_cards"`` so the human sees the re-picked
-    # selection. We don't have to wait for the next interrupt — the
-    # state right after the bridge is what we want to assert.
-    assert r2.get("stage") == STAGE_GATE_CARDS
-    assert r2.get("deny_feedback") == "use daily_orders instead"
-    audit = r2.get("gate_decisions") or []
+    # After deny-comments the gate stays in prepare_cards and routes back to fetch.
+    # The gate runs inside the layer subgraph, so read the paused layer's state.
+    active = (await DatabotGraphBuilder.aget_active_state(graph, config)).values
+    assert active.get("stage") == PHASE_PREPARE_CARDS
+    assert active.get("deny_feedback") == "use daily_orders instead"
+    audit = active.get("gate_decisions") or []
     assert any(
         entry.get("decision") == "deny-comments"
         and entry.get("comments") == "use daily_orders instead"
@@ -270,218 +258,48 @@ async def test_cards_gate_deny_with_comments_loops_back(compiled_graph):
     )
 
 
-def test_stage_done_follow_up_preserves_artifacts_until_requery():
-    from agent.specialists.databot.follow_up_intention import make_classify_follow_up_node
-    from agent.specialists.databot.graph import (
-        _route_after_classify_follow_up,
-        _route_after_entry,
-        make_databot_entry_node,
-    )
-    from langchain_core.language_models.fake_chat_models import FakeMessagesListChatModel
+def test_new_turn_baseline_resets_pipeline_after_summary():
+    from agent.specialists.databot.databot_agent import DatabotTurnMessagePolicy
+    from agent.specialists.databot.graph import node_for_state, to_next_layer
     from langchain_core.messages import AIMessage, HumanMessage
 
     state = {
-        "stage": STAGE_DONE,
+        "stage": PHASE_SUMMARY,
         "approved_cards": [{"name": "daily_rev_tahoe"}],
         "draft_sql": "SELECT 1",
         "execution_result": {"ok": True, "rows": [[1, 2]]},
         "messages": [
             HumanMessage(content="wish上个月订单数和revenue"),
             AIMessage(content="done"),
-            HumanMessage(content="buyer region 是什么意思"),
+            HumanMessage(content="换成上周的GMV"),
         ],
     }
-    patch = make_databot_entry_node(static_system_prompt(""))(state)
-    assert patch.get("follow_up_turn") is True
-    assert patch.get("stage") is None
-    assert patch.get("approved_cards") is None
-    merged = {**state, **patch}
-    assert merged["approved_cards"] == [{"name": "daily_rev_tahoe"}]
-    assert _route_after_entry(merged) == NODE_CLASSIFY_FOLLOW_UP
-
-    model = FakeMessagesListChatModel(
-        responses=[AIMessage(content='{"intention": "knowledge", "reason": "definition"}')]
-    )
-    classify_patch = make_classify_follow_up_node(model)(merged)
-    assert classify_patch.get("follow_up_intention") == FOLLOW_UP_INTENTION_KNOWLEDGE
-    assert "approved_cards" not in classify_patch
-    knowledge_merged = {**merged, **classify_patch}
-    assert knowledge_merged["approved_cards"] == [{"name": "daily_rev_tahoe"}]
-    assert _route_after_classify_follow_up(knowledge_merged) == NODE_KNOWLEDGE_FOLLOW_UP
-
-    model_requery = FakeMessagesListChatModel(
-        responses=[AIMessage(content='{"intention": "requery", "reason": "new metric"}')]
-    )
-    requery_patch = make_classify_follow_up_node(model_requery)(merged)
-    assert requery_patch.get("follow_up_intention") == FOLLOW_UP_INTENTION_REQUERY
-    assert "approved_cards" not in requery_patch
-    assert requery_patch.get("stage") == STAGE_FETCH
-    assert requery_patch.get("staging_cards") == []
-    requery_merged = {**merged, **requery_patch}
-    assert requery_merged["approved_cards"] == [{"name": "daily_rev_tahoe"}]
-    assert _route_after_classify_follow_up(requery_merged) == NODE_FETCH_CARDS
-
-
-def test_stage_done_follow_up_routes_through_classify():
-    from agent.specialists.databot.graph import (
-        _route_after_classify_follow_up,
-        _route_after_entry,
-        make_databot_entry_node,
-    )
-    from langchain_core.messages import AIMessage, HumanMessage
-
-    state = {
-        "stage": STAGE_DONE,
-        "approved_cards": [{"name": "daily_rev_tahoe"}],
-        "review_cards": [{"name": "daily_rev_tahoe"}],
-        "execution_result": {"ok": True, "rows": [[1, 2]]},
-        "messages": [
-            HumanMessage(content="wish上个月订单数和revenue"),
-            AIMessage(content="done"),
-            HumanMessage(content="我要的是revenue，你给我的是gmv"),
-        ],
-    }
-    patch = make_databot_entry_node(static_system_prompt(""))(state)
-    assert patch.get("follow_up_turn") is True
-    merged = {**state, **patch}
-    assert merged["approved_cards"] == [{"name": "daily_rev_tahoe"}]
-    assert _route_after_entry(merged) == NODE_CLASSIFY_FOLLOW_UP
-    merged["follow_up_intention"] = FOLLOW_UP_INTENTION_REQUERY
-    merged["approved_cards"] = []
-    merged["stage"] = STAGE_FETCH
-    assert _route_after_classify_follow_up(merged) == NODE_FETCH_CARDS
-
-
-def test_stage_done_new_question_still_starts_fetch_after_requery_intent():
-    from agent.specialists.databot.graph import (
-        _route_after_classify_follow_up,
-        _route_after_entry,
-        make_databot_entry_node,
-    )
-    from langchain_core.messages import AIMessage, HumanMessage
-
-    state = {
-        "stage": STAGE_DONE,
-        "execution_result": {"ok": True},
-        "messages": [
-            HumanMessage(content="wish上个月订单数"),
-            AIMessage(content="done"),
-            HumanMessage(content="wish上个月的gmv是多少"),
-        ],
-    }
-    patch = make_databot_entry_node(static_system_prompt(""))(state)
-    assert patch.get("follow_up_turn") is True
-    merged = {**state, **patch}
-    assert _route_after_entry(merged) == NODE_CLASSIFY_FOLLOW_UP
-    merged["follow_up_intention"] = FOLLOW_UP_INTENTION_REQUERY
-    merged["stage"] = STAGE_FETCH
-    assert _route_after_classify_follow_up(merged) == NODE_FETCH_CARDS
-
-
-def test_stage_done_with_trailing_human_starts_classify():
-    from agent.specialists.databot.graph import (
-        _route_after_classify_follow_up,
-        _route_after_entry,
-        make_databot_entry_node,
-    )
-    from langchain_core.messages import AIMessage, HumanMessage
-
-    state = {
-        "stage": STAGE_DONE,
-        "messages": [
-            HumanMessage(content="first"),
-            AIMessage(content="done"),
-            HumanMessage(content="second"),
-        ],
-    }
-    patch = make_databot_entry_node(static_system_prompt(""))(state)
-    assert patch.get("follow_up_turn") is True
-    merged = {**state, **patch}
-    assert _route_after_entry(merged) == NODE_CLASSIFY_FOLLOW_UP
-    merged["follow_up_intention"] = FOLLOW_UP_INTENTION_REQUERY
-    merged["stage"] = STAGE_FETCH
-    assert _route_after_classify_follow_up(merged) == NODE_FETCH_CARDS
-
-
-def test_knowledge_follow_up_subgraph_persists_plain_text():
-    from langgraph.checkpoint.memory import MemorySaver
-
-    from agent.specialists.databot.subgraphs import build_knowledge_follow_up_subgraph
-
-    class _BindToolsStub:
-        def bind_tools(self, tools, **kwargs):
-            return self
-
-    graph = build_knowledge_follow_up_subgraph(
-        _BindToolsStub(),
-        _test_runner(),
-        checkpointer=MemorySaver(),
-        max_tool_calls=3,
-    )
-    assert "inject_completion_as_ai" not in graph.get_graph().nodes
-
-
-def test_knowledge_follow_up_intention_routes_to_delegate_subgraph():
-    from agent.specialists.databot.graph import _route_after_classify_follow_up
-
-    state = {
-        "stage": STAGE_FETCH,
-        "follow_up_turn": True,
-        "follow_up_intention": FOLLOW_UP_INTENTION_KNOWLEDGE,
-        "messages": [],
-    }
-    assert _route_after_classify_follow_up(state) == NODE_KNOWLEDGE_FOLLOW_UP
-
-
-def test_follow_up_route_map_covers_entry_and_classify_targets():
-    from agent.specialists.databot.graph import (
-        _AFTER_CLASSIFY_FOLLOW_UP_ROUTES,
-        _route_after_classify_follow_up,
-        _route_after_entry,
-        make_databot_entry_node,
-    )
-    from langchain_core.messages import AIMessage, HumanMessage
-
-    follow_up_state = {
-        "stage": STAGE_DONE,
-        "messages": [
-            HumanMessage(content="first"),
-            AIMessage(content="done"),
-            HumanMessage(content="buyer region 是什么意思"),
-        ],
-    }
-    patch = make_databot_entry_node(static_system_prompt(""))(follow_up_state)
-    merged = {**follow_up_state, **patch}
-    for router in (_route_after_entry, _route_after_classify_follow_up):
-        for intention in (FOLLOW_UP_INTENTION_KNOWLEDGE, FOLLOW_UP_INTENTION_REQUERY, ""):
-            state = {**merged, "follow_up_intention": intention}
-            target = router(state)
-            assert target in _AFTER_CLASSIFY_FOLLOW_UP_ROUTES, (
-                f"{router.__name__} returned {target!r} missing from edge map"
-            )
+    merged = {**state, **DatabotTurnMessagePolicy.baseline_fields()}
+    assert merged["stage"] == PHASE_PREPARE_CARDS
+    assert merged["draft_sql"] == ""
+    assert merged["execution_result"] == {}
+    assert merged["approved_cards"] == []
+    assert to_next_layer(merged) == LAYER_PREPARE_CARDS
 
 
 def test_stage_done_without_trailing_human_ends_turn():
-    from agent.specialists.databot.graph import _stage_route
+    from agent.specialists.databot.graph import node_for_state, to_next_layer
     from langchain_core.messages import AIMessage, HumanMessage
 
     state = {
-        "stage": STAGE_DONE,
+        "stage": PHASE_SUMMARY,
         "messages": [HumanMessage(content="first"), AIMessage(content="done")],
     }
-    assert _stage_route(state) == NODE_END_WITH_SUMMARY
+    assert node_for_state(state) == NODE_END_WITH_SUMMARY
 
 
-def test_stage_done_with_trailing_tool_after_human_starts_classify():
-    from agent.specialists.databot.graph import (
-        _route_after_classify_follow_up,
-        _route_after_entry,
-        make_databot_entry_node,
-    )
+def test_new_turn_baseline_routes_to_prepare_cards_with_trailing_tool():
+    from agent.specialists.databot.databot_agent import DatabotTurnMessagePolicy
+    from agent.specialists.databot.graph import node_for_state, to_next_layer
     from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
     state = {
-        "stage": STAGE_DONE,
+        "stage": PHASE_SUMMARY,
         "messages": [
             HumanMessage(content="first"),
             AIMessage(content="done"),
@@ -489,64 +307,46 @@ def test_stage_done_with_trailing_tool_after_human_starts_classify():
             ToolMessage(content="{}", tool_call_id="tc-1"),
         ],
     }
-    patch = make_databot_entry_node(static_system_prompt(""))(state)
-    assert patch.get("follow_up_turn") is True
-    merged = {**state, **patch}
-    assert _route_after_entry(merged) == NODE_CLASSIFY_FOLLOW_UP
-    merged["follow_up_intention"] = FOLLOW_UP_INTENTION_REQUERY
-    merged["stage"] = STAGE_FETCH
-    assert _route_after_classify_follow_up(merged) == NODE_FETCH_CARDS
+    merged = {**state, **DatabotTurnMessagePolicy.baseline_fields()}
+    assert merged.get("stage") == PHASE_PREPARE_CARDS
+    assert to_next_layer(merged) == LAYER_PREPARE_CARDS
 
 
-def test_stage_done_answered_follow_up_does_not_restart_classify():
-    from agent.specialists.databot.graph import (
-        _route_after_entry,
-        make_databot_entry_node,
-    )
+def test_stage_done_answered_turn_routes_to_summary_layer():
+    from agent.specialists.databot.graph import node_for_state, to_next_layer
     from langchain_core.messages import AIMessage, HumanMessage
 
     state = {
-        "stage": STAGE_DONE,
+        "stage": PHASE_SUMMARY,
         "messages": [
             HumanMessage(content="gmv by country"),
             AIMessage(content="here are the numbers"),
-            HumanMessage(content="shipping_country 是什么意思"),
-            AIMessage(content="买家收货国家，ISO alpha-2"),
         ],
     }
-    patch = make_databot_entry_node(static_system_prompt(""))(state)
-    assert patch.get("follow_up_turn") is False
-    merged = {**state, **patch}
-    assert _route_after_entry(merged) == NODE_END_WITH_SUMMARY
+    assert to_next_layer(state) == LAYER_SUMMARY
 
 
-def test_stage_done_empty_trailing_human_does_not_restart_classify():
-    from agent.specialists.databot.graph import (
-        _route_after_entry,
-        make_databot_entry_node,
-    )
+def test_stage_done_empty_trailing_human_routes_to_summary_layer():
+    from agent.specialists.databot.graph import node_for_state, to_next_layer
     from langchain_core.messages import AIMessage, HumanMessage
 
     state = {
-        "stage": STAGE_DONE,
+        "stage": PHASE_SUMMARY,
         "messages": [
             HumanMessage(content="gmv by country"),
             AIMessage(content="done"),
             HumanMessage(content=""),
         ],
     }
-    patch = make_databot_entry_node(static_system_prompt(""))(state)
-    assert patch.get("follow_up_turn") is False
-    merged = {**state, **patch}
-    assert _route_after_entry(merged) == NODE_END_WITH_SUMMARY
+    assert to_next_layer(state) == LAYER_SUMMARY
 
 
 def test_stage_done_with_replayed_human_does_not_start_new_fetch():
-    from agent.specialists.databot.graph import _stage_route, make_databot_entry_node
+    from agent.specialists.databot.graph import node_for_state, to_next_layer
     from langchain_core.messages import AIMessage, HumanMessage
 
     state = {
-        "stage": STAGE_DONE,
+        "stage": PHASE_SUMMARY,
         "messages": [
             HumanMessage(content="first"),
             AIMessage(content="done"),
@@ -556,49 +356,29 @@ def test_stage_done_with_replayed_human_does_not_start_new_fetch():
             ),
         ],
     }
-    patch = make_databot_entry_node(static_system_prompt(""))(state)
-    assert patch.get("stage") is None
-    merged = {**state, **patch}
-    assert _stage_route(merged) == NODE_END_WITH_SUMMARY
+    assert node_for_state(state) == NODE_END_WITH_SUMMARY
 
 
 def test_stage_done_with_trailing_remove_does_not_start_new_fetch():
-    from agent.specialists.databot.graph import _stage_route
+    from agent.specialists.databot.graph import node_for_state, to_next_layer
     from langchain_core.messages import AIMessage, HumanMessage, RemoveMessage
 
     state = {
-        "stage": STAGE_DONE,
+        "stage": PHASE_SUMMARY,
         "messages": [
             HumanMessage(content="first"),
             AIMessage(content="done"),
             RemoveMessage(id="msg-old"),
         ],
     }
-    assert _stage_route(state) == NODE_END_WITH_SUMMARY
-
-
-def test_after_gate_sql_deny_comments_routes_to_generate_sql():
-    from agent.specialists.databot.graph import _after_gate_sql
-
-    state = {
-        "stage": STAGE_SQL,
-        "deny_feedback": "use commission_revenue not gmv",
-    }
-    assert _after_gate_sql(state) == NODE_GENERATE_SQL
-
-
-def test_after_gate_sql_approve_routes_to_write_sql_artifact():
-    from agent.specialists.databot.graph import _after_gate_sql
-
-    state = {"stage": STAGE_EXECUTE, "approved_sql": "SELECT 1"}
-    assert _after_gate_sql(state) == NODE_WRITE_SQL_ARTIFACT
+    assert node_for_state(state) == NODE_END_WITH_SUMMARY
 
 
 async def test_sql_gate_deny_comments_clears_sql_contract(compiled_graph):
     graph, _ = compiled_graph
     config = {"configurable": {"thread_id": "sql-deny"}, "recursion_limit": 50}
     seed = _seed(
-        STAGE_GATE_SQL,
+        PHASE_PREPARE_SQL,
         approved_cards=[{"name": "orders_daily"}],
         draft_sql="SELECT sum(gmv) FROM orders_daily",
         sql_validated=True,
@@ -610,9 +390,10 @@ async def test_sql_gate_deny_comments_clears_sql_contract(compiled_graph):
         ),
         config=config,
     )
-    assert r2.get("deny_feedback") == "use commission_revenue not gmv"
-    assert r2.get("draft_sql") == ""
-    assert r2.get("sql_reasons") == {}
+    active = (await DatabotGraphBuilder.aget_active_state(graph, config)).values
+    assert active.get("deny_feedback") == "use commission_revenue not gmv"
+    assert active.get("draft_sql") == ""
+    assert active.get("sql_reasons") == {}
     assert "__interrupt__" in r2
     interrupt_obj = r2["__interrupt__"][0]
     raw_message = getattr(interrupt_obj, "value", interrupt_obj)
@@ -627,18 +408,61 @@ async def test_sql_gate_deny_comments_clears_sql_contract(compiled_graph):
     assert payload["gate"] == "sql"
 
 
+async def test_disabled_cards_gate_auto_approves_without_cards_interrupt():
+    ensure_tools_registered()
+    fetch_related = _make_tool("fetch_related_models")
+    add_card = _make_tool("commit_cards")
+    trino_run = _make_tool("trino_run_query")
+    trino_explain = _make_tool("trino_explain")
+    register_tool_binding(f"{REGISTRY_NAME},{TOOL_ID_FETCH}", fetch_related, replace=True)
+    register_tool_binding(f"{REGISTRY_NAME},{TOOL_ID_FETCH}", add_card)
+    register_tool_binding(f"{REGISTRY_NAME},{TOOL_ID_SQL}", trino_explain, replace=True)
+    register_tool_binding(f"{REGISTRY_NAME},{TOOL_ID_EXECUTE}", trino_run, replace=True)
+
+    ctx = {
+        **DatabotAgentConfig(agent_config_path("databot")).run_context,
+        "gates": {"cards_enabled": False, "sql_enabled": True},
+    }
+    model = _ExitStageModel(responses=[AIMessage(content="ok")])
+    graph = DatabotGraphBuilder.build(
+        model,
+        checkpointer=MemorySaver(),
+        run_context=ctx,
+    )
+    result = await graph.ainvoke(
+        _seed(PHASE_PREPARE_CARDS),
+        config={"configurable": {"thread_id": "gates-off-cards"}, "recursion_limit": 50},
+    )
+    if "__interrupt__" in result:
+        interrupt_obj = result["__interrupt__"][0]
+        raw_message = getattr(interrupt_obj, "value", interrupt_obj)
+        import json
+
+        if isinstance(raw_message, str):
+            payload = json.loads(raw_message)
+        elif isinstance(raw_message, dict) and "message" in raw_message:
+            payload = json.loads(raw_message["message"])
+        else:
+            payload = raw_message
+        assert payload.get("gate") != "cards"
+    assert any(
+        entry.get("gate") == "cards" and entry.get("decision") == "approve"
+        for entry in (result.get("gate_decisions") or [])
+    )
+
+
 async def test_execute_sql_routes_to_turn_summary(compiled_graph):
     graph, _ = compiled_graph
     result = await graph.ainvoke(
         _seed(
-            STAGE_EXECUTE,
+            PHASE_EXECUTE_SQL,
             approved_sql="SELECT 1",
             approved_cards=[{"name": "orders_daily"}],
         ),
         config={"configurable": {"thread_id": "execute-summary"}, "recursion_limit": 50},
     )
     assert "__interrupt__" not in result
-    assert result.get("stage") == STAGE_DONE
+    assert result.get("stage") == PHASE_SUMMARY
     assert any(
         getattr(m, "type", None) == "ai"
         and not getattr(m, "tool_calls", None)
@@ -648,21 +472,18 @@ async def test_execute_sql_routes_to_turn_summary(compiled_graph):
 
 
 def test_turn_summary_node_writes_assistant_message():
-    from agent.specialists.databot.turn_summary import make_turn_summary_node
+    from agent.specialists.databot.graph import DatabotTopology
 
     model = FakeMessagesListChatModel(
         responses=[AIMessage(content="Orders yesterday: 1,234 rows returned.")]
     )
-    node = make_turn_summary_node(model)
+    node = DatabotTopology(model).turn_summary()
     state: DatabotState = {
         "messages": [HumanMessage(content="how many orders yesterday?")],
         "session_name": "t1",
         "user_id": "alice",
-        "tool_call_count": 0,
-        "idle_rounds": 0,
-        "autonomous_compact_requested": False,
-        "failed_tools": [],
-        "stage": STAGE_DONE,
+        "history_cards": [],
+        "stage": PHASE_SUMMARY,
         "staging_cards": [],
         "committed_cards": [],
         "review_cards": [],
@@ -677,11 +498,11 @@ def test_turn_summary_node_writes_assistant_message():
         "sql_reasons": {},
         "dryrun": False,
         "halt_reason": "",
-        "chart_requested": False,
         "deny_feedback": "",
+        "cards_selection_summary": "",
     }
     patch = node(state)
-    assert patch.get("stage") == STAGE_DONE
+    assert patch.get("stage") == PHASE_SUMMARY
     messages = patch.get("messages") or []
     assert len(messages) == 1
     assert not getattr(messages[0], "tool_calls", None)
@@ -689,7 +510,7 @@ def test_turn_summary_node_writes_assistant_message():
 
 
 def test_turn_summary_writes_fallback_when_model_returns_think() -> None:
-    from agent.specialists.databot.turn_summary import make_turn_summary_node
+    from agent.specialists.databot.graph import DatabotTopology
 
     model = FakeMessagesListChatModel(
         responses=[
@@ -700,7 +521,7 @@ def test_turn_summary_writes_fallback_when_model_returns_think() -> None:
             )
         ]
     )
-    node = make_turn_summary_node(model)
+    node = DatabotTopology(model).turn_summary()
     patch = node(
         {
             "messages": [
@@ -722,7 +543,7 @@ def test_turn_summary_writes_fallback_when_model_returns_think() -> None:
 
 
 def test_turn_summary_uses_reasoning_content_when_message_body_empty() -> None:
-    from agent.specialists.databot.turn_summary import make_turn_summary_node
+    from agent.specialists.databot.graph import DatabotTopology
 
     model = FakeMessagesListChatModel(
         responses=[
@@ -736,7 +557,7 @@ def test_turn_summary_uses_reasoning_content_when_message_body_empty() -> None:
             )
         ]
     )
-    node = make_turn_summary_node(model)
+    node = DatabotTopology(model).turn_summary()
     patch = node(
         {
             "messages": [HumanMessage(content="last month GMV by country")],
@@ -749,7 +570,7 @@ def test_turn_summary_uses_reasoning_content_when_message_body_empty() -> None:
 
 
 def test_turn_summary_uses_original_question_after_sql_gate_redrafts() -> None:
-    from agent.specialists.databot.turn_summary import make_turn_summary_node
+    from agent.specialists.databot.graph import DatabotTopology
 
     captured: list[str] = []
 
@@ -761,7 +582,7 @@ def test_turn_summary_uses_original_question_after_sql_gate_redrafts() -> None:
             return AIMessage(content="上月各国 GMV 已按 shipping_country 汇总。")
 
     model = _CaptureModel(responses=[AIMessage(content="unused")])
-    node = make_turn_summary_node(model)
+    node = DatabotTopology(model).turn_summary()
     patch = node(
         {
             "messages": [
@@ -809,17 +630,228 @@ def test_turn_summary_uses_original_question_after_sql_gate_redrafts() -> None:
     assert "GMV" in patch["messages"][0].content
 
 
-def test_stage_done_plain_assistant_text_counts_as_answered() -> None:
-    from agent.specialists.databot.graph import make_databot_entry_node
+def test_stage_done_plain_assistant_text_routes_to_summary_layer() -> None:
+    from agent.specialists.databot.graph import node_for_state, to_next_layer
     from langchain_core.messages import AIMessage, HumanMessage
 
     state = {
-        "stage": STAGE_DONE,
+        "stage": PHASE_SUMMARY,
         "messages": [
             HumanMessage(content="gmv by country"),
             AIMessage(content="US 465K"),
         ],
     }
-    patch = make_databot_entry_node(static_system_prompt(""))(state)
-    assert patch.get("follow_up_turn") is False
+    assert to_next_layer(state) == LAYER_SUMMARY
 
+
+def test_finished_sql_redraft_routes_to_gate_not_back_to_generate():
+    """After a SQL-gate deny-comments, a complete new draft must reach the gate."""
+    from agent.specialists.databot.graph import (
+        NODE_GATE_SQL,
+        NODE_GENERATE_SQL,
+        DatabotTopology,
+        after_generate_sql,
+        node_for_state,
+    )
+
+    denied = {
+        "stage": PHASE_PREPARE_SQL,
+        "gate_decisions": [{"gate": "sql", "decision": "deny-comments", "comments": "fix"}],
+        "draft_sql": "",
+        "sql_reasons": {},
+    }
+    assert node_for_state(denied) == NODE_GENERATE_SQL
+    redrafted = {**denied, "draft_sql": "SELECT 2", "sql_reasons": {"approve": "ok"}}
+    assert node_for_state(redrafted) == NODE_GATE_SQL
+    assert after_generate_sql(redrafted) == NODE_GATE_SQL
+    assert DatabotTopology.prepare_sql_entry(redrafted) == NODE_GATE_SQL
+
+
+class _ScriptedModel(FakeMessagesListChatModel):
+    """Plays back scripted AI messages (tool calls included); ignores tool binding."""
+
+    def bind_tools(self, tools, **kwargs):  # type: ignore[override]
+        return self
+
+
+async def test_sql_redraft_pauses_at_gate_again():
+    """End to end: deny-comments → the model redrafts → the SQL gate interrupts again."""
+    from agent.catalog import AgentCatalog
+    from agent.specialists.databot.stage_tools import propose_sql, write_gate_reasons
+
+    ensure_tools_registered()
+    register_tool_binding(f"{REGISTRY_NAME},{TOOL_ID_SQL}", propose_sql, replace=True)
+    register_tool_binding(f"{REGISTRY_NAME},{TOOL_ID_SQL}", write_gate_reasons)
+    register_tool_binding(f"{REGISTRY_NAME},{TOOL_ID_EXECUTE}", _make_tool("trino_run_query"), replace=True)
+    model = _ScriptedModel(
+        responses=[
+            AIMessage(content="", tool_calls=[{"name": "propose_sql", "args": {"sql": "SELECT 2"}, "id": "c1"}]),
+            AIMessage(
+                content="",
+                tool_calls=[{
+                    "name": "write_gate_reasons",
+                    "args": {"gate": "sql", "reasons": ["a", "b", "c", "d"]},
+                    "id": "c2",
+                }],
+            ),
+        ]
+        + [AIMessage(content="ok")] * 10
+    )
+    try:
+        graph = DatabotGraphBuilder.build(
+            model,
+            checkpointer=MemorySaver(),
+            run_context=DatabotAgentConfig(agent_config_path("databot")).run_context,
+        )
+        config = {"configurable": {"thread_id": "sql-redraft"}, "recursion_limit": 40}
+        await graph.ainvoke(
+            _seed(PHASE_PREPARE_SQL, approved_cards=[{"name": "o"}],
+                  draft_sql="SELECT 1", sql_validated=True),
+            config=config,
+        )
+        r2 = await graph.ainvoke(
+            Command(resume='{"decision":"deny-comments","comments":"use table b"}'),
+            config=config,
+        )
+        assert "__interrupt__" in r2, "redraft should pause at the SQL gate again"
+        active = (await DatabotGraphBuilder.aget_active_state(graph, config)).values
+        assert active["draft_sql"] == "SELECT 2"
+        assert active["stage"] == PHASE_PREPARE_SQL
+    finally:
+        AgentCatalog.restore_tools_snapshot()
+
+
+def _interrupt_payload(result) -> dict:
+    import json
+
+    interrupt_obj = result["__interrupt__"][0]
+    raw = getattr(interrupt_obj, "value", interrupt_obj)
+    if isinstance(raw, dict) and "message" in raw:
+        return json.loads(raw["message"])
+    return json.loads(raw) if isinstance(raw, str) else raw
+
+
+async def test_sql_gate_unrecognized_reply_reasks_without_executing(compiled_graph):
+    """Free text at the SQL gate must not run the query; the gate asks again."""
+    graph, _ = compiled_graph
+    config = {"configurable": {"thread_id": "sql-reask"}, "recursion_limit": 50}
+    seed = _seed(
+        PHASE_PREPARE_SQL,
+        approved_cards=[{"name": "orders_daily"}],
+        draft_sql="SELECT count(*) FROM orders_daily",
+        sql_validated=True,
+    )
+    await graph.ainvoke(seed, config=config)
+    r2 = await graph.ainvoke(
+        Command(resume="use commission_revenue not gmv"), config=config
+    )
+    assert "__interrupt__" in r2, "unrecognized reply must re-ask, not proceed"
+    payload = _interrupt_payload(r2)
+    assert payload["gate"] == "sql"
+    assert "not understood" in payload["note"]
+    assert "approve" in payload["note"]
+    active = (await DatabotGraphBuilder.aget_active_state(graph, config)).values
+    assert active.get("stage") == PHASE_PREPARE_SQL
+    assert not active.get("approved_sql")
+    assert not active.get("execution_result")
+    assert not active.get("gate_decisions")
+
+    r3 = await graph.ainvoke(Command(resume="approve"), config=config)
+    assert r3.get("approved_sql") == "SELECT count(*) FROM orders_daily"
+    assert (r3.get("execution_result") or {}).get("ok") is True
+    decisions = [(e["gate"], e["decision"]) for e in r3.get("gate_decisions") or []]
+    assert decisions == [("sql", "approve")]
+
+
+async def test_cards_gate_unknown_json_decision_reasks(compiled_graph):
+    graph, _ = compiled_graph
+    config = {"configurable": {"thread_id": "cards-reask"}, "recursion_limit": 50}
+    await graph.ainvoke(_seed(PHASE_PREPARE_CARDS), config=config)
+    r2 = await graph.ainvoke(
+        Command(resume={"decision": "banana", "comments": "x"}), config=config
+    )
+    assert "__interrupt__" in r2
+    assert _interrupt_payload(r2)["gate"] == "cards"
+    active = (await DatabotGraphBuilder.aget_active_state(graph, config)).values
+    assert active.get("stage") == PHASE_PREPARE_CARDS
+    assert not active.get("approved_cards")
+
+
+def test_inject_stage_instruction_dedupes_only_within_current_turn():
+    from langchain_core.messages import SystemMessage
+    from agent.specialists.databot.graph import DatabotTopology
+    from agent.specialists.databot.ui_actions import gate_redraft_message_content
+
+    node = DatabotTopology.inject_stage_instruction("FETCH NOW")
+    turn1 = [
+        HumanMessage(content="q1"),
+        SystemMessage(content="FETCH NOW"),
+        AIMessage(content="done"),
+    ]
+    # Same turn (including after a gate redraft message): no duplicate.
+    assert node({"messages": turn1}) == {}
+    redraft = HumanMessage(content=gate_redraft_message_content("use b", gate="Cards"))
+    assert node({"messages": [*turn1, redraft]}) == {}
+    # A new user question starts a new turn: the instruction is injected again.
+    result = node({"messages": [*turn1, HumanMessage(content="q2")]})
+    assert [m.content for m in result["messages"]] == ["FETCH NOW"]
+
+
+def test_start_turn_resets_only_new_question_after_summary():
+    from agent.specialists.databot import graph as databot_graph
+
+    start_turn = getattr(databot_graph, "start_turn", None)
+    starts_new_turn = getattr(databot_graph, "starts_new_turn", None)
+    assert start_turn is not None and starts_new_turn is not None
+    done = {
+        "stage": PHASE_SUMMARY,
+        "history_cards": [{"name": "h"}],
+        "approved_cards": [{"name": "a"}],
+        "draft_sql": "SELECT 1",
+        "halt_reason": "x",
+        "messages": [HumanMessage(content="q1"), AIMessage(content="done")],
+    }
+    assert start_turn(done) == {}
+    fresh = {**done, "messages": [*done["messages"], HumanMessage(content="q2")]}
+    patch = start_turn(fresh)
+    assert patch["stage"] == PHASE_PREPARE_CARDS
+    assert patch["approved_cards"] == [] and patch["draft_sql"] == ""
+    assert patch["halt_reason"] == ""
+    assert "history_cards" not in patch  # carried forward, not wiped
+    # Empty / replayed trailing human messages are not new questions.
+    for trailing in (
+        HumanMessage(content=""),
+        HumanMessage(content="again", additional_kwargs={"replayed": True}),
+    ):
+        assert not starts_new_turn({**done, "messages": [*done["messages"], trailing]})
+    # CLI path: DatabotTurnMessagePolicy already reset the stage; no second reset.
+    cli = {**fresh, "stage": PHASE_PREPARE_CARDS}
+    assert start_turn(cli) == {}
+
+
+async def test_new_question_in_finished_thread_starts_fresh_pipeline(compiled_graph):
+    """Web path: the graph alone must reset a finished turn on a new question."""
+    graph, _ = compiled_graph
+    config = {"configurable": {"thread_id": "web-turn2"}, "recursion_limit": 50}
+    finished = _seed(
+        PHASE_SUMMARY,
+        history_cards=[{"name": "orders_daily", "prior_question": "q1"}],
+        approved_cards=[{"name": "orders_daily"}],
+        draft_sql="SELECT 1",
+        approved_sql="SELECT 1",
+        execution_result={"ok": True, "rows": [[1]]},
+        gate_decisions=[{"gate": "sql", "decision": "approve", "comments": "", "reasons": {}}],
+    )
+    await graph.ainvoke(finished, config=config)
+    r2 = await graph.ainvoke(
+        {"messages": [HumanMessage(content="and last week?")]}, config=config
+    )
+    assert "__interrupt__" in r2, "new question should run fetch and pause at cards gate"
+    assert _interrupt_payload(r2)["gate"] == "cards"
+    active = (await DatabotGraphBuilder.aget_active_state(graph, config)).values
+    assert active["stage"] == PHASE_PREPARE_CARDS
+    assert active["approved_cards"] == []
+    assert active["approved_sql"] == "" and active["draft_sql"] == ""
+    assert active["execution_result"] == {}
+    assert active["gate_decisions"] == []
+    assert active["history_cards"] == [{"name": "orders_daily", "prior_question": "q1"}]

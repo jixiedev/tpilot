@@ -178,7 +178,11 @@ def test_layer_prior_turns_qa_only_keeps_qa_drops_tool_trail(tmp_path: Path) -> 
     from langchain_core.messages import RemoveMessage
 
     remove_ids = {u.id for u in updates if isinstance(u, RemoveMessage)}
-    assert remove_ids == {"ai-search", "tm-search"}
+    notes = [u for u in updates if not isinstance(u, RemoveMessage)]
+    # The first folded message is replaced in place by an archive note.
+    assert [n.id for n in notes] == ["ai-search"]
+    assert isinstance(notes[0], SystemMessage)
+    assert remove_ids == {"tm-search"}
     assert "ai-reply-1" not in remove_ids
     assert "h-1" not in remove_ids
     assert "sys-role" not in remove_ids
@@ -188,6 +192,7 @@ def test_layer_prior_turns_qa_only_keeps_qa_drops_tool_trail(tmp_path: Path) -> 
     assert "tm-current" not in remove_ids
     archived = list((tmp_path / "offload").glob("prior_turn_tools_archive_*.txt"))
     assert len(archived) == 1
+    assert archived[0].as_posix() in notes[0].content
 
 
 def test_run_applies_prior_turn_qa_fold(tmp_path: Path) -> None:
@@ -210,9 +215,10 @@ def test_run_applies_prior_turn_qa_fold(tmp_path: Path) -> None:
     from langchain_core.messages import RemoveMessage
 
     remove_ids = {u.id for u in updates if isinstance(u, RemoveMessage)}
-    assert "ai-tool" in remove_ids
+    note_ids = {u.id for u in updates if isinstance(u, SystemMessage)}
+    assert note_ids == {"ai-tool"}
     assert "tm-tool" in remove_ids
-    assert "ai-reply" not in remove_ids
+    assert "ai-reply" not in remove_ids | note_ids
 
 
 def test_prior_turns_qa_only_can_be_disabled(tmp_path: Path) -> None:

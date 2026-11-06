@@ -35,3 +35,36 @@ def test_rejects_multiple_statements() -> None:
 
 def test_strips_leading_comments() -> None:
     assert validate_read_only_sql("-- note\nSELECT 1") == "SELECT 1"
+
+
+@pytest.mark.parametrize(
+    "sql",
+    [
+        "EXPLAIN ANALYZE INSERT INTO t SELECT 1",
+        "EXPLAIN ANALYZE DELETE FROM t",
+        "explain analyze verbose update t set a = 1",
+        "EXPLAIN (TYPE DISTRIBUTED) DROP TABLE t",
+        "EXPLAIN INSERT INTO t VALUES (1)",
+        "EXPLAIN /* hide */ CREATE TABLE t AS SELECT 1",
+        "EXPLAIN EXPLAIN ANALYZE DELETE FROM t",
+        "EXPLAIN",
+    ],
+)
+def test_explain_must_wrap_read_only_statement(sql: str) -> None:
+    """EXPLAIN ANALYZE executes the wrapped statement, so it must be read-only."""
+    with pytest.raises(ValueError):
+        validate_read_only_sql(sql)
+
+
+@pytest.mark.parametrize(
+    "sql",
+    [
+        "EXPLAIN SELECT 1",
+        "EXPLAIN ANALYZE SELECT count(*) FROM t",
+        "EXPLAIN ANALYZE VERBOSE SELECT 1",
+        "EXPLAIN (TYPE LOGICAL, FORMAT TEXT) WITH x AS (SELECT 1) SELECT * FROM x",
+        "explain show tables",
+    ],
+)
+def test_explain_of_read_only_statement_is_allowed(sql: str) -> None:
+    assert validate_read_only_sql(sql) == sql

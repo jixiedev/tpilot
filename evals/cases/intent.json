@@ -1,0 +1,113 @@
+{
+  "models": [
+    "MiniMax-M3"
+  ],
+  "router": [
+    {
+      "name": "data_gmv_query",
+      "query": "What was yesterday's GMV? Use the warehouse and run SQL if needed.",
+      "expected_status": "published",
+      "expected_intentions": [
+        "DATA"
+      ],
+      "expected_routes": [
+        "databot"
+      ]
+    },
+    {
+      "name": "data_table_lookup",
+      "query": "Find the table that stores daily active users and describe its schema.",
+      "expected_status": "published",
+      "expected_intentions": [
+        "DATA"
+      ],
+      "expected_routes": [
+        "databot"
+      ]
+    },
+    {
+      "name": "knowledge_jira_lookup",
+      "query": "Which Jira ticket tracks security vulnerabilities in Superset?",
+      "expected_status": "published",
+      "expected_intentions": [
+        "KNOWLEDGE"
+      ],
+      "expected_routes": [
+        "knowledge"
+      ]
+    },
+    {
+      "name": "knowledge_architecture_docs",
+      "query": "Where is the Tahoe deployment architecture documented?",
+      "expected_status": "published",
+      "expected_intentions": [
+        "KNOWLEDGE"
+      ],
+      "expected_routes": [
+        "knowledge"
+      ]
+    },
+    {
+      "name": "composite_gmv_definition_then_query",
+      "query": "Look up the GMV metric definition in team docs, then query yesterday's GMV from the warehouse.",
+      "expected_status": "published",
+      "expected_intentions": [
+        "PLAN"
+      ],
+      "expected_routes": [
+        "plan"
+      ]
+    },
+    {
+      "name": "diagnostic_failed_dag",
+      "query": "The daily_orders Airflow DAG failed last night. Check its task logs and tell me why.",
+      "expected_status": "published",
+      "expected_intentions": [
+        "DIAGNOSTIC"
+      ],
+      "expected_routes": [
+        "diagnostic"
+      ]
+    },
+    {
+      "name": "analysis_trend_chart",
+      "query": "Compare weekly GMV by region over the last quarter and chart the trend.",
+      "expected_status": "published",
+      "expected_intentions": [
+        "ANALYSIS"
+      ],
+      "expected_routes": [
+        "data_analysis"
+      ]
+    },
+    {
+      "name": "swe_edit_script",
+      "query": "Add a --dry-run flag to scripts/backfill.py and run it once to check it works.",
+      "expected_status": "published",
+      "expected_intentions": [
+        "SWE"
+      ],
+      "expected_routes": [
+        "swe"
+      ]
+    },
+    {
+      "name": "plan_diagnose_then_fix",
+      "query": "Find out why the orders_daily Trino query started failing today, then fix the SQL in our dbt model file.",
+      "expected_status": "published",
+      "expected_intentions": [
+        "PLAN"
+      ],
+      "expected_routes": [
+        "plan"
+      ]
+    },
+    {
+      "name": "clarify_small_talk",
+      "query": "hello",
+      "expected_status": "clarify",
+      "expected_intentions": [],
+      "expected_routes": []
+    }
+  ]
+}

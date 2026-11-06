@@ -120,7 +120,7 @@ export function useDatabotActions(agent: AbstractAgent | undefined, isReady: boo
       const stage = (agent.state as DatabotAgentState | undefined)?.stage;
       const interrupts = agent.pendingInterrupts ?? [];
 
-      if (stage === "gate_sql" && interrupts.length > 0) {
+      if (stage === "prepare_sql" && interrupts.length > 0) {
         setIsPending(true);
         setError(null);
         try {

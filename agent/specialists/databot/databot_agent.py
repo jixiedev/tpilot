@@ -2,230 +2,217 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Sequence
-from pathlib import Path
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 from langchain_core.language_models import BaseChatModel
+from langchain_core.messages import SystemMessage
 from langchain_core.tools import BaseTool
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph.state import CompiledStateGraph
 
 from agent.agent import BaseAgent
-from agent.config import AgentRunContext, RouterConfig
-from agent.listener import CliReactListener, ReactAgentListener
-from agent.specialists.databot.tool_scopes import REGISTRY_NAME, TOOL_ID_DEFAULT
-from agent.scoped_tools import RegistryScopedTools
+from agent.listener import AgentListener, CliListener, ListenerHub
+from agent.prompt import SystemPromptAssembler
+from agent.turn_messages import TurnMessagePolicy
+from agent.session import SessionUserRequest
 from agent.specialists.databot.graph import (
-    DEFAULT_STAGE_MAX_TOOL_CALLS,
-    build_databot_graph,
+    DatabotGraphBuilder,
+    PHASE_PREPARE_CARDS,
+    TOOL_ID_DEFAULT,
 )
-from agent.specialists.databot.state import fresh_turn_state_defaults
-from agent.specialists.databot.prompts.system import DatabotSystemPrompt
-from agent.plan.stage_tools import SpecialistRunner
-from agent.runtime import (
-    DEFAULT_MAX_IDLE_ROUNDS,
-    DEFAULT_MAX_TOOL_CALLS,
-    DEFAULT_PROFILE_DIR,
-    TahoeRuntimeHelper,
-    default_profile_store,
-    tahoe_run_context,
-)
-from agent.turn import AgentTurnResult, OnInterrupt, ainvoke_resolving_interrupts
-from memory.profile_store import ProfileStore
-from state.state import SessionAgentState
-from tools.dynamic import register_dynamic_tool_bindings
+from agent.specialists.databot.history import DataRetrievalRecord, DataRetrievalStore
+from agent.specialists.databot.state import DatabotState
+from config.agent_config import AgentConfig, DatabotAgentConfig, agent_config_path
+from memory.session_runtime import SessionRuntime
 
 
-class DatabotAgent(BaseAgent, RegistryScopedTools):
+# Per-turn databot graph fields (not ``messages`` / session ids). Copied in
+# ``DatabotTurnMessagePolicy.baseline_fields`` / ``history_state``.
+_DATABOT_FIELD_DEFAULTS: dict[str, Any] = {
+    "history_cards": [],
+    "stage": PHASE_PREPARE_CARDS,
+    "staging_cards": [],
+    "committed_cards": [],
+    "review_cards": [],
+    "approved_cards": [],
+    "metric_conflicts": [],
+    "cards_reasons": {},
+    "cards_selection_summary": "",
+    "draft_sql": "",
+    "approved_sql": "",
+    "sql_validated": False,
+    "sql_reasons": {},
+    "gate_decisions": [],
+    "dryrun": False,
+    "halt_reason": "",
+    "deny_feedback": "",
+    "execution_result": {},
+}
+
+class DatabotTurnMessagePolicy(TurnMessagePolicy):
+    """Retrieval history on accept; persist artifacts on commit."""
+
+    def __init__(
+        self,
+        retrievals: DataRetrievalStore | None,
+        *,
+        session_runtime: SessionRuntime,
+    ) -> None:
+        self._retrievals = retrievals
+        self._session_runtime = session_runtime
+
+    @staticmethod
+    def baseline_fields() -> dict[str, Any]:
+        """Fresh databot pipeline defaults for ``history_state``."""
+        return DatabotTurnMessagePolicy._copy_field_defaults(_DATABOT_FIELD_DEFAULTS)
+
+    @staticmethod
+    def _copy_field_defaults(template: Mapping[str, Any]) -> dict[str, Any]:
+        fresh: dict[str, Any] = {}
+        for key, value in template.items():
+            if isinstance(value, list):
+                fresh[key] = []
+            elif isinstance(value, dict):
+                fresh[key] = {}
+            else:
+                fresh[key] = value
+        return fresh
+
+    def history_state(self, prior: Mapping[str, Any] | None = None) -> dict[str, Any]:
+        """Start a turn from a blank snapshot, carrying forward prior retrieval cards."""
+        fields = DatabotTurnMessagePolicy.baseline_fields()
+        prior_cards = [
+            dict(card)
+            for card in ((prior or {}).get("history_cards") or [])
+            if isinstance(card, dict)
+        ]
+        if prior_cards:
+            fields["history_cards"] = prior_cards
+            return fields
+        store = self._retrievals
+        if store is not None:
+            fields["history_cards"] = store.history_cards(
+                self._session_runtime.resolve_user_id()
+            )
+        return fields
+
+    def commit_turn_state(self, state: DatabotState) -> dict[str, Any]:
+        """Persist an approved retrieval and refresh ``history_cards`` on the committed state."""
+        merged = dict(state)
+        store = self._retrievals
+        if store is None:
+            return merged
+        history_cards = store.persist_from_state(state)
+        if history_cards is None:
+            return merged
+        merged["history_cards"] = history_cards
+        return merged
+
+    @staticmethod
+    def inject_history_briefing(state: Mapping[str, Any]) -> None:
+        """Prepend a one-shot history_cards hint when accepting a new turn."""
+        history = state.get("history_cards") or []
+        if not history:
+            return
+        messages = list(state.get("messages") or [])
+        if DataRetrievalRecord.briefing_already_injected(messages):
+            return
+        state["messages"] = [
+            SystemMessage(content=DataRetrievalRecord.briefing(history)),
+            *messages,
+        ]
+
+
+class DatabotSystemPrompt(SystemPromptAssembler):
+    """Databot: Tahoe base plus read-only warehouse / retrieval rules."""
+
+    def __init__(self, config: AgentConfig | None = None) -> None:
+        super().__init__(config or AgentConfig(agent_config_path("databot")))
+
+
+class DatabotAgent(BaseAgent):
     """Data-retrieval specialist with a staged, human-gated pipeline.
 
-    Tools and behavior differ from the generic Tahoe base:
-    - RAG and datahub search are exposed and used in parallel during
-      the fetch stage.
-    - Two human gates pause the turn: after card selection, after SQL draft.
+    Example checkpoint ``messages`` (multi-turn; gate loops omitted)::
+
+        Turn 1 accept (optional history briefing first)::
+
+            [SYS]   history_cards briefing
+            [SYS]   agent persona
+            [HUMAN] user question
+
+        Turn 1 graph::
+
+            [SYS]   fetch_instruction
+            [AI/TOOL …] fetch ReAct → outer checkpoint
+            [SYS]   sql_instruction
+            [AI/TOOL …] SQL ReAct → outer checkpoint
+            [AI]    turn summary
+
+        Turn 2 accept::
+
+            ┌─ Turn 1 ────────────────────────────────────────────
+            │ … persona, q1, traces, summary …
+            ├─ Turn 2 ────────────────────────────────────────────
+            │ [SYS]   turn boundary
+            │ [SYS]   history briefing (if needed)
+            │ [HUMAN] q2
+            └─ staged layers repeat under q2
     """
 
-    registry_name = REGISTRY_NAME
-    default_profile_dir = DEFAULT_PROFILE_DIR
+    tool_ids = (TOOL_ID_DEFAULT,)
 
     def __init__(
         self,
         *,
-        profile_store: ProfileStore,
+        model: BaseChatModel,
+        checkpointer: BaseCheckpointSaver,
+        session_runtime: SessionRuntime,
+        agent_config: DatabotAgentConfig,
         tools: Sequence[BaseTool],
-        run_context: AgentRunContext | None = None,
-        router_config: RouterConfig | None = None,
-        react_listener: ReactAgentListener | None = None,
-        system_prompt: Callable[[SessionAgentState], str] | None = None,
-        prompt_assembler: DatabotSystemPrompt | None = None,
+        retrievals: DataRetrievalStore | None = None,
+        listener: AgentListener | ListenerHub | None = None,
     ) -> None:
-        super().__init__(system_prompt=None)
-        self.profile_store = profile_store
-        self.tools = list(tools)
-        self.run_context = run_context or tahoe_run_context()
-        self.router_config = router_config or RouterConfig()
-        self.prompt_assembler = prompt_assembler or DatabotSystemPrompt()
-        self.react_listener = react_listener or CliReactListener()
-        self._runtime = TahoeRuntimeHelper(
-            profile_store=profile_store,
-            react_listener=self.react_listener,
-            system_prompt=system_prompt,
-            prompt_assembler=self.prompt_assembler,
-        )
-        self.system_prompt = self._runtime.system_prompt
-        self.session = self._runtime.session
-        self._graph: CompiledStateGraph | None = None
-        self._model: BaseChatModel | None = None
-        self._checkpointer: BaseCheckpointSaver | None = None
-        self._bind_kwargs: dict[str, Any] = {}
-        self._specialists: dict[str, BaseAgent] = {}
-        self.session_state: Any = None
-
-    @classmethod
-    def default_profile_store(cls, root: Path | None = None) -> ProfileStore:
-        return default_profile_store(root or cls.default_profile_dir)
-
-    async def _get_specialist(self, agent_name: str) -> BaseAgent:
-        from agent.registry import get_agent
-
-        name = agent_name.strip().lower()
-        if name in self._specialists:
-            return self._specialists[name]
-        if self._model is None or self._checkpointer is None:
-            raise RuntimeError("DatabotAgent.bind() must be called before specialist delegation")
-        spec = get_agent(name)
-        specialist = await spec.create_agent(
-            profile_store=self.profile_store,
-            max_tool_calls=self.run_context.max_tool_calls,
-            max_idle_rounds=self.run_context.max_idle_rounds,
-        )
-        await specialist.bind(self._model, self._checkpointer, **self._bind_kwargs)
-        self._specialists[name] = specialist
-        return specialist
-
-    async def bind(
-        self,
-        model: BaseChatModel,
-        checkpointer: BaseCheckpointSaver,
-        **build_kwargs: Any,
-    ) -> DatabotAgent:
-        self._model = model
-        self._checkpointer = checkpointer
-        self._bind_kwargs = dict(build_kwargs)
-        self._specialists.clear()
-        return await super().bind(model, checkpointer, **build_kwargs)
-
-    async def build_graph(
-        self,
-        model: BaseChatModel,
-        checkpointer: BaseCheckpointSaver,
-        **kwargs: Any,
-    ) -> CompiledStateGraph:
-        """Compile the Databot state machine.
-
-        Accepts ``compression_config`` / ``enable_compression`` via ``kwargs``
-        for API compatibility with ``BaseAgent.bind``; the staged pipeline does
-        not use message compression.
-        """
-        graph = build_databot_graph(
-            model,
+        if retrievals is None:
+            try:
+                retrievals = DataRetrievalStore(session_runtime.filesystem_root())
+            except TypeError:
+                retrievals = None
+        super().__init__(
+            model=model,
             checkpointer=checkpointer,
-            runner=SpecialistRunner(get_specialist=self._get_specialist),
-            system_prompt=self.system_prompt,
-            max_tool_calls=self.run_context.max_tool_calls or DEFAULT_STAGE_MAX_TOOL_CALLS,
-            profile_dir=self.default_profile_dir,
-        )
-        self._graph = graph
-        return graph
-
-    def on_turn_output(self, state: Any) -> None:
-        self._runtime.on_turn_output(state)
-
-    def render_system_prompt(self, state: Any) -> str:
-        return self._runtime.render_system_prompt(state)
-
-    def register_secondary(self, listener: ReactAgentListener) -> None:
-        self._runtime.register_secondary(listener)
-
-    def clear_secondaries(self) -> None:
-        self._runtime.clear_secondaries()
-
-    async def prepare_turn_input(
-        self,
-        graph: CompiledStateGraph,
-        session: str,
-        user_prompt: str,
-        *,
-        user_id: str | None = None,
-    ) -> Any:
-        turn_input = await self._runtime.prepare_turn_input(
-            graph, session, user_prompt, user_id=user_id
-        )
-        if not isinstance(turn_input, dict):
-            return turn_input
-        for key, value in fresh_turn_state_defaults().items():
-            turn_input.setdefault(key, value)
-        self.session_state = turn_input
-        return turn_input
-
-    async def run(
-        self,
-        user_prompt: str,
-        *,
-        session: str,
-        user_id: str | None = None,
-        on_interrupt: OnInterrupt | None = None,
-        print_output: bool = True,
-    ) -> AgentTurnResult:
-        """Run one Databot turn."""
-        if self._graph is None:
-            raise RuntimeError("DatabotAgent.run called before build_graph")
-        turn_input = await self.prepare_turn_input(
-            self._graph, session, user_prompt, user_id=user_id
-        )
-        result = await ainvoke_resolving_interrupts(
-            self._graph,
-            turn_input,
-            self.graph_config(session),
-            on_interrupt=on_interrupt,
-        )
-        if result.cancelled:
-            return result
-        if print_output:
-            self.on_turn_output(result.state)
-        return result
-
-    @classmethod
-    async def create(
-        cls,
-        *,
-        profile_store: ProfileStore | None = None,
-        max_tool_calls: int = DEFAULT_MAX_TOOL_CALLS,
-        max_idle_rounds: int = DEFAULT_MAX_IDLE_ROUNDS,
-        enable_compression_tools: bool = True,
-        react_listener: ReactAgentListener | None = None,
-        system_prompt: Callable[[SessionAgentState], str] | None = None,
-        run_context: AgentRunContext | None = None,
-        router_config: RouterConfig | None = None,
-    ) -> DatabotAgent:
-        store = profile_store or cls.default_profile_store()
-        await register_dynamic_tool_bindings()
-        tools = cls.tools_for_scope(TOOL_ID_DEFAULT)
-        if not enable_compression_tools:
-            from memory.tools import COMPACT_CONTEXT_TOOL_NAME, READ_OFFLOADED_FILE_TOOL_NAME
-
-            skip = {COMPACT_CONTEXT_TOOL_NAME, READ_OFFLOADED_FILE_TOOL_NAME}
-            tools = [tool for tool in tools if getattr(tool, "name", "") not in skip]
-        return cls(
-            profile_store=store,
-            tools=tools,
-            run_context=run_context
-            or tahoe_run_context(
-                max_tool_calls=max_tool_calls,
-                max_idle_rounds=max_idle_rounds,
+            session_runtime=session_runtime,
+            prompt_assembler=DatabotSystemPrompt(agent_config),
+            turn_message_policy=DatabotTurnMessagePolicy(
+                retrievals,
+                session_runtime=session_runtime,
             ),
-            router_config=router_config,
-            react_listener=react_listener,
-            system_prompt=system_prompt,
+            agent_config=agent_config,
+            listener=listener or CliListener(),
         )
+        self.tools = list(tools)
+        self.retrievals = retrievals
+
+    def build_graph(self, **kwargs) -> CompiledStateGraph:
+        """Compile the staged pipeline once and reuse it."""
+        if self.graph is not None:
+            return self.graph
+        compiled = DatabotGraphBuilder.build(
+            self.model,
+            checkpointer=self.checkpointer,
+            run_context=self.run_context,
+        )
+        self.graph = compiled
+        return compiled
+
+    async def accept_user_request(
+        self,
+        user_prompt: str,
+        session: str,
+        user_id: str | None = None,
+    ) -> SessionUserRequest:
+        """Accept the user turn and prepend prior retrieval cards when they exist."""
+        user_request = await super().accept_user_request(user_prompt, session, user_id)
+        DatabotTurnMessagePolicy.inject_history_briefing(user_request.state)
+        return user_request

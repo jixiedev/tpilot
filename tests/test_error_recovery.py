@@ -5,7 +5,7 @@ from __future__ import annotations
 from unittest.mock import MagicMock
 
 import pytest
-from langchain_core.messages import ToolMessage
+from langchain_core.messages import AIMessage, ToolMessage
 from langgraph.errors import NodeError
 from langgraph.prebuilt.tool_node import ToolCallRequest
 
@@ -19,7 +19,7 @@ from graph.error_recovery import (
     transient_llm_retry_on,
     transient_retry_on,
 )
-from tools.common import (
+from tools.registry import (
     alternative_tool,
     clear_alternative_tools,
     lookup_alternative_tool,
@@ -448,11 +448,31 @@ def test_step_action_removes_tool_from_failed_on_success() -> None:
 
 def test_step_action_error_handler_routes_back_to_reason() -> None:
     handler = make_step_action_error_handler(goto="step_reason")
-    command = handler({"messages": []}, NodeError("step_action", RuntimeError("boom")))
+    pending = AIMessage(
+        content="",
+        tool_calls=[{"name": "trino_run_query", "args": {}, "id": "c1"}],
+    )
+    command = handler(
+        {"messages": [pending], "failed_tools": []},
+        NodeError("step_action", RuntimeError("boom")),
+    )
 
     assert command.goto == "step_reason"
     assert command.update is not None
-    assert "TOOL ERROR" in command.update["messages"][0].content
+    [message] = command.update["messages"]
+    assert isinstance(message, ToolMessage)
+    assert message.tool_call_id == "c1"
+    assert message.status == "error"
+    assert "TOOL ERROR" in message.content
+    assert command.update["failed_tools"] == ["trino_run_query"]
+
+
+def test_step_action_error_handler_without_pending_calls_only_routes() -> None:
+    handler = make_step_action_error_handler(goto="step_reason")
+    command = handler({"messages": []}, NodeError("step_action", RuntimeError("boom")))
+
+    assert command.goto == "step_reason"
+    assert not command.update
 
 
 def test_transient_llm_retry_on_rate_limit_and_timeout() -> None:

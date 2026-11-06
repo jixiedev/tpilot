@@ -1,11 +1,13 @@
 from __future__ import annotations
 
-from collections.abc import Callable
 from typing import Any
 
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage, SystemMessage, ToolMessage
 from langgraph.prebuilt import ToolNode
+from langgraph.types import Command
+
+from agent.listener import ListenerHub
 
 from graph.error_recovery import (
     invoke_with_transient_retry,
@@ -13,39 +15,13 @@ from graph.error_recovery import (
     make_handle_tool_errors,
     make_retrying_tool_wrapper,
 )
-from graph.messages import (
-    is_internal_assistant_narration,
-    message_content_to_str,
-    sanitize_messages_for_strict_tool_providers,
-    strip_ai_content_for_tool_calls,
-)
-from state.state import SessionAgentState
+from graph.messages import sanitize_messages_for_strict_tool_providers
+from graph.state import ReactAgentState, message_text
 from tools.errors import StructuredToolError
 
 DEFAULT_HANDLE_TOOL_ERRORS = make_handle_tool_errors()
 DEFAULT_WRAP_TOOL_CALL = make_retrying_tool_wrapper()
 DEFAULT_AWRAP_TOOL_CALL = make_async_retrying_tool_wrapper()
-
-
-def _response_for_checkpoint(
-    response: AIMessage,
-    *,
-    persist_plain_text: bool,
-) -> AIMessage | None:
-    """Decide what assistant output to append to session history."""
-    if response.tool_calls:
-        text = message_content_to_str(response.content)
-        if not persist_plain_text:
-            return strip_ai_content_for_tool_calls(response)
-        if text and (
-            len(text) > 120
-            or is_internal_assistant_narration(text)
-        ):
-            return strip_ai_content_for_tool_calls(response)
-        return response
-    if persist_plain_text:
-        return response
-    return None
 
 
 class StepActionNode(ToolNode):
@@ -55,8 +31,7 @@ class StepActionNode(ToolNode):
         self,
         tools,
         count_key: str = "tool_call_count",
-        on_tool_call: Callable[[str, dict[str, Any]], None] | None = None,
-        on_tool_result: Callable[[str, Any], None] | None = None,
+        listener: ListenerHub | None = None,
         *,
         handle_tool_errors=DEFAULT_HANDLE_TOOL_ERRORS,
         wrap_tool_call=DEFAULT_WRAP_TOOL_CALL,
@@ -71,11 +46,10 @@ class StepActionNode(ToolNode):
             **kwargs,
         )
         self.count_key = count_key
-        self.on_tool_call = on_tool_call
-        self.on_tool_result = on_tool_result
+        self.listener = listener
 
-    def _emit_tool_calls(self, state: SessionAgentState) -> None:
-        if not self.on_tool_call:
+    def _emit_tool_calls(self, state: ReactAgentState) -> None:
+        if self.listener is None:
             return
         messages = state.get("messages", [])
         if not messages:
@@ -83,21 +57,21 @@ class StepActionNode(ToolNode):
         last = messages[-1]
         tool_calls = getattr(last, "tool_calls", None) or []
         for call in tool_calls:
-            self.on_tool_call(call.get("name", "?"), call.get("args", {}))
+            self.listener.on_tool_call(call.get("name", "?"), call.get("args", {}))
 
     def _emit_tool_results(self, result: dict[str, Any]) -> None:
-        if not self.on_tool_result:
+        if self.listener is None:
             return
         for message in result.get("messages") or []:
             if not isinstance(message, ToolMessage):
                 continue
-            self.on_tool_result(message.name or "?", message.content)
+            self.listener.on_tool_result(message.name or "?", message.content)
 
-    @staticmethod
-    def _collect_failed_tools(state: SessionAgentState, result: dict[str, Any]) -> list[str]:
+    @classmethod
+    def _collect_failed_tools(cls, state: ReactAgentState, result: Any) -> list[str]:
         """Accumulate failures this turn; drop a tool name again after a successful call."""
         failed = list(state.get("failed_tools") or [])
-        for message in result.get("messages") or []:
+        for message in cls._result_messages(result):
             if not isinstance(message, ToolMessage):
                 continue
             name = message.name
@@ -111,27 +85,58 @@ class StepActionNode(ToolNode):
                 failed.remove(name)
         return failed
 
-    def _apply_counter(self, state: SessionAgentState, result: dict[str, Any]) -> dict[str, Any]:
-        result[self.count_key] = state.get(self.count_key, 0) + 1
-        result["idle_rounds"] = 0
-        result["failed_tools"] = self._collect_failed_tools(state, result)
+    @staticmethod
+    def _result_messages(result: Any) -> list[Any]:
+        """Tool messages of a ToolNode result: a dict, or a list mixing dicts and Commands."""
+        if isinstance(result, dict):
+            return list(result.get("messages") or [])
+        messages: list[Any] = []
+        for item in result if isinstance(result, list) else ():
+            update = item.update if isinstance(item, Command) else item
+            if isinstance(update, dict):
+                messages.extend(update.get("messages") or [])
+        return messages
+
+    def _counter_update(self, state: ReactAgentState, result: Any) -> dict[str, Any]:
+        return {
+            self.count_key: state.get(self.count_key, 0) + 1,
+            "idle_reason_rounds": 0,
+            "failed_tools": self._collect_failed_tools(state, result),
+        }
+
+    def _apply_counter(self, state: ReactAgentState, result: Any) -> Any:
+        """Count one action batch, also when tools return ``Command`` updates.
+
+        ToolNode returns a dict for plain tool results and a list (Commands plus
+        message dicts) once any tool returns a ``Command``; the counter update is
+        merged into the dict or appended to the list.
+        """
+        if isinstance(result, dict):
+            result.update(self._counter_update(state, result))
+            return result
+        if isinstance(result, list):
+            return [*result, self._counter_update(state, result)]
         return result
 
-    def invoke(self, state: SessionAgentState, config=None, **kwargs) -> dict[str, Any]:
+    def invoke(self, state: ReactAgentState, config=None, **kwargs) -> Any:
         self._emit_tool_calls(state)
         result = super().invoke(state, config, **kwargs)
         if isinstance(result, dict):
             self._emit_tool_results(result)
-            return self._apply_counter(state, result)
-        return result
+        return self._apply_counter(state, result)
 
-    async def ainvoke(self, state: SessionAgentState, config=None, **kwargs) -> dict[str, Any]:
+    async def ainvoke(self, state: ReactAgentState, config=None, **kwargs) -> Any:
         self._emit_tool_calls(state)
         result = await super().ainvoke(state, config, **kwargs)
         if isinstance(result, dict):
             self._emit_tool_results(result)
-            return self._apply_counter(state, result)
-        return result
+        return self._apply_counter(state, result)
+
+
+BUDGET_EXHAUSTED_FALLBACK_REPLY = (
+    "I reached the tool-call limit for this turn before I could finish. "
+    "Ask me to continue, or narrow the request."
+)
 
 
 def make_step_reason_node(
@@ -140,66 +145,80 @@ def make_step_reason_node(
     idle_nudge_prompt: str = "",
     tool_budget_exhausted_prompt: str = "",
     max_tool_calls: int = 10,
-    on_reason_start: Callable[[int, int, int], None] | None = None,
-    on_reason_step: Callable[[AIMessage], None] | None = None,
+    listener: ListenerHub | None = None,
     *,
-    persist_plain_text: bool = True,
+    final_model: BaseChatModel | None = None,
 ):
     """Build the ReAct ``step_reason`` node: one model call, then update idle state.
 
     Ephemeral system prompts (not written back to checkpoint history):
-    - Always append ``next_step_prompt`` when non-empty (per-step tool guidance).
+    - Always append ``next_step_prompt`` (per-step tool guidance).
     - If ``tool_call_count >= max_tool_calls``, append ``tool_budget_exhausted_prompt``.
-    - Else if ``idle_rounds > 0``, append ``idle_nudge_prompt``.
+    - Else if ``idle_reason_rounds > 0``, append ``idle_nudge_prompt``.
 
-    ``on_reason_start`` runs immediately before the model call so listeners can show
-    progress while waiting on the provider. After the model responds, append the
-    AI message to history. Reset ``idle_rounds`` when there are tool calls;
+    ``model`` is the tool-bound model. Once the budget is reached the node calls
+    ``final_model`` (the same model without tools) instead, and drops any tool
+    calls the reply still carries, so the step always ends on a text answer
+    rather than on tool calls that will never run. When ``final_model`` is not
+    given, ``model`` is used and only the tool-call stripping applies.
+
+    ``listener`` receives reason-start and reason-step hooks when set.
+
+    After the model responds, append the
+    AI message to history. Reset ``idle_reason_rounds`` when there are tool calls;
     otherwise increment it. Downstream ``route_after_reason`` uses tool calls,
     idle rounds, and budget to choose ``step_action``, another ``step_reason``, or end.
     """
 
-    def step_reason(state: SessionAgentState) -> dict[str, Any]:
+    def step_reason(state: ReactAgentState) -> dict[str, Any]:
         # Local copy only: ephemeral SystemMessages below are not returned in the
         # update, so they never enter checkpoint / session history.
         messages = list(state["messages"])
-        if next_step_prompt.strip():
-            messages.append(SystemMessage(content=next_step_prompt))
+        messages.append(SystemMessage(content=next_step_prompt))
 
         # Prefer budget guidance over idle nudge when both could apply.
-        if state.get("tool_call_count", 0) >= max_tool_calls and tool_budget_exhausted_prompt.strip():
+        budget_exhausted = state.get("tool_call_count", 0) >= max_tool_calls
+        if budget_exhausted:
             messages.append(SystemMessage(content=tool_budget_exhausted_prompt))
-        elif state.get("idle_rounds", 0) > 0 and idle_nudge_prompt.strip():
+        elif state.get("idle_reason_rounds", 0) > 0:
             messages.append(SystemMessage(content=idle_nudge_prompt))
 
         messages = sanitize_messages_for_strict_tool_providers(messages)
 
-        if on_reason_start is not None:
-            on_reason_start(
+        if listener is not None:
+            listener.on_reason_start(
                 state.get("tool_call_count", 0),
                 max_tool_calls,
-                state.get("idle_rounds", 0),
+                state.get("idle_reason_rounds", 0),
             )
 
-        response = invoke_with_transient_retry(lambda: model.invoke(messages))
-        if on_reason_step is not None and isinstance(response, AIMessage):
-            on_reason_step(response)
+        call_model = (final_model or model) if budget_exhausted else model
+        response = invoke_with_transient_retry(lambda: call_model.invoke(messages))
+        if budget_exhausted:
+            response = _final_text_reply(response)
+        if listener is not None and isinstance(response, AIMessage):
+            listener.on_reason_step(response)
 
         # MessagesState.add_messages appends `response`; it does not replace history.
         update: dict[str, Any] = {}
-        response_for_history = (
-            _response_for_checkpoint(response, persist_plain_text=persist_plain_text)
-            if isinstance(response, AIMessage)
-            else response
-        )
-        if response_for_history is not None:
-            update["messages"] = [response_for_history]
+        if isinstance(response, AIMessage):
+            update["messages"] = [response]
         tool_calls = getattr(response, "tool_calls", None) or []
         if tool_calls:
-            update["idle_rounds"] = 0
+            update["idle_reason_rounds"] = 0
         else:
             # Plain text: count as an idle round for route_after_reason / nudge logic.
-            update["idle_rounds"] = state.get("idle_rounds", 0) + 1
+            update["idle_reason_rounds"] = state.get("idle_reason_rounds", 0) + 1
         return update
 
     return step_reason
+
+
+def _final_text_reply(response: Any) -> AIMessage:
+    """Turn a budget-exhausted reply into a plain-text AI message without tool calls."""
+    if isinstance(response, AIMessage) and not response.tool_calls:
+        if message_text(response.content):
+            return response
+    content = getattr(response, "content", response)
+    text = message_text(content)
+    return AIMessage(content=text or BUDGET_EXHAUSTED_FALLBACK_REPLY)

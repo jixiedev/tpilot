@@ -2,75 +2,73 @@ from __future__ import annotations
 
 import pytest
 
-from agent.registry import (
-    AGENTS,
-    DATABOT,
-    KNOWLEDGE,
-    get_agent_for_intention,
-    get_routable_agent,
-    intention_catalog,
-    intention_routes,
-    is_routable_intention,
-    published_route_target,
-    resolve_route_target,
-    routable_intentions,
-)
+from agent.catalog import AgentCatalog
 
 
 def test_specialists_declare_intentions() -> None:
-    assert DATABOT.intention == "DATA"
-    assert KNOWLEDGE.intention == "KNOWLEDGE"
-    assert AGENTS["databot"].intention == "DATA"
-    assert AGENTS["knowledge"].intention == "KNOWLEDGE"
-    assert AGENTS["intent"].intention is None
+    assert AgentCatalog.config("databot").intention == "DATA"
+    assert AgentCatalog.config("knowledge").intention == "KNOWLEDGE"
+    assert AgentCatalog.config("diagnostic").intention == "DIAGNOSTIC"
+    assert AgentCatalog.config("data_analysis").intention == "ANALYSIS"
+    assert AgentCatalog.config("swe").intention == "SWE"
+    assert AgentCatalog.config("plan").intention == "PLAN"
+    assert AgentCatalog.config("intent").intention is None
 
 
 def test_intention_routes_map_to_agent_names() -> None:
-    routes = intention_routes()
-    assert set(routes) == {"DATA", "KNOWLEDGE"}
-    assert routes["DATA"].name == "databot"
-    assert routes["KNOWLEDGE"].name == "knowledge"
-    assert routable_intentions() == frozenset({"DATA", "KNOWLEDGE"})
+    routes = AgentCatalog.intention_routes()
+    assert routes == {
+        "ANALYSIS": "data_analysis",
+        "DATA": "databot",
+        "DIAGNOSTIC": "diagnostic",
+        "KNOWLEDGE": "knowledge",
+        "PLAN": "plan",
+        "SWE": "swe",
+    }
+    assert AgentCatalog.routable_intentions() == frozenset(routes)
+    # Every registered agent except the router itself is routable.
+    assert set(routes.values()) == set(AgentCatalog.names()) - {"intent"}
 
 
 def test_resolve_route_target() -> None:
-    assert resolve_route_target("DATA") == "databot"
-    assert resolve_route_target("knowledge") == "knowledge"
-    assert resolve_route_target("UNCLEAR") == ""
-    assert resolve_route_target("") == ""
-    assert resolve_route_target("DIAGNOSE") == ""
+    assert AgentCatalog.resolve_route_target("DATA") == "databot"
+    assert AgentCatalog.resolve_route_target("knowledge") == "knowledge"
+    assert AgentCatalog.resolve_route_target("UNCLEAR") == ""
+    assert AgentCatalog.resolve_route_target("") == ""
+    assert AgentCatalog.resolve_route_target("PLAN") == "plan"
+    assert AgentCatalog.resolve_route_target("DIAGNOSE") == ""
 
 
 def test_get_agent_for_intention() -> None:
-    assert get_agent_for_intention("DATA") is DATABOT
-    assert get_agent_for_intention("KNOWLEDGE") is KNOWLEDGE
-    assert get_agent_for_intention("UNCLEAR") is None
+    assert AgentCatalog.agent_for_intention("DATA") == "databot"
+    assert AgentCatalog.agent_for_intention("KNOWLEDGE") == "knowledge"
+    assert AgentCatalog.agent_for_intention("UNCLEAR") is None
 
 
 def test_intention_catalog_for_prompts() -> None:
-    catalog = intention_catalog()
+    catalog = AgentCatalog.intention_catalog()
     labels = [label for label, _ in catalog]
-    assert labels == ["DATA", "KNOWLEDGE"]
+    assert labels == ["ANALYSIS", "DATA", "DIAGNOSTIC", "KNOWLEDGE", "PLAN", "SWE"]
     assert all(description for _, description in catalog)
-    assert is_routable_intention("data")
-    assert not is_routable_intention("UNCLEAR")
+    assert AgentCatalog.is_routable_intention("data")
+    assert not AgentCatalog.is_routable_intention("UNCLEAR")
 
 
 def test_get_routable_agent_requires_intention() -> None:
-    assert get_routable_agent("databot") is DATABOT
+    assert AgentCatalog.get_routable_agent("databot") == "databot"
     with pytest.raises(SystemExit, match="not a routable specialist"):
-        get_routable_agent("plan")
+        AgentCatalog.get_routable_agent("intent")
 
 
 def test_published_route_target() -> None:
     assert (
-        published_route_target(
+        AgentCatalog.published_route_target(
             {"status": "published", "route_target": "databot", "user_intention": "DATA"}
         )
         == "databot"
     )
     assert (
-        published_route_target(
+        AgentCatalog.published_route_target(
             {
                 "status": "published",
                 "route_target": "plan",
@@ -79,28 +77,21 @@ def test_published_route_target() -> None:
         )
         == "plan"
     )
-    assert published_route_target({"status": "rejected", "route_target": "databot"}) == ""
-    assert published_route_target({"status": "published", "route_target": ""}) == ""
+    assert AgentCatalog.published_route_target({"status": "rejected", "route_target": "databot"}) == ""
+    assert AgentCatalog.published_route_target({"status": "published", "route_target": ""}) == ""
 
 
-def test_duplicate_intention_raises(monkeypatch: pytest.MonkeyPatch) -> None:
-    from agent import registry as registry_mod
-    from agent.registry import AgentSpec
-
+def test_duplicate_intention_raises() -> None:
     async def _noop(**_kwargs):
         raise AssertionError("should not create")
 
-    duplicate = AgentSpec(
-        name="databot-alt",
-        description="dup",
-        create_agent=_noop,
-        intention="DATA",
-    )
-    monkeypatch.setitem(
-        registry_mod.AGENTS,
+    AgentCatalog.register(
         "databot-alt",
-        duplicate,
+        _noop,
+        config=AgentCatalog.config("databot"),
     )
-    with pytest.raises(ValueError, match="Duplicate intention"):
-        intention_routes()
-
+    try:
+        with pytest.raises(ValueError, match="Duplicate intention"):
+            AgentCatalog.intention_routes()
+    finally:
+        AgentCatalog.unregister("databot-alt")

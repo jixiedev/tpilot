@@ -7,7 +7,7 @@ from pathlib import Path
 
 from langchain.tools import tool
 
-from tools.common import bind_tool_to_agent
+from tools.registry import register_tool
 from tools.errors import ToolErrorType, register_exception
 
 SNIPPET_LINES = 4
@@ -278,9 +278,7 @@ def run_editor(
     )
 
 
-@bind_tool_to_agent("databot,default")
-@bind_tool_to_agent("knowledge,default")
-@bind_tool_to_agent("swe,default")
+@register_tool
 @tool(description=DESCRIPTION)
 def str_replace_editor(
     command: str,

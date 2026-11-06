@@ -6,7 +6,7 @@ import pytest
 
 from memory.profile import UserProfile, coerce_user_profile, merge_user_profile, parse_user_profile_update
 from memory.profile_store import FileProfileStore, safe_profile_filename
-from state.state import SessionAgentState
+from graph.state import ReactAgentState, SessionAgentState
 
 
 def test_user_profile_defaults() -> None:
@@ -20,9 +20,10 @@ def test_user_profile_defaults() -> None:
 
 
 def test_coerce_user_profile_none_uses_process_user_id(monkeypatch) -> None:
-    import memory.profile as profile_mod
+    import memory.profile_store as store_mod
 
-    monkeypatch.setattr(profile_mod.getpass, "getuser", lambda: "os_user")
+    monkeypatch.delenv("TAHOEPILOT_USER_ID", raising=False)
+    monkeypatch.setattr(store_mod.getpass, "getuser", lambda: "os_user")
     assert coerce_user_profile(None) == UserProfile(user_id="os_user")
 
 
@@ -80,23 +81,25 @@ def test_merge_user_profile_keeps_blanks_and_user_id() -> None:
 def test_session_state_uses_user_id_not_profile() -> None:
     assert "user_id" in SessionAgentState.__annotations__
     assert "user_profile" not in SessionAgentState.__annotations__
+    assert "tool_call_count" not in SessionAgentState.__annotations__
+    assert "tool_call_count" in ReactAgentState.__annotations__
 
 
 def test_reset_turn_preserves_user_id() -> None:
-    state: SessionAgentState = {
+    state: ReactAgentState = {
         "messages": [],
         "session_name": "s1",
         "user_id": "dave",
         "tool_call_count": 3,
-        "idle_rounds": 2,
+        "idle_reason_rounds": 2,
         "autonomous_compact_requested": False,
         "failed_tools": ["hive_list_tables"],
     }
 
-    SessionAgentState.reset_turn(state)
+    ReactAgentState.reset_turn(state)
 
     assert state["tool_call_count"] == 0
-    assert state["idle_rounds"] == 0
+    assert state["idle_reason_rounds"] == 0
     assert state["failed_tools"] == []
     assert state["user_id"] == "dave"
 
@@ -155,24 +158,64 @@ class _FakeGraph:
         return _FakeSnapshot(self._values)
 
 
-async def test_prepare_turn_input_sets_user_id_only(monkeypatch) -> None:
-    import memory.profile as profile_mod
-    from agent.runtime import TahoeRuntimeHelper, TahoeSystemPrompt, default_profile_store
+def test_resolve_user_id_prefers_explicit_then_prior_then_env(monkeypatch, tmp_path: Path) -> None:
+    import memory.profile_store as store_mod
 
-    monkeypatch.setattr(profile_mod.getpass, "getuser", lambda: "os_user")
-    monkeypatch.setattr("agent.session.getpass.getuser", lambda: "os_user")
+    monkeypatch.setattr(store_mod.getpass, "getuser", lambda: "os_user")
+    monkeypatch.setenv("TAHOEPILOT_USER_ID", "env_user")
+    assert store_mod.resolve_user_id("flag_user", prior="checkpoint_user") == "flag_user"
+    assert store_mod.resolve_user_id(None, prior="checkpoint_user") == "checkpoint_user"
+    assert store_mod.resolve_user_id(None, prior=None, active="active_user") == "active_user"
+    assert store_mod.resolve_user_id() == "env_user"
+    monkeypatch.delenv("TAHOEPILOT_USER_ID")
+    assert store_mod.resolve_user_id("  ") == "os_user"
 
-    runtime = TahoeRuntimeHelper(
-        profile_store=default_profile_store(),
+    store = FileProfileStore(tmp_path)
+    assert store.activate_user(prior="erin") == "erin"
+    assert store.resolve_user_id() == "erin"
+    assert store.load_for_turn({"user_id": "bob"}).user_id == "bob"
+
+
+async def test_accept_user_request_sets_user_id_only(monkeypatch, tmp_path: Path) -> None:
+    import memory.profile_store as store_mod
+    from agent.turn_messages import DefaultTurnMessagePolicy
+    from agent.runtime import TahoeSystemPrompt
+    from config.agent_config import AgentConfig, agent_config_path
+
+    from agent.agent import BaseAgent
+    from agent.listener import AgentListener
+    from langgraph.checkpoint.memory import MemorySaver
+    from memory.session_runtime import SessionRuntime
+    from tests.minimal_chat_model import MinimalChatModel
+
+    monkeypatch.delenv("TAHOEPILOT_USER_ID", raising=False)
+    monkeypatch.setattr(store_mod.getpass, "getuser", lambda: "os_user")
+
+    class _StubAgent(BaseAgent):
+        def build_graph(self, **kwargs):
+            if self.graph is not None:
+                return self.graph
+            raise NotImplementedError
+
+    store = FileProfileStore(tmp_path)
+    model = MinimalChatModel()
+    checkpointer = MemorySaver()
+    agent = _StubAgent(
+        model=model,
+        checkpointer=checkpointer,
+        session_runtime=SessionRuntime(store),
         prompt_assembler=TahoeSystemPrompt(),
+        turn_message_policy=DefaultTurnMessagePolicy(),
+        agent_config=AgentConfig(agent_config_path("tahoe")),
+        listener=AgentListener(),
     )
-    graph = _FakeGraph()
-    first = await runtime.prepare_turn_input(graph, "s1", "hello")
-    assert first["user_id"] == "os_user"
+    agent.graph = _FakeGraph({"messages": [], "user_id": "erin"})
+    first = (await agent.accept_user_request("hello", "s1")).state
+    assert first["user_id"] == "erin"
     assert "user_profile" not in first
 
-    graph = _FakeGraph({"messages": [], "user_id": "erin"})
-    second = await runtime.prepare_turn_input(graph, "s1", "next")
+    agent.graph = _FakeGraph({"messages": [], "user_id": "other"})
+    second = (await agent.accept_user_request("next", "s1")).state
     assert second["user_id"] == "erin"
     assert "user_profile" not in second
 
@@ -198,7 +241,7 @@ class _FakeChatModel:
 def test_refine_user_profile_node_persists_to_store(tmp_path: Path) -> None:
     from langchain_core.messages import HumanMessage, AIMessage
 
-    from agent.refine_profile import make_refine_user_profile_node
+    from agent.refine_profile import UserProfileRefiner
 
     store = FileProfileStore(tmp_path)
     store.save("alice", UserProfile(user_id="alice", role="analyst", language="zh-CN"))
@@ -206,7 +249,7 @@ def test_refine_user_profile_node_persists_to_store(tmp_path: Path) -> None:
     model = _FakeChatModel(
         UserProfile(department="growth", favorite_metrics=["gmv"], user_id="ignored")
     )
-    node = make_refine_user_profile_node("Refine the profile.", model, store)
+    node = UserProfileRefiner("Refine the profile.", model, store).as_node()
     state = {
         "user_id": "alice",
         "messages": [
@@ -247,12 +290,12 @@ class _LooseFenceProfileModel:
 def test_refine_user_profile_node_falls_back_to_fenced_json(tmp_path: Path) -> None:
     from langchain_core.messages import HumanMessage, AIMessage
 
-    from agent.refine_profile import make_refine_user_profile_node
+    from agent.refine_profile import UserProfileRefiner
 
     store = FileProfileStore(tmp_path)
     store.save("alice", UserProfile(user_id="alice", role="analyst"))
 
-    node = make_refine_user_profile_node("Refine the profile.", _LooseFenceProfileModel(), store)
+    node = UserProfileRefiner("Refine the profile.", _LooseFenceProfileModel(), store).as_node()
     state = {
         "user_id": "alice",
         "messages": [
@@ -273,7 +316,7 @@ def test_refine_user_profile_node_falls_back_to_fenced_json(tmp_path: Path) -> N
 def test_refine_user_profile_node_skips_without_failing_turn(tmp_path: Path) -> None:
     from langchain_core.messages import HumanMessage, AIMessage
 
-    from agent.refine_profile import make_refine_user_profile_node
+    from agent.refine_profile import UserProfileRefiner
 
     store = FileProfileStore(tmp_path)
     store.save("alice", UserProfile(user_id="alice", role="analyst", language="zh-CN"))
@@ -285,7 +328,7 @@ def test_refine_user_profile_node_skips_without_failing_turn(tmp_path: Path) -> 
         def invoke(self, _messages):
             return "not json at all"
 
-    node = make_refine_user_profile_node("Refine the profile.", _UnparseableModel(), store)
+    node = UserProfileRefiner("Refine the profile.", _UnparseableModel(), store).as_node()
     state = {
         "user_id": "alice",
         "messages": [

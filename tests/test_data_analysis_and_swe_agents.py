@@ -1,24 +1,25 @@
 from __future__ import annotations
 
 import pytest
+from langgraph.checkpoint.memory import MemorySaver
 
-from agent.registry import AGENTS, get_agent_tools
-from agent.specialists.data_analysis.data_analysis_agent import DataAnalysisAgent
-from agent.specialists.data_analysis.prompt import DataAnalysisSystemPrompt
-from agent.specialists.swe.prompt import SWESystemPrompt
-from agent.specialists.swe.swe_agent import SWEAgent
+from agent.catalog import AgentCatalog, AgentCatalogSettings
+from agent.specialists.data_analysis import DataAnalysisSystemPrompt
+from agent.specialists.swe import SWESystemPrompt
+from memory.profile_store import FileProfileStore
+from tests.minimal_chat_model import MinimalChatModel
 
 
 def test_data_analysis_agent_registered() -> None:
-    spec = AGENTS["data_analysis"]
-    assert spec.name == "data_analysis"
-    assert spec.intention is None
+    config = AgentCatalog.config("data_analysis")
+    assert config.name == "data_analysis"
+    assert config.intention == "ANALYSIS"
 
 
 def test_swe_agent_registered() -> None:
-    spec = AGENTS["swe"]
-    assert spec.name == "swe"
-    assert spec.intention is None
+    config = AgentCatalog.config("swe")
+    assert config.name == "swe"
+    assert config.intention == "SWE"
 
 
 def test_data_analysis_prompt_covers_sql_and_python() -> None:
@@ -37,8 +38,16 @@ def test_swe_prompt_covers_editor_and_shell() -> None:
 
 
 @pytest.mark.asyncio
-async def test_data_analysis_tools() -> None:
-    agent = await DataAnalysisAgent.create(enable_compression_tools=False)
+async def test_data_analysis_tools(tmp_path) -> None:
+    catalog = AgentCatalog(
+        AgentCatalogSettings.for_agent(
+            "data_analysis",
+            profile_store=FileProfileStore(tmp_path),
+            model=MinimalChatModel(),
+            checkpointer=MemorySaver(),
+        )
+    )
+    agent = await catalog.create("data_analysis")
     names = {getattr(tool, "name", "") for tool in agent.tools}
     assert "trino_run_query" in names
     assert "python_execute" in names
@@ -48,8 +57,16 @@ async def test_data_analysis_tools() -> None:
 
 
 @pytest.mark.asyncio
-async def test_swe_tools() -> None:
-    agent = await SWEAgent.create(enable_compression_tools=False)
+async def test_swe_tools(tmp_path) -> None:
+    catalog = AgentCatalog(
+        AgentCatalogSettings.for_agent(
+            "swe",
+            profile_store=FileProfileStore(tmp_path),
+            model=MinimalChatModel(),
+            checkpointer=MemorySaver(),
+        )
+    )
+    agent = await catalog.create("swe")
     names = {getattr(tool, "name", "") for tool in agent.tools}
     assert "bash" in names
     assert "str_replace_editor" in names
@@ -60,7 +77,7 @@ async def test_swe_tools() -> None:
 
 
 def test_static_tool_bindings_present() -> None:
-    analysis_names = {t.name for t in get_agent_tools("data_analysis", "default")}
-    swe_names = {t.name for t in get_agent_tools("swe", "default")}
+    analysis_names = {t.name for t in AgentCatalog.tools_for("data_analysis", "default")}
+    swe_names = {t.name for t in AgentCatalog.tools_for("swe", "default")}
     assert "hive_desc_table" in analysis_names
     assert "str_replace_editor" in swe_names

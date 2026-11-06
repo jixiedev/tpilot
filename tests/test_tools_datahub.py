@@ -9,6 +9,8 @@ import pytest
 
 from config.tool_config import DataHubToolConfig
 from tools.external import datahub as datahub_mod
+from tools.external.datahub import client as datahub_client
+from tools.external.datahub import operations as datahub_ops
 
 
 def test_assert_query_only_rejects_mutation() -> None:
@@ -44,7 +46,7 @@ def test_execute_graphql_posts_and_returns_data(
         captured["timeout"] = timeout
         return _Resp()
 
-    monkeypatch.setattr(datahub_mod.urllib.request, "urlopen", fake_urlopen)
+    monkeypatch.setattr(datahub_client.urllib.request, "urlopen", fake_urlopen)
     cfg = DataHubToolConfig(
         gms_url="http://datahub.example",
         token_env="DATAHUB_GMS_TOKEN",
@@ -81,7 +83,7 @@ def test_execute_graphql_raises_on_graphql_errors(
             return json.dumps({"errors": [{"message": "bad field"}]}).encode()
 
     monkeypatch.setattr(
-        datahub_mod.urllib.request,
+        datahub_client.urllib.request,
         "urlopen",
         lambda *args, **kwargs: _Resp(),
     )
@@ -95,7 +97,7 @@ def test_execute_graphql_connection_error(monkeypatch: pytest.MonkeyPatch) -> No
     def boom(*args, **kwargs):
         raise URLError("connection refused")
 
-    monkeypatch.setattr(datahub_mod.urllib.request, "urlopen", boom)
+    monkeypatch.setattr(datahub_client.urllib.request, "urlopen", boom)
     with pytest.raises(datahub_mod.DataHubGraphQLError, match="connection failed"):
         datahub_mod.execute_graphql("{ me { urn } }", cfg=DataHubToolConfig(token_env="DATAHUB_GMS_TOKEN"))
 
@@ -156,7 +158,7 @@ def test_list_entities_search_then_hydrate(monkeypatch: pytest.MonkeyPatch) -> N
             }
         }
 
-    monkeypatch.setattr(datahub_mod, "execute_graphql", fake_execute)
+    monkeypatch.setattr(datahub_ops, "execute_graphql", fake_execute)
     result = datahub_mod.list_entities("DATASET", query="demo", start=0, count=5)
     assert result["entity_type"] == "DATASET"
     assert result["total"] == 1
@@ -205,7 +207,7 @@ def test_list_glossary_terms_tool_uses_glossary_fragment(
             }
         }
 
-    monkeypatch.setattr(datahub_mod, "execute_graphql", fake_execute)
+    monkeypatch.setattr(datahub_ops, "execute_graphql", fake_execute)
     result = datahub_mod.datahub_list_glossary_terms.invoke({"query": "GMV", "start": 0, "count": 5})
     assert result["entities"][0]["name"] == "GMV"
     assert result["entities"][0]["description"] == "Gross merchandise value"
@@ -267,7 +269,7 @@ def test_list_count_is_clamped(monkeypatch: pytest.MonkeyPatch) -> None:
             }
         return {"data": {"entities": []}}
 
-    monkeypatch.setattr(datahub_mod, "execute_graphql", fake_execute)
+    monkeypatch.setattr(datahub_ops, "execute_graphql", fake_execute)
     datahub_mod.list_entities("TAG", query="*", count=100)
     assert seen["count"] == datahub_mod.MAX_LIST_COUNT
 
@@ -343,7 +345,7 @@ def test_get_dataset_queries_builds_or_filters_and_truncates_sql(
             }
         }
 
-    monkeypatch.setattr(datahub_mod, "execute_graphql", fake_execute)
+    monkeypatch.setattr(datahub_ops, "execute_graphql", fake_execute)
     result = datahub_mod.datahub_get_dataset_queries.invoke(
         {"urn": DATASET_URN, "column": "gmv", "source": "MANUAL", "count": 100}
     )
@@ -393,7 +395,7 @@ def test_get_lineage_compacts_neighbors_and_sets_degree_filter(
             }
         }
 
-    monkeypatch.setattr(datahub_mod, "execute_graphql", fake_execute)
+    monkeypatch.setattr(datahub_ops, "execute_graphql", fake_execute)
     result = datahub_mod.datahub_get_lineage.invoke(
         {
             "urn": DATASET_URN,
@@ -459,7 +461,7 @@ def test_get_lineage_paths_between_tries_reverse_when_empty(
             }
         }
 
-    monkeypatch.setattr(datahub_mod, "execute_graphql", fake_execute)
+    monkeypatch.setattr(datahub_ops, "execute_graphql", fake_execute)
     result = datahub_mod.datahub_get_lineage_paths_between.invoke(
         {"source_urn": DATASET_URN, "target_urn": DOWNSTREAM_URN}
     )
@@ -512,7 +514,7 @@ def test_list_schema_fields_filters_and_paginates(
             }
         }
 
-    monkeypatch.setattr(datahub_mod, "execute_graphql", fake_execute)
+    monkeypatch.setattr(datahub_ops, "execute_graphql", fake_execute)
     result = datahub_mod.datahub_list_schema_fields.invoke(
         {"urn": DATASET_URN, "keywords": "gmv,user", "start": 0, "count": 10}
     )

@@ -3,15 +3,13 @@
 // These mirror the backend Python `DatabotState` TypedDict so the
 // frontend can treat state updates from the AG-UI bridge as
 // strongly-typed. Keep these in sync with
-// `agent/react/databot/state.py` in the backend.
+// `agent/specialists/databot/state.py` in the backend.
 
 export type DatabotStage =
-  | "fetch"
-  | "gate_cards"
-  | "sql"
-  | "gate_sql"
-  | "execute"
-  | "done";
+  | "prepare_cards"
+  | "prepare_sql"
+  | "execute_sql"
+  | "summary";
 
 export type GateDecision =
   | "approve"
@@ -74,6 +72,11 @@ export interface TableCard {
   selection_notes?: string;
 }
 
+export interface HistoryTableCard extends TableCard {
+  prior_question?: string;
+  prior_sql?: string;
+}
+
 export interface ExecutionResult {
   ok?: boolean;
   columns?: string[];
@@ -90,6 +93,8 @@ export interface DatabotAgentState {
   committed_cards?: TableCard[];
   review_cards?: TableCard[];
   approved_cards?: TableCard[];
+  /** Cards from this user's earlier approved retrievals (prior_question / prior_sql). */
+  history_cards?: HistoryTableCard[];
   metric_conflicts?: MetricConflict[];
   draft_sql?: string;
   approved_sql?: string;
@@ -101,6 +106,5 @@ export interface DatabotAgentState {
   sql_reasons?: Record<string, string>;
   dryrun?: boolean;
   halt_reason?: string;
-  chart_requested?: boolean;
   deny_feedback?: string;
 }

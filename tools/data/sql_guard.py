@@ -6,6 +6,13 @@ import re
 
 _LEADING_COMMENTS = re.compile(r"^(?:\s|--[^\n]*\n|/\*[\s\S]*?\*/)*", re.MULTILINE)
 
+# ``EXPLAIN [ANALYZE] [VERBOSE] [( option [, ...] )]`` prefix. ``EXPLAIN ANALYZE``
+# executes the wrapped statement, so the statement itself must be read-only.
+_EXPLAIN_PREFIX = re.compile(
+    r"^EXPLAIN\b(?:\s+ANALYZE\b)?(?:\s+VERBOSE\b)?(?:\s*\([^)]*\))?",
+    re.IGNORECASE,
+)
+
 _ALLOWED_FIRST_TOKEN = frozenset({"SELECT", "WITH", "SHOW", "DESCRIBE", "DESC", "EXPLAIN"})
 _FORBIDDEN_FIRST_TOKEN = frozenset(
     {
@@ -49,7 +56,25 @@ def validate_read_only_sql(sql: str) -> str:
     without_trailing = re.sub(r";\s*$", "", normalized)
     if ";" in without_trailing:
         raise ValueError("Multiple SQL statements are not allowed")
+    if upper == "EXPLAIN":
+        _validate_explained_statement(normalized)
     return normalized
+
+
+def _validate_explained_statement(sql: str) -> None:
+    """Require the statement wrapped by ``EXPLAIN`` to be read-only too."""
+    match = _EXPLAIN_PREFIX.match(sql)
+    inner = sql[match.end():] if match else ""
+    inner = _LEADING_COMMENTS.sub("", inner.strip()).strip()
+    if not inner:
+        raise ValueError("EXPLAIN must wrap a statement")
+    first = _first_token(inner)
+    if first is not None and first.upper() == "EXPLAIN":
+        raise ValueError("Nested EXPLAIN is not allowed")
+    try:
+        validate_read_only_sql(inner)
+    except ValueError as exc:
+        raise ValueError(f"EXPLAIN wraps a non-read-only statement: {exc}") from exc
 
 
 def _first_token(sql: str) -> str | None:

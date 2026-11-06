@@ -17,6 +17,11 @@ from typing import Any
 _STAGING_ID_SUFFIX_RE = re.compile(r"_[0-9a-f]{8}$", re.IGNORECASE)
 
 
+
+# ---------------------------------------------------------------------------
+# Staging ids, compact refs, and commit selections for fetch.
+# ---------------------------------------------------------------------------
+
 def new_staging_id(model_name: str) -> str:
     """Mint a stable-enough id for one staged card row."""
     slug = re.sub(r"[^a-zA-Z0-9_]+", "_", (model_name or "card").strip())[:40]
@@ -165,14 +170,15 @@ def resolve_staged_card(
     staging_cards: list[dict[str, Any]],
     committed_cards: list[dict[str, Any]],
     approved_cards: list[dict[str, Any]] | None = None,
+    history_cards: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any] | None:
-    """Resolve a commit selection: this-turn staging, then committed, then approved."""
+    """Resolve a commit: this-turn staging, committed, history, then approved."""
     sid = (staging_id or "").strip()
     if not sid:
         return None
     staging = list(staging_cards or [])
     committed = list(committed_cards or [])
-    approved = list(approved_cards or [])
+    extras = list(history_cards or []) + list(approved_cards or [])
     names = (_name_from_staging_id(sid), sid)
 
     for group in (staging, committed):
@@ -183,10 +189,10 @@ def resolve_staged_card(
         found = _latest_card_named(staging, name)
         if found is not None:
             return found
-    by_approved = _staging_index(approved)
-    if sid in by_approved:
-        return by_approved[sid]
-    for group in (committed, approved):
+    by_extra = _staging_index(extras)
+    if sid in by_extra:
+        return by_extra[sid]
+    for group in (committed, extras):
         for name in names:
             found = _latest_card_named(group, name)
             if found is not None:
@@ -200,8 +206,9 @@ def apply_add_card_selections(
     committed_cards: list[dict[str, Any]],
     selections: list[Any],
     approved_cards: list[dict[str, Any]] | None = None,
+    history_cards: list[dict[str, Any]] | None = None,
 ) -> tuple[list[dict[str, Any]], str]:
-    """Resolve selections against staging/approved and merge into ``committed_cards``."""
+    """Resolve selections against staging/history/approved and merge into ``committed_cards``."""
     updated = list(committed_cards or [])
     index_by_id = {
         str(c.get("staging_id")): i
@@ -222,6 +229,7 @@ def apply_add_card_selections(
             staging_cards=staging_cards,
             committed_cards=committed_cards,
             approved_cards=approved_cards,
+            history_cards=history_cards,
         )
         if base is None:
             issues.append(f"unknown staging_id {sid!r}")

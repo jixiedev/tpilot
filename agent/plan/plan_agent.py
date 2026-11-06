@@ -1,224 +1,241 @@
-"""Plan agent — create a plan, delegate steps to specialists, summarize."""
+"""Plan agent: prompts, state, and the orchestrator that delegates to specialists."""
 
 from __future__ import annotations
 
-from collections.abc import Sequence
-from pathlib import Path
+from collections.abc import Mapping
 from typing import Any
 
 from langchain_core.language_models import BaseChatModel
-from langchain_core.tools import BaseTool
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph.state import CompiledStateGraph
 
 from agent.agent import BaseAgent
-from agent.config import AgentRunContext, RouterConfig
-from agent.listener import CliReactListener, ReactAgentListener
-from agent.plan.graph import build_plan_graph
-from agent.plan.tool_listeners import (
-    make_plan_tool_call_listener,
-    make_plan_tool_result_listener,
+from agent.catalog import AgentCatalog, AgentCatalogSettings
+from agent.listener import AgentListener, CliListener, ListenerHub
+from agent.prompt import SystemPromptAssembler
+from agent.turn import AgentTurnResult, OnInterrupt
+from agent.turn_messages import TurnMessagePolicy
+from config.agent_config import AgentConfig, PlanAgentConfig, agent_config_path
+from memory.session_runtime import SessionRuntime
+from graph.state import ReactAgentState
+
+STAGE_CREATE = "create"
+STAGE_EXECUTE = "execute"
+STAGE_ADJUST = "adjust"
+STAGE_DONE = "done"
+
+NODE_PREPARE_TURN = "prepare_turn"
+NODE_CREATE_PLAN = "create_plan"
+NODE_SUB_AGENT_ROUND = "sub_agent_round"
+NODE_ADJUST_PLAN = "adjust_plan"
+NODE_SUMMARY = "summary"
+
+DEFAULT_MAX_SUBAGENT_ROUNDS = 8
+DEFAULT_STAGE_MAX_TOOL_CALLS = 6
+
+REGISTRY_NAME = "plan"
+TOOL_ID_DEFAULT = "default"
+TOOL_ID_CREATE = "create"
+TOOL_ID_SUBAGENT = "subagent"
+TOOL_ID_ADJUST = "adjust"
+
+INVOKE_AGENT_TOOL_NAME = "invoke_agent"
+_MAX_TASK_PREVIEW_CHARS = 120
+
+DELEGATABLE_AGENTS = frozenset(
+    name for name in AgentCatalog.names() if name not in {"intent", "plan"}
 )
-from agent.plan.prompt import PlanSystemPrompt
-from agent.plan.stage_tools import SpecialistRunner
-from agent.plan.state import fresh_turn_state_defaults
-from agent.plan.tool_scopes import TOOL_ID_DEFAULT
-from agent.runtime import (
-    DEFAULT_MAX_IDLE_ROUNDS,
-    DEFAULT_MAX_TOOL_CALLS,
-    DEFAULT_PROFILE_DIR,
-    TahoeRuntimeHelper,
-    default_profile_store,
-    tahoe_run_context,
+
+
+class PlanState(ReactAgentState):
+    """Plan-and-execute turn state."""
+
+    plan_id: str
+    stage: str
+    step_results: list[dict[str, Any]]
+    subagent_rounds: int
+    adjust_had_tool_calls: bool
+    user_question: str
+
+    @staticmethod
+    def baseline() -> dict[str, Any]:
+        """Reset per-turn plan fields and ReAct counters while keeping session messages."""
+        return {
+            **ReactAgentState.fresh_turn_defaults(),
+            "plan_id": "",
+            "stage": STAGE_CREATE,
+            "step_results": [],
+            "subagent_rounds": 0,
+            "adjust_had_tool_calls": False,
+            "user_question": "",
+        }
+
+
+    @staticmethod
+    def stage_start(state: Mapping[str, Any]) -> dict[str, Any]:
+        """Fresh tool budget for one stage run (create, each execute round, adjust)."""
+        del state
+        return {"tool_call_count": 0, "idle_reason_rounds": 0}
+
+
+class PlanTurnMessagePolicy(TurnMessagePolicy):
+    def history_state(self, prior: Mapping[str, Any] | None = None) -> dict[str, Any]:
+        return dict(PlanState.baseline())
+
+
+class PlanSystemPrompt(SystemPromptAssembler):
+    """Plan orchestrator prompt with specialist catalog."""
+
+    def __init__(self, config: AgentConfig | None = None) -> None:
+        super().__init__(config or AgentConfig(agent_config_path("plan")))
+
+    @staticmethod
+    def agent_cards() -> str:
+        """Human-readable specialist catalog for the system prompt."""
+        lines = ["Available specialist agents (use `[agent_name]` prefix in plan steps):"]
+        for name in sorted(DELEGATABLE_AGENTS):
+            config = AgentCatalog.config(name)
+            lines.append(f"- `{name}`: {config.description.strip()}")
+        return "\n".join(lines)
+
+    def build(self, user_profile=None) -> str:
+        body = super().build(user_profile).rstrip()
+        cards = self.agent_cards().strip()
+        if not cards:
+            return f"{body}\n"
+        return f"{body}\n\n{cards}\n"
+
+
+CREATE_PLAN_NEXT_STEP = (
+    "Call `create_plan` with `plan_id`, `title`, and `steps`. "
+    "Each step should name the specialist when not obvious."
 )
-from agent.scoped_tools import RegistryScopedTools
-from agent.turn import AgentTurnResult, OnInterrupt, ainvoke_resolving_interrupts
-from collections.abc import Callable
 
-from memory.profile_store import ProfileStore
-from state.state import SessionAgentState
-from tools.dynamic import register_dynamic_tool_bindings
+SUBAGENT_NEXT_STEP = (
+    "Review the current plan (`planning` command=get) and prior step results. "
+    "Either call `invoke_agent` for the next actionable step, mark a step complete, "
+    "or reply with plain text when this execution round is sufficient."
+)
+
+ADJUST_PLAN_NEXT_STEP = (
+    "Decide whether the plan needs updates or more execution. "
+    "Use `planning` (update / mark_step / get) when changes are required. "
+    "Otherwise reply in plain text — no tools — to finish planning."
+)
+
+SUMMARY_SYSTEM_PROMPT = """\
+You are Plan's summary voice. The planning pipeline already ran specialists.
+Write one clear, user-facing answer that synthesizes step results and plan progress.
+Use plain assistant text only — do not call tools.
+"""
 
 
-class PlanAgent(BaseAgent, RegistryScopedTools):
-    """Plan-and-execute orchestrator: plan → specialist rounds → adjust → summary."""
+class PlanStepStatus:
+    """One-line status before delegating a plan step to a specialist."""
 
-    registry_name = "plan"
-    default_profile_dir = DEFAULT_PROFILE_DIR
+    @staticmethod
+    def format(agent_name: str, task: str) -> str:
+        agent = (agent_name or "").strip() or "specialist"
+        text = " ".join((task or "").split())
+        if len(text) > _MAX_TASK_PREVIEW_CHARS:
+            text = text[: _MAX_TASK_PREVIEW_CHARS - 1].rstrip() + "…"
+        if text:
+            return f"Running {agent}: {text}"
+        return f"Running {agent}"
+
+
+class PlanAgent(BaseAgent):
+    """Plan-and-execute orchestrator: plan → specialist rounds → adjust → summary.
+
+    Example checkpoint ``messages`` (same accept/boundary as ``BaseAgent``)::
+
+        Turn 1::
+
+            [SYS]   agent persona
+            [HUMAN] user question
+            [AI/TOOL …] create_plan ReAct
+            [AI/TOOL …] subagent rounds
+            [AI/TOOL …] adjust_plan (optional)
+            [AI]    plan summary
+
+        Turn 2::
+
+            ┌─ Turn 1 ────────────────────────────────────────────
+            │ … prior turns …
+            ├─ Turn 2 ────────────────────────────────────────────
+            │ [SYS]   turn boundary
+            │ [HUMAN] q2
+            └─ plan graph appends under q2
+    """
 
     def __init__(
         self,
         *,
-        profile_store: ProfileStore,
-        tools: Sequence[BaseTool],
-        run_context: AgentRunContext | None = None,
-        router_config: RouterConfig | None = None,
-        react_listener: ReactAgentListener | None = None,
-        system_prompt: Callable[[SessionAgentState], str] | None = None,
-        prompt_assembler: PlanSystemPrompt | None = None,
+        model: BaseChatModel,
+        checkpointer: BaseCheckpointSaver,
+        session_runtime: SessionRuntime,
+        agent_config: PlanAgentConfig,
+        listener: AgentListener | ListenerHub | None = None,
     ) -> None:
-        super().__init__(system_prompt=None)
-        self.profile_store = profile_store
-        self.tools = list(tools)
-        self.run_context = run_context or tahoe_run_context()
-        self.router_config = router_config or RouterConfig()
-        self.prompt_assembler = prompt_assembler or PlanSystemPrompt()
-        self.react_listener = react_listener or CliReactListener()
-        self._runtime = TahoeRuntimeHelper(
-            profile_store=profile_store,
-            react_listener=self.react_listener,
-            system_prompt=system_prompt,
-            prompt_assembler=self.prompt_assembler,
-        )
-        self.system_prompt = self._runtime.system_prompt
-        self.session = self._runtime.session
-        self._graph: CompiledStateGraph | None = None
-        self._model: BaseChatModel | None = None
-        self._checkpointer: BaseCheckpointSaver | None = None
-        self._bind_kwargs: dict[str, Any] = {}
-        self._specialists: dict[str, BaseAgent] = {}
-        self.session_state: Any = None
-
-    @classmethod
-    def default_profile_store(cls, root: Path | None = None) -> ProfileStore:
-        return default_profile_store(root or cls.default_profile_dir)
-
-    async def _get_specialist(self, agent_name: str) -> BaseAgent:
-        from agent.registry import get_agent
-
-        name = agent_name.strip().lower()
-        if name in self._specialists:
-            return self._specialists[name]
-        if self._model is None or self._checkpointer is None:
-            raise RuntimeError("PlanAgent.bind() must be called before specialist delegation")
-        spec = get_agent(name)
-        specialist = await spec.create_agent(
-            profile_store=self.profile_store,
-            max_tool_calls=self.run_context.max_tool_calls,
-            max_idle_rounds=self.run_context.max_idle_rounds,
-        )
-        await specialist.bind(self._model, self._checkpointer, **self._bind_kwargs)
-        self._specialists[name] = specialist
-        return specialist
-
-    async def bind(
-        self,
-        model: BaseChatModel,
-        checkpointer: BaseCheckpointSaver,
-        **build_kwargs: Any,
-    ) -> PlanAgent:
-        self._model = model
-        self._checkpointer = checkpointer
-        self._bind_kwargs = dict(build_kwargs)
-        self._specialists.clear()
-        return await super().bind(model, checkpointer, **build_kwargs)
-
-    async def build_graph(
-        self,
-        model: BaseChatModel,
-        checkpointer: BaseCheckpointSaver,
-        **kwargs: Any,
-    ) -> CompiledStateGraph:
-        runner = SpecialistRunner(get_specialist=self._get_specialist)
-        graph = build_plan_graph(
-            model,
-            runner,
+        prompt = PlanSystemPrompt(agent_config)
+        super().__init__(
+            model=model,
             checkpointer=checkpointer,
-            system_prompt=self.system_prompt,
-            max_tool_calls=self.run_context.max_tool_calls,
-            profile_dir=self.default_profile_dir,
-            on_tool_call=make_plan_tool_call_listener(self.react_listener),
-            on_tool_result=make_plan_tool_result_listener(self.react_listener),
+            session_runtime=session_runtime,
+            prompt_assembler=prompt,
+            turn_message_policy=PlanTurnMessagePolicy(),
+            agent_config=agent_config,
+            listener=listener or CliListener(),
         )
-        self._graph = graph
-        return graph
-
-    def on_turn_output(self, state: Any) -> None:
-        self._runtime.on_turn_output(state)
-
-    def render_system_prompt(self, state: Any) -> str:
-        return self._runtime.render_system_prompt(state)
-
-    def register_secondary(self, listener: ReactAgentListener) -> None:
-        self._runtime.register_secondary(listener)
-
-    def clear_secondaries(self) -> None:
-        self._runtime.clear_secondaries()
-
-    async def prepare_turn_input(
-        self,
-        graph: CompiledStateGraph,
-        session: str,
-        user_prompt: str,
-        *,
-        user_id: str | None = None,
-    ) -> Any:
-        turn_input = await self._runtime.prepare_turn_input(
-            graph, session, user_prompt, user_id=user_id
+        self.prompt_assembler = prompt
+        self._catalog = AgentCatalog(
+            AgentCatalogSettings(
+                profile_store=session_runtime,
+                model=model,
+                checkpointer=checkpointer,
+            )
         )
-        if not isinstance(turn_input, dict):
-            return turn_input
-        for key, value in fresh_turn_state_defaults().items():
-            turn_input.setdefault(key, value)
-        self.session_state = turn_input
-        return turn_input
 
     async def run(
         self,
         user_prompt: str,
-        *,
         session: str,
         user_id: str | None = None,
         on_interrupt: OnInterrupt | None = None,
         print_output: bool = True,
     ) -> AgentTurnResult:
-        if self._graph is None:
-            raise RuntimeError("PlanAgent.run called before build_graph")
-        turn_input = await self.prepare_turn_input(
-            self._graph, session, user_prompt, user_id=user_id
-        )
-        result = await ainvoke_resolving_interrupts(
-            self._graph,
-            turn_input,
-            self.graph_config(session),
-            on_interrupt=on_interrupt,
-        )
-        if result.cancelled:
-            return result
-        if print_output:
-            self.on_turn_output(result.state)
-        return result
+        """Run one plan turn; delegated specialists share this run's ``on_interrupt``."""
+        from agent.plan.stage_tools import SpecialistRunner
 
-    @classmethod
-    async def create(
-        cls,
-        *,
-        profile_store: ProfileStore | None = None,
-        max_tool_calls: int = DEFAULT_MAX_TOOL_CALLS,
-        max_idle_rounds: int = DEFAULT_MAX_IDLE_ROUNDS,
-        enable_compression_tools: bool = True,
-        react_listener: ReactAgentListener | None = None,
-        system_prompt: Callable[[SessionAgentState], str] | None = None,
-        run_context: AgentRunContext | None = None,
-        router_config: RouterConfig | None = None,
-    ) -> PlanAgent:
-        store = profile_store or cls.default_profile_store()
-        await register_dynamic_tool_bindings()
-        tools = cls.tools_for_scope(TOOL_ID_DEFAULT)
-        if not enable_compression_tools:
-            from memory.tools import COMPACT_CONTEXT_TOOL_NAME, READ_OFFLOADED_FILE_TOOL_NAME
+        with SpecialistRunner.interrupt_handler(on_interrupt):
+            return await super().run(
+                user_prompt,
+                session=session,
+                user_id=user_id,
+                on_interrupt=on_interrupt,
+                print_output=print_output,
+            )
 
-            skip = {COMPACT_CONTEXT_TOOL_NAME, READ_OFFLOADED_FILE_TOOL_NAME}
-            tools = [tool for tool in tools if getattr(tool, "name", "") not in skip]
-        return cls(
-            profile_store=store,
-            tools=tools,
-            run_context=run_context
-            or tahoe_run_context(
-                max_tool_calls=max_tool_calls,
-                max_idle_rounds=max_idle_rounds,
+    def build_graph(self, **kwargs: Any) -> CompiledStateGraph:
+        if self.graph is not None:
+            return self.graph
+        from agent.plan.graph import build_plan_graph
+        from agent.plan.stage_tools import PlanSubagentListener, SpecialistRunner
+
+        runner = SpecialistRunner(get_specialist=self._catalog.get_or_create)
+        compiled = build_plan_graph(
+            self.model,
+            runner,
+            checkpointer=self.checkpointer,
+            max_tool_calls=self.agent_config.run_int(
+                "max_tool_calls", DEFAULT_STAGE_MAX_TOOL_CALLS
             ),
-            router_config=router_config,
-            react_listener=react_listener,
-            system_prompt=system_prompt,
+            max_subagent_rounds=self.agent_config.run_int(
+                "max_subagent_rounds", DEFAULT_MAX_SUBAGENT_ROUNDS
+            ),
+            max_idle_reason_rounds=self.agent_config.run_int("max_idle_reason_rounds", 1),
+            profile_dir=self.session_runtime.filesystem_root(),
+            listener=PlanSubagentListener.hub(self.listener),
         )
+        self.graph = compiled
+        return compiled

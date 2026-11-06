@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import getpass
 import json
 import re
 from typing import Any
@@ -57,6 +56,48 @@ class UserProfile(BaseModel):
         default_factory=list,
         description="Frequently used dimensions (e.g. country, channel)",
     )
+
+    def prompt_bullet_lines(self) -> list[str]:
+        """Lines for the per-request user profile block in the system prompt."""
+        lines: list[str] = []
+
+        if self.user_id.strip():
+            lines.append(f"User id: {self.user_id.strip()}")
+        if self.role.strip():
+            lines.append(f"Role: {self.role.strip()}")
+        if self.department.strip():
+            lines.append(f"Department: {self.department.strip()}")
+        if self.region.strip():
+            lines.append(f"Region: {self.region.strip()}")
+
+        if self.allowed_tables:
+            lines.append("Allowed tables: " + ", ".join(self.allowed_tables))
+        if self.forbidden_columns:
+            lines.append("Forbidden columns: " + ", ".join(self.forbidden_columns))
+
+        if self.language.strip():
+            lines.append(f"Language: {self.language.strip()}")
+        if self.timezone.strip():
+            lines.append(f"Timezone: {self.timezone.strip()}")
+
+        if self.default_time_granularity.strip():
+            lines.append(f"Default time granularity: {self.default_time_granularity.strip()}")
+        if self.preferred_currency.strip():
+            lines.append(f"Preferred currency: {self.preferred_currency.strip()}")
+
+        if self.favorite_metrics:
+            lines.append("Favorite metrics: " + ", ".join(self.favorite_metrics))
+        if self.favorite_dimensions:
+            lines.append("Favorite dimensions: " + ", ".join(self.favorite_dimensions))
+
+        return lines
+
+    def prompt_section_body(self) -> str:
+        """Bullet body for the user profile system block, or empty when nothing to show."""
+        lines = self.prompt_bullet_lines()
+        if not lines:
+            return ""
+        return "\n".join(f"- {line}" for line in lines if line.strip())
 
 
 def _strip_json_fences(text: str) -> str:
@@ -118,10 +159,13 @@ def parse_user_profile_update(raw: Any) -> UserProfile:
 def coerce_user_profile(value: UserProfile | dict | str | None = None) -> UserProfile:
     """Normalize checkpoint / node payloads into a ``UserProfile``.
 
-    When ``value`` is missing, create a new profile with the process user as ``user_id``.
+    When ``value`` is missing, create a profile whose ``user_id`` comes from
+    :func:`memory.profile_store.resolve_user_id`.
     """
     if value is None:
-        return UserProfile(user_id=getpass.getuser())
+        from memory.profile_store import resolve_user_id
+
+        return UserProfile(user_id=resolve_user_id())
     if isinstance(value, UserProfile):
         return value
     if isinstance(value, dict):
