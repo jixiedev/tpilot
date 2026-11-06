@@ -25,8 +25,8 @@ import type { DatabotAgentState, DatabotStage } from "./types";
 type Tab = "cards" | "sql" | "results";
 
 function stageToTab(stage: DatabotStage | undefined): Tab {
-  if (stage === "sql" || stage === "gate_sql") return "sql";
-  if (stage === "execute" || stage === "done") return "results";
+  if (stage === "prepare_sql") return "sql";
+  if (stage === "execute_sql" || stage === "summary") return "results";
   return "cards";
 }
 
@@ -46,9 +46,16 @@ export function DatabotArtifactPanel() {
     clearError,
   } = useDatabotActions(isReady ? agent : undefined, isReady);
 
-  const interactiveCards = ds?.stage === "gate_cards";
-  const interactiveSql = ds?.stage === "sql" || ds?.stage === "gate_sql";
-  const sqlGateOpen = ds?.stage === "gate_sql";
+  const atCardsGate =
+    ds?.stage === "prepare_cards" && (ds.review_cards?.length ?? 0) > 0;
+  const interactiveCards = atCardsGate;
+  const interactiveSql = ds?.stage === "prepare_sql";
+  const sqlGateOpen =
+    ds?.stage === "prepare_sql" &&
+    Boolean(
+      (agent as { pendingInterrupts?: Array<{ message?: unknown }> } | undefined)
+        ?.pendingInterrupts?.length,
+    );
 
   const displayCards = databotDisplayCardPool(ds);
 
@@ -71,7 +78,7 @@ export function DatabotArtifactPanel() {
         )}
         {ds?.dryrun && !halted && (
           <p className="dryrun-banner" role="status">
-            Dryrun mode — no profile writes
+            Dry-run — this retrieval will not be saved to history
           </p>
         )}
         {error && (

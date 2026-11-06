@@ -4,9 +4,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import getpass
 import logging
-import os
 import sys
 import uuid
 from pathlib import Path
@@ -16,28 +14,19 @@ from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 
 load_dotenv(Path(__file__).resolve().parent / ".env")
 
-from agent.registry import AGENTS, DEFAULT_AGENT, get_agent
-from agent.runtime.tahoe_runtime_helper import default_profile_store
+from agent.catalog import AgentCatalog, AgentCatalogSettings, DEFAULT_AGENT
+from agent.runtime import TahoeRuntimeHelper
+from memory.profile_store import resolve_user_id
 from config.local_config import ensure_local_dirs, get_local_paths
 from config.logging_config import configure_logging
 from graph.error_recovery import format_turn_failure
 from memory import CompressionConfig
-from models.models import default_model_name, get_default_model
-from tools.mcp.mcp import check_mcp_servers, format_mcp_startup_lines
+from models.llm import default_model_name, get_default_model
+from tools.mcp.client import check_mcp_servers, format_mcp_startup_lines
 
 logger = logging.getLogger(__name__)
 
 _EXIT_COMMANDS = frozenset({"quit", "exit", "q", ":q"})
-
-
-def resolve_cli_user_id(explicit: str | None = None) -> str:
-    """CLI user id: flag / env / process username."""
-    if explicit and explicit.strip():
-        return explicit.strip()
-    env_value = os.getenv("TAHOEPILOT_USER_ID", "").strip()
-    if env_value:
-        return env_value
-    return getpass.getuser()
 
 
 def _read_line(prompt: str) -> str | None:
@@ -69,10 +58,9 @@ async def run_repl(
     profile_dir: Path,
     verbose: bool = False,
 ) -> None:
-    spec = get_agent(agent_name)
-    profile_store = default_profile_store(profile_dir)
+    profile_store = TahoeRuntimeHelper.default_profile_store(profile_dir)
     print("TahoePilot — type 'quit' to exit")
-    print(f"Agent: {spec.name}")
+    print(f"Agent: {agent_name}")
     print(f"Model: {default_model_name}")
     print(f"Session: {session}")
     print(f"User: {user_id}")
@@ -83,17 +71,19 @@ async def run_repl(
     for line in format_mcp_startup_lines(await check_mcp_servers()):
         print(line)
 
+    model = get_default_model()
     async with AsyncSqliteSaver.from_conn_string(str(checkpoint_db)) as checkpointer:
         await checkpointer.setup()
-        agent = await spec.create_agent(
-            profile_store=profile_store,
-            max_tool_calls=30,
+        catalog = AgentCatalog(
+            AgentCatalogSettings.for_agent(
+                agent_name,
+                profile_store=profile_store,
+                model=model,
+                checkpointer=checkpointer,
+                max_tool_calls=30,
+            )
         )
-        await agent.bind(
-            get_default_model(),
-            checkpointer,
-            compression_config=CompressionConfig(enabled=True),
-        )
+        agent = await catalog.create(agent_name)
 
         while True:
             user_input = _read_line("You> ")
@@ -132,7 +122,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
         "-a",
         "--agent",
         default=DEFAULT_AGENT,
-        choices=sorted(AGENTS),
+        choices=list(AgentCatalog.names()),
         help=f"Agent application to run (default: {DEFAULT_AGENT})",
     )
     parser.add_argument(
@@ -171,7 +161,7 @@ def main(argv: list[str] | None = None) -> None:
     configure_logging(verbose=args.verbose)
     ensure_local_dirs()
     session = args.session or str(uuid.uuid4())
-    user_id = resolve_cli_user_id(args.user_id)
+    user_id = resolve_user_id(args.user_id)
     checkpoint_db = Path(args.checkpoint_db) if args.checkpoint_db else get_local_paths().checkpoint_db
     profile_dir = Path(args.profile_dir) if args.profile_dir else get_local_paths().profiles_dir
     asyncio.run(

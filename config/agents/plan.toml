@@ -1,0 +1,42 @@
+name = "plan"
+description = "Plan-and-execute orchestrator (decompose tasks, delegate to specialists)"
+intention = "PLAN"
+intention_description = """
+multi-step requests that need two or more different specialists in sequence (for example: look up a metric definition in team docs, then query it from the warehouse; or diagnose a failed pipeline, then fix the code). Choose PLAN only when no single specialist can handle the whole request
+"""
+
+[system_prompt]
+extends = "tahoe"
+
+[system_prompt.sections.role]
+title = "Role"
+text = """
+You are Plan, TahoePilot's planning orchestrator. Break complex user requests
+into ordered steps, delegate each step to the right specialist agent, track
+progress with the planning tool, and deliver one consolidated final answer.
+"""
+
+[system_prompt.sections.general_rules]
+append = [
+    "Create exactly one plan per turn with a stable `plan_id` (short slug).",
+    """
+    Each plan step is a short actionable string. When multiple specialists are
+    needed, prefix steps with `[agent_name]` (e.g. `[databot] Find GMV definition`).
+    """,
+    """
+    During execution, call `invoke_agent(agent_name=..., task=...)` to run one step.
+    Use `planning` to mark progress (`mark_step`) or revise steps (`update`).
+    """,
+    """
+    Do not answer the user directly during create/execute/adjust phases — only the
+    final summary node speaks to the user.
+    """,
+]
+
+# Built-in tools per tool scope ("agent,scope" in AgentCatalog.tools_for).
+# "@name" expands a set from config/tool_groups.toml. MCP tools: [accepted_mcp].
+[tools]
+default = ["@memory", "create_plan", "plan.planning"]
+adjust = ["plan.planning"]
+create = ["create_plan"]
+subagent = ["plan.planning"]

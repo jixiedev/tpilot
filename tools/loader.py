@@ -1,19 +1,18 @@
 """Shared tool loading for data-plane integrations.
 
-Legacy helpers that resolve tools from ``AgentSpec.register_tools`` by scope
-identifier after static registration and optional MCP binding.
+Legacy helpers that resolve tools from ``AgentCatalog`` by scope identifier
+after static registration and optional MCP binding.
 """
 
 from __future__ import annotations
 
 from langchain_core.tools import BaseTool
 
-from agent.specialists.databot.tool_scopes import REGISTRY_NAME as DATABOT_REGISTRY
-from agent.specialists.databot.tool_scopes import TOOL_ID_DEFAULT as DATABOT_DEFAULT
-from agent.specialists.knowledge.tool_scopes import knowledge_react_tools
-from agent.specialists.swe.tool_scopes import REGISTRY_NAME as SWE_REGISTRY
-from agent.specialists.swe.tool_scopes import TOOL_ID_DEFAULT as SWE_DEFAULT
-from agent.scoped_tools import tools_for_scope
+from agent.catalog import AgentCatalog
+from agent.specialists.knowledge import REGISTRY_NAME as KNOWLEDGE_REGISTRY
+from agent.specialists.knowledge import TOOL_ID_REACT as KNOWLEDGE_REACT
+from agent.specialists.swe import REGISTRY_NAME as SWE_REGISTRY
+from agent.specialists.swe import TOOL_ID_DEFAULT as SWE_DEFAULT
 from tools.dynamic import register_dynamic_tool_bindings
 
 _GENERAL_TOOL_NAMES = frozenset(
@@ -25,18 +24,12 @@ def load_general_tools() -> list[BaseTool]:
     """Local coding / search / planning tools shared by Tahoe team agents."""
     return [
         tool
-        for tool in tools_for_scope(SWE_REGISTRY, SWE_DEFAULT)
+        for tool in AgentCatalog.tools_for(SWE_REGISTRY, SWE_DEFAULT)
         if getattr(tool, "name", "") in _GENERAL_TOOL_NAMES
     ]
-
-
-async def load_data_tools() -> list[BaseTool]:
-    """Tools registered for the Databot ``default`` scope."""
-    await register_dynamic_tool_bindings()
-    return tools_for_scope(DATABOT_REGISTRY, DATABOT_DEFAULT)
 
 
 async def load_knowledge_tools() -> list[BaseTool]:
     """Tools for the Knowledge main ReAct scope (``default`` + ``catalog``)."""
     await register_dynamic_tool_bindings()
-    return knowledge_react_tools()
+    return AgentCatalog.tools_for_scopes(KNOWLEDGE_REGISTRY, KNOWLEDGE_REACT)

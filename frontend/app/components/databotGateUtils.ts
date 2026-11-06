@@ -39,8 +39,19 @@ export function parseGateInterruptMessage(message: unknown): GateInterruptValue 
 }
 
 export function gateKindFromStage(stage: string | undefined): GateKind | null {
-  if (stage === "gate_cards") return "cards";
-  if (stage === "gate_sql") return "sql";
+  if (stage === "prepare_cards") return "cards";
+  if (stage === "prepare_sql") return "sql";
+  return null;
+}
+
+/** Prefer interrupt payload when the graph is paused at a gate. */
+export function pendingGateKind(
+  interrupts: ReadonlyArray<{ message?: unknown }> | undefined,
+): GateKind | null {
+  for (const interrupt of interrupts ?? []) {
+    const value = parseGateInterruptMessage(interrupt.message);
+    if (value?.gate) return value.gate;
+  }
   return null;
 }
 
@@ -66,7 +77,7 @@ export function gateUserInstructions(gate: GateKind): GateUserInstructions {
       steps: [
         "Open the SQL tab on the right to read or edit the query (Save draft if you fix it yourself).",
         "To ask the agent to rewrite SQL, use Request changes and the feedback box in the gate panel.",
-        "Approve runs the query; Halt stops; Dry-run previews without profile writes.",
+        "Approve runs the query; Halt stops; Dry-run also runs it but does not save it to history.",
       ],
     };
   }

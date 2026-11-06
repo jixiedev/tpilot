@@ -4,15 +4,13 @@ from __future__ import annotations
 
 from langchain_core.messages import AIMessage, HumanMessage
 
-from agent.config import AgentRunContext, RouterConfig
 from agent.router import CompletionToolRouter
-from agent.turn import last_user_visible_reply
+from agent.turn import AgentTurnResult
 
 
 def _react_router() -> CompletionToolRouter:
     return CompletionToolRouter(
-        AgentRunContext(max_tool_calls=10, max_idle_rounds=1),
-        RouterConfig(),
+        {"max_tool_calls": 10, "max_idle_reason_rounds": 1},
     )
 
 
@@ -25,7 +23,7 @@ def test_route_after_reason_ends_on_plain_assistant_text() -> None:
             AIMessage(content="GMV is gross merchandise value."),
         ],
         "tool_call_count": 0,
-        "idle_rounds": 1,
+        "idle_reason_rounds": 1,
     }
     assert route(state) == "__end__"
 
@@ -38,7 +36,7 @@ def test_last_user_visible_reply_ignores_prior_turn() -> None:
             HumanMessage(content="shipping_country 是什么意思"),
         ],
     }
-    assert last_user_visible_reply(state) is None
+    assert AgentTurnResult.last_user_visible_reply(state) is None
 
 
 def test_last_user_visible_reply_uses_current_turn_text() -> None:
@@ -54,4 +52,4 @@ def test_last_user_visible_reply_uses_current_turn_text() -> None:
             AIMessage(content="buyer country"),
         ],
     }
-    assert last_user_visible_reply(state) == "buyer country"
+    assert AgentTurnResult.last_user_visible_reply(state) == "buyer country"

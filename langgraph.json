@@ -1,9 +1,9 @@
 {
   "dependencies": ["."],
   "graphs": {
-    "databot": "./ui.py:databot_ui_agent",
-    "knowledge": "./ui.py:knowledge_ui_agent",
-    "intent": "./ui.py:intent_ui_agent"
+    "databot": "./langgraph_graphs.py:databot_ui_agent",
+    "knowledge": "./langgraph_graphs.py:knowledge_ui_agent",
+    "intent": "./langgraph_graphs.py:intent_ui_agent"
   },
   "env": ".env",
   "http": {

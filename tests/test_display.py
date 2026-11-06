@@ -2,11 +2,11 @@ from __future__ import annotations
 
 from langchain_core.messages import AIMessage
 
-from agent.listener import CliReactListener
+from agent.listener import CliListener
 
 
-def _listener() -> CliReactListener:
-    return CliReactListener()
+def _listener() -> CliListener:
+    return CliListener()
 
 
 _TOOL_CALL = {
@@ -18,7 +18,7 @@ _TOOL_CALL = {
 
 
 def test_message_text_content_string() -> None:
-    assert CliReactListener.message_text_content("  hello  ") == "hello"
+    assert CliListener.message_text_content("  hello  ") == "hello"
 
 
 def test_message_text_content_skips_thinking_blocks() -> None:
@@ -26,7 +26,7 @@ def test_message_text_content_skips_thinking_blocks() -> None:
         {"type": "text", "text": "plan step"},
         {"type": "thinking", "thinking": "internal reasoning"},
     ]
-    assert CliReactListener.message_text_content(content) == "plan step"
+    assert CliListener.message_text_content(content) == "plan step"
 
 
 def test_message_reasoning_from_blocks_and_kwargs() -> None:
@@ -38,7 +38,7 @@ def test_message_reasoning_from_blocks_and_kwargs() -> None:
         additional_kwargs={"reasoning_content": "from kwargs"},
         tool_calls=[_TOOL_CALL],
     )
-    reasoning = CliReactListener.message_reasoning(message)
+    reasoning = CliListener.message_reasoning(message)
     assert "from kwargs" in reasoning
     assert "from block" in reasoning
 
@@ -92,12 +92,12 @@ def test_format_reason_start_includes_budget() -> None:
     assert listener.format_reason_start(
         tool_call_count=3,
         max_tool_calls=30,
-        idle_rounds=1,
+        idle_reason_rounds=1,
     ) == "Status> LLM thinking (tools=3/30, idle=1)"
 
 
 def test_on_reason_start_writes_to_stdout(capsys) -> None:
-    _listener().on_reason_start(tool_call_count=0, max_tool_calls=10, idle_rounds=0)
+    _listener().on_reason_start(tool_call_count=0, max_tool_calls=10, idle_reason_rounds=0)
     assert capsys.readouterr().out == "Status> LLM thinking (tools=0/10, idle=0)\n"
 
 
@@ -129,7 +129,7 @@ def test_on_reason_step_silent_without_tools(capsys) -> None:
 
 
 def test_format_tool_result_preview() -> None:
-    listener = CliReactListener(result_preview_chars=20)
+    listener = CliListener(result_preview_chars=20)
     long = "x" * 50
     rendered = listener.format_tool_result("fetch_related_jira_tickets", long)
     assert rendered is not None

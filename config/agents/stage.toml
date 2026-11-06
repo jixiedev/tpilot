@@ -1,0 +1,8 @@
+# Shared parent for the Databot outer pipeline. Not registered.
+name = "stage"
+
+# Default stage orchestrator limits. Databot sets ``[run_context] extends = "stage"`` for the
+# outer graph (layer routing).
+[run_context]
+max_tool_calls = 10
+max_idle_reason_rounds = 1

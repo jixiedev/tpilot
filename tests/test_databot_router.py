@@ -4,14 +4,14 @@ from __future__ import annotations
 
 from langchain_core.messages import AIMessage, HumanMessage
 
-from agent.config import AgentRunContext, RouterConfig
 from agent.router import CompletionToolRouter
+from agent.specialists.databot.graph import sql_react_complete
 
 
 def _router() -> CompletionToolRouter:
     return CompletionToolRouter(
-        AgentRunContext(max_tool_calls=20, max_idle_rounds=1),
-        RouterConfig(state_exit_keys=("draft_sql", "sql_reasons")),
+        {"max_tool_calls": 20, "max_idle_reason_rounds": 1},
+        stage_complete=sql_react_complete,
     )
 
 
@@ -22,11 +22,11 @@ def test_unmet_contract_plain_text_retries_then_ends() -> None:
         "messages": [HumanMessage(content="orders"), AIMessage(content="thinking")],
         "draft_sql": "",
         "sql_reasons": {},
-        "idle_rounds": 0,
+        "idle_reason_rounds": 0,
         "tool_call_count": 0,
     }
     assert route(unmet) == "step_reason"
-    unmet["idle_rounds"] = 1
+    unmet["idle_reason_rounds"] = 1
     assert route(unmet) == "__end__"
 
 
@@ -42,7 +42,7 @@ def test_state_contract_met_ends_even_with_tool_calls() -> None:
         ],
         "draft_sql": "SELECT 1",
         "sql_reasons": {"approve": "ok"},
-        "idle_rounds": 0,
+        "idle_reason_rounds": 0,
         "tool_call_count": 1,
     }
     assert route(state) == "__end__"

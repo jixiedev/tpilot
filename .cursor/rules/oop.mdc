@@ -1,0 +1,38 @@
+---
+description: Prefer cohesive, immutable classes over scattered module functions
+alwaysApply: true
+---
+
+# Object-oriented design
+
+Model behavior as types. Reach for a class when logic owns data or varies by kind of thing.
+
+- Use inheritance, encapsulation, and polymorphism when they match a real type relationship. Do not invent a hierarchy for one call site.
+- Keep module-level functions rare. A module may expose a small entry point; behavior belongs on the class that owns it.
+- High cohesion, low coupling. Put each kind of behavior in the class responsible for it. Do not copy similar logic across call sites.
+- Every method must concern that class. One responsibility per class; move unrelated operations to the type they actually belong to.
+- Prefer immutable classes. Return a new instance instead of mutating shared fields, so concurrent use does not depend on in-place updates.
+
+```python
+# Scattered helpers and shared mutable state
+def format_row(row): ...
+def filter_rows(rows): ...
+
+class Table:
+    def __init__(self) -> None:
+        self.rows: list[Row] = []
+
+    def add(self, row: Row) -> None:
+        self.rows.append(row)
+
+# One cohesive, immutable type
+@dataclass(frozen=True)
+class Table:
+    rows: tuple[Row, ...]
+
+    def with_row(self, row: Row) -> Table:
+        return Table(self.rows + (row,))
+
+    def formatted(self) -> str:
+        ...
+```

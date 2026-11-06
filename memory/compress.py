@@ -28,7 +28,7 @@ from memory.config import CompressionConfig
 from memory.offload import OffloadStore
 from memory.tokens import _content_to_text, context_fill, count_tokens, message_tokens
 from memory.tools import AUTONOMOUS_COMPACT_MARKER, configure_offload_tools
-from state.state import SessionAgentState
+from graph.state import SessionAgentState
 
 logger = logging.getLogger(__name__)
 
@@ -47,11 +47,27 @@ Preserve concrete identifiers (table names, SQL, paths, IDs). Omit stale interme
 """
 
 
-def _preview(text: str, lines: int) -> str:
+# Prefix of a Layer-1 replacement; such content is never offloaded again.
+OFFLOAD_PREFIX = "[OFFLOADED — "
+# Prefix of the note that replaces a folded prior-turn tool trail (Layer 1b).
+PRIOR_TURN_FOLD_PREFIX = "[PRIOR-TURN TOOL OUTPUT ARCHIVED — "
+# Hard cap on preview characters, whatever the threshold.
+_PREVIEW_MAX_CHARS = 2_000
+
+
+def _preview_char_budget(threshold_tokens: int) -> int:
+    """Preview chars: ~half the offload threshold (4 chars/token), capped."""
+    return max(1, min(_PREVIEW_MAX_CHARS, threshold_tokens * 2))
+
+
+def _preview(text: str, lines: int, max_chars: int | None = None) -> str:
     split = text.splitlines()
-    if len(split) <= lines:
-        return text
-    return "\n".join(split[:lines]) + "\n…"
+    truncated = len(split) > lines
+    preview = "\n".join(split[:lines]) if truncated else text
+    if max_chars is not None and len(preview) > max_chars:
+        preview = preview[:max_chars]
+        truncated = True
+    return preview + "\n…" if truncated else preview
 
 
 def _message_id(message: BaseMessage) -> str | None:
@@ -161,7 +177,10 @@ class ContextCompressor:
     ) -> None:
         self.config = config or CompressionConfig()
         self.llm = llm
-        self.store = store or OffloadStore(self.config.offload_dir)
+        self.store = store or OffloadStore(
+            self.config.offload_dir,
+            max_age_days=self.config.offload_max_age_days,
+        )
         configure_offload_tools(self.store)
 
     def __call__(self, state: SessionAgentState) -> dict[str, Any]:
@@ -178,7 +197,12 @@ class ContextCompressor:
         return result
 
     def run(self, messages: list[BaseMessage], *, force: bool = False) -> list[BaseMessage]:
-        """Apply layers and return LangGraph message updates (replace/remove/add)."""
+        """Apply layers and return LangGraph message updates (replace/remove/add).
+
+        Returns no updates when ``config.enabled`` is false.
+        """
+        if not self.config.enabled:
+            return []
         working = list(messages)
         updates: list[BaseMessage] = []
 
@@ -251,6 +275,9 @@ class ContextCompressor:
             raw = _content_to_text(message.content)
             if AUTONOMOUS_COMPACT_MARKER in raw:
                 continue
+            if raw.startswith(OFFLOAD_PREFIX):
+                # Already an offload preview; the full content is on disk.
+                continue
             tokens = count_tokens(raw)
             if tokens <= threshold:
                 continue
@@ -258,10 +285,12 @@ class ContextCompressor:
             if not mid:
                 continue
             path = self.store.write(raw, label=f"tool_{message.name or 'result'}")
+            max_chars = _preview_char_budget(threshold)
             replacement = (
-                f"[OFFLOADED — {tokens:,} tokens → {path}]\n"
-                f"Preview (first {self.config.preview_lines} lines):\n"
-                f"{_preview(raw, self.config.preview_lines)}\n"
+                f"{OFFLOAD_PREFIX}{tokens:,} tokens → {path}]\n"
+                f"Preview (first {self.config.preview_lines} lines, "
+                f"at most {max_chars:,} chars):\n"
+                f"{_preview(raw, self.config.preview_lines, max_chars)}\n"
                 f"Use read_offloaded_file('{path.as_posix()}') to retrieve full content."
             )
             updates.append(
@@ -289,8 +318,10 @@ class ContextCompressor:
         - ``HumanMessage`` questions
         - ``AIMessage`` with no tool calls (the user-visible answer)
 
-        All other prior AI/tool messages are removed (and archived). Current-turn
-        messages after the last human are left untouched.
+        All other prior AI/tool messages are archived. The first of them is
+        replaced in place (same id) by a ``SystemMessage`` note naming the
+        archive path, so ``read_offloaded_file`` can recover it; the rest are
+        removed. Current-turn messages after the last human are left untouched.
         """
         last_human = _last_human_index(messages)
         if last_human is None or last_human == 0:
@@ -324,11 +355,21 @@ class ContextCompressor:
             _serialize_messages(discard),
             label="prior_turn_tools_archive",
         )
-        updates: list[BaseMessage] = [
+        note_id = _message_id(discard[0])
+        note = SystemMessage(
+            content=(
+                f"{PRIOR_TURN_FOLD_PREFIX}{len(discard)} messages → {archive_path}]\n"
+                "Tool calls and tool results from earlier turns were removed from context. "
+                f"Use read_offloaded_file('{archive_path.as_posix()}') to retrieve them."
+            ),
+            id=note_id,
+        )
+        updates: list[BaseMessage] = [note]
+        updates.extend(
             RemoveMessage(id=mid)
-            for message in discard
+            for message in discard[1:]
             if (mid := _message_id(message))
-        ]
+        )
         logger.info(
             "Prior-turn Q&A fold removed %s messages; archive=%s",
             len(discard),
@@ -415,25 +456,7 @@ class ContextCompressor:
         """
         if self.llm is None or len(messages) < 2:
             return []
-
-        keep_budget = int(self.config.context_window * self.config.recent_messages_keep)
-        preserved: list[BaseMessage] = []
-        if messages and isinstance(messages[0], SystemMessage):
-            # Keep the session role prompt; it is cheap and re-anchors behavior.
-            preserved.append(messages[0])
-
-        tail: list[BaseMessage] = []
-        tail_tokens = 0
-        start_index = len(preserved)
-        for message in reversed(messages[start_index:]):
-            tokens = message_tokens(message)
-            if tail and tail_tokens + tokens > keep_budget:
-                break
-            tail.insert(0, message)
-            tail_tokens += tokens
-
-        head_end = len(messages) - len(tail)
-        head = list(messages[start_index:head_end])
+        preserved, head, tail = self._split_for_summary(messages)
         if not head:
             return []
 
@@ -441,7 +464,41 @@ class ContextCompressor:
             _serialize_messages(preserved + head + tail),
             label="conversation_archive",
         )
+        raw_summary = self._summarize(head)
+        if raw_summary is None:
+            return []
+        summary = SystemMessage(
+            content=_summary_to_system_content(raw_summary, archive_path.as_posix()),
+            id=f"compression-summary-{uuid.uuid4().hex[:8]}",
+        )
+        logger.info("Layer 3 summarized %s messages; archive=%s", len(head), archive_path)
+        return _replace_with_summary(head, tail, summary)
 
+    def _split_for_summary(
+        self, messages: list[BaseMessage]
+    ) -> tuple[list[BaseMessage], list[BaseMessage], list[BaseMessage]]:
+        """Split into (preserved role prompt, head to summarize, recent tail).
+
+        The tail is the longest suffix within ``recent_messages_keep`` of the
+        context window, but always at least one message.
+        """
+        # Keep the session role prompt; it is cheap and re-anchors behavior.
+        preserved = messages[:1] if isinstance(messages[0], SystemMessage) else []
+        keep_budget = int(self.config.context_window * self.config.recent_messages_keep)
+        tail: list[BaseMessage] = []
+        tail_tokens = 0
+        for message in reversed(messages[len(preserved):]):
+            tokens = message_tokens(message)
+            if tail and tail_tokens + tokens > keep_budget:
+                break
+            tail.insert(0, message)
+            tail_tokens += tokens
+        head = list(messages[len(preserved): len(messages) - len(tail)])
+        return list(preserved), head, tail
+
+    def _summarize(self, head: list[BaseMessage]) -> str | None:
+        """LLM summary of ``head``; ``None`` when the call fails."""
+        assert self.llm is not None
         history_text = _format_history_for_summary(head)
         try:
             response = self.llm.invoke(
@@ -450,37 +507,38 @@ class ContextCompressor:
                     HumanMessage(content=f"Summarize this conversation:\n\n{history_text}"),
                 ]
             )
-            raw_summary = _content_to_text(response.content)
+            return _content_to_text(response.content)
         except Exception:
             logger.exception("Layer 3 summarization failed; skipping")
-            return []
+            return None
 
-        summary = SystemMessage(
-            content=_summary_to_system_content(raw_summary, archive_path.as_posix()),
-            id=f"compression-summary-{uuid.uuid4().hex[:8]}",
-        )
 
-        # Remove head+tail then re-append summary+tail so ordering stays
-        # [preserved system?, summary, ...tail] under add_messages.
-        updates: list[BaseMessage] = []
-        for message in head + tail:
-            mid = _message_id(message)
-            if mid:
-                updates.append(RemoveMessage(id=mid))
-        updates.append(summary)
-        updates.extend(tail)
-        logger.info(
-            "Layer 3 summarized %s messages; archive=%s",
-            len(head),
-            archive_path,
-        )
-        return updates
+def _replace_with_summary(
+    head: list[BaseMessage], tail: list[BaseMessage], summary: SystemMessage
+) -> list[BaseMessage]:
+    """Remove head+tail, then re-append summary+tail.
+
+    Under ``add_messages`` this yields [preserved system?, summary, ...tail].
+    """
+    updates: list[BaseMessage] = [
+        RemoveMessage(id=mid) for mid in map(_message_id, head + tail) if mid
+    ]
+    updates.append(summary)
+    updates.extend(tail)
+    return updates
 
 
 def make_compressor(
     model: BaseChatModel,
     config: CompressionConfig | None = None,
 ) -> ContextCompressor:
-    """Build a graph-ready compressor bound to ``model`` for Layer 3."""
+    """Build a graph-ready compressor bound to ``model`` for Layer 3.
+
+    Always returns a compressor; with ``config.enabled`` false it is a no-op node.
+    """
     cfg = config or CompressionConfig()
-    return ContextCompressor(config=cfg, llm=model, store=OffloadStore(cfg.offload_dir))
+    return ContextCompressor(
+        config=cfg,
+        llm=model,
+        store=OffloadStore(cfg.offload_dir, max_age_days=cfg.offload_max_age_days),
+    )

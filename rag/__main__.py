@@ -5,8 +5,8 @@ from __future__ import annotations
 import argparse
 import sys
 
-from rag.job import default_checkpoint_path, plan_ingest, run_ingest
-from rag.models import download_configured_models
+from rag.job import IngestFailedError, default_checkpoint_path, plan_ingest, run_ingest
+from rag.local_models import download_configured_models
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
@@ -83,7 +83,10 @@ def build_arg_parser() -> argparse.ArgumentParser:
     run.add_argument(
         "--recreate-collection",
         action="store_true",
-        help="delete the target Qdrant collection and ignore completed files in the checkpoint",
+        help=(
+            "delete the target Qdrant collection and start from a fresh checkpoint "
+            "(an existing checkpoint is ignored, even one for another task list)"
+        ),
     )
 
     sub.add_parser(
@@ -120,6 +123,9 @@ def main(argv: list[str] | None = None) -> int:
             recreate_collection=args.recreate_collection,
         )
         return 0
+    except IngestFailedError as exc:
+        print(exc.summary(), file=sys.stderr)
+        return 1
     except (FileNotFoundError, NotImplementedError, ValueError) as exc:
         print(str(exc), file=sys.stderr)
         return 2

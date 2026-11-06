@@ -13,9 +13,9 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from agent.agent import BaseAgent
-from agent.session import specialist_session_id
-from agent.turn import AgentTurnResult, OnInterrupt, extract_turn_output
-from state.state import latest_human_text
+from agent.session import SpecialistSession
+from agent.turn import AgentTurnResult, OnInterrupt
+from graph.state import latest_human_text
 
 
 @dataclass
@@ -35,10 +35,6 @@ class ChainRunResult:
     cancelled: bool = False
 
     @property
-    def ok(self) -> bool:
-        return not self.cancelled
-
-    @property
     def last_state(self) -> dict[str, Any]:
         if not self.steps:
             return {}
@@ -46,7 +42,7 @@ class ChainRunResult:
 
     @property
     def last_output(self) -> str:
-        return extract_turn_output(self.last_state)
+        return AgentTurnResult.extract_output(self.last_state)
 
 
 class AgentChain(ABC):
@@ -98,7 +94,7 @@ class AgentChain(ABC):
         Default priority: extracted turn output → ``user_question`` → latest human.
         Subclasses may override to pass richer handoff context.
         """
-        output = extract_turn_output(last_agent_state)
+        output = AgentTurnResult.extract_output(last_agent_state)
         if output:
             return output
         question = last_agent_state.get("user_question")
@@ -142,7 +138,7 @@ class AgentChain(ABC):
         agent = self.get_agent(next_agent_id)
         result = await agent.run(
             prompt,
-            session=specialist_session_id(session, next_agent_id, kind="chain"),
+            session=SpecialistSession.id(session, next_agent_id, kind="chain"),
             user_id=user_id,
             on_interrupt=on_interrupt,
             print_output=print_output,
@@ -169,7 +165,7 @@ class AgentChain(ABC):
         entry = self.get_agent(entry_agent_id)
         first = await entry.run(
             user_prompt,
-            session=specialist_session_id(session, entry_agent_id, kind="chain"),
+            session=SpecialistSession.id(session, entry_agent_id, kind="chain"),
             user_id=user_id,
             on_interrupt=on_interrupt,
             print_output=print_output,

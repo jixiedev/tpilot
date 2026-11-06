@@ -23,7 +23,7 @@ def test_record_metric_conflict_appends() -> None:
             },
         },
     )()
-    cmd = record_metric_conflict(
+    cmd = record_metric_conflict.func(
         card_name="revenue",
         metric="rev",
         glossary_term="Revenue",

@@ -74,7 +74,6 @@ def is_internal_assistant_narration(text: str) -> bool:
             "no new question",
             "no actual new question",
             "system reminder",
-            "invoke_knowledge",
             "fetch_related_models",
             "commit_cards",
             "trino_explain",

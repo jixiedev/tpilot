@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any
 
-from tools.common import lookup_alternative_tool
+from tools.registry import lookup_alternative_tool
 
 ExceptionClassifier = Callable[[BaseException], tuple["ToolErrorType", bool, str] | None]
 ExceptionMessageFn = Callable[[BaseException], str]
@@ -23,6 +23,19 @@ class ToolErrorType(StrEnum):
     UNKNOWN = "unknown"
 
 
+# Only these error types are ever retried automatically (tool-call wrapper,
+# node ``RetryPolicy``). ``retryable=True`` on any other type is meaningless,
+# so registration rejects it and resolution normalizes it away.
+TRANSIENT_ERROR_TYPES: frozenset[ToolErrorType] = frozenset(
+    {ToolErrorType.CONNECTION, ToolErrorType.TIMEOUT}
+)
+
+
+def is_transient_error(error_type: ToolErrorType, retryable: bool) -> bool:
+    """The single retry predicate shared by every retry layer."""
+    return bool(retryable) and error_type in TRANSIENT_ERROR_TYPES
+
+
 @dataclass(frozen=True)
 class _ExceptionRule:
     """Static mapping and/or a classifier for one exception type."""
@@ -34,7 +47,6 @@ class _ExceptionRule:
 
 
 _EXCEPTION_RULES: dict[type[BaseException], _ExceptionRule] = {}
-_BUILTIN_EXCEPTION_TYPES: frozenset[type[BaseException]] = frozenset()
 
 
 def register_exception(
@@ -53,6 +65,11 @@ def register_exception(
     """
     if error_type is None and classifier is None:
         raise ValueError("register_exception requires error_type and/or classifier")
+    if retryable and error_type not in TRANSIENT_ERROR_TYPES:
+        raise ValueError(
+            "retryable=True requires error_type CONNECTION or TIMEOUT; "
+            f"got {error_type!r} (nothing would retry it)"
+        )
     rule = _ExceptionRule(
         error_type=error_type,
         retryable=retryable,
@@ -63,18 +80,18 @@ def register_exception(
         _EXCEPTION_RULES[exc_type] = rule
 
 
-def clear_exception_mappings(*, keep_builtins: bool = True) -> None:
-    """Clear registered mappings (tests). Builtins stay unless ``keep_builtins=False``."""
-    if not keep_builtins:
-        _EXCEPTION_RULES.clear()
-        return
-    for exc_type in list(_EXCEPTION_RULES):
-        if exc_type not in _BUILTIN_EXCEPTION_TYPES:
-            del _EXCEPTION_RULES[exc_type]
-
-
 def resolve_exception(exc: BaseException) -> tuple[ToolErrorType, bool, str]:
-    """Look up the most specific registered mapping for ``exc``."""
+    """Look up the most specific registered mapping for ``exc``.
+
+    ``retryable`` in the result is normalized with ``is_transient_error`` so a
+    classifier that returns e.g. ``(UNKNOWN, True)`` cannot advertise a retry
+    that no retry layer would perform.
+    """
+    error_type, retryable, message = _resolve_registered(exc)
+    return error_type, is_transient_error(error_type, retryable), message
+
+
+def _resolve_registered(exc: BaseException) -> tuple[ToolErrorType, bool, str]:
     for cls in type(exc).mro():
         if cls is BaseException:
             break
@@ -93,10 +110,8 @@ def resolve_exception(exc: BaseException) -> tuple[ToolErrorType, bool, str]:
 
 def _register_builtin_exception_mappings() -> None:
     """Infrastructure exceptions shared by all tools (not product-specific)."""
-    global _BUILTIN_EXCEPTION_TYPES
     register_exception(TimeoutError, error_type=ToolErrorType.TIMEOUT, retryable=True)
     register_exception(ConnectionError, error_type=ToolErrorType.CONNECTION, retryable=True)
-    _BUILTIN_EXCEPTION_TYPES = frozenset({TimeoutError, ConnectionError})
 
 
 _register_builtin_exception_mappings()
@@ -171,10 +186,7 @@ class StructuredToolError:
 
     @property
     def is_transient(self) -> bool:
-        return self.retryable and self.error_type in {
-            ToolErrorType.CONNECTION,
-            ToolErrorType.TIMEOUT,
-        }
+        return is_transient_error(self.error_type, self.retryable)
 
     def to_dict(self) -> dict[str, Any]:
         return {

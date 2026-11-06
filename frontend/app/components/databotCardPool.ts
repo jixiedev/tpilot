@@ -30,7 +30,7 @@ export function databotDisplayCardPool(
   const review = ds.review_cards ?? [];
   const staging = ds.staging_cards ?? [];
 
-  if (ds.stage === "gate_cards") {
+  if (ds.stage === "prepare_cards" && (ds.review_cards?.length ?? 0) > 0) {
     return mergeTableCardsByName(committed, review);
   }
   if (committed.length > 0) return committed;

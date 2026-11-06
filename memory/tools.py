@@ -3,47 +3,78 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from pathlib import Path
 
 from langchain.tools import tool
 
 from memory.config import CompressionConfig
 from memory.offload import OffloadStore
-from tools.common import bind_tool_to_agent
+from tools.errors import ToolErrorType, register_exception
+from tools.registry import register_tool
 
-COMPACT_CONTEXT_TOOL_NAME = "compact_context"
-READ_OFFLOADED_FILE_TOOL_NAME = "read_offloaded_file"
+
+class OffloadReadError(RuntimeError):
+    """``read_offloaded_file`` failed; ``error_type`` says why."""
+
+    def __init__(self, message: str, error_type: ToolErrorType) -> None:
+        super().__init__(message)
+        self.error_type = error_type
+
+
+register_exception(
+    OffloadReadError,
+    classifier=lambda exc: (getattr(exc, "error_type", ToolErrorType.UNKNOWN), False, str(exc)),
+)
+
 AUTONOMOUS_COMPACT_MARKER = "AUTONOMOUS COMPACT REQUESTED"
 
 _DEFAULT_STORE = OffloadStore(CompressionConfig().offload_dir)
 
+# Every store a compressor has registered, keyed by resolved root. Agents in one
+# process may use different ``offload_dir`` values; reads resolve against all.
+_STORES: dict[Path, OffloadStore] = {_DEFAULT_STORE.root.resolve(): _DEFAULT_STORE}
+
 
 def configure_offload_tools(store: OffloadStore) -> None:
-    """Point recovery tools at the active offload store (used by the compressor)."""
-    global _DEFAULT_STORE
-    _DEFAULT_STORE = store
+    """Register ``store`` so ``read_offloaded_file`` can read paths under its root.
+
+    Registration is additive: earlier stores stay readable.
+    """
+    _STORES[store.root.resolve()] = store
 
 
-@bind_tool_to_agent("databot,default")
-@bind_tool_to_agent("knowledge,default")
-@bind_tool_to_agent("diagnostic,default")
-@bind_tool_to_agent("data_analysis,default")
-@bind_tool_to_agent("swe,default")
-@bind_tool_to_agent("plan,default")
+def _store_for(path: str) -> OffloadStore | None:
+    """Most specific registered store whose root contains ``path``."""
+    matches = [store for store in _STORES.values() if store.contains(path)]
+    if not matches:
+        return None
+    return max(matches, key=lambda store: len(store.root.resolve().parts))
+
+
+@register_tool
 @tool
 def read_offloaded_file(path: str) -> str:
     """Read a previously offloaded tool result or archive from disk by path."""
+    store = _store_for(path)
+    if store is None:
+        raise OffloadReadError(
+            f"Failed to read offloaded file {path!r}: outside every offload store root",
+            ToolErrorType.PERMISSION,
+        )
     try:
-        return _DEFAULT_STORE.read(path)
+        return store.read(path)
+    except FileNotFoundError as exc:
+        raise OffloadReadError(
+            f"Failed to read offloaded file {path!r}: {exc} (it may have been pruned)",
+            ToolErrorType.NOT_FOUND,
+        ) from exc
     except (OSError, ValueError) as exc:
-        return f"Failed to read offloaded file {path!r}: {exc}"
+        raise OffloadReadError(
+            f"Failed to read offloaded file {path!r}: {exc}", ToolErrorType.UNKNOWN
+        ) from exc
 
 
-@bind_tool_to_agent("databot,default")
-@bind_tool_to_agent("knowledge,default")
-@bind_tool_to_agent("diagnostic,default")
-@bind_tool_to_agent("data_analysis,default")
-@bind_tool_to_agent("swe,default")
-@bind_tool_to_agent("plan,default")
+@register_tool
 @tool
 def compact_context(reason: str = "") -> str:
     """

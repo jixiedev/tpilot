@@ -1,143 +1,125 @@
 # TahoePilot
 
-面向数据团队的 AI Agent 平台：多轮 CLI 对话，连接 Hive、Trino 及可选 MCP 工具。基于 LangGraph / LangChain 构建。
+An AI agent platform for data teams. Ask questions in a terminal or a browser; TahoePilot routes each question to a specialist agent that reasons with an LLM and calls read-only tools against your data platform (Trino, Hive, S3, DataHub, Kubernetes, Airflow via MCP) and your team's knowledge (Jira tickets and dbt models in Qdrant). Built on LangGraph and LangChain.
 
-**版本** 0.1.0 · **Python** 3.11+
+**Version** 0.1.0 · **Python** 3.11+
 
-## 能做什么
+## What it does
 
-- **多轮对话** — CLI REPL，会话历史持久化（`--session`）
-- **多 Agent** — 数据检索、知识问答、诊断、分析、开发等，用 `--agent` 切换
-- **意图路由** — `intent` Agent 自动识别问题并分派给对应专家
-- **数据工具** — Hive 元数据、Trino 只读 SQL、DataHub / Airflow 等 MCP 工具
-- **可恢复** — SQLite checkpoint，重启后接着聊
+- **Routes questions to the right specialist.** The default `intent` agent classifies a question and hands it to one specialist, or to the `plan` agent when it needs several.
+- **Answers data questions with human approval.** Databot finds candidate tables, drafts SQL, and runs it on Trino only after you approve both the tables and the query.
+- **Keeps long conversations.** Sessions are checkpointed in SQLite, so `--session` resumes after a restart; long histories are compressed without losing anything.
+- **Is configured, not coded.** Each agent's prompt, budgets, tool set and MCP servers live in `config/agents/<name>.toml`.
 
-## 快速开始
+| Agent | Kind | Use it for |
+|-------|------|-----------|
+| `intent` (default) | Orchestrator | Any question; routes to the agents below |
+| `databot` | Specialist | Data retrieval: tables → SQL → approval → results |
+| `knowledge` | Specialist | Team knowledge: Jira, DataHub, dbt models, docs, code |
+| `diagnostic` | Specialist | Production triage: Kubernetes, S3, Trino, Airflow (MCP) |
+| `data_analysis` | Specialist | Exploratory analysis with SQL and Python |
+| `swe` | Specialist | Editing files, running shell commands and scripts |
+| `plan` | Orchestrator | Multi-step tasks split across specialists |
 
-### 安装
+## Quick start
+
+### Install
 
 ```bash
-uv sync          # 推荐
-# 或
-pip install -e .
+uv sync
 ```
 
-可选扩展（按需安装）：
+Or with pip, including the extras you need:
 
-| Extra | 用途 |
+```bash
+pip install -e '.[web,k8s,rag]'
+```
+
+| Extra | Adds |
 |-------|------|
-| `web` | CopilotKit Web UI（`agui_server.py`） |
-| `k8s` | Kubernetes 只读工具 |
-| `rag` | Qdrant 向量检索、Knowledge Agent |
+| `web` | The AG-UI server for the web UI (FastAPI, CopilotKit) |
+| `k8s` | Kubernetes read-only tools |
+| `rag` | Qdrant retrieval, embeddings, ingest, S3 client |
+| `dev` | pytest |
 
-```bash
-pip install 'tahoepilot[web,k8s,rag]'
-```
+### Configure
 
-### 配置
-
-1. **LLM** — 设置 API Key（模型定义见 `models/models.toml`）：
+1. **LLM.** Models are defined in `models/models.toml`; the default is `MiniMax-M3`, which reads its key from `MiniMax_API_KEY`. Put keys in a `.env` file at the repo root (it is git-ignored and loaded automatically):
 
    ```bash
-   export GLM_API_KEY="your-key"
+   MiniMax_API_KEY=your-key
    ```
 
-2. **数据连接** — 编辑 `config/tools.toml`，配置 Hive HMS 和 Trino。
+2. **Data connections.** Set Hive, Trino, DataHub, S3, Kubernetes and web-search settings in `config/tools.toml`; secrets can come from env vars instead.
+3. **MCP servers (optional).** Copy `tools/mcp/mcp.json.example` to `tools/mcp/mcp.json` and fill in the servers. If it is missing or a server is down, those tools are skipped with a warning.
+4. **Knowledge base (optional).** Start Qdrant and ingest Jira / dbt data as described in [rag/README.md](rag/README.md).
 
-3. **MCP（可选）** — 复制 `tools/mcp/mcp.json.example` 为 `tools/mcp/mcp.json` 并填写服务地址。缺失或连接失败时自动降级，仅使用内置工具。
+See [config/README.md](config/README.md) for every setting.
 
-### 运行
+### Run the CLI
 
 ```bash
-tahoepilot
-# 或
 python main.py
-
-# 指定 Agent
-python main.py --agent databot
-
-# 固定会话（跨重启续聊）
-python main.py -s alice
-
-# 调试模式（显示工具调用）
-python main.py -v
 ```
 
-在 `You>` 提示符下输入问题，输入 `quit` 退出。
-
-### Web UI
-
-脚本会加载仓库根目录的 `.env`。前端首次运行前在 `frontend/` 执行 `npm install`。
-
-检索只用两个本地模型，启动前下载一次（写入 `~/.cache/tahoepilot/models/`）：
+Type at the `You>` prompt; `quit` exits. Useful flags:
 
 ```bash
-export HF_ENDPOINT=https://hf-mirror.com   # huggingface.co 连不上时
-export HF_HUB_DISABLE_XET=1
-python -m rag download
+python main.py --agent databot     # talk to one specialist directly
+python main.py -s alice            # named session, resumable across restarts
+python main.py -u alice            # user id for the stored profile
+python main.py -v                  # also print checkpoint and profile paths
 ```
 
-- `BAAI/bge-m3` — 向量（dense + sparse）
-- `BAAI/bge-reranker-v2-m3` — 重排
+### Run the web UI
 
-对话过程中不会再去拉模型。`imgs/.DS_Store` 这类仓库垃圾文件会被跳过。
-
-两个终端分别前台启动：
+Install the frontend once (`cd frontend && npm install`), download the retrieval models once (`python -m rag download`), then start both servers:
 
 ```bash
-./scripts/dev.sh backend    # langgraph dev :8000，同时挂载 /agui
-./scripts/dev.sh frontend   # Next.js :3000
+./scripts/dev.sh start     # langgraph dev on :8000 (with /agui) and Next.js on :3000
 ```
 
-浏览器打开 http://localhost:3000。
+Open http://localhost:3000. `./scripts/dev.sh status` and `./scripts/dev.sh stop` check and stop them; logs are in `.run/`. Details in [frontend/README.md](frontend/README.md).
 
-或在同一终端后台启动：
+### Test
 
 ```bash
-./scripts/dev.sh start      # 后台启动，打印 PID；日志在 .run/
-./scripts/dev.sh status     # 查看 :8000、:3000 和 /agui
-./scripts/dev.sh stop       # 停止后台进程
+python -m pytest           # unit tests, stub models, no external services
+python -m evals --help     # agent eval suites against real models
 ```
 
-## Agent 一览
+## Documentation
 
-| Agent | 说明 |
-|-------|------|
-| `intent` | 意图识别 + 自动路由到专家（**默认**） |
-| `databot` | 数据检索：术语表 → 元数据/血缘 → SQL → 结果 |
-| `knowledge` | 团队知识：代码、文档、Jira、DataHub |
-| `diagnostic` | 生产诊断：K8s、S3、Airflow 等 |
-| `data_analysis` | 探索性数据分析（SQL、Python、图表） |
-| `swe` | 软件工程：编辑文件、Shell、脚本 |
-| `plan` | 任务分解，编排多个专家 Agent |
+| Doc | Read it to… |
+|-----|-------------|
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Understand the system, core concepts and design principles |
+| [agent/README.md](agent/README.md) | Learn how agents run a turn, route, plan, and how to add one |
+| [agent/specialists/databot/README.md](agent/specialists/databot/README.md) | Understand Databot's staged pipeline and human gates |
+| [tools/README.md](tools/README.md) | See every tool, how agents get them, and how to add one |
+| [config/README.md](config/README.md) | Configure agents, prompts, connections, models and paths |
+| [memory/README.md](memory/README.md) | Understand context compression and user profiles |
+| [rag/README.md](rag/README.md) | Ingest Jira / Drive / dbt data and tune retrieval |
+| [evals/README.md](evals/README.md) | Write and run eval cases |
+| [frontend/README.md](frontend/README.md) | Run and extend the web UI and AG-UI server |
+| [docs/ROADMAP.en.md](docs/ROADMAP.en.md) | Project roadmap ([中文](docs/ROADMAP.md)) |
+| [docs/CHAT_OPTIMIZATION.md](docs/CHAT_OPTIMIZATION.md) | Log of notable changes |
 
-## 示例问题
-
-- 列出某个 Hive 库下的表
-- 查一张表的 schema
-- 用 Trino 跑 SQL 并总结结果
-- 某个指标在术语表里怎么定义的？
-
-## 项目结构
+## Repository layout
 
 ```
-agent/
-├── registry.py          # Agent 注册表、意图路由
-├── agent.py, turn.py, chain.py, session.py, router.py, …  # 核心基础设施
-├── react.py, refine_profile.py  # ReAct 框架（BaseReactAgent）
-├── runtime/             # 团队共享：prompt、chat_completion、TahoeRuntimeHelper
-├── specialists/         # 专家 agent（knowledge、swe、data_analysis、diagnostic、databot）
-├── plan/                # Plan agent（编排 specialist）
-└── intent/              # 意图编排入口（默认 CLI agent）
+agent/        agents: base class, catalog, turn lifecycle, intent, plan, specialists (incl. databot/)
+graph/        LangGraph building blocks: ReAct builder, nodes, state, error recovery
+tools/        tool registry and tools (data/, external/datahub/, code/, rag/, mcp/, web/, k8s, plan)
+memory/       context compression, offload store, user profiles, session runtime
+config/       config loaders; agents/*.toml, tool_groups.toml, tools.toml, local.toml, rag.toml
+models/       models.toml and the LLM factory
+rag/          ingest pipeline and Qdrant retrieval helpers
+evals/        eval case types, scoring, cases/*.json
+frontend/     Next.js + CopilotKit web UI
+cli.py        terminal chat           agui_server.py      AG-UI server for the web UI
+main.py       `tahoepilot` entry      langgraph_graphs.py graphs for `langgraph dev`
 ```
 
-## 更多文档
+## Tech stack
 
-- [路线图（中文）](docs/ROADMAP.md) · [Roadmap (English)](docs/ROADMAP.en.md)
-- [优化记录](docs/CHAT_OPTIMIZATION.md)
-- [RAG 数据导入](rag/README.md)
-- [前端](frontend/README.md)
-
-## 技术栈
-
-Python 3.11+ · LangGraph · LangChain · Hive HMS · Trino · MCP · Qdrant
+Python 3.11+ · LangGraph · LangChain · Hive Metastore · Trino · MCP · Qdrant (BGE-M3 + BGE reranker) · FastAPI · AG-UI · Next.js · CopilotKit

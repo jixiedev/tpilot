@@ -22,6 +22,32 @@ JOB_ALIASES = {
 JOB_TYPES = ("jira", "drive", "dbt", "wiki")
 
 
+class IngestFailedError(RuntimeError):
+    """One or more tasks failed during ``run_ingest``.
+
+    Raised after the final checkpoint write: completed tasks are recorded, so
+    rerunning ``run_ingest`` with the same task list and checkpoint retries
+    only the tasks in ``failed`` (task id -> error message).
+    """
+
+    def __init__(self, *, failed: dict[str, str], uploaded: int, total: int) -> None:
+        self.failed = dict(failed)
+        self.uploaded = uploaded
+        self.total = total
+        super().__init__(
+            f"{len(self.failed)}/{total} task(s) failed ({uploaded} points uploaded)"
+        )
+
+    def summary(self) -> str:
+        lines = [f"Ingest incomplete: {self}. Failed task(s):"]
+        lines.extend(f"  {task_id}: {error}" for task_id, error in self.failed.items())
+        lines.append(
+            "Completed tasks are checkpointed; rerun the same `python -m rag run` "
+            "command to retry only the failed task(s)."
+        )
+        return "\n".join(lines)
+
+
 def normalize_job_type(job_type: str) -> str:
     return JOB_ALIASES.get(job_type, job_type)
 
@@ -259,6 +285,32 @@ def plan_ingest(
     return tasks_file, checkpoint_file
 
 
+def _open_checkpoint(checkpoint_file: Path, tasks_file: Path, digest: str) -> dict[str, Any]:
+    """Load the checkpoint for ``tasks_file`` (must match ``digest``) or start empty."""
+    if not checkpoint_file.exists():
+        print(f"Checkpoint {checkpoint_file} not found; starting from the beginning")
+        return empty_checkpoint(tasks_file, digest)
+    checkpoint = load_checkpoint(checkpoint_file)
+    stored = str(checkpoint.get("task_list_sha256") or "")
+    if stored != digest:
+        raise ValueError(
+            f"Checkpoint {checkpoint_file} belongs to a different task list "
+            f"(sha256 {stored} != {digest}). Re-run plan or pass the matching files."
+        )
+    print(f"Resuming from checkpoint {checkpoint_file}")
+    return checkpoint
+
+
+def _recreate_collection(collection: str) -> None:
+    """Drop ``collection`` from Qdrant if it exists."""
+    from rag.qdrant import get_client
+
+    qdrant = get_client()
+    if qdrant.collection_exists(collection):
+        qdrant.delete_collection(collection)
+        print(f"Deleted collection {collection!r}")
+
+
 def run_ingest(
     *,
     tasks_path: str | Path,
@@ -266,7 +318,12 @@ def run_ingest(
     batch_size: int = 1,
     recreate_collection: bool = False,
 ) -> int:
-    """Ingest pending tasks. Resume from ``checkpoint_path`` when that file exists."""
+    """Ingest pending tasks. Resume from ``checkpoint_path`` when that file exists.
+
+    Returns the cumulative uploaded point count. Raises ``IngestFailedError``
+    (after checkpointing the successes) when any task failed. With
+    ``recreate_collection`` the existing checkpoint is ignored, not validated.
+    """
     if batch_size < 1:
         raise ValueError("batch_size must be >= 1")
     tasks_file = Path(tasks_path).expanduser().resolve()
@@ -277,29 +334,13 @@ def run_ingest(
     )
     task_list = load_task_list(tasks_file)
     digest = file_sha256(tasks_file)
-    if checkpoint_file.exists():
-        checkpoint = load_checkpoint(checkpoint_file)
-        stored = str(checkpoint.get("task_list_sha256") or "")
-        if stored != digest:
-            raise ValueError(
-                f"Checkpoint {checkpoint_file} belongs to a different task list "
-                f"(sha256 {stored} != {digest}). Re-run plan or pass the matching files."
-            )
-        print(f"Resuming from checkpoint {checkpoint_file}")
-    else:
-        checkpoint = empty_checkpoint(tasks_file, digest)
-        print(f"Checkpoint {checkpoint_file} not found; starting from the beginning")
-
     if recreate_collection:
-        from rag.qdrant import get_client
-
-        collection = task_list["collection"]
-        qdrant = get_client()
-        if qdrant.collection_exists(collection):
-            qdrant.delete_collection(collection)
-            print(f"Deleted collection {collection!r}")
-        checkpoint["completed"] = []
-        checkpoint["uploaded_points"] = 0
+        # The collection is dropped, so whatever the old checkpoint says is
+        # void. Do not validate it (it may belong to an older task list):
+        # start from a fresh checkpoint for this task list instead.
+        _recreate_collection(task_list["collection"])
+        checkpoint = empty_checkpoint(tasks_file, digest)
+        print(f"Starting from a fresh checkpoint {checkpoint_file}")
         write_checkpoint(
             checkpoint_file,
             task_list=tasks_file,
@@ -307,6 +348,8 @@ def run_ingest(
             completed=[],
             uploaded_points=0,
         )
+    else:
+        checkpoint = _open_checkpoint(checkpoint_file, tasks_file, digest)
 
     completed_ids = list(checkpoint["completed"])
     completed_set = set(completed_ids)
@@ -320,6 +363,7 @@ def run_ingest(
         return uploaded
 
     print(f"{len(pending)}/{total} task(s) remaining; checkpoint every {batch_size} file(s)")
+    failed: dict[str, str] = {}
     for offset in range(0, len(pending), batch_size):
         batch = pending[offset : offset + batch_size]
         for task in batch:
@@ -335,6 +379,7 @@ def run_ingest(
                 )
             except Exception as exc:  # noqa: BLE001 — remaining files can still run
                 print(f"Task {task_id} failed: {exc}")
+                failed[task_id] = str(exc) or type(exc).__name__
                 continue
             completed_ids.append(task_id)
         write_checkpoint(
@@ -348,4 +393,8 @@ def run_ingest(
             f"Checkpoint updated: {len(completed_ids)}/{total} file(s) complete, "
             f"{uploaded} points"
         )
+    if failed:
+        # Successes are already checkpointed above, so a rerun with the same
+        # files retries only the failed tasks.
+        raise IngestFailedError(failed=failed, uploaded=uploaded, total=total)
     return uploaded

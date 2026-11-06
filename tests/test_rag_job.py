@@ -4,10 +4,18 @@ import json
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pytest
 import yaml
 
 from rag import job
 from rag.__main__ import main
+
+
+@pytest.fixture(autouse=True)
+def _no_qdrant_delete():
+    """Ingest deletes a document's old points before upsert; keep tests offline."""
+    with patch("rag.ingest.delete_points_by_doc_keys") as mock_delete:
+        yield mock_delete
 
 
 def _write_model_yml(path: Path, name: str) -> None:
@@ -175,11 +183,89 @@ def test_run_does_not_checkpoint_failed_file(
         tasks_path=tasks,
         checkpoint_path=checkpoint,
     )
-    uploaded = job.run_ingest(tasks_path=tasks, checkpoint_path=checkpoint, batch_size=1)
-    assert uploaded == 2
+    with pytest.raises(job.IngestFailedError) as excinfo:
+        job.run_ingest(tasks_path=tasks, checkpoint_path=checkpoint, batch_size=1)
+    assert excinfo.value.uploaded == 2
+    assert excinfo.value.failed == {"b.yml": "embed failed"}
     assert mock_ingest.call_count == 3
     progress = json.loads(checkpoint.read_text(encoding="utf-8"))
     assert progress["completed"] == ["a.yml", "c.yml"]
+    assert progress["uploaded_points"] == 2
+
+
+def _plan_dbt(tmp_path: Path, *names: str) -> tuple[Path, Path]:
+    for name in names:
+        _write_model_yml(tmp_path / f"{name}.yml", name)
+    tasks = tmp_path / "tasks.json"
+    checkpoint = tmp_path / "progress.json"
+    job.plan_ingest(
+        job_type="dbt",
+        source=tmp_path,
+        collection="dbt_models",
+        tasks_path=tasks,
+        checkpoint_path=checkpoint,
+    )
+    return tasks, checkpoint
+
+
+def test_run_cli_exits_nonzero_with_failure_summary_and_rerun_retries_failures(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    tasks, checkpoint = _plan_dbt(tmp_path, "a", "b", "c")
+    argv = ["run", "--tasks", str(tasks), "--checkpoint", str(checkpoint)]
+
+    with patch(
+        "rag.job.ingest_task", side_effect=[1, RuntimeError("embed failed"), 1]
+    ) as first:
+        code = main(argv)
+
+    assert code == 1
+    assert first.call_count == 3
+    err = capsys.readouterr().err
+    assert "1/3 task(s) failed" in err
+    assert "b.yml: embed failed" in err
+    progress = json.loads(checkpoint.read_text(encoding="utf-8"))
+    assert progress["completed"] == ["a.yml", "c.yml"]
+
+    with patch("rag.job.ingest_task", return_value=1) as second:
+        assert main(argv) == 0
+
+    assert second.call_count == 1
+    assert Path(second.call_args.args[1]).name == "b.yml"
+    progress = json.loads(checkpoint.read_text(encoding="utf-8"))
+    assert sorted(progress["completed"]) == ["a.yml", "b.yml", "c.yml"]
+    assert progress["uploaded_points"] == 3
+
+
+def test_recreate_collection_ignores_checkpoint_for_other_task_list(tmp_path: Path) -> None:
+    tasks, checkpoint = _plan_dbt(tmp_path, "a", "b")
+    # A checkpoint left by an older task list (other digest, completed
+    # entries): a plain run refuses it; --recreate-collection must not.
+    job.write_checkpoint(
+        checkpoint,
+        task_list=tasks,
+        task_list_sha256="0" * 64,
+        completed=["a.yml"],
+        uploaded_points=7,
+    )
+
+    with (
+        patch("rag.job._recreate_collection") as mock_recreate,
+        patch("rag.job.ingest_task", return_value=1) as mock_ingest,
+    ):
+        uploaded = job.run_ingest(
+            tasks_path=tasks,
+            checkpoint_path=checkpoint,
+            recreate_collection=True,
+        )
+
+    mock_recreate.assert_called_once_with("dbt_models")
+    assert mock_ingest.call_count == 2
+    assert uploaded == 2
+    progress = json.loads(checkpoint.read_text(encoding="utf-8"))
+    assert progress["task_list_sha256"] == job.file_sha256(tasks)
+    assert progress["completed"] == ["a.yml", "b.yml"]
     assert progress["uploaded_points"] == 2
 
 

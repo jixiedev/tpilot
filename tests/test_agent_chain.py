@@ -2,19 +2,30 @@ from __future__ import annotations
 
 from typing import Any
 
-from langchain_core.messages import HumanMessage
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, START, StateGraph
 from typing_extensions import TypedDict
 
+from pathlib import Path
+import tempfile
+
 from agent.agent import BaseAgent
+from agent.listener import AgentListener
+from agent.prompt import SystemPromptAssembler
+from agent.turn_messages import DefaultTurnMessagePolicy
+from config.agent_config import AgentConfig, agent_config_path
+from memory.session_runtime import SessionRuntime
+from tests.minimal_chat_model import MinimalChatModel
 from agent.chain import (
     AgentChain,
     StaticAgentChain,
     StatusRoutedAgentChain,
 )
-from graph.builder import static_system_prompt
-from agent.turn import extract_turn_output
+from agent.turn import AgentTurnResult
+from memory.profile_store import FileProfileStore
+from graph.state import latest_human_text
+
+_STUB_PROFILE_ROOT = Path(tempfile.gettempdir()) / "tpilot-chain-stub-profiles"
 
 
 class _State(TypedDict, total=False):
@@ -27,7 +38,17 @@ class _State(TypedDict, total=False):
 
 class _StubAgent(BaseAgent):
     def __init__(self, name: str, *, payload: dict[str, Any] | None = None) -> None:
-        super().__init__(system_prompt=static_system_prompt("stub"))
+        model = MinimalChatModel()
+        checkpointer = MemorySaver()
+        super().__init__(
+            model=model,
+            checkpointer=checkpointer,
+            session_runtime=SessionRuntime(FileProfileStore(_STUB_PROFILE_ROOT)),
+            prompt_assembler=SystemPromptAssembler(AgentConfig(agent_config_path("base"))),
+            turn_message_policy=DefaultTurnMessagePolicy(),
+            agent_config=AgentConfig(agent_config_path("base")),
+            listener=AgentListener(),
+        )
         self.name = name
         self.payload = payload or {}
         self.calls: list[str] = []
@@ -36,30 +57,29 @@ class _StubAgent(BaseAgent):
     async def create(cls, **_kwargs: Any) -> _StubAgent:
         return cls("factory")
 
-    async def build_graph(self, model, checkpointer, **_kwargs):
+    def build_graph(self, **_kwargs):
         agent_name = self.name
         payload = dict(self.payload)
 
         def node(state: _State) -> dict[str, Any]:
-            return {"value": f"{agent_name}:{state.get('user_question', '')}", **payload}
+            question = latest_human_text(state) or ""
+            return {"value": f"{agent_name}:{question}", **payload}
 
         g = StateGraph(_State)
         g.add_node("n", node)
         g.add_edge(START, "n")
         g.add_edge("n", END)
-        return g.compile(checkpointer=checkpointer)
+        self.graph = g.compile(checkpointer=self.checkpointer)
+        return self.graph
 
-    async def prepare_turn_input(self, graph, session, user_prompt, *, user_id):
+    async def run(self, user_prompt, session, user_id=None, on_interrupt=None, **kwargs):
+        del kwargs
         self.calls.append(user_prompt)
-        return {
-            "messages": [HumanMessage(content=user_prompt)],
-            "user_question": user_prompt,
-            "value": "",
-        }
+        return await super().run(user_prompt, session, user_id, on_interrupt)
 
 
 async def _bound(agent: _StubAgent) -> _StubAgent:
-    await agent.bind(object(), MemorySaver())  # type: ignore[arg-type]
+    agent.build_graph()
     return agent
 
 
@@ -71,7 +91,7 @@ async def test_static_chain_runs_in_order() -> None:
     chain.register_agent(1, a1)
 
     result = await chain.run(0, "hello", session="s1", print_output=False)
-    assert result.ok
+    assert not result.cancelled
     assert [step.agent_id for step in result.steps] == [0, 1]
     assert a0.calls == ["hello"]
     assert "hello" in a1.calls[0] or a1.calls[0].startswith("a0:")
@@ -83,7 +103,7 @@ async def test_static_chain_stops_without_edge() -> None:
     chain = StaticAgentChain({})
     chain.register_agent(0, a0)
     result = await chain.run(0, "x", session="s2", print_output=False)
-    assert result.ok
+    assert not result.cancelled
     assert len(result.steps) == 1
 
 
@@ -103,7 +123,7 @@ async def test_status_routed_chain_follows_route_target() -> None:
     chain.register_agent(2, knowledge)
 
     result = await chain.run(0, "gmv?", session="s3", print_output=False)
-    assert result.ok
+    assert not result.cancelled
     assert [step.agent_id for step in result.steps] == [0, 1]
     assert knowledge.calls == []
 
@@ -121,13 +141,13 @@ async def test_status_routed_chain_stops_when_not_published() -> None:
     chain.register_agent(1, databot)
 
     result = await chain.run(0, "?", session="s4", print_output=False)
-    assert result.ok
+    assert not result.cancelled
     assert [step.agent_id for step in result.steps] == [0]
     assert databot.calls == []
 
 
 async def test_extract_turn_output_prefers_value() -> None:
-    assert extract_turn_output({"value": "x"}) == "x"
+    assert AgentTurnResult.extract_output({"value": "x"}) == "x"
 
 
 def test_extract_turn_output_ignores_prior_reply() -> None:
@@ -141,7 +161,7 @@ def test_extract_turn_output_ignores_prior_reply() -> None:
             AIMessage(content="idle reply for q2"),
         ]
     }
-    assert extract_turn_output(state) == "idle reply for q2"
+    assert AgentTurnResult.extract_output(state) == "idle reply for q2"
 
 
 def test_extract_turn_output_prefers_current_reply() -> None:
@@ -155,7 +175,7 @@ def test_extract_turn_output_prefers_current_reply() -> None:
             AIMessage(content="answer-2"),
         ]
     }
-    assert extract_turn_output(state) == "answer-2"
+    assert AgentTurnResult.extract_output(state) == "answer-2"
 
 
 def test_extract_turn_output_empty_when_no_current_reply() -> None:
@@ -168,7 +188,7 @@ def test_extract_turn_output_empty_when_no_current_reply() -> None:
             HumanMessage(content="q2"),
         ]
     }
-    assert extract_turn_output(state) == ""
+    assert AgentTurnResult.extract_output(state) == ""
 
 
 async def test_receive_and_determine_contract() -> None:

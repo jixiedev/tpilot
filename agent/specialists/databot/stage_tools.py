@@ -2,24 +2,17 @@
 
 from __future__ import annotations
 
-import json
-import re
-from typing import Any, Literal, Union
+from typing import Any, Literal
 
 from langchain_core.messages import ToolMessage
 from langchain_core.tools import tool
 from langgraph.prebuilt import ToolRuntime
 from langgraph.types import Command
 
-from agent.specialists.databot._constants import STAGE_GATE_CARDS, STAGE_GATE_SQL
-from agent.specialists.databot.gates import GATE_OPTIONS
-from agent.specialists.databot.state import GateDecision
-from agent.specialists.databot.ui_actions import (
-    apply_propose_sql,
-    apply_request_sql_regenerate,
-    apply_update_card_selection,
-)
-from tools.common import bind_tool_to_agent
+from agent.specialists.databot.state import PHASE_PREPARE_CARDS, PHASE_PREPARE_SQL
+from agent.specialists.databot.gates import coerce_reasons
+from agent.specialists.databot.ui_actions import apply_propose_sql, apply_request_sql_regenerate, apply_update_card_selection
+from tools.registry import register_tool
 
 
 # Keys written via Command.update.
@@ -33,122 +26,23 @@ STATE_KEYS = {
 }
 
 
-def _ok_tool_message(tool_call_id: str, text: str, artifact: Any = None) -> ToolMessage:
-    """Build a ToolMessage that matches the AIMessage tool_call.
+class StageCommands:
+    """Shared Command pieces for the stage-scoped tools registered below.
 
-    LangGraph requires every ``AIMessage.tool_calls`` entry to have a
-    sibling ``ToolMessage`` with the same ``tool_call_id``. Tools that
-    return ``Command(update=...)`` for state writes must also append a
-    matching ToolMessage; otherwise the next LLM call gets the
-    "Expected to have a matching ToolMessage" error.
-
-    ``artifact`` is optional out-of-band payload on the ToolMessage.
+    The ``@tool`` functions stay at module scope because that is how they
+    are bound into the agent tool registry. Their behavior lives here.
     """
-    kwargs: dict[str, Any] = {"tool_call_id": tool_call_id}
-    if artifact is not None:
-        kwargs["artifact"] = artifact
-    return ToolMessage(content=text, **kwargs)
+
+    @staticmethod
+    def tool_message(tool_call_id: str, text: str, artifact: Any = None) -> ToolMessage:
+        """ToolMessage matching the assistant ``tool_call_id``."""
+        kwargs: dict[str, Any] = {"tool_call_id": tool_call_id}
+        if artifact is not None:
+            kwargs["artifact"] = artifact
+        return ToolMessage(content=text, **kwargs)
 
 
-def _extract_json_value(text: str) -> Any:
-    """Parse a JSON value, including one buried after think tags or fences."""
-    from graph.messages import strip_think_blocks
-
-    stripped = strip_think_blocks(text).strip()
-    if stripped.startswith("```"):
-        stripped = re.sub(r"^```(?:json)?\s*", "", stripped, count=1, flags=re.IGNORECASE)
-        stripped = re.sub(r"\s*```$", "", stripped)
-        stripped = stripped.strip()
-    try:
-        return json.loads(stripped)
-    except json.JSONDecodeError:
-        pass
-    for opener, closer in (("[", "]"), ("{", "}")):
-        start = stripped.find(opener)
-        end = stripped.rfind(closer)
-        if start < 0 or end <= start:
-            continue
-        try:
-            return json.loads(stripped[start : end + 1])
-        except json.JSONDecodeError:
-            continue
-    return None
-
-
-def _reason_text_is_usable(text: str) -> bool:
-    """Reject planning dumps that must never appear as gate option copy."""
-    from graph.messages import is_internal_assistant_narration, strip_think_blocks
-
-    cleaned = strip_think_blocks(text).strip()
-    if not cleaned or "<think>" in cleaned.lower():
-        return False
-    if cleaned.lower() in {"context:", "context"}:
-        return False
-    if cleaned.startswith("- ") and (
-        cleaned.lower().startswith("- user asked")
-        or "committed card:" in cleaned.lower()
-    ):
-        return False
-    if is_internal_assistant_narration(cleaned):
-        return False
-    return True
-
-
-def _coerce_gate_reasons(
-    raw: Union[dict[GateDecision, str], list[str], str, None],
-) -> dict[str, str]:
-    """Normalize whatever the LLM passes into ``{option: reason}``.
-
-    LLM has been seen to send:
-    - ``{"approve": "...", "deny-comments": "..."}`` (ideal dict)
-    - ``["approve: ...", "deny-comments: ...", ...]`` (list, one per option)
-    - a JSON array/object embedded in think tags or markdown fences
-
-    Unusable planning fragments are dropped so the gate can fall back to
-    defaults instead of showing ``<think>`` / ``Context:`` shards.
-    """
-    cleaned: dict[str, str] = {}
-    if isinstance(raw, str):
-        text = raw.strip()
-        if not text:
-            return {}
-        parsed = _extract_json_value(text)
-        if parsed is None:
-            return {}
-        return _coerce_gate_reasons(parsed)
-    if isinstance(raw, dict):
-        for opt, text in raw.items():
-            key = str(opt).strip()
-            if key in GATE_OPTIONS and text is not None:
-                value = str(text).strip()
-                if _reason_text_is_usable(value):
-                    cleaned[key] = value
-        return cleaned
-    if isinstance(raw, list):
-        # Positional: align with GATE_OPTIONS order
-        for index, opt in enumerate(GATE_OPTIONS):
-            if index >= len(raw):
-                break
-            value = raw[index]
-            if value is None:
-                continue
-            text = str(value).strip()
-            if not text:
-                continue
-            # Some LLMs prefix each entry with "approve: " — strip it
-            # so the gate shows the clean reason text.
-            if ":" in text:
-                head, _, tail = text.partition(":")
-                if head.strip() in GATE_OPTIONS:
-                    text = tail.strip()
-            if _reason_text_is_usable(text):
-                cleaned[opt] = text
-        return cleaned
-    return cleaned
-
-
-@bind_tool_to_agent("databot,default")
-@bind_tool_to_agent("databot,fetch")
+@register_tool
 @tool
 def record_metric_conflict(
     card_name: str,
@@ -180,7 +74,7 @@ def record_metric_conflict(
         update={
             STATE_KEYS["metric_conflicts"]: prev + [payload],
             "messages": [
-                _ok_tool_message(
+                StageCommands.tool_message(
                     tool_call_id,
                     f"flagged metric conflict: {metric} vs glossary {glossary_term}",
                 )
@@ -189,8 +83,7 @@ def record_metric_conflict(
     )
 
 
-@bind_tool_to_agent("databot,default")
-@bind_tool_to_agent("databot,sql")
+@register_tool
 @tool
 def write_gate_reasons(
     gate: Literal["cards", "sql"],
@@ -213,17 +106,17 @@ def write_gate_reasons(
     call this from the SQL stage before the SQL gate when drafting is complete.
     """
     tool_call_id = (runtime.tool_call_id if runtime else None) or "missing"
-    cleaned = _coerce_gate_reasons(reasons)
+    cleaned = coerce_reasons(reasons)
     key = (
         STATE_KEYS["gate_reasons_cards"] if gate == "cards" else STATE_KEYS["gate_reasons_sql"]
     )
-    next_stage = STAGE_GATE_CARDS if gate == "cards" else STAGE_GATE_SQL
+    next_stage = PHASE_PREPARE_CARDS if gate == "cards" else PHASE_PREPARE_SQL
     return Command(
         update={
             key: cleaned,
             "stage": next_stage,
             "messages": [
-                _ok_tool_message(
+                StageCommands.tool_message(
                     tool_call_id,
                     f"wrote {len(cleaned)} reason(s) for the {gate} gate; stage → {next_stage}",
                 )
@@ -232,8 +125,7 @@ def write_gate_reasons(
     )
 
 
-@bind_tool_to_agent("databot,default")
-@bind_tool_to_agent("databot,sql")
+@register_tool
 @tool
 def propose_sql(
     sql: str,
@@ -254,7 +146,7 @@ def propose_sql(
         update={
             **patch,
             "messages": [
-                _ok_tool_message(
+                StageCommands.tool_message(
                     tool_call_id,
                     f"drafted SQL ({len(cleaned_sql)} chars, validated={bool(validated)})",
                 )
@@ -263,7 +155,7 @@ def propose_sql(
     )
 
 
-@bind_tool_to_agent("databot,default")
+@register_tool
 @tool
 def update_card_selection(
     selected_card_names: list[str],
@@ -298,12 +190,12 @@ def update_card_selection(
     return Command(
         update={
             **patch,
-            "messages": [_ok_tool_message(tool_call_id, note)],
+            "messages": [StageCommands.tool_message(tool_call_id, note)],
         }
     )
 
 
-@bind_tool_to_agent("databot,default")
+@register_tool
 @tool
 def request_sql_regenerate(
     feedback: str,
@@ -322,7 +214,7 @@ def request_sql_regenerate(
         update={
             **patch,
             "messages": [
-                _ok_tool_message(
+                StageCommands.tool_message(
                     tool_call_id,
                     f"queued regenerate with feedback ({len(cleaned)} chars)",
                 )

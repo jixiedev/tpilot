@@ -1,0 +1,43 @@
+# Named tool sets referenced as "@<group>" from an agent's [tools] table.
+# Tools register by name (tools.registry.register_tool); see agent/catalog.py.
+
+memory = ["compact_context", "read_offloaded_file"]
+code = ["bash", "python_execute", "str_replace_editor"]
+hive = ["hive_desc_table", "hive_list_tables"]
+trino = [
+    "trino_desc_table",
+    "trino_explain",
+    "trino_list_catalogs",
+    "trino_list_schemas",
+    "trino_list_tables",
+    "trino_run_query",
+]
+s3 = ["s3_get_object", "s3_head_object", "s3_list_objects"]
+k8s = [
+    "k8s_describe_pod",
+    "k8s_get_custom_object",
+    "k8s_get_pod",
+    "k8s_get_pod_logs",
+    "k8s_list_custom_objects",
+    "k8s_list_deployments",
+    "k8s_list_events",
+    "k8s_list_namespaces",
+    "k8s_list_pods",
+    "k8s_list_spark_applications",
+]
+datahub = [
+    "datahub_get_dataset_queries",
+    "datahub_get_lineage",
+    "datahub_get_lineage_paths_between",
+    "datahub_graphql_query",
+    "datahub_list_charts",
+    "datahub_list_dashboards",
+    "datahub_list_data_flows",
+    "datahub_list_data_jobs",
+    "datahub_list_datasets",
+    "datahub_list_glossary_terms",
+    "datahub_list_groups",
+    "datahub_list_people",
+    "datahub_list_schema_fields",
+    "datahub_list_tags",
+]

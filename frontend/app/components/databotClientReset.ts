@@ -3,7 +3,8 @@ import type { DatabotAgentState } from "./types";
 
 /** Databot fields cleared when the user starts a new chat. */
 export const EMPTY_DATABOT_STATE: DatabotAgentState = {
-  stage: "fetch",
+  stage: "prepare_cards",
+  history_cards: [],
   staging_cards: [],
   committed_cards: [],
   review_cards: [],
@@ -18,7 +19,6 @@ export const EMPTY_DATABOT_STATE: DatabotAgentState = {
   sql_reasons: {},
   dryrun: false,
   halt_reason: "",
-  chart_requested: false,
   deny_feedback: "",
 };
 

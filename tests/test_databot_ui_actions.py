@@ -6,16 +6,7 @@ import pytest
 
 from langchain_core.messages import HumanMessage
 
-from agent.specialists.databot.ui_actions import (
-    apply_cards_gate_redraft,
-    apply_propose_sql,
-    apply_request_sql_regenerate,
-    apply_sql_gate_redraft,
-    apply_update_card_selection,
-    build_ui_action_patch,
-    is_gate_redraft_message,
-    user_question_from_messages,
-)
+from agent.specialists.databot.ui_actions import apply_cards_gate_redraft, apply_propose_sql, apply_request_sql_regenerate, apply_sql_gate_redraft, apply_update_card_selection, build_ui_action_patch, is_gate_redraft_message, user_question_from_messages
 
 
 def test_apply_update_card_selection_resolves_candidates() -> None:
@@ -47,7 +38,7 @@ def test_apply_request_sql_regenerate_clears_sql_contract() -> None:
 
 def test_apply_cards_gate_redraft_clears_card_pipeline() -> None:
     patch = apply_cards_gate_redraft("need another model")
-    assert patch["stage"] == "fetch"
+    assert patch["stage"] == "prepare_cards"
     assert patch["staging_cards"] == []
     assert patch["committed_cards"] == []
     assert patch["review_cards"] == []
@@ -56,11 +47,9 @@ def test_apply_cards_gate_redraft_clears_card_pipeline() -> None:
 
 def test_apply_sql_gate_redraft_resets_stage() -> None:
     patch = apply_sql_gate_redraft("wrong metric")
-    assert patch["stage"] == "sql"
+    assert patch["stage"] == "prepare_sql"
     assert patch["draft_sql"] == ""
     assert patch["sql_reasons"] == {}
-    assert patch["tool_call_count"] == 0
-    assert patch["idle_rounds"] == 0
     assert patch["deny_feedback"] == "wrong metric"
     assert patch["messages"][0].content.startswith("SQL gate review")
 
@@ -76,7 +65,7 @@ def test_build_ui_action_patch_rejects_wrong_stage() -> None:
 
 def test_build_ui_action_patch_allows_gate_cards_selection() -> None:
     state = {
-        "stage": "gate_cards",
+        "stage": "prepare_cards",
         "committed_cards": [{"name": "fct_orders"}],
     }
     patch = build_ui_action_patch(

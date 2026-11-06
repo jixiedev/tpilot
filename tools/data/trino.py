@@ -8,7 +8,7 @@ from trino.auth import BasicAuthentication
 from trino.dbapi import connect
 
 from config.tool_config import tool_config, trino_password
-from tools.common import alternative_tool, bind_tool_to_agent
+from tools.registry import alternative_tool, register_tool
 from tools.data.sql_guard import validate_read_only_sql
 from tools.data.trino_errors import register_trino_exception_mappings
 
@@ -67,10 +67,7 @@ def _execute_query(sql: str, limit: int = DEFAULT_ROW_LIMIT) -> dict[str, Any]:
     }
 
 
-@bind_tool_to_agent("databot,default")
-@bind_tool_to_agent("databot,execute")
-@bind_tool_to_agent("diagnostic,default")
-@bind_tool_to_agent("data_analysis,default")
+@register_tool
 @tool
 def trino_run_query(sql: str, limit: int = DEFAULT_ROW_LIMIT) -> dict[str, Any]:
     """Execute a read-only Trino SQL query and return rows (may truncate).
@@ -80,10 +77,7 @@ def trino_run_query(sql: str, limit: int = DEFAULT_ROW_LIMIT) -> dict[str, Any]:
     return _execute_query(validate_read_only_sql(sql), limit)
 
 
-@bind_tool_to_agent("databot,default")
-@bind_tool_to_agent("databot,sql")
-@bind_tool_to_agent("diagnostic,default")
-@bind_tool_to_agent("data_analysis,default")
+@register_tool
 @tool
 def trino_explain(sql: str) -> dict[str, Any]:
     """Validate a read-only SQL by running ``EXPLAIN`` (no rows executed).
@@ -95,12 +89,9 @@ def trino_explain(sql: str) -> dict[str, Any]:
     guard rejects non-read-only statements before they reach Trino, so
     callers cannot accidentally use this as a side-effecting execute.
 
-    Security note: the guard only inspects the *first* token, so a
-    crafted ``EXPLAIN INSERT ...`` slips past it. Trino's ``EXPLAIN``
-    itself is parse-only and does not execute the wrapped statement, so
-    there is no write risk in practice — the same loophole already
-    exists in ``trino_run_query``. Tighten the guard in a follow-up if
-    you want defence in depth.
+    The guard also checks the statement inside ``EXPLAIN`` (including
+    ``EXPLAIN ANALYZE``, which executes it), so only read-only statements
+    can be explained.
     """
     cleaned = (sql or "").strip()
     if not cleaned:
@@ -119,18 +110,14 @@ def trino_explain(sql: str) -> dict[str, Any]:
     return {"ok": True, "plan": plan_rows, "row_count": len(plan_rows), "sql": rendered}
 
 
-@bind_tool_to_agent("databot,default")
-@bind_tool_to_agent("diagnostic,default")
-@bind_tool_to_agent("data_analysis,default")
+@register_tool
 @tool
 def trino_list_catalogs() -> list[dict[str, Any]]:
     """List all Trino catalogs."""
     return _execute_query("SHOW CATALOGS")["rows"]
 
 
-@bind_tool_to_agent("databot,default")
-@bind_tool_to_agent("diagnostic,default")
-@bind_tool_to_agent("data_analysis,default")
+@register_tool
 @tool
 def trino_list_schemas(catalog: str = "") -> list[dict[str, Any]]:
     """List schemas in a Trino catalog (defaults to ``[trino].catalog`` in tools.toml)."""
@@ -139,9 +126,7 @@ def trino_list_schemas(catalog: str = "") -> list[dict[str, Any]]:
     return _execute_query(f"SHOW SCHEMAS FROM {cat}")["rows"]
 
 
-@bind_tool_to_agent("databot,default")
-@bind_tool_to_agent("diagnostic,default")
-@bind_tool_to_agent("data_analysis,default")
+@register_tool
 @tool
 @alternative_tool("hive_list_tables")
 def trino_list_tables(catalog: str = "", schema_name: str = "") -> list[dict[str, Any]]:
@@ -161,10 +146,7 @@ def trino_list_tables(catalog: str = "", schema_name: str = "") -> list[dict[str
     return _execute_query(f"SHOW TABLES FROM {cat}.{schema}")["rows"]
 
 
-@bind_tool_to_agent("databot,default")
-@bind_tool_to_agent("databot,sql")
-@bind_tool_to_agent("diagnostic,default")
-@bind_tool_to_agent("data_analysis,default")
+@register_tool
 @tool
 @alternative_tool("hive_desc_table")
 def trino_desc_table(

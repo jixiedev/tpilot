@@ -2,7 +2,7 @@
 
 from tools.rag.jira import TOOLS as jira_tools
 from tools.rag.jira import fetch_related_jira_tickets
-from tools.rag.semantic import (
+from tools.rag.dbt_models import (
     TOOLS as semantic_tools,
     commit_cards,
     dict_to_table_card,

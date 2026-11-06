@@ -35,3 +35,8 @@ frontend/.DS_Store
 frontend/**/.DS_Store
 frontend/out/
 frontend/build/
+# macOS Finder metadata
+.DS_Store
+
+# Legacy virtualenv (project uses .venv via uv)
+venv/

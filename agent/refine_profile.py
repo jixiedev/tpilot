@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import getpass
 import json
 import logging
 from collections.abc import Callable
@@ -12,11 +11,11 @@ from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import ValidationError
 
-from agent.turn import last_user_visible_reply
+from agent.turn import AgentTurnResult
 from graph.error_recovery import invoke_with_transient_retry
 from memory.profile import UserProfile, merge_user_profile, parse_user_profile_update
 from memory.profile_store import ProfileStore
-from state.state import SessionAgentState, latest_human_text
+from graph.state import SessionAgentState, latest_human_text
 
 logger = logging.getLogger(__name__)
 
@@ -26,42 +25,37 @@ _PROFILE_JSON_HINT = (
 )
 
 
-def _session_user_id(state: SessionAgentState) -> str:
-    user_id = state.get("user_id", "")
-    return user_id.strip() if isinstance(user_id, str) and user_id.strip() else getpass.getuser()
+class UserProfileRefiner:
+    """Best-effort profile merge after a finished turn."""
 
+    def __init__(
+        self,
+        refine_prompt: str,
+        model: BaseChatModel,
+        profile_store: ProfileStore,
+    ) -> None:
+        self._refine_prompt = refine_prompt
+        self._model = model
+        self._profile_store = profile_store
 
-def _invoke_profile_update(model: BaseChatModel, messages: list) -> UserProfile:
-    """Call the model; tolerate providers that return fenced or loose JSON."""
-    structured_model = model.with_structured_output(UserProfile)
-    try:
-        result = invoke_with_transient_retry(lambda: structured_model.invoke(messages))
-        return parse_user_profile_update(result)
-    except (ValidationError, json.JSONDecodeError, TypeError, ValueError) as exc:
-        logger.warning("structured profile refine failed (%s); falling back to plain parse", exc)
+    def _invoke_update(self, messages: list) -> UserProfile:
+        structured_model = self._model.with_structured_output(UserProfile)
+        try:
+            result = invoke_with_transient_retry(lambda: structured_model.invoke(messages))
+            return parse_user_profile_update(result)
+        except (ValidationError, json.JSONDecodeError, TypeError, ValueError) as exc:
+            logger.warning("structured profile refine failed (%s); falling back to plain parse", exc)
 
-    response = invoke_with_transient_retry(lambda: model.invoke(messages))
-    return parse_user_profile_update(response)
+        response = invoke_with_transient_retry(lambda: self._model.invoke(messages))
+        return parse_user_profile_update(response)
 
-
-def make_refine_user_profile_node(
-    refine_prompt: str,
-    model: BaseChatModel,
-    profile_store: ProfileStore,
-) -> Callable[[SessionAgentState], dict[str, Any]]:
-    """After a finished turn, merge profile updates into ``ProfileStore`` (not session state).
-
-    Profile refinement is best-effort: parse or persistence failures are logged and the
-    turn still completes so the assistant reply remains visible to the user.
-    """
-
-    system_prompt = f"{refine_prompt.strip()}\n\n{_PROFILE_JSON_HINT}"
-
-    def refine_user_profile(state: SessionAgentState) -> dict[str, Any]:
-        user_id = _session_user_id(state)
-        current = profile_store.load(user_id)
+    def run(self, state: SessionAgentState) -> None:
+        """Merge evidence from this turn into the stored user profile."""
+        system_prompt = f"{self._refine_prompt.strip()}\n\n{_PROFILE_JSON_HINT}"
+        user_id = self._profile_store.resolve_user_id(prior=state.get("user_id"))
+        current = self._profile_store.load(user_id)
         user_text = latest_human_text(state) or ""
-        reply = last_user_visible_reply(state) or ""
+        reply = AgentTurnResult.last_user_visible_reply(state) or ""
 
         messages = [
             SystemMessage(content=system_prompt),
@@ -77,9 +71,9 @@ def make_refine_user_profile_node(
             ),
         ]
         try:
-            update = _invoke_profile_update(model, messages)
+            update = self._invoke_update(messages)
             merged = merge_user_profile(current, update)
-            profile_store.save(user_id, merged)
+            self._profile_store.save(user_id, merged)
             logger.info(
                 "refined user_profile user_id=%s role=%s metrics=%s",
                 merged.user_id,
@@ -89,6 +83,11 @@ def make_refine_user_profile_node(
         except Exception as exc:
             logger.warning("user profile refine skipped (%s)", exc)
 
-        return {}
+    def as_node(self) -> Callable[[SessionAgentState], dict[str, Any]]:
+        """LangGraph node wrapper around ``run``."""
 
-    return refine_user_profile
+        def refine_user_profile(state: SessionAgentState) -> dict[str, Any]:
+            self.run(state)
+            return {}
+
+        return refine_user_profile

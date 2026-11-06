@@ -1,59 +1,38 @@
 """Databot stage-machine state and gate decision types.
 
-This is the per-turn scratchpad the Databot v2 state machine writes to. It
-extends ``SessionAgentState`` with stage tracking, card lifecycle, the draft
-SQL, an audit trail of human-gate decisions, and a flag for any glossary /
-dbt-metric conflicts the LLM surfaced (we do not auto-write — see
-``graph.build_databot_graph`` for the explicit "flagged gap" behavior).
+Design (snapshot-first):
 
-The fields are added to the LangGraph state via ``DatabotState``, a
-``MessagesState`` subclass declared with TypedDict-style annotations so the
-outer graph can be compiled without Pydantic.
+- **Snapshot fields** describe *what exists now*: ``stage``, ``staging_cards``,
+  ``committed_cards``, ``draft_sql``, ``execution_result``, ``halt_reason``,
+  gate audit rows, etc. At most one of staging vs committed should be populated
+  per domain (cards / SQL) before human review completes.
+- **``stage``** is the outer state-machine pointer (``prepare_cards``,
+  ``prepare_sql``, ``execute_sql``, ``summary``). Gate nodes write the next
+  phase; ``graph.node_for_state`` picks the graph node inside a phase.
+- ReAct loop fields (``tool_call_count``, etc.) live only on
+  :class:`DatabotReactState` inside fetch/SQL subgraphs.
 """
 
 from __future__ import annotations
 
-import typing
+from typing import Any, Literal
 
-# ``state.py`` is imported very early in the langgraph dev process
-# (before our ``agui_server.py`` shim has a chance to run) so we have to
-# patch ``typing.TypedDict`` here too. Without this, pydantic 2.13 raises
-# ``PydanticUserError: Please use typing_extensions.TypedDict`` when
-# LangGraph introspects ``DatabotState`` to build the input/output
-# JSON schemas, and the schema introspection falls back to an empty
-# key set — which means ``review_cards`` / ``committed_cards`` /
-# ``draft_sql`` are *invisible* to the state snapshot, and
-# ``Command(update={"review_cards": ...})`` updates are silently
-# dropped because the graph doesn't know those fields exist.
-if not hasattr(typing, "_tpilot_typed_dict_shim_applied"):
-    import typing_extensions
+from langchain_core.messages import BaseMessage
+from typing_extensions import TypedDict
 
-    typing.TypedDict = typing_extensions.TypedDict  # type: ignore[attr-defined]
-    typing._tpilot_typed_dict_shim_applied = True  # type: ignore[attr-defined]
+from graph.state import ReactAgentState, SessionAgentState
 
-from typing import Any, Literal, TypedDict
+PHASE_PREPARE_CARDS = "prepare_cards"
+PHASE_PREPARE_SQL = "prepare_sql"
+PHASE_EXECUTE_SQL = "execute_sql"
+PHASE_SUMMARY = "summary"
 
-from langgraph.graph import MessagesState
-
-from agent.specialists.databot._constants import (
-    STAGE_DONE,
-    STAGE_EXECUTE,
-    STAGE_FETCH,
-    STAGE_GATE_CARDS,
-    STAGE_GATE_SQL,
-    STAGE_SQL,
-)
-from state.state import SessionAgentState
-
-# Outer state machine stages. Each human gate lives between two stages and
-# ``stage`` is what the next conditional edge uses to pick the next node.
-DatabotStage = Literal[
-    STAGE_FETCH,        # fetch_cards_subgraph: parallel RAG + MCP, then LLM picks cards
-    STAGE_GATE_CARDS,   # human approves the card selection
-    STAGE_SQL,          # generate_sql_subgraph: draft SQL from approved cards
-    STAGE_GATE_SQL,     # human approves the SQL
-    STAGE_EXECUTE,      # execute_sql_node: run approved_sql via trino_run_query
-    STAGE_DONE,         # terminal
+# Pipeline phase stored in ``stage`` (four phases).
+DatabotPhaseName = Literal[
+    PHASE_PREPARE_CARDS,
+    PHASE_PREPARE_SQL,
+    PHASE_EXECUTE_SQL,
+    PHASE_SUMMARY,
 ]
 
 # Human gate verdicts.
@@ -71,162 +50,147 @@ class GateAuditEntry(TypedDict):
 
 
 class DatabotState(SessionAgentState):
-    """Per-turn state for the Databot v2 staged pipeline.
+    """Outer Databot pipeline state (session messages + staged snapshots)."""
 
-    Extends ``SessionAgentState`` to inherit session id, ReAct
-    bookkeeping (``tool_call_count``, ``idle_rounds``, ``failed_tools``),
-    and ``messages``. The databot fields below are only read and
-    written by nodes in ``agent/react/databot/graph.py`` and the
-    per-stage subgraph builders. Using the same class for the outer
-    graph and the inner subgraphs lets the LLM's
-    ``Command(update=...)`` writes land directly — no more silently
-    dropped keys, no more bridge nodes to recover lost data.
-    """
-
-    # Outer stage-machine pointer.
-    stage: DatabotStage
-
-    # fetch stage ------------------------------------------------------------
-    # Every ``fetch_related_models`` hit, each with a unique ``staging_id``.
-    # The LLM references these ids in ``commit_cards``; unstaged rows
-    # stay here until committed or the turn resets.
+    history_cards: list[dict[str, Any]]
+    stage: DatabotPhaseName
     staging_cards: list[dict[str, Any]]
-    # LLM-committed cards (dims/metrics annotated) via ``commit_cards``.
     committed_cards: list[dict[str, Any]]
-    # Set when ``commit_cards`` runs, including ``selections=[]`` after a failed
-    # or empty ``fetch_related_models``. The fetch subgraph exits on this flag.
-    cards_committed: bool
-    # Cards shown at the human cards gate (copied from ``committed_cards`` by
-    # ``prepare_cards_for_gate``; UI may edit via ``update_card_selection``).
+    metric_conflicts: list[dict[str, Any]]
     review_cards: list[dict[str, Any]]
-    # Cards the human approved. SQL generation reads this as the working
-    # schema. Follow-up requery keeps this list so ``commit_cards`` can
-    # resolve last turn's ``staging_id``s; this-turn ``staging_cards`` stays empty
-    # until fetch. Overwritten when the cards gate approves a new set.
-    approved_cards: list[dict[str, Any]]
-    # Glossary / dbt-metric conflicts the LLM surfaced but did NOT fix.
-    # Each entry: {"card_name": str, "metric": str, "glossary_term": str,
-    # "reason": str}. Surfaced in the final reply so the user can decide.
-    metric_conflicts: list[dict[str, str]]
-
-    # sql stage --------------------------------------------------------------
-    draft_sql: str
-    approved_sql: str
-    # ``True`` if the SQL was successfully compiled (EXPLAIN) before the gate.
-    sql_validated: bool
-
-    # execute stage ----------------------------------------------------------
-    execution_result: dict[str, Any]
-
-    # Audit trail ------------------------------------------------------------
-    gate_decisions: list[GateAuditEntry]
-    # LLM-generated per-option reason strings the human gates surface. The
-    # LLM is required to populate the right map (``cards_reasons`` or
-    # ``sql_reasons``) before its stage exits; the gate node reads from
-    # here when building the interrupt prompt.
     cards_reasons: dict[str, str]
-    # Factual summary of committed models for the cards gate UI (not option copy).
     cards_selection_summary: str
+    approved_cards: list[dict[str, Any]]
+    draft_sql: str
+    sql_validated: bool
     sql_reasons: dict[str, str]
-    # Per-turn flags written by the gate / persistence nodes.
+    approved_sql: str
+    gate_decisions: list[GateAuditEntry]
     dryrun: bool
     halt_reason: str
-    chart_requested: bool
     deny_feedback: str
-
-    # follow-up routing ------------------------------------------------------
-    # Set when a web/CLI follow-up arrives after ``stage`` was ``done``.
-    follow_up_turn: bool
-    # ``knowledge`` (clarify prior answer) vs ``requery`` (new fetch pipeline).
-    follow_up_intention: str
+    execution_result: dict[str, Any]
 
 
-# Per-turn databot fields reset at the start of each new question (CLI
-# ``prepare_turn_input`` and web entry-node follow-ups). ``messages`` and
-# session-scoped fields are intentionally omitted.
-FRESH_TURN_STATE_DEFAULTS: dict[str, Any] = {
-    "stage": STAGE_FETCH,
-    "staging_cards": [],
-    "committed_cards": [],
-    "cards_committed": False,
-    "review_cards": [],
-    "approved_cards": [],
-    "metric_conflicts": [],
-    "draft_sql": "",
-    "approved_sql": "",
-    "sql_validated": False,
-    "execution_result": {},
-    "gate_decisions": [],
-    "cards_reasons": {},
-    "cards_selection_summary": "",
-    "sql_reasons": {},
-    "dryrun": False,
-    "halt_reason": "",
-    "chart_requested": False,
-    "deny_feedback": "",
-    "follow_up_turn": False,
-    "follow_up_intention": "",
-    "tool_call_count": 0,
-    "idle_rounds": 0,
-    "failed_tools": [],
-}
+def fetch_react_input(state: dict[str, Any]) -> FetchReactInput:
+    """Clone session messages and copy fetch-stage pipeline fields for ReAct."""
+    return {
+        "messages": list(state.get("messages") or []),
+        "session_name": str(state.get("session_name") or ""),
+        "user_id": str(state.get("user_id") or ""),
+        "history_cards": list(state.get("history_cards") or []),
+        "staging_cards": list(state.get("staging_cards") or []),
+        "committed_cards": list(state.get("committed_cards") or []),
+        "approved_cards": list(state.get("approved_cards") or []),
+        "metric_conflicts": list(state.get("metric_conflicts") or []),
+        "deny_feedback": str(state.get("deny_feedback") or ""),
+    }
 
-
-def fresh_turn_state_defaults() -> dict[str, Any]:
-    """Return per-turn reset defaults with fresh list/dict instances."""
-    fresh: dict[str, Any] = {}
-    for key, value in FRESH_TURN_STATE_DEFAULTS.items():
-        if isinstance(value, list):
-            fresh[key] = []
-        elif isinstance(value, dict):
-            fresh[key] = {}
-        else:
-            fresh[key] = value
-    return fresh
-
-
-# Pipeline fields cleared on follow-up **requery**. ``approved_cards`` is left
-# in place so ``commit_cards`` can reuse last turn's models; CLI new questions
-# use ``fresh_turn_state_defaults`` instead. Knowledge follow-ups do not clear.
-FRESH_PIPELINE_STATE_KEYS: tuple[str, ...] = (
-    "stage",
-    "staging_cards",
-    "committed_cards",
-    "cards_committed",
-    "review_cards",
-    "metric_conflicts",
-    "draft_sql",
-    "approved_sql",
-    "sql_validated",
-    "execution_result",
-    "gate_decisions",
-    "cards_reasons",
-    "cards_selection_summary",
-    "sql_reasons",
-    "dryrun",
-    "halt_reason",
-    "chart_requested",
-    "deny_feedback",
-    "tool_call_count",
-    "idle_rounds",
-    "failed_tools",
-)
-
-
-def fresh_pipeline_state_defaults(*, stage: str = STAGE_FETCH) -> dict[str, Any]:
-    """Reset staged pipeline artifacts for a new warehouse query."""
-    full = fresh_turn_state_defaults()
-    patch = {key: full[key] for key in FRESH_PIPELINE_STATE_KEYS if key in full}
-    patch["stage"] = stage
+def merge_fetch_react_output(output: dict[str, Any]) -> dict[str, Any]:
+    """LangGraph node update from fetch ReAct ``output_schema``."""
+    patch: dict[str, Any] = {}
+    for key in ("staging_cards", "committed_cards", "metric_conflicts", "messages"):
+        if key in output and output[key] is not None:
+            patch[key] = output[key]
     return patch
 
-
-def fresh_follow_up_entry_defaults() -> dict[str, Any]:
-    """Bookkeeping reset when a follow-up message arrives; keeps pipeline artifacts."""
+def sql_react_input(state: dict[str, Any]) -> SqlReactInput:
+    """Clone session messages and copy SQL-stage pipeline fields for ReAct."""
     return {
-        "follow_up_turn": True,
-        "follow_up_intention": "",
-        "tool_call_count": 0,
-        "idle_rounds": 0,
-        "failed_tools": [],
+        "messages": list(state.get("messages") or []),
+        "session_name": str(state.get("session_name") or ""),
+        "user_id": str(state.get("user_id") or ""),
+        "approved_cards": list(state.get("approved_cards") or []),
+        "draft_sql": str(state.get("draft_sql") or ""),
+        "sql_validated": bool(state.get("sql_validated")),
+        "sql_reasons": dict(state.get("sql_reasons") or {}),
+        "deny_feedback": str(state.get("deny_feedback") or ""),
     }
+
+def merge_sql_react_output(output: dict[str, Any]) -> dict[str, Any]:
+    patch: dict[str, Any] = {}
+    for key in ("draft_sql", "sql_validated", "sql_reasons", "messages"):
+        if key in output and output[key] is not None:
+            patch[key] = output[key]
+    return patch
+
+def react_turn_init(_state: FetchReactInput | SqlReactInput) -> dict[str, Any]:
+    """Reset per-layer ReAct counters at subgraph entry."""
+    return dict(ReactAgentState.fresh_turn_defaults())
+
+
+class DatabotReactState(ReactAgentState):
+    """Inner ReAct loop state (tools + counters + pipeline fields tools may write)."""
+
+    history_cards: list[dict[str, Any]]
+    staging_cards: list[dict[str, Any]]
+    committed_cards: list[dict[str, Any]]
+    approved_cards: list[dict[str, Any]]
+    metric_conflicts: list[dict[str, Any]]
+    deny_feedback: str
+    draft_sql: str
+    sql_validated: bool
+    sql_reasons: dict[str, str]
+    approved_sql: str
+    stage: str
+
+
+class FetchReactInput(TypedDict):
+    """Input to the fetch-cards ReAct subgraph (built from :class:`DatabotState`)."""
+
+    messages: list[BaseMessage]
+    session_name: str
+    user_id: str
+    history_cards: list[dict[str, Any]]
+    staging_cards: list[dict[str, Any]]
+    committed_cards: list[dict[str, Any]]
+    approved_cards: list[dict[str, Any]]
+    metric_conflicts: list[dict[str, Any]]
+    deny_feedback: str
+
+
+class FetchReactOutput(TypedDict, total=False):
+    """Patch merged back onto :class:`DatabotState` after fetch ReAct."""
+
+    messages: list[BaseMessage]
+    staging_cards: list[dict[str, Any]]
+    committed_cards: list[dict[str, Any]]
+    metric_conflicts: list[dict[str, Any]]
+
+
+class SqlReactInput(TypedDict):
+    """Input to the generate-sql ReAct subgraph."""
+
+    messages: list[BaseMessage]
+    session_name: str
+    user_id: str
+    approved_cards: list[dict[str, Any]]
+    draft_sql: str
+    sql_validated: bool
+    sql_reasons: dict[str, str]
+    deny_feedback: str
+
+
+class SqlReactOutput(TypedDict, total=False):
+    """Patch merged back onto :class:`DatabotState` after SQL ReAct."""
+
+    messages: list[BaseMessage]
+    draft_sql: str
+    sql_validated: bool
+    sql_reasons: dict[str, str]
+
+
+__all__ = [
+    "DatabotPhaseName",
+    "DatabotReactState",
+    "FetchReactInput",
+    "FetchReactOutput",
+    "GateAuditEntry",
+    "GateDecision",
+    "PHASE_EXECUTE_SQL",
+    "PHASE_PREPARE_CARDS",
+    "PHASE_PREPARE_SQL",
+    "PHASE_SUMMARY",
+    "SqlReactInput",
+    "SqlReactOutput",
+]

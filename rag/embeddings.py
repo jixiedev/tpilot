@@ -9,7 +9,7 @@ from typing import Any
 from qdrant_client.http import models as qmodels
 
 from rag.config import EmbeddingConfig, get_rag_config
-from rag.models import resolve_model_dir
+from rag.local_models import resolve_model_dir
 
 HybridEmbedding = tuple[list[float], dict[int, float]]
 

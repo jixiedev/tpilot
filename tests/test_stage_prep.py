@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
-from agent.specialists.databot._constants import STAGE_GATE_CARDS
-from agent.specialists.databot.stage_prep import make_prepare_cards_for_gate_node
+from agent.specialists.databot.graph import DatabotTopology
+from agent.specialists.databot.graph import PHASE_PREPARE_CARDS
 
 
 class _FakeChatModel:
@@ -26,7 +26,7 @@ def test_prepare_cards_for_gate_copies_candidates_and_reasons() -> None:
         '"Dry-run to preview without saving a profile."]'
     )
     model = _FakeChatModel(llm_reasons)
-    node = make_prepare_cards_for_gate_node(model)
+    node = DatabotTopology(model).prepare_cards_for_gate()
     state = {
         "messages": [
             HumanMessage(content="how many orders yesterday?"),
@@ -44,8 +44,8 @@ def test_prepare_cards_for_gate_copies_candidates_and_reasons() -> None:
         "deny_feedback": "stale",
     }
     patch = node(state)  # type: ignore[arg-type]
-    assert patch["stage"] == STAGE_GATE_CARDS
-    assert patch["deny_feedback"] == ""
+    assert patch["stage"] == PHASE_PREPARE_CARDS
+    assert patch.get("deny_feedback", "stale") == "stale"
     assert patch["review_cards"] == state["committed_cards"]
     assert "orders_daily" in patch["cards_reasons"]["approve"]
     assert "yesterday" in patch["cards_reasons"]["approve"].lower()
@@ -63,7 +63,7 @@ def test_prepare_cards_for_gate_ignores_think_dump() -> None:
         "<think>The user wants me to write gate option copy for the reviewer. "
         "I need to write one sentence per option.</think>"
     )
-    node = make_prepare_cards_for_gate_node(_FakeChatModel(dump))
+    node = DatabotTopology(_FakeChatModel(dump)).prepare_cards_for_gate()
     patch = node(
         {
             "messages": [HumanMessage(content="last month GMV by country")],

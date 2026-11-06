@@ -10,33 +10,29 @@ from __future__ import annotations
 
 import pytest
 
-from agent.specialists.databot.gates import (
-    DEFAULT_GATE_DECISION,
-    GATE_OPTIONS,
-    _parse_resume,
-)
+from agent.specialists.databot.gates import DEFAULT_GATE_DECISION, GATE_OPTIONS
+from agent.specialists.databot import gates as human_gates
 
 
 @pytest.mark.parametrize("token", list(GATE_OPTIONS))
 def test_parse_resume_accepts_bare_tokens(token: str) -> None:
-    decision, comments = _parse_resume(token)
+    decision, comments = human_gates.parse_resume(token)
     assert decision == token
     assert comments == ""
 
 
-def test_parse_resume_defaults_to_dryrun_on_empty() -> None:
-    decision, comments = _parse_resume("")
-    assert decision == DEFAULT_GATE_DECISION == "dryrun"
+@pytest.mark.parametrize("payload", ["", "   ", None])
+def test_parse_resume_empty_reply_asks_again(payload) -> None:
+    """A blank Enter must not continue: at the SQL gate it would run the query."""
+    decision, comments = human_gates.parse_resume(payload)
+    assert decision is None
     assert comments == ""
-
-
-def test_parse_resume_defaults_to_dryrun_on_none() -> None:
-    decision, _ = _parse_resume(None)
-    assert decision == "dryrun"
+    # The payload still advertises a default for UIs that preselect a button.
+    assert DEFAULT_GATE_DECISION == "dryrun"
 
 
 def test_parse_resume_accepts_json_object() -> None:
-    decision, comments = _parse_resume(
+    decision, comments = human_gates.parse_resume(
         '{"decision": "deny-comments", "comments": "use a different table"}'
     )
     assert decision == "deny-comments"
@@ -44,29 +40,29 @@ def test_parse_resume_accepts_json_object() -> None:
 
 
 def test_parse_resume_keeps_comments_when_decision_unknown() -> None:
-    decision, comments = _parse_resume(
+    decision, comments = human_gates.parse_resume(
         '{"decision": "banana", "comments": "please clarify the metric"}'
     )
-    assert decision == "dryrun"  # safe default
+    # Unknown decisions never proceed: the gate re-asks.
+    assert decision is None
     assert comments == "please clarify the metric"
 
 
-def test_parse_resume_preserves_freeform_text_as_comments() -> None:
-    # Freeform text without a recognized token — we default to dryrun and
-    # keep the user's text as a comment for the audit log.
-    decision, comments = _parse_resume("approve with notes: prefer last 7 days")
-    assert decision == "dryrun"
+def test_parse_resume_freeform_text_is_unrecognized() -> None:
+    # Free text without a recognized token is not a decision; the gate re-asks.
+    decision, comments = human_gates.parse_resume("approve with notes: prefer last 7 days")
+    assert decision is None
     assert "approve with notes" in comments
 
 
 def test_parse_resume_handles_non_string_payload() -> None:
-    decision, comments = _parse_resume(42)  # type: ignore[arg-type]
-    assert decision == "dryrun"
+    decision, comments = human_gates.parse_resume(42)  # type: ignore[arg-type]
+    assert decision is None
     assert comments == "42"  # coerced to string
 
 
 def test_parse_resume_accepts_dict_payload() -> None:
-    decision, comments = _parse_resume(
+    decision, comments = human_gates.parse_resume(
         {"decision": "deny-comments", "comments": "use dt not payment_received_time"},
     )
     assert decision == "deny-comments"
@@ -79,10 +75,9 @@ def test_gate_options_includes_all_thought1_verdicts() -> None:
 
 
 def test_gate_prompt_sql_uses_default_reasons_when_state_empty() -> None:
-    from agent.specialists.databot.gate_defaults import DEFAULT_SQL_GATE_REASONS
-    from agent.specialists.databot.gates import _gate_prompt
+    from agent.specialists.databot.gates import DEFAULT_SQL_GATE_REASONS
 
-    payload = _gate_prompt(
+    payload = human_gates.prompt(
         {
             "draft_sql": "SELECT 1",
             "sql_reasons": {},
@@ -94,9 +89,7 @@ def test_gate_prompt_sql_uses_default_reasons_when_state_empty() -> None:
 
 
 def test_gate_prompt_cards_preserves_llm_reasons_over_defaults() -> None:
-    from agent.specialists.databot.gates import _gate_prompt
-
-    payload = _gate_prompt(
+    payload = human_gates.prompt(
         {
             "review_cards": [{"name": "orders_daily"}],
             "cards_reasons": {"approve": "orders_daily — daily order grain"},
@@ -110,9 +103,7 @@ def test_gate_prompt_cards_preserves_llm_reasons_over_defaults() -> None:
 
 
 def test_build_cards_selection_summary_from_card_payload() -> None:
-    from agent.specialists.databot.gate_defaults import build_cards_selection_summary
-
-    summary = build_cards_selection_summary(
+    summary = human_gates.cards_selection_summary(
         [
             {
                 "name": "fct_orders",
@@ -128,9 +119,7 @@ def test_build_cards_selection_summary_from_card_payload() -> None:
 
 
 def test_gate_prompt_cards_includes_selection_summary() -> None:
-    from agent.specialists.databot.gates import _gate_prompt
-
-    payload = _gate_prompt(
+    payload = human_gates.prompt(
         {
             "review_cards": [{"name": "orders_daily"}],
             "cards_reasons": {"approve": "Pick approve — orders_daily matches your question."},
@@ -149,11 +138,10 @@ def test_gate_prompt_cards_includes_selection_summary() -> None:
 # instead of a dict; the tool now accepts both shapes).
 # ---------------------------------------------------------------------------
 
-from agent.specialists.databot.stage_tools import _coerce_gate_reasons  # noqa: E402
 
 
 def test_coerce_gate_reasons_dict_form() -> None:
-    out = _coerce_gate_reasons({
+    out = human_gates.coerce_reasons({
         "approve": "card matches",
         "deny-comments": "maybe stale",
         "deny-halt": "no",
@@ -168,7 +156,7 @@ def test_coerce_gate_reasons_dict_form() -> None:
 
 
 def test_coerce_gate_reasons_list_positional() -> None:
-    out = _coerce_gate_reasons([
+    out = human_gates.coerce_reasons([
         "approve: card matches",          # prefix gets stripped
         "deny-comments: maybe stale",
         "deny-halt: no",
@@ -183,12 +171,12 @@ def test_coerce_gate_reasons_list_positional() -> None:
 
 
 def test_coerce_gate_reasons_list_short() -> None:
-    out = _coerce_gate_reasons(["only one reason"])
+    out = human_gates.coerce_reasons(["only one reason"])
     assert out == {"approve": "only one reason"}
 
 
 def test_coerce_gate_reasons_unknown_keys_dropped() -> None:
-    out = _coerce_gate_reasons({
+    out = human_gates.coerce_reasons({
         "approve": "ok",
         "banana": "no",
         "DENY-COMMENTS": "uppercase ok",  # not in lowercase set → dropped
@@ -197,14 +185,14 @@ def test_coerce_gate_reasons_unknown_keys_dropped() -> None:
 
 
 def test_coerce_gate_reasons_empty_and_garbage() -> None:
-    assert _coerce_gate_reasons(None) == {}
-    assert _coerce_gate_reasons("just a string") == {}
-    assert _coerce_gate_reasons([]) == {}
-    assert _coerce_gate_reasons({}) == {}
+    assert human_gates.coerce_reasons(None) == {}
+    assert human_gates.coerce_reasons("just a string") == {}
+    assert human_gates.coerce_reasons([]) == {}
+    assert human_gates.coerce_reasons({}) == {}
 
 
 def test_coerce_gate_reasons_list_with_prefixed_and_bare() -> None:
-    out = _coerce_gate_reasons([
+    out = human_gates.coerce_reasons([
         "approve: matches",
         "no prefix here",
     ])
@@ -219,8 +207,8 @@ def test_coerce_gate_reasons_rejects_think_dump() -> None:
         "- User asked for Wish's last month's GMV by country\n"
         "- Committed card: fct_transaction_variations with dimensions shipping_country"
     )
-    assert _coerce_gate_reasons(dump) == {}
-    assert _coerce_gate_reasons(dump.splitlines()) == {}
+    assert human_gates.coerce_reasons(dump) == {}
+    assert human_gates.coerce_reasons(dump.splitlines()) == {}
 
 
 def test_coerce_gate_reasons_extracts_json_after_think() -> None:
@@ -231,6 +219,37 @@ def test_coerce_gate_reasons_extracts_json_after_think() -> None:
         '"Halt if this question cannot be answered from these models.", '
         '"Dry-run if you only want a preview."]'
     )
-    out = _coerce_gate_reasons(raw)
+    out = human_gates.coerce_reasons(raw)
     assert "draft SQL" in out["approve"]
     assert "grain" in out["deny-comments"]
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        "use commission_revenue not gmv",
+        "aprove",
+        {"decision": "banana"},
+        '{"decision": "yes", "comments": "go"}',
+    ],
+)
+def test_parse_resume_unrecognized_reply_never_proceeds(payload) -> None:
+    decision, _ = human_gates.parse_resume(payload)
+    assert decision is None
+
+
+def test_unrecognized_resume_note_lists_valid_options() -> None:
+    note = human_gates.unrecognized_resume_note("use gmv")
+    assert "use gmv" in note
+    for option in GATE_OPTIONS:
+        assert option in note
+
+
+def test_default_dryrun_reasons_match_behavior() -> None:
+    """Dry-run runs the query like approve and only skips retrieval history."""
+    sql_text = human_gates.DEFAULT_SQL_GATE_REASONS["dryrun"].lower()
+    cards_text = human_gates.DEFAULT_CARDS_GATE_REASONS["dryrun"].lower()
+    assert "no query execution" not in sql_text
+    assert "run the query" in sql_text
+    assert "history" in sql_text and "history" in cards_text
+    assert "profile" not in sql_text and "profile" not in cards_text

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from tools.code.python_execute import python_execute, run_python
+import pytest
+
+from tools.code.python_execute import PythonExecuteError, python_execute, run_python
 
 
 def test_python_execute_captures_print() -> None:
@@ -16,6 +18,6 @@ def test_python_execute_reports_nonzero_exit() -> None:
 
 
 def test_python_execute_timeout() -> None:
-    result = run_python("import time; time.sleep(5)", timeout_seconds=1)
-    assert result["success"] is False
-    assert "timeout" in result["observation"].lower()
+    with pytest.raises(PythonExecuteError, match="timeout") as info:
+        run_python("import time; time.sleep(5)", timeout_seconds=1)
+    assert info.value.timed_out is True
