@@ -14,6 +14,7 @@ This page is the map. Each subsystem has its own README with the details:
 | RAG | [rag/README.md](../rag/README.md) | Ingest (Jira, Drive, dbt) into Qdrant and hybrid retrieval |
 | Evals | [evals/README.md](../evals/README.md) | JSON case suites and scoring (`python -m evals`) |
 | Web stack | [frontend/README.md](../frontend/README.md) | Next.js + CopilotKit UI, the AG-UI server, `langgraph dev` |
+| Docs site | [docs_site/README.md](../docs_site/README.md) | GitHub Pages build from these READMEs |
 
 ## System at a glance
 

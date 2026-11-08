@@ -1,0 +1,105 @@
+site_name: TahoePilot
+site_description: An AI agent platform for data teams. Ask in a terminal or a browser; specialists reason with an LLM and call read-only tools against your data platform and knowledge base.
+site_url: https://jixiedev.github.io/tpilot/
+repo_url: https://github.com/jixiedev/tpilot
+repo_name: jixiedev/tpilot
+edit_uri: edit/master/docs_site/pages/
+docs_dir: docs_site/pages
+site_dir: site
+use_directory_urls: false
+copyright: TahoePilot
+
+nav:
+  - Home: index.md
+  - Guides:
+      - Getting started: getting-started.md
+      - Architecture: architecture.md
+  - Agents:
+      - The seven agents: agents.md
+      - Databot: databot.md
+      - Databot graph: databot-graph.md
+  - Capabilities:
+      - Overview: capabilities.md
+      - Tools: tools.md
+      - Configuration: configuration.md
+      - Memory: memory.md
+      - Knowledge: knowledge.md
+      - Evaluation: evals.md
+      - Web UI: web-ui.md
+  - Project:
+      - Roadmap: roadmap.md
+      - 路线图: roadmap-zh.md
+
+theme:
+  name: material
+  custom_dir: docs_site/overrides
+  logo: assets/logo.svg
+  favicon: assets/favicon.svg
+  font:
+    text: Outfit
+    code: JetBrains Mono
+  features:
+    - navigation.tabs
+    - navigation.tabs.sticky
+    - navigation.sections
+    - navigation.top
+    - navigation.footer
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - content.action.edit
+    - content.action.view
+    - toc.follow
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: custom
+      accent: custom
+      toggle:
+        icon: material/weather-night
+        name: Dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: custom
+      accent: custom
+      toggle:
+        icon: material/weather-sunny
+        name: Light mode
+
+plugins:
+  - search
+
+markdown_extensions:
+  - abbr
+  - admonition
+  - attr_list
+  - def_list
+  - footnotes
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.details
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.tasklist:
+      custom_checkbox: true
+
+extra_css:
+  - stylesheets/extra.css
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/jixiedev/tpilot
+
+watch:
+  - docs_site/pages

@@ -1629,6 +1629,28 @@ Implementation notes (behavior only): detect emits intentions + plan steps; publ
 | Routable specialists | Only Databot (`DATA`) and Knowledge (`KNOWLEDGE`) | Every agent except intent: also `DIAGNOSTIC`, `ANALYSIS`, `SWE` |
 | DATA vs ANALYSIS | Databot described as "retrieval or analysis" | Databot answers concrete data questions; exploration with Python and charts goes to data_analysis |
 
+## 2026-11-07 — Docs site tech diagrams
+
+**Goal**: Publish the existing READMEs as a GitHub Pages site, and replace ASCII architecture fences with Tahoe-green HUD drawings.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| Docs on the web | Markdown only, read on GitHub | MkDocs Material site assembled from the same files |
+| Architecture drawings | Box-drawing characters in every README | Git stays ASCII; the site injects painted SVG (grid, HUD corners, kind icons, gated nodes) |
+| Diagram sizing | Material's `figure { width: fit-content }` made the box narrower than the SVG, so every diagram was cropped at the right edge | `figure.tp-diagram` pinned to `width: 100%` and `.md-grid` widened to 72rem, so the 1120-unit canvases scale into the column |
+
+## 2026-11-08 — Docs site reader pages
+
+**Goal**: Make the published site readable by data-team users. No module names, no source snippets, no code-shaped identifiers; links stay on the site instead of pointing at files.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| Page content | Assembled from the repository READMEs, so every page carried `.py` names, config keys and code blocks | 14 hand-written reader pages under `docs_site/pages/`; the repository keeps its developer view |
+| Site assembly | `gen-files` plugin emitted pages at build time (`assembler.py`, `gen_pages.py`) | Plain MkDocs over a static docs directory; the plugin and both modules are gone |
+| Diagram labels | Painted the code-facing labels (`cli.py`, `agent/`, `.local/`, `AgentCatalog`) | `docs_site/diagrams.py` rewrites labels to reader words and refuses to paint a diagram that names a source file; SVGs are committed as static assets |
+| Links | Doc links to source files were rewritten to GitHub blob URLs | Every link points at another page of the site |
+| Enforcement | Review by hand | `tests/test_docs_site.py` builds the site and fails on module names, snippets, code-shaped identifiers, GitHub file links and unreadable diagram labels; the Pages workflow runs it before the build |
+
 <!-- Append the next optimization section above this line -->
 
 
