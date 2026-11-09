@@ -28,7 +28,6 @@ nav:
       - Web UI: web-ui.md
   - Project:
       - Roadmap: roadmap.md
-      - 路线图: roadmap-zh.md
 
 theme:
   name: material

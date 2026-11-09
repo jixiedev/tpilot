@@ -1,7 +1,5 @@
 # TahoePilot Project Roadmap
 
-> [Chinese (roadmap-zh.md)](roadmap-zh.md) | English
-
 An AI Agent platform for data teams: chatbot, intelligent data retrieval, team knowledge Q&A, data diagnosis, development assistance, and data analysis.
 
 **Current version**: 0.1.0  
@@ -163,6 +161,89 @@ This piece removes follow-up intention classification and the graph path that co
 LangGraph stays the engine. Nodes still submit a checkpointable update; that conversion stays in the adapter.
 
 **Related**: structure of the M2 retrieval path. When embedded in F5 Plan / M4 in-process orchestration, Databot does not take HITL by default. The graph refactor uses the "nodes advance through operations" interface, so the objects and the adapter land first.
+
+---
+
+## Chat optimizations so far
+
+From July to November 2026 the team logged each change to how chat behaves. This section groups those changes by what you notice, not by date. Each bullet says what changed and why it matters to you.
+
+### Conversation and sessions
+
+- **July 2026.** You chat over many turns in the terminal. The assistant calls Hive, Trino and MCP tools and answers in plain language. If an MCP server is unreachable, chat still starts with Hive and Trino.
+- **July 2026.** Sessions are saved to a SQLite file. Reuse the same session name and you continue where you left off, even after a restart.
+- **August 2026.** At startup, you see which MCP servers are reachable before you ask anything.
+- **August 2026.** While you wait, the terminal shows status lines: the model is thinking, the router is choosing, a specialist is running. A long pause no longer looks like a hang.
+- **August 2026.** The reply you see always belongs to this turn. Before, a turn that ended without an answer could show the previous answer again.
+- **September 2026.** A turn ends when the assistant writes a reply and asks for no more tools. A turn that stalls now ends with an answer instead of looping.
+
+### Context and memory
+
+- **July 2026.** Long sessions stay coherent. Large tool results move to disk and leave a short preview the assistant can reopen. Older history is summarized, recent turns stay as written, and the full record is archived.
+- **August 2026.** Earlier turns keep only your question and the answer. Their tool traces are archived, which leaves more room for the current turn.
+- **July 2026.** The assistant remembers you. A profile holds your identity, locale, preferences and favorite metrics, and it shapes every answer. After a turn, the assistant may add a lasting preference. The profile is stored per user, so it carries across sessions.
+- **November 2026.** Your session and profile load once per process. Later turns do not re-read them from disk, so turns start faster.
+
+### Routing and agents
+
+- **August 2026.** Two specialists arrive: databot for data retrieval and knowledge for team knowledge. You can start one directly or let the router choose.
+- **August 2026.** The router reads your question and hands it to a specialist. When it is unsure, it asks you a clarifying question and waits.
+- **August 2026.** Specialists stop calling optional extra tools once they have enough evidence. You get the answer sooner.
+- **September 2026.** Requests that need several specialists go to the plan specialist, which splits the work. The router stays fast: it hands your original question to exactly one agent.
+- **November 2026.** Plan is chosen like any other specialist. The router can now also pick diagnostic, data_analysis and swe. Databot answers concrete data questions; open-ended exploration with Python and charts goes to data_analysis.
+- **November 2026.** Each new question gets its own routing decision. Before, a second turn could reuse the first turn's question. When plan hands a step to databot, databot can still ask you to confirm.
+
+### Data retrieval (Databot)
+
+- **July 2026.** Data answers are read-only. Requests to change data are refused. Metric questions start from the DataHub glossary, and answers name the tables, fields and time range they used.
+- **August 2026.** Databot works in stages: find candidate tables, write SQL, run it, summarize. Each stage sees only the tools it needs. The query runs only after the SQL is approved.
+- **August 2026.** You get two review points: the table cards and the SQL. Approve, request changes with a comment, halt, or choose a dry run. A change request makes databot redraft with your feedback instead of repeating itself.
+- **August 2026.** When the glossary and a dbt model disagree on a metric, databot flags the conflict. It does not edit either one.
+- **September 2026.** Every finished query ends with a chat summary of the models, SQL, results and conflicts. The summary answers your original question, not your review comments.
+- **September 2026.** A follow-up question reruns the full retrieval with the chat history as context. Extending an earlier answer, such as adding a country breakdown, can reuse tables you already approved.
+- **October 2026.** If the model search fails or finds nothing, the table step can finish empty instead of getting stuck.
+- **November 2026.** Databot checks the tables you approved in earlier questions before it searches again. Each approved turn records the question, tables and SQL.
+- **November 2026.** Databot handles retrieval only. Knowledge questions go to the knowledge specialist.
+- **November 2026.** A typo or blank review reply now asks again. Before, it counted as a dry run and could run the query. Halted turns save nothing, and the dry-run message matches what happens.
+
+### Knowledge search
+
+- **August 2026.** Knowledge searches Jira tickets in a local Qdrant store. Google Drive exports can be loaded too. Text is embedded on your machine by default, so no paid embedding service is needed.
+- **August 2026.** Knowledge reads the DataHub catalog, glossary, lineage, sample queries and schema fields, and has read-only views of Kubernetes. It searches Jira only for past work, not as a default extra step.
+- **August 2026.** Your dbt semantic models are indexed, so databot can propose table cards from them.
+- **September 2026.** Search combines meaning and keyword matching, then reranks the hits. Long documents split at their headings. A long loading job can stop and resume, and a failed batch is never marked complete.
+- **October 2026.** The search models download once, ahead of time. Searches no longer stall on a network fetch.
+
+### Tools and error recovery
+
+- **July 2026.** A failed tool returns a clear error with a hint. Connection and timeout errors retry on their own. If Hive fails, the assistant may try Trino, but it does not bounce between the two. Model rate limits and timeouts come back as plain guidance.
+- **August 2026.** General tools arrive: a shell, Python, a file editor, web search, read-only S3 and a planning tool. The Trino query tool rejects anything that changes data.
+- **August 2026.** Conversation history is repaired before it is sent to stricter model providers, so an interrupted tool step no longer fails the next request.
+- **November 2026.** The read-only guard also checks the statement inside an explain request. Every tool step counts toward the budget, and the last step at the limit answers in text instead of ending silently. Retryable Trino errors now retry.
+
+### The web UI
+
+- **August 2026.** Databot gets a web UI: chat beside a panel with Cards, SQL and Results tabs. You can toggle cards, edit the SQL, ask for a rewrite, and view results as a bar, line or pie chart, or a table.
+- **September 2026.** Chat shows short status lines and the answer. The model's planning text and thinking stay hidden.
+- **September 2026.** When a review opens, a banner in chat tells you what to do. Checkboxes refine the selection; the review buttons move the work forward. Each button says why you might pick it, and a summary lists the chosen models and metrics.
+- **September 2026.** New chat resets cleanly. Chat and the panel no longer squeeze each other, and the look is refreshed.
+- **November 2026.** The tabs follow four phases: prepare cards, prepare SQL, run SQL, summary. A new question in the web UI starts a fresh retrieval.
+
+### Speed with local models
+
+- **August 2026.** With a local Qwen model on Ollama, thinking is off, answers are shorter, and the first plain reply ends the turn. Simple turns no longer take minutes.
+- **August 2026.** The local context window grows from about 4,000 to about 40,000 tokens, so tool-heavy turns fit. Glossary lookups return five terms at most.
+- **August 2026.** Loading Jira with local embeddings uses bounded memory, so the job finishes. **September 2026.** On Apple Silicon, empty keyword weights fall back to another method instead of failing the job.
+
+### Evaluation
+
+- **August 2026.** A regression suite checks each case's tool order, round budget and answer fields. Router cases check which specialist was chosen without running it.
+- **August 2026.** A case can name several models, and its score is their average, so results do not depend on one default model.
+- **November 2026.** Cases that need no tools can now reach a full score.
+
+### What this summary leaves out
+
+Entries that only reorganized the code, such as renames, merged packages and per-agent settings files, change nothing you see. Fixes to the local development setup are left out too.
 
 ---
 

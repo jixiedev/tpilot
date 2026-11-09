@@ -105,7 +105,7 @@ Reader-facing documentation is published at [jixiedev.github.io/tpilot](https://
 | [rag/README.md](rag/README.md) | Ingest Jira / Drive / dbt data and tune retrieval |
 | [evals/README.md](evals/README.md) | Write and run eval cases |
 | [frontend/README.md](frontend/README.md) | Run and extend the web UI and AG-UI server |
-| [docs/ROADMAP.en.md](docs/ROADMAP.en.md) | Project roadmap ([中文](docs/ROADMAP.md)) |
+| [docs/ROADMAP.md](docs/ROADMAP.md) | Project roadmap |
 | [docs/CHAT_OPTIMIZATION.md](docs/CHAT_OPTIMIZATION.md) | Log of notable changes |
 | [docs_site/README.md](docs_site/README.md) | How the GitHub Pages documentation site is built |
 

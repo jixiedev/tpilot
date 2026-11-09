@@ -15,7 +15,7 @@ of truth for both writers and tests.
 - Links that point at files on GitHub. A link goes to another page of this site, or to an
   external site a reader would actually want (product documentation, a status page).
   Never to a source file.
-- The code-change log. It lives in the repository, not here.
+- The raw code-change log. It lives in the repository; the roadmap page carries only a plain-language summary of the chat optimizations.
 
 ## Always
 
