@@ -43,8 +43,8 @@ def _rag_flow() -> tuple[str, str]:
         620,
         "How a question is answered from the knowledge base",
         "A scheduled job fills the index. A question goes out as a vector search and a "
-        "keyword search, the results are merged, duplicates are removed and the best "
-        "matches are reranked.",
+        "keyword search, the results are merged, the best matches are reranked and "
+        "duplicates are removed.",
     )
     c.layer(30, 50, 800, 115, "HOW THE INDEX IS FILLED")
     c.uml("cloud", 60, 58, 175, 98, "Your material")
@@ -62,8 +62,8 @@ def _rag_flow() -> tuple[str, str]:
     c.uml("process", 400, 355, 340, 90, "Merge the results", "one list from both searches")
 
     c.layer(30, 495, 800, 90, "THE BEST MATCHES")
-    c.uml("process", 150, 505, 190, 80, "Remove duplicates", "the same passage once")
-    c.uml("process", 370, 505, 170, 80, "Rerank", "against your question")
+    c.uml("process", 150, 505, 190, 80, "Rerank", "against your question")
+    c.uml("process", 370, 505, 170, 80, "Remove duplicates", "one per ticket or model")
     c.uml("note", 570, 505, 260, 80, "The passages the model reads", "grounded in your material")
 
     c.line(240, 107, 258, 107, accent=True)
@@ -98,7 +98,7 @@ def _rag_flow() -> tuple[str, str]:
     return (
         c.svg(),
         "A scheduled job fills the index; a question goes out as a vector search and a "
-        "keyword search, and the merged, deduplicated, reranked passages reach the model.",
+        "keyword search, and the merged, reranked, deduplicated passages reach the model.",
     )
 
 
