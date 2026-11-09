@@ -1,0 +1,291 @@
+:root {
+  --tp-ink: #0b1220;
+  --tp-muted: #334155;
+  --tp-soft: #5f6f80;
+  --tp-paper: #f7fbf9;
+  --tp-accent: #047857;
+  --tp-accent-bright: #00a165;
+  --tp-rule: rgba(11, 18, 32, 0.12);
+  --md-primary-fg-color: #047857;
+  --md-primary-fg-color--light: #10b981;
+  --md-primary-fg-color--dark: #065f46;
+  --md-accent-fg-color: #00a165;
+  --md-accent-fg-color--transparent: rgba(0, 161, 101, 0.12);
+}
+
+[data-md-color-scheme="slate"] {
+  --tp-ink: #ecfdf5;
+  --tp-muted: #cbd5e1;
+  --tp-soft: #94a3b8;
+  --tp-paper: #0b1220;
+  --tp-accent: #34d399;
+  --tp-accent-bright: #6ee7b7;
+  --tp-rule: rgba(236, 253, 245, 0.12);
+  --md-primary-fg-color: #10b981;
+  --md-primary-fg-color--light: #34d399;
+  --md-primary-fg-color--dark: #047857;
+  --md-accent-fg-color: #34d399;
+}
+
+.tp-home {
+  color: var(--tp-ink);
+}
+
+.tp-hero {
+  background:
+    radial-gradient(1200px 420px at 80% -10%, rgba(0, 161, 101, 0.18), transparent 60%),
+    linear-gradient(180deg, var(--tp-paper) 0%, transparent 100%);
+  border-bottom: 1px solid var(--tp-rule);
+  padding: 3.5rem 0 2.75rem;
+}
+
+.tp-hero__copy {
+  max-width: 52rem;
+  padding-inline: 0.8rem;
+}
+
+.tp-eyebrow {
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--tp-accent);
+  margin: 0 0 0.7rem;
+}
+
+.tp-hero h1 {
+  font-size: clamp(1.8rem, 3vw + 1rem, 2.6rem);
+  font-weight: 600;
+  letter-spacing: -0.03em;
+  line-height: 1.15;
+  margin: 0 0 1rem;
+}
+
+.tp-lead {
+  font-size: 1.05rem;
+  line-height: 1.65;
+  color: var(--tp-muted);
+  max-width: 46rem;
+  margin: 0 0 1.5rem;
+}
+
+.tp-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  margin: 0;
+}
+
+.tp-hero .md-button {
+  margin: 0;
+}
+
+.md-header__button.md-logo img,
+.md-header__button.md-logo svg {
+  height: 1.6rem;
+  width: 1.6rem;
+}
+
+.md-source__facts {
+  display: none;
+}
+
+.tp-section {
+  padding: 2.4rem 0.8rem 0;
+}
+
+.tp-section h2 {
+  font-size: 1.15rem;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  margin: 0 0 1.1rem;
+  padding-left: 0.65rem;
+  border-left: 3px solid var(--tp-accent);
+}
+
+.tp-section--last {
+  padding-bottom: 3.5rem;
+}
+
+.tp-stats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.75rem;
+  list-style: none;
+  margin: 0;
+  padding: 1.5rem 0 0;
+}
+
+.tp-stats li {
+  list-style: none;
+  margin: 0;
+  padding: 0.9rem 1rem;
+  border: 1px solid var(--tp-rule);
+  border-radius: 8px;
+  color: var(--tp-muted);
+  font-size: 0.92rem;
+}
+
+.tp-stats strong {
+  display: block;
+  color: var(--tp-ink);
+  font-size: 1.05rem;
+  font-weight: 600;
+}
+
+.tp-cards,
+.tp-agents,
+.tp-docs {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.tp-cards {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.tp-agents {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.tp-docs {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.tp-card,
+.tp-agents article,
+.tp-docs a {
+  margin: 0;
+  padding: 1.15rem 1.2rem 1.05rem;
+  border: 1px solid var(--tp-rule);
+  border-radius: 8px;
+  background: transparent;
+}
+
+.tp-card h3,
+.tp-agents h3,
+.tp-docs h3 {
+  font-size: 1rem;
+  font-weight: 600;
+  margin: 0 0 0.4rem;
+}
+
+.tp-card p,
+.tp-agents p,
+.tp-docs p {
+  margin: 0;
+  color: var(--tp-muted);
+  font-size: 0.92rem;
+  line-height: 1.6;
+}
+
+.tp-home code {
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  font-size: 0.86em;
+  color: var(--tp-accent);
+}
+
+.tp-kind {
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--tp-accent);
+  margin: 0 0 0.35rem !important;
+}
+
+.tp-docs a {
+  color: inherit;
+  display: block;
+  transition: border-color 0.15s ease, transform 0.15s ease;
+}
+
+.tp-docs a:hover {
+  border-color: var(--tp-accent);
+  transform: translateY(-1px);
+}
+
+.tp-section pre {
+  margin: 0;
+}
+
+.tp-follow {
+  margin: 0.9rem 0 0;
+  color: var(--tp-muted);
+}
+
+.tp-graph-frame {
+  width: 100%;
+  min-height: 90vh;
+  height: 2200px;
+  border: 1px solid var(--tp-rule);
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.tp-diagram {
+  margin: 1.1rem 0 1.5rem;
+  padding: 0.85rem 0.7rem 0.7rem;
+  border: 1px solid var(--tp-rule);
+  border-radius: 10px;
+  background: #f7fbf9;
+  overflow-x: auto;
+}
+
+/* Material sets `figure { width: fit-content }`, which makes the box narrower
+   than the diagram inside it — the SVG then overflows its own border. Pin the
+   figure to the full content column and let the SVG scale inside it. */
+figure.tp-diagram {
+  width: 100%;
+  max-width: 100%;
+}
+
+.tp-diagram svg,
+.tp-diagram img {
+  width: 100%;
+  height: auto;
+  display: block;
+  min-width: 720px;
+}
+
+/* The default Material grid leaves the content column around 700px, which
+   scaled the 1120-unit diagram canvases down to an unreadable size. Widen the
+   grid so the diagrams stay legible instead of overflowing the column. */
+.md-grid {
+  max-width: 72rem;
+}
+
+.tp-diagram figcaption,
+.tp-diagram + .tp-follow {
+  font-size: 0.84rem;
+  line-height: 1.65;
+  color: var(--tp-soft);
+  border-left: 3px solid var(--tp-accent);
+  padding-left: 0.85rem;
+  margin: 0.65rem 0.4rem 0.2rem;
+}
+
+.tp-diagram--hero {
+  margin-top: 0;
+}
+
+@media (max-width: 960px) {
+  .tp-stats,
+  .tp-agents,
+  .tp-docs {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 640px) {
+  .tp-hero {
+    padding: 2.2rem 0 1.8rem;
+  }
+
+  .tp-stats,
+  .tp-cards,
+  .tp-agents,
+  .tp-docs {
+    grid-template-columns: 1fr;
+  }
+}

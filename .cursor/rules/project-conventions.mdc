@@ -7,7 +7,7 @@ alwaysApply: true
 
 ## Documentation
 
-- All docs are written in **English**, except the roadmap: `ROADMAP.md` (Chinese) and `ROADMAP.en.md` (English), kept in sync with cross-links at the top.
+- All docs are written in **English**, including the roadmap (`docs/ROADMAP.md`).
 - Do not add other parallel locale files beyond this roadmap pair.
 - Layout: `README.md` (overview, quick start, doc index), `docs/ARCHITECTURE.md` (system map, core concepts, design principles), and one `README.md` per subsystem next to its code (`agent/`, `agent/specialists/databot/`, `tools/`, `config/`, `memory/`, `rag/`, `evals/`, `frontend/`). A subsystem README covers concepts, design, how it works, usage, extension and pitfalls; link to other subsystem docs instead of repeating them.
 - When code changes behavior, paths, commands or config keys, update the matching subsystem README in the same change.
@@ -40,7 +40,7 @@ Writing rules:
 
 ## Roadmap
 
-Planning and milestone tracking live in `docs/ROADMAP.md` and `docs/ROADMAP.en.md`; optimization detail lives in `CHAT_OPTIMIZATION.md`. Neither belongs in code.
+Planning and milestone tracking live in `docs/ROADMAP.md`; optimization detail lives in `CHAT_OPTIMIZATION.md`. Neither belongs in code.
 
 ## New features
 

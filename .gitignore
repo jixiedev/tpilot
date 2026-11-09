@@ -40,3 +40,6 @@ frontend/build/
 
 # Legacy virtualenv (project uses .venv via uv)
 venv/
+
+# MkDocs GitHub Pages build
+site/

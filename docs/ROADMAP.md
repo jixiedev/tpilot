@@ -1,47 +1,45 @@
-# TahoePilot 项目路线图
+# TahoePilot Project Roadmap
 
-> 中文 | [English](ROADMAP.en.md)
+An AI Agent platform for data teams: chatbot, intelligent data retrieval, team knowledge Q&A, data diagnosis, development assistance, and data analysis.
 
-面向数据团队的 AI Agent 平台：Chatbot、智能取数、团队知识问答、数据诊断、开发辅助、数据分析。
-
-**当前版本**：0.1.0  
-**技术栈**：Python 3.11+ · LangGraph · LangChain · OpenAI · Hive HMS · Trino · MCP · Qdrant
+**Current version**: 0.1.0  
+**Tech stack**: Python 3.11+ · LangGraph · LangChain · OpenAI · Hive HMS · Trino · MCP · Qdrant
 
 ---
 
 ## Milestones
 
-| ID | Milestone | 描述 | 状态 |
-|----|-----------|------|------|
-| M0 | 可对话 | CLI 里与 Agent 多轮对话，调用 Hive/Trino/MCP 工具拿到结果 | 已完成：通用 ReAct Graph + `--agent` 插件化；详见 [CHAT_OPTIMIZATION.md](CHAT_OPTIMIZATION.md) |
-| M1 | 可恢复 | 对话状态持久化，关掉再开能接着聊；长对话有上下文管理 | 已完成：`AsyncSqliteSaver` + `--session`；上下文压缩（F4）已接入 |
-| M2 | 能取数 | 用自然语言描述数据需求，Agent 找表、写 SQL、返回查询结果 | 已完成：glossary-first → 元数据/血缘 → 只读 SQL；`DatabotAgent` v2 分阶段状态机（fetch → cards gate → SQL gate → execute）+ Web 取数面板（CopilotKit v2） |
-| M3 | 能查知识 | 用自然语言问 Tahoe 团队知识：代码库、Google Docs、Wiki/FAQ、Jira；Agent 检索并解释 | 已完成（v1）：`KnowledgeAgent`（`--agent knowledge` / Intent `KNOWLEDGE`）；Jira Qdrant 检索；DataHub + 只读 K8s。Drive zip 与 dbt semantic model 可入库；`fetch_related_models` 工具已接；代码库 / Wiki / Drive 检索工具待接 |
-| M4 | 能协作 | 复杂任务拆给多个专精 Agent，彼此传递中间结果 | 已完成（进程内）：`IntentOrchestrator` 复合意图 → `execution_plan` → `PlannedAgentChain`；上游输出喂下游；子 Agent 短时会话。跨服务组合见 F16（A2A） |
-| M5 | 能诊断 | 描述数据异常，Agent 跑质量检查、推根因、出报告 | 未开始 |
-| M6 | 可部署 | 从本地 CLI 变成可对外提供的服务（UI、API、权限、观测） | 进行中（本地）：Next.js + CopilotKit v2 + LangGraph AG-UI 联调（Databot 聊天、Gate、Cards/SQL/Results 面板）；对外 API、权限、生产部署与观测待做 |
+| ID | Milestone | Description | Status |
+|----|-----------|-------------|--------|
+| M0 | Conversational | Multi-turn chat in the CLI; call Hive/Trino/MCP tools to get results | Done — generic ReAct graph + pluggable `--agent`; see [CHAT_OPTIMIZATION.md](CHAT_OPTIMIZATION.md) |
+| M1 | Resumable | Conversation state persists; pick up where you left off; long-context management | Done — `AsyncSqliteSaver` + `--session`; context compression (F4) wired in |
+| M2 | Data retrieval | Describe data needs in natural language; Agent finds tables, writes SQL, returns results | Done — glossary-first → metadata/lineage → read-only SQL; `DatabotAgent` v2 staged state machine (fetch → cards gate → SQL gate → execute) + web retrieval panel (CopilotKit v2) |
+| M3 | Knowledge Q&A | Ask about Tahoe team knowledge — codebase, Google Docs, Wiki/FAQ, Jira; Agent retrieves and explains | Done (v1) — `KnowledgeAgent` (`--agent knowledge` / Intent `KNOWLEDGE`); Jira Qdrant search; DataHub + read-only K8s. Drive zip ingest works; codebase / Wiki / Drive search tools remain follow-ups |
+| M4 | Collaborative | Complex tasks split across specialized agents that pass intermediate results | Done (in-process) — `IntentOrchestrator` composite intentions → `execution_plan` → `PlannedAgentChain`; upstream feeds downstream; ephemeral specialist sessions. Cross-service composition: F16 (A2A) |
+| M5 | Diagnostic | Describe data anomalies; Agent runs quality checks, reasons about root cause, produces reports | Not started |
+| M6 | Deployable | Move from local CLI to an outward-facing service (UI, API, auth, observability) | In progress (local) — Next.js + CopilotKit v2 + LangGraph AG-UI dev stack (Databot chat, gates, Cards/SQL/Results panel); outward API, auth, production deploy, and observability remain |
 
 ## Features
 
-| ID | Feature | 描述 | 优先级 | 状态 |
-|----|---------|------|--------|------|
-| F1 | Context Engineering | 动态组装 system prompt、上下文片段、工具描述 | P0 | 已完成：分层 `SystemPromptAssembler` + `UserProfile` 注入 |
-| F2 | Structured Output | 结构化输出约束（typed response、JSON schema） | P0 | 已完成：意图 `IntentionResponse` / 计划步骤、画像 refine |
-| F3 | Memory | 跨 Session 状态持久化；用户偏好与历史上下文召回 | P0 | 已完成：checkpointer 会话（进程内首次 hydrate）+ `SessionRuntime` 内存态 + `FileProfileStore` / `refine_user_profile` |
-| F4 | Memory Compression | 长对话自动压缩/摘要，保留关键事实，控制 context 窗口 | P0 | 已完成：三层压缩流水线 + `compact_context` |
-| F5 | Planning | 任务规划与分解，Plan-and-Execute | P1 | 已完成：Intent 有序 `execution_plan` + AgentChain 执行 |
-| F6 | Human-in-the-Loop | 关键节点 interrupt，等待用户确认或补充 | P1 | 已完成：Intent 低置信澄清 interrupt + CLI resume；Databot v2 cards/SQL 人工门（AG-UI v2 interrupt + CopilotKit Gate / Artifact 面板、卡片勾选与 SQL 编辑） |
-| F7 | Reflective Reasoning | 输出前自我审查与修正（一致性检查、retry） | P1 | 未开始 |
-| F8 | Parallel Tool Use | 并行工具调用与结果聚合 | P1 | 未开始 |
-| F9 | Eval Loop | 评测集回归、Prompt/Agent 行为持续迭代 | P2 | 已完成（v1）：`evals` 用例 JSON + Observer 打分（工具序/轮次/答案）+ `python -m evals` |
-| F10 | Monitoring | Token 用量、Cache 命中率、工具调用延迟与错误率 | P2 | 未开始 |
-| F11 | Semantic Cache | 语义相似的请求命中缓存，避免重复推理 | P2 | 未开始 |
-| F12 | Model Routing | 按任务复杂度/成本动态选择模型 | P2 | 未开始 |
-| F13 | Procedural Memory | 从成功交互中提炼可复用的工具调用序列与工作流 | P3 | 未开始 |
-| F14 | Error Handling | LLM/工具失败分类、重试与降级；友好报错与可恢复中断 | P1 | 已完成：TOOL ERROR、瞬时重试、Hive↔Trino 防振荡、CLI 友好报错 |
-| F15 | RAG | 本地 Qdrant 向量库；Jira / Google Drive 等知识入库与语义检索，供 Knowledge Agent 使用 | P1 | 已完成（Jira + dbt 主路径）：Docker Qdrant、ingest CLI（Jira CSV / Drive zip / dbt semantic model）、`fetch_related_jira_tickets` 与 `fetch_related_models`（Databot 卡片候选）。Drive / Wiki 检索工具与 RAG 评测待接 |
-| F16 | A2A 多 Agent 组合 | 基于 [Agent-to-Agent（A2A）](https://google.github.io/A2A/) 协议，跨进程/跨服务编排多个专精 Agent 协作解决复杂问题；标准化任务委派、artifact 传递、状态流式回传与 Agent Card 发现 | P1 | 未开始：当前 M4 为进程内 `AgentChain`；目标将 Databot / Knowledge / 未来诊断等以 A2A endpoint 暴露，由编排层通过 A2A task 组合 |
-| F17 | Databot 运行时 | 把 Databot 收成可嵌入的 specialist：分层图、进程内职责对象、节点以操作 Agent 的方式推进；HITL 分级且默认关闭；取数回合以 summary 结束并清空工作状态 | P1 | 未开始 — 见下文 **F17 Databot 运行时** |
+| ID | Feature | Description | Priority | Status |
+|----|---------|-------------|----------|--------|
+| F1 | Context Engineering | Dynamic assembly of system prompt, context snippets, and tool descriptions | P0 | Done — layered `SystemPromptAssembler` + `UserProfile` injection |
+| F2 | Structured Output | Structured output constraints (typed response, JSON schema) | P0 | Done — intent `IntentionResponse` / plan steps, profile refine |
+| F3 | Memory | Cross-session state persistence; user preferences and historical context retrieval | P0 | Done — checkpointer sessions (hydrate once per process) + in-memory `SessionRuntime` + `FileProfileStore` / `refine_user_profile` |
+| F4 | Memory Compression | Auto-compress/summarize long conversations; retain key facts within context window | P0 | Done — three-layer compression pipeline + `compact_context` |
+| F5 | Planning | Task planning and decomposition; Plan-and-Execute | P1 | Done — Intent ordered `execution_plan` + AgentChain execution |
+| F6 | Human-in-the-Loop | Interrupt at key nodes; wait for user confirmation or input | P1 | Done — Intent low-confidence clarification interrupt + CLI resume; Databot v2 cards/SQL human gates (AG-UI v2 interrupt + CopilotKit Gate / Artifact panel, card selection and SQL editing) |
+| F7 | Reflective Reasoning | Self-review and correction before delivery (consistency checks, retry) | P1 | Not started |
+| F8 | Parallel Tool Use | Parallel tool invocation and result aggregation | P1 | Not started |
+| F9 | Eval Loop | Eval set regression; continuous iteration on prompts and agent behavior | P2 | Done (v1) — `evals` case JSON + Observer scoring (tool order / rounds / answer) + `python -m evals` |
+| F10 | Monitoring | Token usage, cache hit rate, tool call latency and error rate | P2 | Not started |
+| F11 | Semantic Cache | Semantically similar requests hit cache; avoid redundant reasoning | P2 | Not started |
+| F12 | Model Routing | Dynamic model selection by task complexity and cost | P2 | Not started |
+| F13 | Procedural Memory | Distill reusable tool-call sequences and workflows from successful interactions | P3 | Not started |
+| F14 | Error Handling | Classify, retry, and degrade on LLM/tool failures; friendly errors and recoverable interrupts | P1 | Done — TOOL ERROR, transient retries, Hive↔Trino anti-oscillation, CLI-friendly errors |
+| F15 | RAG | Local Qdrant vector store; ingest and semantic search over Jira / Google Drive (and later Wiki) for Knowledge Agent | P1 | Done (Jira + dbt main path) — Docker Qdrant, ingest CLI (Jira CSV / Drive zip / dbt semantic model), `fetch_related_jira_tickets` and `fetch_related_models` (Databot card candidates). Drive/Wiki search tools and eval still open |
+| F16 | A2A Multi-Agent Composition | Compose multiple specialist agents via the [Agent-to-Agent (A2A)](https://google.github.io/A2A/) protocol to solve complex cross-domain problems; standardized task delegation, artifact handoff, status streaming, and Agent Card discovery | P1 | Not started — M4 today is in-process `AgentChain`; target is A2A endpoints for Databot / Knowledge / future diagnostic agents, orchestrated via A2A tasks |
+| F17 | Databot runtime | Make Databot an embeddable specialist: layered graph, in-process responsibility objects, nodes that advance by operating on the Agent; leveled HITL defaulting to off; a retrieval turn ends with a summary and a cleared working state | P1 | Not started — see **F17 Databot runtime** below |
 
 GitHub issues:
 
@@ -69,101 +67,101 @@ GitHub issues:
 
 ---
 
-## 后续优化可能
+## Future optimization opportunities
 
-里程碑/特性已标「已完成」的，表示主路径可用；下列为可继续加深的方向（不阻塞当前里程碑关闭）。
+Items marked **Done** mean the main path works. The list below is optional deepening and does not block closing those milestones/features.
 
-### 里程碑相关
+### Milestone-related
 
-| 关联 | 可能优化 |
-|------|----------|
-| M2 | 独立取数评测集；SQL gate Request changes 重写闭环；聊天面向用户的 status 文案（非内心独白）；chart gate / Superset 出图；详见 [DATABOT_V2_PROGRESS.md](DATABOT_V2_PROGRESS.md) 与 [CHAT_OPTIMIZATION.md](CHAT_OPTIMIZATION.md) |
-| M2 | Databot 运行时重构（F17）：分层图、可嵌入 Plan 等宿主、回合摘要后清空工作状态；详见 **F17 Databot 运行时** |
-| M3 | Drive / Wiki / 代码检索工具与 Knowledge prompt；Intent 复合链路用真实知识库联调；详见 [rag/README.md](../rag/README.md) |
-| M4 | 计划确认 HITL；比纯文本更结构化的 handoff payload |
-| M4 | A2A 跨服务编排（F16）：专精 Agent 以 A2A endpoint + Agent Card 暴露；Intent / 编排层用 A2A task + artifact 组合 databot、knowledge、未来 diagnostic；远程鉴权、超时与降级 |
-| M5 | 仍按未开始推进（诊断 Agent） |
-| M6 | 生产部署、鉴权、多租户、观测（F10）；checkpoint / thread 管理；Intent 全链路 Web UI（当前以 Databot 专精 UI 为主） |
+| Related | Possible follow-ups |
+|---------|---------------------|
+| M2 | Dedicated retrieval eval set; SQL gate request-changes redraft loop; user-facing chat status copy (not inner monologue); chart gate / Superset emit; see [DATABOT_V2_PROGRESS.md](DATABOT_V2_PROGRESS.md) and [CHAT_OPTIMIZATION.md](CHAT_OPTIMIZATION.md) |
+| M2 | Databot runtime refactor (F17): layered graph, embeddable under Plan and other hosts, clear working state after the turn summary; see **F17 Databot runtime** |
+| M3 | Drive / Wiki / code search tools and Knowledge prompts; soak Intent composite chains against a real knowledge corpus; see [rag/README.md](../rag/README.md) |
+| M4 | Plan-confirmation HITL; richer structured handoff payloads |
+| M4 | A2A cross-service orchestration (F16): expose specialists as A2A endpoints + Agent Cards; Intent / orchestrator composes databot, knowledge, future diagnostic via A2A tasks + artifacts; remote auth, timeouts, and degradation |
+| M5 | Still tracked as not started (diagnostic agent) |
+| M6 | Production deploy, auth, multi-tenant, observability (F10); checkpoint / thread management; full Intent web UI (Databot specialist UI is the current focus) |
 
-### 特性相关
+### Feature-related
 
-| 关联 | 可能优化 |
-|------|----------|
-| F1 | 工具描述按回合/意图动态裁剪与组装 |
-| F2 | 对外用户回复的 typed / JSON schema |
-| F3 | 跨会话语义召回（不止画像与 checkpointer） |
-| F5 | 通用 Plan 节点（非仅 Intent 编排）；计划修订与重规划；与 F16 A2A 组合时的跨 Agent 任务分解 |
-| F6 | 通用确认门（写操作、高成本工具、发布计划前确认）；chart gate Web UI；Databot profile sidecar 并入 `UserProfile` |
-| F7–F8、F10–F13 | F7/F8/F10–F13 仍按未开始推进（反思、并行工具、监控、语义缓存、选模、程序性记忆）；F9 评测见下文 **F9 Eval Loop** |
-| F16 | Agent Card 注册与发现；A2A task / artifact 映射到现有 handoff 结构；与 M6 服务化部署对齐（鉴权、观测、多租户） |
-| F17 | 见下文 **F17 Databot 运行时** |
-| F14 | 失败观测指标；更完整的集成测试覆盖 |
-| F15 | Google Drive / Wiki 检索工具；增量更新与去重；检索质量评测；多 collection 路由 |
+| Related | Possible follow-ups |
+|---------|---------------------|
+| F1 | Dynamic per-turn / per-intention tool-description assembly |
+| F2 | Typed / JSON schema for user-facing replies |
+| F3 | Cross-session semantic recall (beyond profile + checkpointer) |
+| F5 | Generic Plan node (not only Intent orchestration); plan revise / replan; cross-agent task decomposition when combined with F16 A2A |
+| F6 | General confirmation gates (writes, costly tools, confirm-before-plan-run); chart gate web UI; fold Databot profile sidecar into `UserProfile` |
+| F7–F8, F10–F13 | F7/F8/F10–F13 still not started (reflection, parallel tools, monitoring, semantic cache, model routing, procedural memory); F9 eval — see **F9 Eval Loop** below |
+| F16 | Agent Card registration and discovery; map A2A tasks / artifacts to existing handoff structures; align with M6 service deploy (auth, observability, multi-tenant) |
+| F17 | See **F17 Databot runtime** below |
+| F14 | Failure metrics; broader integration-test coverage |
+| F15 | Google Drive / Wiki search tools; incremental refresh and dedupe; retrieval quality eval; multi-collection routing |
 
-### F9 Eval Loop（v1 → 后续）
+### F9 Eval Loop (v1 → next)
 
-**已交付（v1）** — 仓库内 JSON 用例、`Observer` 轨迹、`python -m evals`：
+**Shipped (v1)** — repo-local JSON cases, `Observer` traces, `python -m evals`:
 
-| 用例类型 | 打分维度 |
-|----------|----------|
-| ReAct（`ToolCallCase`） | 工具顺序（子序列）、ReAct 轮次预算、JSON 答案字段（shape 写在 case `query`；`answer` 为空则跳过） |
-| Intent（`IntentRouterCase`） | 路由 status、意图标签、专精 Agent 顺序（`execute_plan=False`） |
+| Case type | Scores |
+|-----------|--------|
+| ReAct (`ToolCallCase`) | Tool order (subsequence), ReAct round budget, JSON answer fields (shape in case `query`; empty `answer` skips) |
+| Intent (`IntentRouterCase`) | Router status, intention labels, specialist route order (`execute_plan=False`) |
 
-**优点** — 简单、可 git 管理、无 SaaS 依赖；贴合 ReAct + Intent；确定性 scorer 可单测；不只验最终文本，还看工具/路由过程。
+**Strengths** — simple, git-versioned, no SaaS; fits ReAct + Intent wiring; deterministic scorers are unit-testable; checks process (tools/router), not just final text.
 
-**局限** — 依赖 live LLM 与外部服务（Qdrant/MCP），CI 易 flake；JSON 字段精确匹配，同义改写会失败；未校验 tool 参数；三维等权；query 与 answer 重复维护；少 multi-turn / clarify；无 trace 归档与实验对比；评测强制 JSON 可能与线上真实 prompt 不一致。
+**Limits** — live LLM + external deps (Qdrant/MCP) are flaky in CI; JSON field equality misses paraphrases; tool args not checked; equal-weight dimensions; shape/answer duplicated in cases; little multi-turn / clarify eval; no trace archive or experiment diff; eval JSON contract may diverge from production UX.
 
-**主流做法** — 数据集行 → 执行（live / mock / 回放）→ **多种 scorer**（规则 + 可选 LLM judge + 环境结果）→ 报告与门禁；LangSmith / Langfuse / Braintrust 等持久化 trace 并对比实验。常见 CI：L0 scorer 单测 → L1 mock LLM/工具 → L2 smoke live → L3 夜间 integration → L4 抽样 LLM judge。
+**Mainstream pattern** — dataset rows → run (live / mock / replay) → **multiple scorers** (deterministic + optional LLM judge + environment outcome) → report & gates; platforms (LangSmith, Langfuse, Braintrust, etc.) persist traces and compare runs. Typical CI: L0 scorer unit tests → L1 mock LLM/tools → L2 smoke live → L3 nightly integration → L4 sampled LLM judge.
 
-**分阶段规划**
+**Proposed phases**
 
-| 阶段 | 重点 |
-|------|------|
-| **1 — 稳定 CI** | fast（mock 路由 + scorer 单测）/ slow（live）；加权或 hard gate；tool 参数校验；用例 tags（`smoke` / `integration`） |
-| **2 — 更强确定性评测** | 可选 JSON Schema；shape 与期望值单一来源；multi-turn clarify  fixture；golden trace 回放 |
-| **3 — Trace 与实验**（配合 F10） | 持久化 Observer；run id + git sha；同数据集跨版本 diff |
-| **4 — 语义 / RAG 评测**（配合 F15） | 抽样 LLM judge；Jira 语料 faithfulness / recall；eval 与生产 prompt 分离 |
-| **5 — 产品化评测**（配合 M6） | M2/M3 专用数据集；线上 trace 抽样；服务侧 eval API |
+| Phase | Focus |
+|-------|--------|
+| **1 — Stabilize CI** | Fast (mock intent routing + scorer tests) vs slow (live integration); weighted or gated scorers; tool-argument checks; case tags (`smoke` / `integration`) |
+| **2 — Richer deterministic eval** | Optional JSON Schema; single source for shape + expected fields; multi-turn clarify fixtures; golden trace replay |
+| **3 — Traces & experiments** (with F10) | Persist Observer payloads; run id + git sha; per-case diff between prompt/agent versions |
+| **4 — Semantic / RAG eval** (with F15) | Sampled LLM judge; faithfulness / recall on Jira corpus; separate eval vs production prompts where JSON distorts UX |
+| **5 — Product eval** (with M6) | Dedicated M2/M3 datasets; online trace sampling; eval API in service |
 
-**近期** — case `tags` + CLI 过滤；CI 内 mock-LLM intent 用例；各 group 环境依赖说明；case 内 scorer 权重；`Observer` 单次 run trace JSON 导出试验。
+**Next steps** — case `tags` + CLI filter; mock-LLM intent cases in CI; document env deps per group; scorer weights in case JSON; spike one-run trace JSON export from `Observer`.
 
-### F17 Databot 运行时
+### F17 Databot runtime
 
-把 Databot 从「一张扁平 state 上的强耦合状态机」收成可嵌入的 specialist。取数主路径（找表、写 SQL、执行、给出答复）保留；变的是图的层次、状态放在哪里、以及人工确认是否默认打断宿主。
+Turn Databot from a tightly coupled state machine on a flat state into an embeddable specialist. The retrieval path stays: find tables, write SQL, execute, and answer. What changes is the graph's layering, where state lives, and whether human confirmation interrupts the host by default.
 
-**现状**
+**Current state**
 
-- 外层图把找表、两道人工闸门、写 SQL、执行铺在同一层。路由表互相点名 node，`stage` 和边绑在一起，加一条路径就要改多处路由。
-- `DatabotState` 是扁平字段集合。节点以返回 JSON patch 的方式改状态。读代码时看到的是「函数交出一份 dict」，而不是「这一步对 Agent 做了什么」。
-- Cards / SQL 人工闸门写在主路径上。Plan 等宿主把 Databot 当一步调用时，interrupt 会冒到宿主对话里。
-- 一轮取数结束后，下一条用户消息清空 pipeline 产物并从 fetch 重新开始。知识问答不在 Databot 图内。
+- The outer graph places table discovery, both human gates, SQL authoring, and execution on one layer. Route maps name each other's nodes, and `stage` is bound to the edges. Adding a path means editing several routers.
+- `DatabotState` is a flat set of fields. Nodes change it by returning a JSON patch. The code reads as a function handing back a dict, where the step should read as an operation on the Agent.
+- The cards and SQL gates sit on the main path. When Plan or another host calls Databot as one step, the interrupt surfaces in the host conversation.
+- After a retrieval turn, a new user message resets pipeline artifacts and starts fetch again. Knowledge Q&A is not part of the Databot graph.
 
-**方向**
+**Direction**
 
-F17 拆成两块，分别做、分别验收。交界处只有一条约定：图负责回合怎么走完（摘要之后结束）；state 负责摘要写入对话后清空本回合工作对象。
+F17 is two pieces of work, built and accepted separately. They meet at one contract: the graph decides how a turn finishes (it ends after the summary); state clears this turn's working objects once that summary is in the conversation.
 
-### 图
+### Graph
 
-| 点 | 做法 |
-|----|------|
-| 分层 | 外层只编排一个取数回合：准备 → 取数 → 摘要并结束。选表、写 SQL、执行放在内层。内层路由只看见本层的下一步，不引用外层的全部 node。 |
-| HITL 分级，默认关闭 | 人工确认是可配置级别，默认 disable，不写进主路径的必经边。嵌入 Plan agent 时，Databot 作为普通步骤跑完。需要审表、审 SQL 或两者都审时，由调用方打开对应级别。平台级确认能力仍归 F6。 |
-| 回合在摘要处结束 | 取数回合的终点是一份 summary，写入对话后图结束。下一条用户消息是新回合。上下文靠这份 summary，以及既有的对话压缩（F4）。 |
+| Point | Approach |
+|-------|----------|
+| Layering | The outer layer orchestrates one retrieval turn: prepare → retrieve → summarize and finish. Card selection, SQL, and execution live in inner layers. An inner router sees only the next step in its own layer, and does not name every outer node. |
+| HITL levels, default off | Human confirmation is a configurable level, defaulting to disable. It is not a required edge on the main path. Embedded in a Plan agent, Databot runs as an ordinary step. The caller turns on card review, SQL review, or both. Platform-level confirmation stays with F6. |
+| The turn ends at the summary | The end of a retrieval turn is a summary written into the conversation, and then the graph finishes. The next user message is a new turn. Context continues through that summary and existing conversation compression (F4). |
 
-这一块去掉 follow-up 意图分类，以及「接着上一轮结果追问」的图路径。澄清或改口径都作为新回合，以上一轮 summary 为上下文。
+This piece removes follow-up intention classification and the graph path that continues from the previous result. Clarifications and revised asks are new turns, with the previous summary as context.
 
 ### Agent state
 
-| 点 | 做法 |
-|----|------|
-| 节点操作 Agent | 业务节点对 Agent 调用操作来推进回合，不以「返回一份 state JSON」为接口。LangGraph 仍要求节点向运行时提交 state update：这份差异收在适配层，checkpoint 与图引擎保持兼容。 |
-| 进程内职责对象 | Agent 内部按职责拆对象（例如卡片、SQL、执行结果、本回合摘要），替代一整张扁平 dict。对象留在进程中。Checkpoint 只保留恢复暂停所需的最小快照，不把每个中间结构都做成 graph state 的字段。 |
-| 摘要之后清空 | summary 写入对话后，清空本回合工作对象。下一回合从空的工作状态开始。 |
+| Point | Approach |
+|-------|----------|
+| Nodes operate on the Agent | Business nodes advance the turn by calling operations on the Agent. Returning a state JSON is not their interface. LangGraph still requires a node to submit a state update to the runtime. That translation sits in an adapter, so checkpoints and the graph engine stay compatible. |
+| In-process responsibility objects | Inside the Agent, split objects by responsibility (cards, SQL, execution result, turn summary) in place of one flat dict. The objects live in the process. The checkpoint keeps only the minimum snapshot required to resume a pause, and does not promote every intermediate structure to a graph-state field. |
+| Clear after the summary | Once the summary is in the conversation, clear this turn's working objects. The next turn starts from an empty working state. |
 
-这一块不替换 LangGraph。节点对引擎仍然交出它能 checkpoint 的更新；转换留在适配层。
+LangGraph stays the engine. Nodes still submit a checkpointable update; that conversion stays in the adapter.
 
-**关联**：M2 取数主路径的结构；嵌入 F5 Plan / M4 进程内编排时，Databot 默认不抢 HITL。图的重构用「节点通过操作推进」这条接口，state 先把对象和适配层立住。
+**Related**: structure of the M2 retrieval path. When embedded in F5 Plan / M4 in-process orchestration, Databot does not take HITL by default. The graph refactor uses the "nodes advance through operations" interface, so the objects and the adapter land first.
 
 ---
 
-*最后更新：2026-10-30*
+*Last updated: 2026-10-30*

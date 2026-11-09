@@ -41,6 +41,7 @@ pip install -e '.[web,k8s,rag]'
 | `k8s` | Kubernetes read-only tools |
 | `rag` | Qdrant retrieval, embeddings, ingest, S3 client |
 | `dev` | pytest |
+| `docs` | MkDocs Material for the GitHub Pages documentation site |
 
 ### Configure
 
@@ -90,19 +91,23 @@ python -m evals --help     # agent eval suites against real models
 
 ## Documentation
 
+Reader-facing documentation is published at [jixiedev.github.io/tpilot](https://jixiedev.github.io/tpilot/). The documents in this repository are the developer view; the published site is written for data-team users and deliberately contains no code. Preview the site locally with `./scripts/docs.sh serve`.
+
 | Doc | Read it to… |
 |-----|-------------|
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Understand the system, core concepts and design principles |
 | [agent/README.md](agent/README.md) | Learn how agents run a turn, route, plan, and how to add one |
 | [agent/specialists/databot/README.md](agent/specialists/databot/README.md) | Understand Databot's staged pipeline and human gates |
+| [docs/databot-graph.html](docs/databot-graph.html) | The Databot state machine in full: every stage, gate and transition |
 | [tools/README.md](tools/README.md) | See every tool, how agents get them, and how to add one |
 | [config/README.md](config/README.md) | Configure agents, prompts, connections, models and paths |
 | [memory/README.md](memory/README.md) | Understand context compression and user profiles |
 | [rag/README.md](rag/README.md) | Ingest Jira / Drive / dbt data and tune retrieval |
 | [evals/README.md](evals/README.md) | Write and run eval cases |
 | [frontend/README.md](frontend/README.md) | Run and extend the web UI and AG-UI server |
-| [docs/ROADMAP.en.md](docs/ROADMAP.en.md) | Project roadmap ([中文](docs/ROADMAP.md)) |
+| [docs/ROADMAP.md](docs/ROADMAP.md) | Project roadmap |
 | [docs/CHAT_OPTIMIZATION.md](docs/CHAT_OPTIMIZATION.md) | Log of notable changes |
+| [docs_site/README.md](docs_site/README.md) | How the GitHub Pages documentation site is built |
 
 ## Repository layout
 
@@ -116,6 +121,7 @@ models/       models.toml and the LLM factory
 rag/          ingest pipeline and Qdrant retrieval helpers
 evals/        eval case types, scoring, cases/*.json
 frontend/     Next.js + CopilotKit web UI
+docs_site/    GitHub Pages site (MkDocs Material; sources the READMEs above)
 cli.py        terminal chat           agui_server.py      AG-UI server for the web UI
 main.py       `tahoepilot` entry      langgraph_graphs.py graphs for `langgraph dev`
 ```
