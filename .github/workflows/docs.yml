@@ -27,7 +27,7 @@ jobs:
       - name: Check the reader pages
         run: |
           pip install pytest
-          python -m pytest tests/test_docs_site.py -q
+          python -m pytest tests/test_docs_site.py -q --noconftest
       - name: Build
         run: mkdocs build --strict
       - uses: actions/configure-pages@v5
