@@ -15,6 +15,7 @@ from langchain_core.tools import BaseTool
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
+from agent.listener import ReactAgentListener
 
 from agent.specialists.databot._constants import (
     FOLLOW_UP_INTENTION_KNOWLEDGE,
@@ -371,11 +372,14 @@ def build_databot_graph(
     ),
     max_tool_calls: int = DEFAULT_STAGE_MAX_TOOL_CALLS,
     profile_dir: Path | None = None,
+    listener: ReactAgentListener | None = None,
 ) -> CompiledStateGraph:
     """Compile the Databot v2 state machine.
 
     Per-stage tool scopes are resolved from the registry (`fetch`, `sql`,
     `execute` identifiers) via ``agent.specialists.databot.tool_scopes``.
+    ``listener`` receives the ReAct hooks (tool calls, reason steps) of every
+    stage subgraph.
     """
     fetch_tools, sql_tools, trino_run_query = _build_stage_tool_lists()
 
@@ -385,6 +389,7 @@ def build_databot_graph(
         checkpointer=checkpointer,
         max_tool_calls=max_tool_calls,
         max_idle_rounds=1,  # one plain-text reply ends the stage subgraph
+        listener=listener,
     )
     sql_subgraph = build_generate_sql_subgraph(
         model,
@@ -392,12 +397,14 @@ def build_databot_graph(
         checkpointer=checkpointer,
         max_tool_calls=max_tool_calls,
         max_idle_rounds=1,
+        listener=listener,
     )
     knowledge_subgraph = build_knowledge_follow_up_subgraph(
         model,
         runner,
         checkpointer=checkpointer,
         max_tool_calls=max_tool_calls,
+        listener=listener,
     )
 
     graph = StateGraph(DatabotState)

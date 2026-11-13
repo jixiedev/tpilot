@@ -1,107 +1,153 @@
+"""EvalCase subclasses and CaseLoader."""
+
 from __future__ import annotations
 
 import json
 from pathlib import Path
 
 import pytest
-from langchain_core.messages import AIMessage
 
-from agent.turn import AgentTurnResult
-from observability.case import ReactEvalCase, ToolsSpec
-from observability.evaluator import score_max_tool_calls
-from observability.trace import EvalReactListener
-
-
-def _react_case(**overrides) -> ReactEvalCase:
-    values = dict(
-        agent_name="knowledge",
-        eval_set="harness",
-        name="sample",
-        prompt="hello",
-        expected_output={},
-        models=["MiniMax-M3"],
-        tools=ToolsSpec.empty(),
-        max_tool_calls=0,
-    )
-    values.update(overrides)
-    return ReactEvalCase(**values)
+from observability.case import (
+    CaseLoader,
+    DatabotEvalCase,
+    IntentEvalCase,
+    ReactEvalCase,
+    ToolsSpec,
+)
 
 
-def _listener_with_tools(*names: str) -> EvalReactListener:
-    listener = EvalReactListener()
-    for index, name in enumerate(names):
-        listener.on_tool_call(name, {"step": index})
-        listener.on_reason_step(
-            AIMessage(content="", tool_calls=[{"name": name, "args": {}, "id": str(index)}])
-        )
-    return listener
+def _write(root: Path, eval_set: str, agent: str, payload: dict) -> None:
+    directory = root / eval_set
+    directory.mkdir(parents=True, exist_ok=True)
+    (directory / f"{agent}.json").write_text(json.dumps(payload), encoding="utf-8")
 
 
-def test_tools_spec_ordered_match() -> None:
-    spec = ToolsSpec(required=["planning", "bash"], allowed=["planning", "bash"])
-    score, details = spec.score(["planning", "bash"])
-    assert score == 1.0
-    assert details["reason"] == "ordered match"
-
-
-def test_tools_spec_unexpected_calls() -> None:
-    score, details = ToolsSpec.empty().score(["planning"])
-    assert score == 0.0
-    assert details["reason"] == "no tools expected"
-
-
-def test_tools_spec_disallowed() -> None:
-    spec = ToolsSpec(required=["planning"], allowed=["planning"])
-    score, details = spec.score(["planning", "bash"])
-    assert score == 0.0
-    assert details["reason"] == "disallowed tool used"
-
-
-def test_tools_spec_unordered_partial_credit() -> None:
-    spec = ToolsSpec(required=["planning", "bash"], allowed=["planning", "bash"])
-    score, details = spec.score(["bash", "planning"])
-    assert score == 0.5
-    assert details["reason"] == "unordered partial"
-
-
-def test_score_max_tool_calls_within_budget() -> None:
-    score, details = score_max_tool_calls(2, 2)
-    assert score == 1.0
-    assert details["actual"] == 2
-
-
-def test_score_max_tool_calls_overshoot_penalty() -> None:
-    score, _details = score_max_tool_calls(1, 3)
-    assert score == pytest.approx(0.0)
-
-
-def test_react_case_scores_tools_budget_and_answer() -> None:
-    case = _react_case(
-        tools=ToolsSpec(required=["planning", "bash"], allowed=["planning", "bash"]),
-        max_tool_calls=2,
-    )
-    result = case.score(
-        AgentTurnResult(state={"reply": '{"ticket": "TAHOE-949"}'}),
-        _listener_with_tools("planning", "bash"),
-    )
-    assert result.score.value_of("tools") == 1.0
-    assert result.score.value_of("max_tool_calls") == 1.0
-
-    answer = _react_case(expected_output={"ticket": "TAHOE-949"}).score(
-        AgentTurnResult(state={"reply": '{"ticket": "TAHOE-949"}'}),
-        EvalReactListener(),
-    )
-    assert answer.score.value_of("answer") == 1.0
-
-
-def test_tools_spec_from_raw_object(tmp_path: Path) -> None:
-    payload = {
-        "required": ["search"],
-        "allowed": ["search"],
-        "forbidden": [],
+def test_loader_maps_agents_to_case_types() -> None:
+    assert CaseLoader.CASE_TYPES == {
+        "databot": DatabotEvalCase,
+        "knowledge": ReactEvalCase,
+        "intent": IntentEvalCase,
     }
-    spec = ToolsSpec.from_raw(payload)
-    assert spec.required == ["search"]
-    assert spec.allowed == ["search"]
-    (tmp_path / "ok.json").write_text(json.dumps(payload), encoding="utf-8")
-    assert json.loads((tmp_path / "ok.json").read_text(encoding="utf-8")) == payload
+
+
+def test_load_react_case(tmp_path: Path) -> None:
+    _write(
+        tmp_path,
+        "functional",
+        "knowledge",
+        {
+            "cases": [
+                {
+                    "name": "ok",
+                    "query": "hello",
+                    "tools": {"required": ["planning"], "allowed": ["planning"]},
+                    "max_tool_calls": 2,
+                    "expected_output": {"x": "y"},
+                }
+            ],
+        },
+    )
+    [case] = CaseLoader(tmp_path).load(["knowledge"], ["functional"])
+    assert isinstance(case, ReactEvalCase)
+    assert case.id == "functional/knowledge/ok"
+    assert case.prompt == "hello"
+    assert case.tools == ToolsSpec(required=["planning"], allowed=["planning"])
+    assert case.max_tool_calls == 2
+    assert case.expected_output == {"x": "y"}
+
+
+def test_load_databot_case(tmp_path: Path) -> None:
+    _write(
+        tmp_path,
+        "functional",
+        "databot",
+        {
+            "cases": [
+                {
+                    "name": "plain",
+                    "query": "find table",
+                    "tools": {"required": ["fetch_related_models", "commit_cards"]},
+                    "expected_table_cards": ["fct_dau"],
+                    "expected_output": "core_data.fct_dau",
+                    "expected_sql": "select 1",
+                },
+                {
+                    "name": "with_draft",
+                    "query": "find table",
+                    "max_tool_calls": 3,
+                    "draft_tools": {"required": ["trino_run_query"]},
+                },
+            ],
+        },
+    )
+    plain, with_draft = CaseLoader(tmp_path).load(["databot"], ["functional"])
+    assert isinstance(plain, DatabotEvalCase)
+    assert plain.tools.required == ["fetch_related_models", "commit_cards"]
+    assert plain.draft_tools is None
+    assert plain.expected_output == "core_data.fct_dau"
+    assert plain.expected_table_cards == ["fct_dau"]
+    assert plain.expected_sql == "select 1"
+    assert with_draft.max_tool_calls == 3
+    assert with_draft.draft_tools == ToolsSpec(required=["trino_run_query"])
+
+
+def test_load_intent_case(tmp_path: Path) -> None:
+    _write(
+        tmp_path,
+        "functional",
+        "intent",
+        {
+            "cases": [
+                {
+                    "name": "ok",
+                    "query": "What was GMV?",
+                    "expected_status": "published",
+                    "expected_intentions": ["DATA"],
+                    "expected_routes": ["databot"],
+                }
+            ],
+        },
+    )
+    [case] = CaseLoader(tmp_path).load(["intent"], ["functional"])
+    assert isinstance(case, IntentEvalCase)
+    assert case.expected_routes == ["databot"]
+    assert case.run_kwargs == {"handoff": False}
+    assert case.traced is False
+
+
+def test_models_key_in_fixture_is_ignored(tmp_path: Path) -> None:
+    _write(
+        tmp_path,
+        "harness",
+        "knowledge",
+        {"models": ["x"], "cases": [{"name": "a", "query": "q", "models": ["y"]}]},
+    )
+    [case] = CaseLoader(tmp_path).load(["knowledge"], ["harness"])
+    assert not hasattr(case, "models")
+
+
+def test_missing_agent_file_is_skipped(tmp_path: Path) -> None:
+    (tmp_path / "functional").mkdir()
+    assert CaseLoader(tmp_path).load(["knowledge"], ["functional"]) == []
+
+
+def test_shipped_fixtures_load() -> None:
+    loader = CaseLoader()
+    assert loader.eval_sets() == ["functional", "harness", "performance"]
+    every_set = ["functional", "performance", "harness"]
+    databot = loader.load(["databot"], ["functional"])
+    assert isinstance(databot[0], DatabotEvalCase)
+    assert databot[0].tools.required == ["fetch_related_models", "commit_cards"]
+    knowledge = loader.load(["knowledge"], ["harness"])
+    assert {case.name for case in knowledge} == {
+        "arithmetic",
+        "greeting",
+        "create_plan_before_reply",
+    }
+    assert loader.load(["databot", "knowledge", "intent"], every_set)
+
+
+def test_missing_query_raises(tmp_path: Path) -> None:
+    _write(tmp_path, "functional", "knowledge", {"cases": [{"name": "a"}]})
+    with pytest.raises(KeyError):
+        CaseLoader(tmp_path).load(["knowledge"], ["functional"])

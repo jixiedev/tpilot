@@ -1,12 +1,2415 @@
 {
-  "models": ["MiniMax-M3"],
   "cases": [
     {
       "name": "find_dataset_metadata",
       "query": "Which DataHub dataset stores daily active users for the Tahoe product? Reply with only the table identity in the form {database}.{table}. Do not wrap it in markdown fences and do not add any other text.",
       "tools": {
-        "required": ["search"],
-        "allowed": ["search"],
+        "required": [
+          "fetch_related_models",
+          "commit_cards"
+        ],
+        "allowed": [
+          "fetch_related_models",
+          "commit_cards",
+          "datahub_list_glossary_terms",
+          "datahub_graphql_query",
+          "record_metric_conflict",
+          "datahub_list_datasets",
+          "datahub_list_schema_fields",
+          "datahub_get_lineage",
+          "datahub_get_dataset_queries",
+          "propose_sql",
+          "write_gate_reasons",
+          "trino_explain",
+          "trino_desc_table",
+          "hive_desc_table",
+          "trino_list_tables",
+          "trino_list_schemas",
+          "trino_list_catalogs",
+          "update_card_selection",
+          "request_sql_regenerate",
+          "trino_run_query"
+        ],
+        "forbidden": []
+      },
+      "max_tool_calls": 3
+    },
+    {
+      "name": "find_wish_day_partitioned_product_catalogue",
+      "query": "Which dataset is the day-partitioned Wish product catalogue at one row per listing for counting distinct products in the current snapshot, rather than the analytics-facing product dimension? Reply with only the table identity in the form {database}.{table}. Do not wrap it in markdown fences and do not add any other text.",
+      "tools": {
+        "required": [
+          "fetch_related_models",
+          "commit_cards"
+        ],
+        "allowed": [
+          "fetch_related_models",
+          "commit_cards",
+          "datahub_list_glossary_terms",
+          "datahub_graphql_query",
+          "record_metric_conflict",
+          "datahub_list_datasets",
+          "datahub_list_schema_fields",
+          "datahub_get_lineage",
+          "datahub_get_dataset_queries",
+          "propose_sql",
+          "write_gate_reasons",
+          "trino_explain",
+          "trino_desc_table",
+          "hive_desc_table",
+          "trino_list_tables",
+          "trino_list_schemas",
+          "trino_list_catalogs",
+          "update_card_selection",
+          "request_sql_regenerate",
+          "trino_run_query"
+        ],
+        "forbidden": []
+      },
+      "max_tool_calls": 3
+    },
+    {
+      "name": "find_canonical_wish_product_dimension",
+      "query": "Which dataset is the canonical analytics-facing Wish product dimension at one row per listing for counting distinct products in the current snapshot, rather than the day-partitioned product catalogue? Reply with only the table identity in the form {database}.{table}. Do not wrap it in markdown fences and do not add any other text.",
+      "tools": {
+        "required": [
+          "fetch_related_models",
+          "commit_cards"
+        ],
+        "allowed": [
+          "fetch_related_models",
+          "commit_cards",
+          "datahub_list_glossary_terms",
+          "datahub_graphql_query",
+          "record_metric_conflict",
+          "datahub_list_datasets",
+          "datahub_list_schema_fields",
+          "datahub_get_lineage",
+          "datahub_get_dataset_queries",
+          "propose_sql",
+          "write_gate_reasons",
+          "trino_explain",
+          "trino_desc_table",
+          "hive_desc_table",
+          "trino_list_tables",
+          "trino_list_schemas",
+          "trino_list_catalogs",
+          "update_card_selection",
+          "request_sql_regenerate",
+          "trino_run_query"
+        ],
+        "forbidden": []
+      },
+      "max_tool_calls": 3
+    },
+    {
+      "name": "find_unique_products_sold_excl_ltd_metric",
+      "query": "For standard Datapark and EXP Wish commerce reporting, which metric counts distinct products sold excluding Limited Time Deal products at payment-received variation grain? Reply with only the metric in the form {database}.{table}.{metric}. Do not wrap it in markdown fences and do not add any other text.",
+      "tools": {
+        "required": [
+          "fetch_related_models",
+          "commit_cards"
+        ],
+        "allowed": [
+          "fetch_related_models",
+          "commit_cards",
+          "datahub_list_glossary_terms",
+          "datahub_graphql_query",
+          "record_metric_conflict",
+          "datahub_list_datasets",
+          "datahub_list_schema_fields",
+          "datahub_get_lineage",
+          "datahub_get_dataset_queries",
+          "propose_sql",
+          "write_gate_reasons",
+          "trino_explain",
+          "trino_desc_table",
+          "hive_desc_table",
+          "trino_list_tables",
+          "trino_list_schemas",
+          "trino_list_catalogs",
+          "update_card_selection",
+          "request_sql_regenerate",
+          "trino_run_query"
+        ],
+        "forbidden": []
+      },
+      "max_tool_calls": 3
+    },
+    {
+      "name": "find_ulc_dau_dataset",
+      "query": "Which dataset should I use for User Lifecycle daily active users, where a user counts as active when their activity interval covers the snapshot day? Reply with only the table identity in the form {database}.{table}. Do not wrap it in markdown fences and do not add any other text.",
+      "tools": {
+        "required": [
+          "fetch_related_models",
+          "commit_cards"
+        ],
+        "allowed": [
+          "fetch_related_models",
+          "commit_cards",
+          "datahub_list_glossary_terms",
+          "datahub_graphql_query",
+          "record_metric_conflict",
+          "datahub_list_datasets",
+          "datahub_list_schema_fields",
+          "datahub_get_lineage",
+          "datahub_get_dataset_queries",
+          "propose_sql",
+          "write_gate_reasons",
+          "trino_explain",
+          "trino_desc_table",
+          "hive_desc_table",
+          "trino_list_tables",
+          "trino_list_schemas",
+          "trino_list_catalogs",
+          "update_card_selection",
+          "request_sql_regenerate",
+          "trino_run_query"
+        ],
+        "forbidden": []
+      },
+      "max_tool_calls": 3
+    },
+    {
+      "name": "find_registered_engagement_dau_dataset",
+      "query": "Which dataset stores registered daily active users at user-day grain with same-day funnel engagement counts for experiment DAU analysis, where bots and temporary users are already filtered out? Reply with only the table identity in the form {database}.{table}. Do not wrap it in markdown fences and do not add any other text.",
+      "tools": {
+        "required": [
+          "fetch_related_models",
+          "commit_cards"
+        ],
+        "allowed": [
+          "fetch_related_models",
+          "commit_cards",
+          "datahub_list_glossary_terms",
+          "datahub_graphql_query",
+          "record_metric_conflict",
+          "datahub_list_datasets",
+          "datahub_list_schema_fields",
+          "datahub_get_lineage",
+          "datahub_get_dataset_queries",
+          "propose_sql",
+          "write_gate_reasons",
+          "trino_explain",
+          "trino_desc_table",
+          "hive_desc_table",
+          "trino_list_tables",
+          "trino_list_schemas",
+          "trino_list_catalogs",
+          "update_card_selection",
+          "request_sql_regenerate",
+          "trino_run_query"
+        ],
+        "forbidden": []
+      },
+      "max_tool_calls": 3
+    },
+    {
+      "name": "find_daily_click_users_metric",
+      "query": "Which metric counts distinct daily active users who had at least one click on the activity day? Reply with only the metric in the form {database}.{table}.{metric}. Do not wrap it in markdown fences and do not add any other text.",
+      "tools": {
+        "required": [
+          "fetch_related_models",
+          "commit_cards"
+        ],
+        "allowed": [
+          "fetch_related_models",
+          "commit_cards",
+          "datahub_list_glossary_terms",
+          "datahub_graphql_query",
+          "record_metric_conflict",
+          "datahub_list_datasets",
+          "datahub_list_schema_fields",
+          "datahub_get_lineage",
+          "datahub_get_dataset_queries",
+          "propose_sql",
+          "write_gate_reasons",
+          "trino_explain",
+          "trino_desc_table",
+          "hive_desc_table",
+          "trino_list_tables",
+          "trino_list_schemas",
+          "trino_list_catalogs",
+          "update_card_selection",
+          "request_sql_regenerate",
+          "trino_run_query"
+        ],
+        "forbidden": []
+      },
+      "max_tool_calls": 3
+    },
+    {
+      "name": "find_wishpost_overall_logistics_purchase_cost",
+      "query": "Which dataset stores WishPost overall logistics finance P&L with total carrier purchase cost in USD across all delivery programs? Reply with only the table identity in the form {database}.{table}. Do not wrap it in markdown fences and do not add any other text.",
+      "tools": {
+        "required": [
+          "fetch_related_models",
+          "commit_cards"
+        ],
+        "allowed": [
+          "fetch_related_models",
+          "commit_cards",
+          "datahub_list_glossary_terms",
+          "datahub_graphql_query",
+          "record_metric_conflict",
+          "datahub_list_datasets",
+          "datahub_list_schema_fields",
+          "datahub_get_lineage",
+          "datahub_get_dataset_queries",
+          "propose_sql",
+          "write_gate_reasons",
+          "trino_explain",
+          "trino_desc_table",
+          "hive_desc_table",
+          "trino_list_tables",
+          "trino_list_schemas",
+          "trino_list_catalogs",
+          "update_card_selection",
+          "request_sql_regenerate",
+          "trino_run_query"
+        ],
+        "forbidden": []
+      },
+      "max_tool_calls": 3
+    },
+    {
+      "name": "find_wishpost_combine_ratio_logistics_purchase_cost",
+      "query": "Which dataset stores WishPost logistics carrier purchase cost for warehouse-combination programs only (EPC, A+, Fusion, and Smart), broken down by combine ratio rather than the overall all-programs P&L? Reply with only the table identity in the form {database}.{table}. Do not wrap it in markdown fences and do not add any other text.",
+      "tools": {
+        "required": [
+          "fetch_related_models",
+          "commit_cards"
+        ],
+        "allowed": [
+          "fetch_related_models",
+          "commit_cards",
+          "datahub_list_glossary_terms",
+          "datahub_graphql_query",
+          "record_metric_conflict",
+          "datahub_list_datasets",
+          "datahub_list_schema_fields",
+          "datahub_get_lineage",
+          "datahub_get_dataset_queries",
+          "propose_sql",
+          "write_gate_reasons",
+          "trino_explain",
+          "trino_desc_table",
+          "hive_desc_table",
+          "trino_list_tables",
+          "trino_list_schemas",
+          "trino_list_catalogs",
+          "update_card_selection",
+          "request_sql_regenerate",
+          "trino_run_query"
+        ],
+        "forbidden": []
+      },
+      "max_tool_calls": 3
+    },
+    {
+      "name": "find_wishpost_first_mile_logistics_fee_metric",
+      "query": "Which metric sums WishPost first-mile (pre-leg, before last-mile combine) purchase logistics fee in CNY for combined delivery programs (EPC, A+, Fusion, and Smart)—the Logistics Fee bucket alone, not total first-mile purchase cost or last-mile/Dropship logistics fees? Reply with only the metric in the form {database}.{table}.{metric}. Do not wrap it in markdown fences and do not add any other text.",
+      "tools": {
+        "required": [
+          "fetch_related_models",
+          "commit_cards"
+        ],
+        "allowed": [
+          "fetch_related_models",
+          "commit_cards",
+          "datahub_list_glossary_terms",
+          "datahub_graphql_query",
+          "record_metric_conflict",
+          "datahub_list_datasets",
+          "datahub_list_schema_fields",
+          "datahub_get_lineage",
+          "datahub_get_dataset_queries",
+          "propose_sql",
+          "write_gate_reasons",
+          "trino_explain",
+          "trino_desc_table",
+          "hive_desc_table",
+          "trino_list_tables",
+          "trino_list_schemas",
+          "trino_list_catalogs",
+          "update_card_selection",
+          "request_sql_regenerate",
+          "trino_run_query"
+        ],
+        "forbidden": []
+      },
+      "max_tool_calls": 3
+    },
+    {
+      "name": "find_commerce_merchant_master_dataset",
+      "query": "Which dataset is Wish's current-state Mongo commerce-merchant master at one row per merchant for counting distinct sellers, rather than the consolidated merchant dimension that merges merchant-user attributes with segment and priority labels? Reply with only the table identity in the form {database}.{table}. Do not wrap it in markdown fences and do not add any other text.",
+      "tools": {
+        "required": [
+          "fetch_related_models",
+          "commit_cards"
+        ],
+        "allowed": [
+          "fetch_related_models",
+          "commit_cards",
+          "datahub_list_glossary_terms",
+          "datahub_graphql_query",
+          "record_metric_conflict",
+          "datahub_list_datasets",
+          "datahub_list_schema_fields",
+          "datahub_get_lineage",
+          "datahub_get_dataset_queries",
+          "propose_sql",
+          "write_gate_reasons",
+          "trino_explain",
+          "trino_desc_table",
+          "hive_desc_table",
+          "trino_list_tables",
+          "trino_list_schemas",
+          "trino_list_catalogs",
+          "update_card_selection",
+          "request_sql_regenerate",
+          "trino_run_query"
+        ],
+        "forbidden": []
+      },
+      "max_tool_calls": 3
+    },
+    {
+      "name": "find_consolidated_merchant_dimension",
+      "query": "Which dataset is the daily full Wish merchant dimension at one row per merchant for counting distinct sellers, consolidating commerce-merchant and merchant-user attributes with rule-based segment, priority, and trusted-channel labels, rather than the Mongo commerce-merchant master alone? Reply with only the table identity in the form {database}.{table}. Do not wrap it in markdown fences and do not add any other text.",
+      "tools": {
+        "required": [
+          "fetch_related_models",
+          "commit_cards"
+        ],
+        "allowed": [
+          "fetch_related_models",
+          "commit_cards",
+          "datahub_list_glossary_terms",
+          "datahub_graphql_query",
+          "record_metric_conflict",
+          "datahub_list_datasets",
+          "datahub_list_schema_fields",
+          "datahub_get_lineage",
+          "datahub_get_dataset_queries",
+          "propose_sql",
+          "write_gate_reasons",
+          "trino_explain",
+          "trino_desc_table",
+          "hive_desc_table",
+          "trino_list_tables",
+          "trino_list_schemas",
+          "trino_list_catalogs",
+          "update_card_selection",
+          "request_sql_regenerate",
+          "trino_run_query"
+        ],
+        "forbidden": []
+      },
+      "max_tool_calls": 3
+    },
+    {
+      "name": "find_commerce_merchant_row_count_metric",
+      "query": "Which metric counts merchant-grain rows on Wish's current-state Mongo commerce-merchant master snapshot—plain row count rather than distinct merchant ids, and not the consolidated merchant dimension that merges merchant-user attributes? Reply with only the metric in the form {database}.{table}.{metric}. Do not wrap it in markdown fences and do not add any other text.",
+      "tools": {
+        "required": [
+          "fetch_related_models",
+          "commit_cards"
+        ],
+        "allowed": [
+          "fetch_related_models",
+          "commit_cards",
+          "datahub_list_glossary_terms",
+          "datahub_graphql_query",
+          "record_metric_conflict",
+          "datahub_list_datasets",
+          "datahub_list_schema_fields",
+          "datahub_get_lineage",
+          "datahub_get_dataset_queries",
+          "propose_sql",
+          "write_gate_reasons",
+          "trino_explain",
+          "trino_desc_table",
+          "hive_desc_table",
+          "trino_list_tables",
+          "trino_list_schemas",
+          "trino_list_catalogs",
+          "update_card_selection",
+          "request_sql_regenerate",
+          "trino_run_query"
+        ],
+        "forbidden": []
+      },
+      "max_tool_calls": 3
+    },
+    {
+      "name": "find_refund_line_merchant_item_cost_dataset",
+      "query": "Which dataset should I use for merchant item cost (COGS) on commerce buyer refund line items in USD, before shipping and before the merchant responsibility split? Reply with only the table identity in the form {database}.{table}. Do not wrap it in markdown fences and do not add any other text.",
+      "tools": {
+        "required": [
+          "fetch_related_models",
+          "commit_cards"
+        ],
+        "allowed": [
+          "fetch_related_models",
+          "commit_cards",
+          "datahub_list_glossary_terms",
+          "datahub_graphql_query",
+          "record_metric_conflict",
+          "datahub_list_datasets",
+          "datahub_list_schema_fields",
+          "datahub_get_lineage",
+          "datahub_get_dataset_queries",
+          "propose_sql",
+          "write_gate_reasons",
+          "trino_explain",
+          "trino_desc_table",
+          "hive_desc_table",
+          "trino_list_tables",
+          "trino_list_schemas",
+          "trino_list_catalogs",
+          "update_card_selection",
+          "request_sql_regenerate",
+          "trino_run_query"
+        ],
+        "forbidden": []
+      },
+      "max_tool_calls": 3
+    },
+    {
+      "name": "find_merchant_txn_item_cost_dataset",
+      "query": "Which dataset should I use for total merchant-borne item cost (COGS) on Wish merchant transactions at one-row-per-merchant-transaction grain, rather than refund-line or commerce-line facts? Reply with only the table identity in the form {database}.{table}. Do not wrap it in markdown fences and do not add any other text.",
+      "tools": {
+        "required": [
+          "fetch_related_models",
+          "commit_cards"
+        ],
+        "allowed": [
+          "fetch_related_models",
+          "commit_cards",
+          "datahub_list_glossary_terms",
+          "datahub_graphql_query",
+          "record_metric_conflict",
+          "datahub_list_datasets",
+          "datahub_list_schema_fields",
+          "datahub_get_lineage",
+          "datahub_get_dataset_queries",
+          "propose_sql",
+          "write_gate_reasons",
+          "trino_explain",
+          "trino_desc_table",
+          "hive_desc_table",
+          "trino_list_tables",
+          "trino_list_schemas",
+          "trino_list_catalogs",
+          "update_card_selection",
+          "request_sql_regenerate",
+          "trino_run_query"
+        ],
+        "forbidden": []
+      },
+      "max_tool_calls": 3
+    },
+    {
+      "name": "find_refund_line_merchant_shipping_cost_metric",
+      "query": "For commerce buyer refund line items, which metric sums merchant shipping cost in USD on a merchant cost basis—not user-paid shipping, and not merchant item cost before shipping? Reply with only the metric in the form {database}.{table}.{metric}. Do not wrap it in markdown fences and do not add any other text.",
+      "tools": {
+        "required": [
+          "fetch_related_models",
+          "commit_cards"
+        ],
+        "allowed": [
+          "fetch_related_models",
+          "commit_cards",
+          "datahub_list_glossary_terms",
+          "datahub_graphql_query",
+          "record_metric_conflict",
+          "datahub_list_datasets",
+          "datahub_list_schema_fields",
+          "datahub_get_lineage",
+          "datahub_get_dataset_queries",
+          "propose_sql",
+          "write_gate_reasons",
+          "trino_explain",
+          "trino_desc_table",
+          "hive_desc_table",
+          "trino_list_tables",
+          "trino_list_schemas",
+          "trino_list_catalogs",
+          "update_card_selection",
+          "request_sql_regenerate",
+          "trino_run_query"
+        ],
+        "forbidden": []
+      },
+      "max_tool_calls": 3
+    },
+    {
+      "name": "find_distinct_product_rating_count_dataset",
+      "query": "Which dataset should I use for the distinct count of product ratings from the product-rating event log on a Pacific business day, rather than a UTC-partitioned sweeper log or a merchant catalog snapshot of lifetime rating counts? Reply with only the table identity in the form {database}.{table}. Do not wrap it in markdown fences and do not add any other text.",
+      "tools": {
+        "required": [
+          "fetch_related_models",
+          "commit_cards"
+        ],
+        "allowed": [
+          "fetch_related_models",
+          "commit_cards",
+          "datahub_list_glossary_terms",
+          "datahub_graphql_query",
+          "record_metric_conflict",
+          "datahub_list_datasets",
+          "datahub_list_schema_fields",
+          "datahub_get_lineage",
+          "datahub_get_dataset_queries",
+          "propose_sql",
+          "write_gate_reasons",
+          "trino_explain",
+          "trino_desc_table",
+          "hive_desc_table",
+          "trino_list_tables",
+          "trino_list_schemas",
+          "trino_list_catalogs",
+          "update_card_selection",
+          "request_sql_regenerate",
+          "trino_run_query"
+        ],
+        "forbidden": []
+      },
+      "max_tool_calls": 3
+    },
+    {
+      "name": "find_merchant_lifetime_rating_count_dataset",
+      "query": "Which dataset stores Wish merchants' lifetime total rating counts on the current-state Mongo commerce-merchant master at one row per merchant—as-of-dump snapshot counters, not a product-rating event log and not the consolidated merchant dimension that merges merchant-user attributes? Reply with only the table identity in the form {database}.{table}. Do not wrap it in markdown fences and do not add any other text.",
+      "tools": {
+        "required": [
+          "fetch_related_models",
+          "commit_cards"
+        ],
+        "allowed": [
+          "fetch_related_models",
+          "commit_cards",
+          "datahub_list_glossary_terms",
+          "datahub_graphql_query",
+          "record_metric_conflict",
+          "datahub_list_datasets",
+          "datahub_list_schema_fields",
+          "datahub_get_lineage",
+          "datahub_get_dataset_queries",
+          "propose_sql",
+          "write_gate_reasons",
+          "trino_explain",
+          "trino_desc_table",
+          "hive_desc_table",
+          "trino_list_tables",
+          "trino_list_schemas",
+          "trino_list_catalogs",
+          "update_card_selection",
+          "request_sql_regenerate",
+          "trino_run_query"
+        ],
+        "forbidden": []
+      },
+      "max_tool_calls": 3
+    },
+    {
+      "name": "find_1_star_rating_event_count_metric",
+      "query": "Which metric counts logged product-rating events that received a 1-star rating on the Pacific event-day product-rating event log, matching the production num_1 star-bucket event count rather than distinct rating documents or a merchant catalog lifetime rating total? Reply with only the metric in the form {database}.{table}.{metric}. Do not wrap it in markdown fences and do not add any other text.",
+      "tools": {
+        "required": [
+          "fetch_related_models",
+          "commit_cards"
+        ],
+        "allowed": [
+          "fetch_related_models",
+          "commit_cards",
+          "datahub_list_glossary_terms",
+          "datahub_graphql_query",
+          "record_metric_conflict",
+          "datahub_list_datasets",
+          "datahub_list_schema_fields",
+          "datahub_get_lineage",
+          "datahub_get_dataset_queries",
+          "propose_sql",
+          "write_gate_reasons",
+          "trino_explain",
+          "trino_desc_table",
+          "hive_desc_table",
+          "trino_list_tables",
+          "trino_list_schemas",
+          "trino_list_catalogs",
+          "update_card_selection",
+          "request_sql_regenerate",
+          "trino_run_query"
+        ],
+        "forbidden": []
+      },
+      "max_tool_calls": 3
+    },
+    {
+      "name": "find_standard_gmv_excl_ltd_metric",
+      "query": "For standard Datapark and EXP Wish commerce reporting, which metric measures gross merchandise value excluding Limited Time Deal products at payment-received variation grain? Reply with only the metric in the form {database}.{table}.{metric}. Do not wrap it in markdown fences and do not add any other text.",
+      "tools": {
+        "required": [
+          "fetch_related_models",
+          "commit_cards"
+        ],
+        "allowed": [
+          "fetch_related_models",
+          "commit_cards",
+          "datahub_list_glossary_terms",
+          "datahub_graphql_query",
+          "record_metric_conflict",
+          "datahub_list_datasets",
+          "datahub_list_schema_fields",
+          "datahub_get_lineage",
+          "datahub_get_dataset_queries",
+          "propose_sql",
+          "write_gate_reasons",
+          "trino_explain",
+          "trino_desc_table",
+          "hive_desc_table",
+          "trino_list_tables",
+          "trino_list_schemas",
+          "trino_list_catalogs",
+          "update_card_selection",
+          "request_sql_regenerate",
+          "trino_run_query"
+        ],
+        "forbidden": []
+      },
+      "max_tool_calls": 3
+    },
+    {
+      "name": "find_consolidated_line_gmv_excl_ltd_metric",
+      "query": "Which metric measures Wish gross merchandise value excluding limited-time-deal line items on the consolidated commerce fact that joins commerce transactions, merchant transactions, and order tracking, timed on the UTC transaction calendar day? Reply with only the metric in the form {database}.{table}.{metric}. Do not wrap it in markdown fences and do not add any other text.",
+      "tools": {
+        "required": [
+          "fetch_related_models",
+          "commit_cards"
+        ],
+        "allowed": [
+          "fetch_related_models",
+          "commit_cards",
+          "datahub_list_glossary_terms",
+          "datahub_graphql_query",
+          "record_metric_conflict",
+          "datahub_list_datasets",
+          "datahub_list_schema_fields",
+          "datahub_get_lineage",
+          "datahub_get_dataset_queries",
+          "propose_sql",
+          "write_gate_reasons",
+          "trino_explain",
+          "trino_desc_table",
+          "hive_desc_table",
+          "trino_list_tables",
+          "trino_list_schemas",
+          "trino_list_catalogs",
+          "update_card_selection",
+          "request_sql_regenerate",
+          "trino_run_query"
+        ],
+        "forbidden": []
+      },
+      "max_tool_calls": 3
+    },
+    {
+      "name": "find_gmv_including_ltd_metric",
+      "query": "Which metric measures Wish gross merchandise value including Limited Time Deal products at payment-received variation grain? Reply with only the metric in the form {database}.{table}.{metric}. Do not wrap it in markdown fences and do not add any other text.",
+      "tools": {
+        "required": [
+          "fetch_related_models",
+          "commit_cards"
+        ],
+        "allowed": [
+          "fetch_related_models",
+          "commit_cards",
+          "datahub_list_glossary_terms",
+          "datahub_graphql_query",
+          "record_metric_conflict",
+          "datahub_list_datasets",
+          "datahub_list_schema_fields",
+          "datahub_get_lineage",
+          "datahub_get_dataset_queries",
+          "propose_sql",
+          "write_gate_reasons",
+          "trino_explain",
+          "trino_desc_table",
+          "hive_desc_table",
+          "trino_list_tables",
+          "trino_list_schemas",
+          "trino_list_catalogs",
+          "update_card_selection",
+          "request_sql_regenerate",
+          "trino_run_query"
+        ],
+        "forbidden": []
+      },
+      "max_tool_calls": 3
+    },
+    {
+      "name": "find_wish_order_tracking_shipments_dataset",
+      "query": "Which dataset should I use to count Wish commerce order-tracking records as total shipments—one row per tracking record, cohorted by tracking creation day—rather than WishPost first-mile parcel snapshot rows? Reply with only the table identity in the form {database}.{table}. Do not wrap it in markdown fences and do not add any other text.",
+      "tools": {
+        "required": [
+          "fetch_related_models",
+          "commit_cards"
+        ],
+        "allowed": [
+          "fetch_related_models",
+          "commit_cards",
+          "datahub_list_glossary_terms",
+          "datahub_graphql_query",
+          "record_metric_conflict",
+          "datahub_list_datasets",
+          "datahub_list_schema_fields",
+          "datahub_get_lineage",
+          "datahub_get_dataset_queries",
+          "propose_sql",
+          "write_gate_reasons",
+          "trino_explain",
+          "trino_desc_table",
+          "hive_desc_table",
+          "trino_list_tables",
+          "trino_list_schemas",
+          "trino_list_catalogs",
+          "update_card_selection",
+          "request_sql_regenerate",
+          "trino_run_query"
+        ],
+        "forbidden": []
+      },
+      "max_tool_calls": 3
+    },
+    {
+      "name": "find_wishpost_parcel_lifecycle_snapshot",
+      "query": "Which dataset should I use for WishPost first-mile parcel row counts at one-row-per-parcel daily as-of snapshot grain on the rolling recent logistics order book that covers the full lifecycle from first-mile pickup through last-mile delivery, with commerce and China payment finance rollups attached? Reply with only the table identity in the form {database}.{table}. Do not wrap it in markdown fences and do not add any other text.",
+      "tools": {
+        "required": [
+          "fetch_related_models",
+          "commit_cards"
+        ],
+        "allowed": [
+          "fetch_related_models",
+          "commit_cards",
+          "datahub_list_glossary_terms",
+          "datahub_graphql_query",
+          "record_metric_conflict",
+          "datahub_list_datasets",
+          "datahub_list_schema_fields",
+          "datahub_get_lineage",
+          "datahub_get_dataset_queries",
+          "propose_sql",
+          "write_gate_reasons",
+          "trino_explain",
+          "trino_desc_table",
+          "hive_desc_table",
+          "trino_list_tables",
+          "trino_list_schemas",
+          "trino_list_catalogs",
+          "update_card_selection",
+          "request_sql_regenerate",
+          "trino_run_query"
+        ],
+        "forbidden": []
+      },
+      "max_tool_calls": 3
+    },
+    {
+      "name": "find_wishpost_overall_pnl_pre_combine_parcel_volume",
+      "query": "Which metric sums pre-combination parcel volume—individual parcels before logistics combination—over WishPost overall logistics finance P&L cells across all delivery programs, rather than post-combination counts, order-tracking shipment rows, or combine-ratio-only P&L? Reply with only the metric in the form {database}.{table}.{metric}. Do not wrap it in markdown fences and do not add any other text.",
+      "tools": {
+        "required": [
+          "fetch_related_models",
+          "commit_cards"
+        ],
+        "allowed": [
+          "fetch_related_models",
+          "commit_cards",
+          "datahub_list_glossary_terms",
+          "datahub_graphql_query",
+          "record_metric_conflict",
+          "datahub_list_datasets",
+          "datahub_list_schema_fields",
+          "datahub_get_lineage",
+          "datahub_get_dataset_queries",
+          "propose_sql",
+          "write_gate_reasons",
+          "trino_explain",
+          "trino_desc_table",
+          "hive_desc_table",
+          "trino_list_tables",
+          "trino_list_schemas",
+          "trino_list_catalogs",
+          "update_card_selection",
+          "request_sql_regenerate",
+          "trino_run_query"
+        ],
+        "forbidden": []
+      },
+      "max_tool_calls": 3
+    },
+    {
+      "name": "find_wishpost_overall_logistics_sales_revenue",
+      "query": "Which dataset stores WishPost overall logistics finance P&L with total sales revenue in USD across all delivery programs? Reply with only the table identity in the form {database}.{table}. Do not wrap it in markdown fences and do not add any other text.",
+      "tools": {
+        "required": [
+          "fetch_related_models",
+          "commit_cards"
+        ],
+        "allowed": [
+          "fetch_related_models",
+          "commit_cards",
+          "datahub_list_glossary_terms",
+          "datahub_graphql_query",
+          "record_metric_conflict",
+          "datahub_list_datasets",
+          "datahub_list_schema_fields",
+          "datahub_get_lineage",
+          "datahub_get_dataset_queries",
+          "propose_sql",
+          "write_gate_reasons",
+          "trino_explain",
+          "trino_desc_table",
+          "hive_desc_table",
+          "trino_list_tables",
+          "trino_list_schemas",
+          "trino_list_catalogs",
+          "update_card_selection",
+          "request_sql_regenerate",
+          "trino_run_query"
+        ],
+        "forbidden": []
+      },
+      "max_tool_calls": 3
+    },
+    {
+      "name": "find_wishpost_combine_ratio_logistics_sales_revenue",
+      "query": "Which dataset stores WishPost logistics sales revenue for warehouse-combination programs only (EPC, A+, Fusion, and Smart), broken down by combine ratio rather than the overall all-programs P&L? Reply with only the table identity in the form {database}.{table}. Do not wrap it in markdown fences and do not add any other text.",
+      "tools": {
+        "required": [
+          "fetch_related_models",
+          "commit_cards"
+        ],
+        "allowed": [
+          "fetch_related_models",
+          "commit_cards",
+          "datahub_list_glossary_terms",
+          "datahub_graphql_query",
+          "record_metric_conflict",
+          "datahub_list_datasets",
+          "datahub_list_schema_fields",
+          "datahub_get_lineage",
+          "datahub_get_dataset_queries",
+          "propose_sql",
+          "write_gate_reasons",
+          "trino_explain",
+          "trino_desc_table",
+          "hive_desc_table",
+          "trino_list_tables",
+          "trino_list_schemas",
+          "trino_list_catalogs",
+          "update_card_selection",
+          "request_sql_regenerate",
+          "trino_run_query"
+        ],
+        "forbidden": []
+      },
+      "max_tool_calls": 3
+    },
+    {
+      "name": "find_wishpost_combine_ratio_avg_logistics_sales",
+      "query": "Which metric gives the average WishPost logistics sales revenue per combine-ratio finance P&L cell for warehouse-combination programs only (EPC, A+, Fusion, and Smart), rather than total sales summed across cells or the average on the overall all-programs P&L? Reply with only the metric in the form {database}.{table}.{metric}. Do not wrap it in markdown fences and do not add any other text.",
+      "tools": {
+        "required": [
+          "fetch_related_models",
+          "commit_cards"
+        ],
+        "allowed": [
+          "fetch_related_models",
+          "commit_cards",
+          "datahub_list_glossary_terms",
+          "datahub_graphql_query",
+          "record_metric_conflict",
+          "datahub_list_datasets",
+          "datahub_list_schema_fields",
+          "datahub_get_lineage",
+          "datahub_get_dataset_queries",
+          "propose_sql",
+          "write_gate_reasons",
+          "trino_explain",
+          "trino_desc_table",
+          "hive_desc_table",
+          "trino_list_tables",
+          "trino_list_schemas",
+          "trino_list_catalogs",
+          "update_card_selection",
+          "request_sql_regenerate",
+          "trino_run_query"
+        ],
+        "forbidden": []
+      },
+      "max_tool_calls": 3
+    },
+    {
+      "name": "find_user_day_product_impressions",
+      "query": "Which metric totals same-day product impressions for daily active registered users at user-day grain? Reply with only the metric in the form {database}.{table}.{metric}. Do not wrap it in markdown fences and do not add any other text.",
+      "tools": {
+        "required": [
+          "fetch_related_models",
+          "commit_cards"
+        ],
+        "allowed": [
+          "fetch_related_models",
+          "commit_cards",
+          "datahub_list_glossary_terms",
+          "datahub_graphql_query",
+          "record_metric_conflict",
+          "datahub_list_datasets",
+          "datahub_list_schema_fields",
+          "datahub_get_lineage",
+          "datahub_get_dataset_queries",
+          "propose_sql",
+          "write_gate_reasons",
+          "trino_explain",
+          "trino_desc_table",
+          "hive_desc_table",
+          "trino_list_tables",
+          "trino_list_schemas",
+          "trino_list_catalogs",
+          "update_card_selection",
+          "request_sql_regenerate",
+          "trino_run_query"
+        ],
+        "forbidden": []
+      },
+      "max_tool_calls": 3
+    },
+    {
+      "name": "find_product_day_contest_impressions",
+      "query": "Which metric sums bot-filtered contest impressions at the daily commerce product-day grain, rather than user-day impression counters or distinct feed-tile root impressions? Reply with only the metric in the form {database}.{table}.{metric}. Do not wrap it in markdown fences and do not add any other text.",
+      "tools": {
+        "required": [
+          "fetch_related_models",
+          "commit_cards"
+        ],
+        "allowed": [
+          "fetch_related_models",
+          "commit_cards",
+          "datahub_list_glossary_terms",
+          "datahub_graphql_query",
+          "record_metric_conflict",
+          "datahub_list_datasets",
+          "datahub_list_schema_fields",
+          "datahub_get_lineage",
+          "datahub_get_dataset_queries",
+          "propose_sql",
+          "write_gate_reasons",
+          "trino_explain",
+          "trino_desc_table",
+          "hive_desc_table",
+          "trino_list_tables",
+          "trino_list_schemas",
+          "trino_list_catalogs",
+          "update_card_selection",
+          "request_sql_regenerate",
+          "trino_run_query"
+        ],
+        "forbidden": []
+      },
+      "max_tool_calls": 3
+    },
+    {
+      "name": "find_feed_tile_attributed_root_impressions_metric",
+      "query": "For Wish consumer feed product-tile interaction detail, which metric measures attributed feed impression reach as the count of distinct originating root impressions that link a click back to the impression that produced it, rather than summing product-day or user-day impression counters, counting impression action rows, or counting root impressions only among add-to-cart events? Reply with only the metric in the form {database}.{table}.{metric}. Do not wrap it in markdown fences and do not add any other text.",
+      "tools": {
+        "required": [
+          "fetch_related_models",
+          "commit_cards"
+        ],
+        "allowed": [
+          "fetch_related_models",
+          "commit_cards",
+          "datahub_list_glossary_terms",
+          "datahub_graphql_query",
+          "record_metric_conflict",
+          "datahub_list_datasets",
+          "datahub_list_schema_fields",
+          "datahub_get_lineage",
+          "datahub_get_dataset_queries",
+          "propose_sql",
+          "write_gate_reasons",
+          "trino_explain",
+          "trino_desc_table",
+          "hive_desc_table",
+          "trino_list_tables",
+          "trino_list_schemas",
+          "trino_list_catalogs",
+          "update_card_selection",
+          "request_sql_regenerate",
+          "trino_run_query"
+        ],
+        "forbidden": []
+      },
+      "max_tool_calls": 3
+    },
+    {
+      "name": "find_commerce_buyer_refund_amount_dataset",
+      "query": "Which dataset is the primary analytical source for the total USD amount refunded to the buyer at commerce refund line-item grain, timed on the Pacific refund day? Reply with only the table identity in the form {database}.{table}. Do not wrap it in markdown fences and do not add any other text.",
+      "tools": {
+        "required": [
+          "fetch_related_models",
+          "commit_cards"
+        ],
+        "allowed": [
+          "fetch_related_models",
+          "commit_cards",
+          "datahub_list_glossary_terms",
+          "datahub_graphql_query",
+          "record_metric_conflict",
+          "datahub_list_datasets",
+          "datahub_list_schema_fields",
+          "datahub_get_lineage",
+          "datahub_get_dataset_queries",
+          "propose_sql",
+          "write_gate_reasons",
+          "trino_explain",
+          "trino_desc_table",
+          "hive_desc_table",
+          "trino_list_tables",
+          "trino_list_schemas",
+          "trino_list_catalogs",
+          "update_card_selection",
+          "request_sql_regenerate",
+          "trino_run_query"
+        ],
+        "forbidden": []
+      },
+      "max_tool_calls": 3
+    },
+    {
+      "name": "find_fulfillment_refund_event_amount_dataset",
+      "query": "Which dataset should I use for total refund dollars from daily aggregated merchant order fulfillment refunded events at commerce transaction and product variation grain, timed on the Airflow load day for experiment measurement? Reply with only the table identity in the form {database}.{table}. Do not wrap it in markdown fences and do not add any other text.",
+      "tools": {
+        "required": [
+          "fetch_related_models",
+          "commit_cards"
+        ],
+        "allowed": [
+          "fetch_related_models",
+          "commit_cards",
+          "datahub_list_glossary_terms",
+          "datahub_graphql_query",
+          "record_metric_conflict",
+          "datahub_list_datasets",
+          "datahub_list_schema_fields",
+          "datahub_get_lineage",
+          "datahub_get_dataset_queries",
+          "propose_sql",
+          "write_gate_reasons",
+          "trino_explain",
+          "trino_desc_table",
+          "hive_desc_table",
+          "trino_list_tables",
+          "trino_list_schemas",
+          "trino_list_catalogs",
+          "update_card_selection",
+          "request_sql_regenerate",
+          "trino_run_query"
+        ],
+        "forbidden": []
+      },
+      "max_tool_calls": 3
+    },
+    {
+      "name": "find_refund_to_original_payment_amount_metric",
+      "query": "Which metric sums the USD refunded back to the buyer's original external payment method on commerce refund line items by Pacific refund day, rather than total refund amount or refunds returned as Wish Cash? Reply with only the metric in the form {database}.{table}.{metric}. Do not wrap it in markdown fences and do not add any other text.",
+      "tools": {
+        "required": [
+          "fetch_related_models",
+          "commit_cards"
+        ],
+        "allowed": [
+          "fetch_related_models",
+          "commit_cards",
+          "datahub_list_glossary_terms",
+          "datahub_graphql_query",
+          "record_metric_conflict",
+          "datahub_list_datasets",
+          "datahub_list_schema_fields",
+          "datahub_get_lineage",
+          "datahub_get_dataset_queries",
+          "propose_sql",
+          "write_gate_reasons",
+          "trino_explain",
+          "trino_desc_table",
+          "hive_desc_table",
+          "trino_list_tables",
+          "trino_list_schemas",
+          "trino_list_catalogs",
+          "update_card_selection",
+          "request_sql_regenerate",
+          "trino_run_query"
+        ],
+        "forbidden": []
+      },
+      "max_tool_calls": 3
+    },
+    {
+      "name": "find_merchant_txn_buyers_dataset",
+      "query": "Which dataset should I use to count distinct purchasing customers from Wish merchant transactions at one-row-per-merchant-transaction grain? Reply with only the table identity in the form {database}.{table}. Do not wrap it in markdown fences and do not add any other text.",
+      "tools": {
+        "required": [
+          "fetch_related_models",
+          "commit_cards"
+        ],
+        "allowed": [
+          "fetch_related_models",
+          "commit_cards",
+          "datahub_list_glossary_terms",
+          "datahub_graphql_query",
+          "record_metric_conflict",
+          "datahub_list_datasets",
+          "datahub_list_schema_fields",
+          "datahub_get_lineage",
+          "datahub_get_dataset_queries",
+          "propose_sql",
+          "write_gate_reasons",
+          "trino_explain",
+          "trino_desc_table",
+          "hive_desc_table",
+          "trino_list_tables",
+          "trino_list_schemas",
+          "trino_list_catalogs",
+          "update_card_selection",
+          "request_sql_regenerate",
+          "trino_run_query"
+        ],
+        "forbidden": []
+      },
+      "max_tool_calls": 3
+    },
+    {
+      "name": "find_master_commerce_line_buyers_dataset",
+      "query": "Which DataHub dataset should I use to count distinct purchasers on Wish at one-row-per-commerce-line-item grain from the master buyer-facing commerce transaction fact landed from MongoDB commerce checkout documents, timed on the pipeline refresh partition day rather than payment-received or a consolidated merchant-and-tracking join? Reply with only the table identity in the form {database}.{table}. Do not wrap it in markdown fences and do not add any other text.",
+      "tools": {
+        "required": [
+          "fetch_related_models",
+          "commit_cards"
+        ],
+        "allowed": [
+          "fetch_related_models",
+          "commit_cards",
+          "datahub_list_glossary_terms",
+          "datahub_graphql_query",
+          "record_metric_conflict",
+          "datahub_list_datasets",
+          "datahub_list_schema_fields",
+          "datahub_get_lineage",
+          "datahub_get_dataset_queries",
+          "propose_sql",
+          "write_gate_reasons",
+          "trino_explain",
+          "trino_desc_table",
+          "hive_desc_table",
+          "trino_list_tables",
+          "trino_list_schemas",
+          "trino_list_catalogs",
+          "update_card_selection",
+          "request_sql_regenerate",
+          "trino_run_query"
+        ],
+        "forbidden": []
+      },
+      "max_tool_calls": 3
+    },
+    {
+      "name": "find_buyers_excl_ltd_metric",
+      "query": "For standard Datapark and EXP Wish commerce reporting, which metric counts distinct purchasing users excluding Limited Time Deal products at payment-received variation grain? Reply with only the metric in the form {database}.{table}.{metric}. Do not wrap it in markdown fences and do not add any other text.",
+      "tools": {
+        "required": [
+          "fetch_related_models",
+          "commit_cards"
+        ],
+        "allowed": [
+          "fetch_related_models",
+          "commit_cards",
+          "datahub_list_glossary_terms",
+          "datahub_graphql_query",
+          "record_metric_conflict",
+          "datahub_list_datasets",
+          "datahub_list_schema_fields",
+          "datahub_get_lineage",
+          "datahub_get_dataset_queries",
+          "propose_sql",
+          "write_gate_reasons",
+          "trino_explain",
+          "trino_desc_table",
+          "hive_desc_table",
+          "trino_list_tables",
+          "trino_list_schemas",
+          "trino_list_catalogs",
+          "update_card_selection",
+          "request_sql_regenerate",
+          "trino_run_query"
+        ],
+        "forbidden": []
+      },
+      "max_tool_calls": 3
+    },
+    {
+      "name": "find_avg_star_rating_event_log_dataset",
+      "query": "Which dataset should I use for the average star rating across all logged product-rating events on a Pacific business day, rather than a UTC-partitioned sweeper log or a product/merchant catalog snapshot rating? Reply with only the table identity in the form {database}.{table}. Do not wrap it in markdown fences and do not add any other text.",
+      "tools": {
+        "required": [
+          "fetch_related_models",
+          "commit_cards"
+        ],
+        "allowed": [
+          "fetch_related_models",
+          "commit_cards",
+          "datahub_list_glossary_terms",
+          "datahub_graphql_query",
+          "record_metric_conflict",
+          "datahub_list_datasets",
+          "datahub_list_schema_fields",
+          "datahub_get_lineage",
+          "datahub_get_dataset_queries",
+          "propose_sql",
+          "write_gate_reasons",
+          "trino_explain",
+          "trino_desc_table",
+          "hive_desc_table",
+          "trino_list_tables",
+          "trino_list_schemas",
+          "trino_list_catalogs",
+          "update_card_selection",
+          "request_sql_regenerate",
+          "trino_run_query"
+        ],
+        "forbidden": []
+      },
+      "max_tool_calls": 3
+    },
+    {
+      "name": "find_product_day_units_sold_dataset",
+      "query": "Which dataset should I use for units sold—purchased item quantity at the daily commerce product-day grain, not order or transaction counts? Reply with only the table identity in the form {database}.{table}. Do not wrap it in markdown fences and do not add any other text.",
+      "tools": {
+        "required": [
+          "fetch_related_models",
+          "commit_cards"
+        ],
+        "allowed": [
+          "fetch_related_models",
+          "commit_cards",
+          "datahub_list_glossary_terms",
+          "datahub_graphql_query",
+          "record_metric_conflict",
+          "datahub_list_datasets",
+          "datahub_list_schema_fields",
+          "datahub_get_lineage",
+          "datahub_get_dataset_queries",
+          "propose_sql",
+          "write_gate_reasons",
+          "trino_explain",
+          "trino_desc_table",
+          "hive_desc_table",
+          "trino_list_tables",
+          "trino_list_schemas",
+          "trino_list_catalogs",
+          "update_card_selection",
+          "request_sql_regenerate",
+          "trino_run_query"
+        ],
+        "forbidden": []
+      },
+      "max_tool_calls": 3
+    },
+    {
+      "name": "find_consolidated_buyer_tax_amount_dataset",
+      "query": "Which dataset should I use for the sales tax or VAT charged to buyers on Wish commerce transactions, on the consolidated commerce fact that joins commerce transactions, merchant transactions, and order tracking, timed on the UTC transaction calendar day? Reply with only the table identity in the form {database}.{table}. Do not wrap it in markdown fences and do not add any other text.",
+      "tools": {
+        "required": [
+          "fetch_related_models",
+          "commit_cards"
+        ],
+        "allowed": [
+          "fetch_related_models",
+          "commit_cards",
+          "datahub_list_glossary_terms",
+          "datahub_graphql_query",
+          "record_metric_conflict",
+          "datahub_list_datasets",
+          "datahub_list_schema_fields",
+          "datahub_get_lineage",
+          "datahub_get_dataset_queries",
+          "propose_sql",
+          "write_gate_reasons",
+          "trino_explain",
+          "trino_desc_table",
+          "hive_desc_table",
+          "trino_list_tables",
+          "trino_list_schemas",
+          "trino_list_catalogs",
+          "update_card_selection",
+          "request_sql_regenerate",
+          "trino_run_query"
+        ],
+        "forbidden": []
+      },
+      "max_tool_calls": 3
+    },
+    {
+      "name": "find_consolidated_merchandise_revenue_excl_ltd_metric",
+      "query": "Which metric measures Wish merchandise revenue as the amount customers actually paid for line items, excluding limited-time-deal lines, on the consolidated commerce fact that joins commerce transactions, merchant transactions, and order tracking, timed on the UTC transaction calendar day? Reply with only the metric in the form {database}.{table}.{metric}. Do not wrap it in markdown fences and do not add any other text.",
+      "tools": {
+        "required": [
+          "fetch_related_models",
+          "commit_cards"
+        ],
+        "allowed": [
+          "fetch_related_models",
+          "commit_cards",
+          "datahub_list_glossary_terms",
+          "datahub_graphql_query",
+          "record_metric_conflict",
+          "datahub_list_datasets",
+          "datahub_list_schema_fields",
+          "datahub_get_lineage",
+          "datahub_get_dataset_queries",
+          "propose_sql",
+          "write_gate_reasons",
+          "trino_explain",
+          "trino_desc_table",
+          "hive_desc_table",
+          "trino_list_tables",
+          "trino_list_schemas",
+          "trino_list_catalogs",
+          "update_card_selection",
+          "request_sql_regenerate",
+          "trino_run_query"
+        ],
+        "forbidden": []
+      },
+      "max_tool_calls": 3
+    },
+    {
+      "name": "find_consolidated_distinct_variations_dataset",
+      "query": "Which dataset should I use to count distinct product variations (SKUs) on Wish commerce line items, on the consolidated commerce fact that joins commerce transactions, merchant transactions, and order tracking, timed on the UTC transaction calendar day? Reply with only the table identity in the form {database}.{table}. Do not wrap it in markdown fences and do not add any other text.",
+      "tools": {
+        "required": [
+          "fetch_related_models",
+          "commit_cards"
+        ],
+        "allowed": [
+          "fetch_related_models",
+          "commit_cards",
+          "datahub_list_glossary_terms",
+          "datahub_graphql_query",
+          "record_metric_conflict",
+          "datahub_list_datasets",
+          "datahub_list_schema_fields",
+          "datahub_get_lineage",
+          "datahub_get_dataset_queries",
+          "propose_sql",
+          "write_gate_reasons",
+          "trino_explain",
+          "trino_desc_table",
+          "hive_desc_table",
+          "trino_list_tables",
+          "trino_list_schemas",
+          "trino_list_catalogs",
+          "update_card_selection",
+          "request_sql_regenerate",
+          "trino_run_query"
+        ],
+        "forbidden": []
+      },
+      "max_tool_calls": 3
+    },
+    {
+      "name": "find_wish_add_to_cart_value_dataset",
+      "query": "Which governed Wish analytics dataset should I use to measure add-to-cart value as the sum of listed product prices logged at cart-add time, at one-row-per-deduplicated-event grain with feed attribution—not realized GMV or revenue and not a product-day rollup? Reply with only the table identity in the form {database}.{table}. Do not wrap it in markdown fences and do not add any other text.",
+      "tools": {
+        "required": [
+          "fetch_related_models",
+          "commit_cards"
+        ],
+        "allowed": [
+          "fetch_related_models",
+          "commit_cards",
+          "datahub_list_glossary_terms",
+          "datahub_graphql_query",
+          "record_metric_conflict",
+          "datahub_list_datasets",
+          "datahub_list_schema_fields",
+          "datahub_get_lineage",
+          "datahub_get_dataset_queries",
+          "propose_sql",
+          "write_gate_reasons",
+          "trino_explain",
+          "trino_desc_table",
+          "hive_desc_table",
+          "trino_list_tables",
+          "trino_list_schemas",
+          "trino_list_catalogs",
+          "update_card_selection",
+          "request_sql_regenerate",
+          "trino_run_query"
+        ],
+        "forbidden": []
+      },
+      "max_tool_calls": 3
+    },
+    {
+      "name": "find_wish_add_to_cart_events_dataset",
+      "query": "Which governed Wish analytics dataset should I use to count add-to-cart events at one-row-per-deduplicated-event grain, with product and feed attribution and including bots—not a product-day ATC rollup and not feed-tile interaction rows filtered to add_to_cart? Reply with only the table identity in the form {database}.{table}. Do not wrap it in markdown fences and do not add any other text.",
+      "tools": {
+        "required": [
+          "fetch_related_models",
+          "commit_cards"
+        ],
+        "allowed": [
+          "fetch_related_models",
+          "commit_cards",
+          "datahub_list_glossary_terms",
+          "datahub_graphql_query",
+          "record_metric_conflict",
+          "datahub_list_datasets",
+          "datahub_list_schema_fields",
+          "datahub_get_lineage",
+          "datahub_get_dataset_queries",
+          "propose_sql",
+          "write_gate_reasons",
+          "trino_explain",
+          "trino_desc_table",
+          "hive_desc_table",
+          "trino_list_tables",
+          "trino_list_schemas",
+          "trino_list_catalogs",
+          "update_card_selection",
+          "request_sql_regenerate",
+          "trino_run_query"
+        ],
+        "forbidden": []
+      },
+      "max_tool_calls": 3
+    },
+    {
+      "name": "find_merchant_txn_commerce_checkouts_dataset",
+      "query": "Which dataset should I use to count distinct buyer-facing commerce checkouts from Wish merchant transaction facts at one-row-per-merchant-transaction grain, where one commerce checkout can expand into many merchant-side rows? Reply with only the table identity in the form {database}.{table}. Do not wrap it in markdown fences and do not add any other text.",
+      "tools": {
+        "required": [
+          "fetch_related_models",
+          "commit_cards"
+        ],
+        "allowed": [
+          "fetch_related_models",
+          "commit_cards",
+          "datahub_list_glossary_terms",
+          "datahub_graphql_query",
+          "record_metric_conflict",
+          "datahub_list_datasets",
+          "datahub_list_schema_fields",
+          "datahub_get_lineage",
+          "datahub_get_dataset_queries",
+          "propose_sql",
+          "write_gate_reasons",
+          "trino_explain",
+          "trino_desc_table",
+          "hive_desc_table",
+          "trino_list_tables",
+          "trino_list_schemas",
+          "trino_list_catalogs",
+          "update_card_selection",
+          "request_sql_regenerate",
+          "trino_run_query"
+        ],
+        "forbidden": []
+      },
+      "max_tool_calls": 3
+    },
+    {
+      "name": "find_wish_registered_user_base_dataset",
+      "query": "Which dataset is the Wish user master with one row per user account for counting the total registered user base by registration cohort? Reply with only the table identity in the form {database}.{table}. Do not wrap it in markdown fences and do not add any other text.",
+      "tools": {
+        "required": [
+          "fetch_related_models",
+          "commit_cards"
+        ],
+        "allowed": [
+          "fetch_related_models",
+          "commit_cards",
+          "datahub_list_glossary_terms",
+          "datahub_graphql_query",
+          "record_metric_conflict",
+          "datahub_list_datasets",
+          "datahub_list_schema_fields",
+          "datahub_get_lineage",
+          "datahub_get_dataset_queries",
+          "propose_sql",
+          "write_gate_reasons",
+          "trino_explain",
+          "trino_desc_table",
+          "hive_desc_table",
+          "trino_list_tables",
+          "trino_list_schemas",
+          "trino_list_catalogs",
+          "update_card_selection",
+          "request_sql_regenerate",
+          "trino_run_query"
+        ],
+        "forbidden": []
+      },
+      "max_tool_calls": 3
+    },
+    {
+      "name": "find_avg_delivery_days_dataset",
+      "query": "Which dataset should I use for average transit time in days from tracking creation to confirmed delivery, measured over delivered Wish order-tracking records only? Reply with only the table identity in the form {database}.{table}. Do not wrap it in markdown fences and do not add any other text.",
+      "tools": {
+        "required": [
+          "fetch_related_models",
+          "commit_cards"
+        ],
+        "allowed": [
+          "fetch_related_models",
+          "commit_cards",
+          "datahub_list_glossary_terms",
+          "datahub_graphql_query",
+          "record_metric_conflict",
+          "datahub_list_datasets",
+          "datahub_list_schema_fields",
+          "datahub_get_lineage",
+          "datahub_get_dataset_queries",
+          "propose_sql",
+          "write_gate_reasons",
+          "trino_explain",
+          "trino_desc_table",
+          "hive_desc_table",
+          "trino_list_tables",
+          "trino_list_schemas",
+          "trino_list_catalogs",
+          "update_card_selection",
+          "request_sql_regenerate",
+          "trino_run_query"
+        ],
+        "forbidden": []
+      },
+      "max_tool_calls": 3
+    },
+    {
+      "name": "find_wishpost_overall_logistics_profit",
+      "query": "Which dataset stores WishPost overall logistics finance P&L profit in USD across all delivery programs? Reply with only the table identity in the form {database}.{table}. Do not wrap it in markdown fences and do not add any other text.",
+      "tools": {
+        "required": [
+          "fetch_related_models",
+          "commit_cards"
+        ],
+        "allowed": [
+          "fetch_related_models",
+          "commit_cards",
+          "datahub_list_glossary_terms",
+          "datahub_graphql_query",
+          "record_metric_conflict",
+          "datahub_list_datasets",
+          "datahub_list_schema_fields",
+          "datahub_get_lineage",
+          "datahub_get_dataset_queries",
+          "propose_sql",
+          "write_gate_reasons",
+          "trino_explain",
+          "trino_desc_table",
+          "hive_desc_table",
+          "trino_list_tables",
+          "trino_list_schemas",
+          "trino_list_catalogs",
+          "update_card_selection",
+          "request_sql_regenerate",
+          "trino_run_query"
+        ],
+        "forbidden": []
+      },
+      "max_tool_calls": 3
+    },
+    {
+      "name": "find_ulc_active_buyers_dataset",
+      "query": "Which dataset should I use for User Lifecycle active buyers, where a buyer counts as active when their purchase-activity interval covers the snapshot day? Reply with only the table identity in the form {database}.{table}. Do not wrap it in markdown fences and do not add any other text.",
+      "tools": {
+        "required": [
+          "fetch_related_models",
+          "commit_cards"
+        ],
+        "allowed": [
+          "fetch_related_models",
+          "commit_cards",
+          "datahub_list_glossary_terms",
+          "datahub_graphql_query",
+          "record_metric_conflict",
+          "datahub_list_datasets",
+          "datahub_list_schema_fields",
+          "datahub_get_lineage",
+          "datahub_get_dataset_queries",
+          "propose_sql",
+          "write_gate_reasons",
+          "trino_explain",
+          "trino_desc_table",
+          "hive_desc_table",
+          "trino_list_tables",
+          "trino_list_schemas",
+          "trino_list_catalogs",
+          "update_card_selection",
+          "request_sql_regenerate",
+          "trino_run_query"
+        ],
+        "forbidden": []
+      },
+      "max_tool_calls": 3
+    },
+    {
+      "name": "find_take_rate_dataset",
+      "query": "Which dataset should I use for WBR take rate—marketplace revenue over GMV excluding Limited Time Deal products—at payment-received commerce variation line grain? Reply with only the table identity in the form {database}.{table}. Do not wrap it in markdown fences and do not add any other text.",
+      "tools": {
+        "required": [
+          "fetch_related_models",
+          "commit_cards"
+        ],
+        "allowed": [
+          "fetch_related_models",
+          "commit_cards",
+          "datahub_list_glossary_terms",
+          "datahub_graphql_query",
+          "record_metric_conflict",
+          "datahub_list_datasets",
+          "datahub_list_schema_fields",
+          "datahub_get_lineage",
+          "datahub_get_dataset_queries",
+          "propose_sql",
+          "write_gate_reasons",
+          "trino_explain",
+          "trino_desc_table",
+          "hive_desc_table",
+          "trino_list_tables",
+          "trino_list_schemas",
+          "trino_list_catalogs",
+          "update_card_selection",
+          "request_sql_regenerate",
+          "trino_run_query"
+        ],
+        "forbidden": []
+      },
+      "max_tool_calls": 3
+    },
+    {
+      "name": "find_datapark_merchant_orders_excl_ltd_metric",
+      "query": "For standard Datapark Wish commerce reporting, which metric counts distinct merchant orders excluding Limited Time Deal products at payment-received variation grain? Reply with only the metric in the form {database}.{table}.{metric}. Do not wrap it in markdown fences and do not add any other text.",
+      "tools": {
+        "required": [
+          "fetch_related_models",
+          "commit_cards"
+        ],
+        "allowed": [
+          "fetch_related_models",
+          "commit_cards",
+          "datahub_list_glossary_terms",
+          "datahub_graphql_query",
+          "record_metric_conflict",
+          "datahub_list_datasets",
+          "datahub_list_schema_fields",
+          "datahub_get_lineage",
+          "datahub_get_dataset_queries",
+          "propose_sql",
+          "write_gate_reasons",
+          "trino_explain",
+          "trino_desc_table",
+          "hive_desc_table",
+          "trino_list_tables",
+          "trino_list_schemas",
+          "trino_list_catalogs",
+          "update_card_selection",
+          "request_sql_regenerate",
+          "trino_run_query"
+        ],
+        "forbidden": []
+      },
+      "max_tool_calls": 3
+    },
+    {
+      "name": "find_wish_order_tracking_parcel_weight_dataset",
+      "query": "Which dataset should I use to sum the shipping weight of Wish commerce parcels from order-tracking records—one row per tracking record, cohorted by tracking creation day—rather than WishPost declared or finance mature parcel weight tables? Reply with only the table identity in the form {database}.{table}. Do not wrap it in markdown fences and do not add any other text.",
+      "tools": {
+        "required": [
+          "fetch_related_models",
+          "commit_cards"
+        ],
+        "allowed": [
+          "fetch_related_models",
+          "commit_cards",
+          "datahub_list_glossary_terms",
+          "datahub_graphql_query",
+          "record_metric_conflict",
+          "datahub_list_datasets",
+          "datahub_list_schema_fields",
+          "datahub_get_lineage",
+          "datahub_get_dataset_queries",
+          "propose_sql",
+          "write_gate_reasons",
+          "trino_explain",
+          "trino_desc_table",
+          "hive_desc_table",
+          "trino_list_tables",
+          "trino_list_schemas",
+          "trino_list_catalogs",
+          "update_card_selection",
+          "request_sql_regenerate",
+          "trino_run_query"
+        ],
+        "forbidden": []
+      },
+      "max_tool_calls": 3
+    },
+    {
+      "name": "find_consolidated_paid_shipping_dataset",
+      "query": "Which dataset should I use for buyer-paid shipping revenue collected on Wish commerce line items, on the consolidated commerce fact that joins commerce transactions, merchant transactions, and order tracking, timed on the UTC transaction calendar day? Reply with only the table identity in the form {database}.{table}. Do not wrap it in markdown fences and do not add any other text.",
+      "tools": {
+        "required": [
+          "fetch_related_models",
+          "commit_cards"
+        ],
+        "allowed": [
+          "fetch_related_models",
+          "commit_cards",
+          "datahub_list_glossary_terms",
+          "datahub_graphql_query",
+          "record_metric_conflict",
+          "datahub_list_datasets",
+          "datahub_list_schema_fields",
+          "datahub_get_lineage",
+          "datahub_get_dataset_queries",
+          "propose_sql",
+          "write_gate_reasons",
+          "trino_explain",
+          "trino_desc_table",
+          "hive_desc_table",
+          "trino_list_tables",
+          "trino_list_schemas",
+          "trino_list_catalogs",
+          "update_card_selection",
+          "request_sql_regenerate",
+          "trino_run_query"
+        ],
+        "forbidden": []
+      },
+      "max_tool_calls": 3
+    },
+    {
+      "name": "find_commerce_refund_items_dataset",
+      "query": "Which dataset stores commerce buyer refund line items so I can count refund lines or refund events by refund day? Reply with only the table identity in the form {database}.{table}. Do not wrap it in markdown fences and do not add any other text.",
+      "tools": {
+        "required": [
+          "fetch_related_models",
+          "commit_cards"
+        ],
+        "allowed": [
+          "fetch_related_models",
+          "commit_cards",
+          "datahub_list_glossary_terms",
+          "datahub_graphql_query",
+          "record_metric_conflict",
+          "datahub_list_datasets",
+          "datahub_list_schema_fields",
+          "datahub_get_lineage",
+          "datahub_get_dataset_queries",
+          "propose_sql",
+          "write_gate_reasons",
+          "trino_explain",
+          "trino_desc_table",
+          "hive_desc_table",
+          "trino_list_tables",
+          "trino_list_schemas",
+          "trino_list_catalogs",
+          "update_card_selection",
+          "request_sql_regenerate",
+          "trino_run_query"
+        ],
+        "forbidden": []
+      },
+      "max_tool_calls": 3
+    },
+    {
+      "name": "find_commerce_refunded_transactions_dataset",
+      "query": "Which dataset should I use to count distinct commerce buyer orders that have at least one refund, from commerce refund line-item facts timed on the Pacific refund day? Reply with only the table identity in the form {database}.{table}. Do not wrap it in markdown fences and do not add any other text.",
+      "tools": {
+        "required": [
+          "fetch_related_models",
+          "commit_cards"
+        ],
+        "allowed": [
+          "fetch_related_models",
+          "commit_cards",
+          "datahub_list_glossary_terms",
+          "datahub_graphql_query",
+          "record_metric_conflict",
+          "datahub_list_datasets",
+          "datahub_list_schema_fields",
+          "datahub_get_lineage",
+          "datahub_get_dataset_queries",
+          "propose_sql",
+          "write_gate_reasons",
+          "trino_explain",
+          "trino_desc_table",
+          "hive_desc_table",
+          "trino_list_tables",
+          "trino_list_schemas",
+          "trino_list_catalogs",
+          "update_card_selection",
+          "request_sql_regenerate",
+          "trino_run_query"
+        ],
+        "forbidden": []
+      },
+      "max_tool_calls": 3
+    },
+    {
+      "name": "find_merchant_avg_fulfillment_time_dataset",
+      "query": "Which dataset should I use for Wish merchants' average fulfillment time in days—the overall handling or 备货时长 on the current-state merchant master snapshot, not a US-only 30-day window? Reply with only the table identity in the form {database}.{table}. Do not wrap it in markdown fences and do not add any other text.",
+      "tools": {
+        "required": [
+          "fetch_related_models",
+          "commit_cards"
+        ],
+        "allowed": [
+          "fetch_related_models",
+          "commit_cards",
+          "datahub_list_glossary_terms",
+          "datahub_graphql_query",
+          "record_metric_conflict",
+          "datahub_list_datasets",
+          "datahub_list_schema_fields",
+          "datahub_get_lineage",
+          "datahub_get_dataset_queries",
+          "propose_sql",
+          "write_gate_reasons",
+          "trino_explain",
+          "trino_desc_table",
+          "hive_desc_table",
+          "trino_list_tables",
+          "trino_list_schemas",
+          "trino_list_catalogs",
+          "update_card_selection",
+          "request_sql_regenerate",
+          "trino_run_query"
+        ],
+        "forbidden": []
+      },
+      "max_tool_calls": 3
+    },
+    {
+      "name": "find_feed_product_tile_clicks_dataset",
+      "query": "Which dataset should I use for Wish consumer feed product-tile clicks at product-tile grain, where one logged multi-product click counts once per product and bot traffic is included, rather than a raw event log or a daily user page-module click rollup? Reply with only the table identity in the form {database}.{table}. Do not wrap it in markdown fences and do not add any other text.",
+      "tools": {
+        "required": [
+          "fetch_related_models",
+          "commit_cards"
+        ],
+        "allowed": [
+          "fetch_related_models",
+          "commit_cards",
+          "datahub_list_glossary_terms",
+          "datahub_graphql_query",
+          "record_metric_conflict",
+          "datahub_list_datasets",
+          "datahub_list_schema_fields",
+          "datahub_get_lineage",
+          "datahub_get_dataset_queries",
+          "propose_sql",
+          "write_gate_reasons",
+          "trino_explain",
+          "trino_desc_table",
+          "hive_desc_table",
+          "trino_list_tables",
+          "trino_list_schemas",
+          "trino_list_catalogs",
+          "update_card_selection",
+          "request_sql_regenerate",
+          "trino_run_query"
+        ],
+        "forbidden": []
+      },
+      "max_tool_calls": 3
+    },
+    {
+      "name": "find_atv_dataset",
+      "query": "Which dataset should I use for average transaction value—GMV per distinct checkout excluding Limited Time Deal products—at payment-received commerce variation line grain? Reply with only the table identity in the form {database}.{table}. Do not wrap it in markdown fences and do not add any other text.",
+      "tools": {
+        "required": [
+          "fetch_related_models",
+          "commit_cards"
+        ],
+        "allowed": [
+          "fetch_related_models",
+          "commit_cards",
+          "datahub_list_glossary_terms",
+          "datahub_graphql_query",
+          "record_metric_conflict",
+          "datahub_list_datasets",
+          "datahub_list_schema_fields",
+          "datahub_get_lineage",
+          "datahub_get_dataset_queries",
+          "propose_sql",
+          "write_gate_reasons",
+          "trino_explain",
+          "trino_desc_table",
+          "hive_desc_table",
+          "trino_list_tables",
+          "trino_list_schemas",
+          "trino_list_catalogs",
+          "update_card_selection",
+          "request_sql_regenerate",
+          "trino_run_query"
+        ],
+        "forbidden": []
+      },
+      "max_tool_calls": 3
+    },
+    {
+      "name": "find_feed_product_tile_ctr_dataset",
+      "query": "Which dataset should I use for Wish consumer feed product-tile click-through rate, measured as tile-grain clicks over impressions rather than a daily user page-module activity rollup? Reply with only the table identity in the form {database}.{table}. Do not wrap it in markdown fences and do not add any other text.",
+      "tools": {
+        "required": [
+          "fetch_related_models",
+          "commit_cards"
+        ],
+        "allowed": [
+          "fetch_related_models",
+          "commit_cards",
+          "datahub_list_glossary_terms",
+          "datahub_graphql_query",
+          "record_metric_conflict",
+          "datahub_list_datasets",
+          "datahub_list_schema_fields",
+          "datahub_get_lineage",
+          "datahub_get_dataset_queries",
+          "propose_sql",
+          "write_gate_reasons",
+          "trino_explain",
+          "trino_desc_table",
+          "hive_desc_table",
+          "trino_list_tables",
+          "trino_list_schemas",
+          "trino_list_catalogs",
+          "update_card_selection",
+          "request_sql_regenerate",
+          "trino_run_query"
+        ],
+        "forbidden": []
+      },
+      "max_tool_calls": 3
+    },
+    {
+      "name": "find_add_to_cart_rate_dataset",
+      "query": "Which dataset should I use for add-to-cart rate—add-to-cart events over contest impressions at the daily commerce product-day grain, with bot and China-IP filtering already applied upstream? Reply with only the table identity in the form {database}.{table}. Do not wrap it in markdown fences and do not add any other text.",
+      "tools": {
+        "required": [
+          "fetch_related_models",
+          "commit_cards"
+        ],
+        "allowed": [
+          "fetch_related_models",
+          "commit_cards",
+          "datahub_list_glossary_terms",
+          "datahub_graphql_query",
+          "record_metric_conflict",
+          "datahub_list_datasets",
+          "datahub_list_schema_fields",
+          "datahub_get_lineage",
+          "datahub_get_dataset_queries",
+          "propose_sql",
+          "write_gate_reasons",
+          "trino_explain",
+          "trino_desc_table",
+          "hive_desc_table",
+          "trino_list_tables",
+          "trino_list_schemas",
+          "trino_list_catalogs",
+          "update_card_selection",
+          "request_sql_regenerate",
+          "trino_run_query"
+        ],
+        "forbidden": []
+      },
+      "max_tool_calls": 3
+    },
+    {
+      "name": "find_gmv_per_buyer_dataset",
+      "query": "Which dataset should I use for average GMV per buyer excluding Limited Time Deal products, measured on payment-received commerce variation lines? Reply with only the table identity in the form {database}.{table}. Do not wrap it in markdown fences and do not add any other text.",
+      "tools": {
+        "required": [
+          "fetch_related_models",
+          "commit_cards"
+        ],
+        "allowed": [
+          "fetch_related_models",
+          "commit_cards",
+          "datahub_list_glossary_terms",
+          "datahub_graphql_query",
+          "record_metric_conflict",
+          "datahub_list_datasets",
+          "datahub_list_schema_fields",
+          "datahub_get_lineage",
+          "datahub_get_dataset_queries",
+          "propose_sql",
+          "write_gate_reasons",
+          "trino_explain",
+          "trino_desc_table",
+          "hive_desc_table",
+          "trino_list_tables",
+          "trino_list_schemas",
+          "trino_list_catalogs",
+          "update_card_selection",
+          "request_sql_regenerate",
+          "trino_run_query"
+        ],
+        "forbidden": []
+      },
+      "max_tool_calls": 3
+    },
+    {
+      "name": "find_wish_variation_catalog_inventory_dataset",
+      "query": "Which dataset should I use for total stock on hand across the Wish product-variation catalog snapshot—one row per variation as of a single day—rather than product-level catalogue inventory? Reply with only the table identity in the form {database}.{table}. Do not wrap it in markdown fences and do not add any other text.",
+      "tools": {
+        "required": [
+          "fetch_related_models",
+          "commit_cards"
+        ],
+        "allowed": [
+          "fetch_related_models",
+          "commit_cards",
+          "datahub_list_glossary_terms",
+          "datahub_graphql_query",
+          "record_metric_conflict",
+          "datahub_list_datasets",
+          "datahub_list_schema_fields",
+          "datahub_get_lineage",
+          "datahub_get_dataset_queries",
+          "propose_sql",
+          "write_gate_reasons",
+          "trino_explain",
+          "trino_desc_table",
+          "hive_desc_table",
+          "trino_list_tables",
+          "trino_list_schemas",
+          "trino_list_catalogs",
+          "update_card_selection",
+          "request_sql_regenerate",
+          "trino_run_query"
+        ],
+        "forbidden": []
+      },
+      "max_tool_calls": 3
+    },
+    {
+      "name": "find_consolidated_discount_amount_dataset",
+      "query": "Which dataset should I use for the total promo or coupon discount amount on Wish commerce transactions, on the consolidated commerce fact that joins commerce transactions, merchant transactions, and order tracking, timed on the UTC transaction calendar day? Reply with only the table identity in the form {database}.{table}. Do not wrap it in markdown fences and do not add any other text.",
+      "tools": {
+        "required": [
+          "fetch_related_models",
+          "commit_cards"
+        ],
+        "allowed": [
+          "fetch_related_models",
+          "commit_cards",
+          "datahub_list_glossary_terms",
+          "datahub_graphql_query",
+          "record_metric_conflict",
+          "datahub_list_datasets",
+          "datahub_list_schema_fields",
+          "datahub_get_lineage",
+          "datahub_get_dataset_queries",
+          "propose_sql",
+          "write_gate_reasons",
+          "trino_explain",
+          "trino_desc_table",
+          "hive_desc_table",
+          "trino_list_tables",
+          "trino_list_schemas",
+          "trino_list_catalogs",
+          "update_card_selection",
+          "request_sql_regenerate",
+          "trino_run_query"
+        ],
+        "forbidden": []
+      },
+      "max_tool_calls": 3
+    },
+    {
+      "name": "find_wish_cash_excl_ltd_metric",
+      "query": "For standard Datapark and EXP Wish commerce reporting, which metric measures Wish Cash spent (store credit applied) excluding Limited Time Deal products at payment-received variation grain? Reply with only the metric in the form {database}.{table}.{metric}. Do not wrap it in markdown fences and do not add any other text.",
+      "tools": {
+        "required": [
+          "fetch_related_models",
+          "commit_cards"
+        ],
+        "allowed": [
+          "fetch_related_models",
+          "commit_cards",
+          "datahub_list_glossary_terms",
+          "datahub_graphql_query",
+          "record_metric_conflict",
+          "datahub_list_datasets",
+          "datahub_list_schema_fields",
+          "datahub_get_lineage",
+          "datahub_get_dataset_queries",
+          "propose_sql",
+          "write_gate_reasons",
+          "trino_explain",
+          "trino_desc_table",
+          "hive_desc_table",
+          "trino_list_tables",
+          "trino_list_schemas",
+          "trino_list_catalogs",
+          "update_card_selection",
+          "request_sql_regenerate",
+          "trino_run_query"
+        ],
+        "forbidden": []
+      },
+      "max_tool_calls": 3
+    },
+    {
+      "name": "find_delivery_rate_dataset",
+      "query": "Which dataset should I use for Wish confirmed-shipment delivery rate—the share of confirmed order-tracking records that were delivered, at one-row-per-order-tracking-record grain? Reply with only the table identity in the form {database}.{table}. Do not wrap it in markdown fences and do not add any other text.",
+      "tools": {
+        "required": [
+          "fetch_related_models",
+          "commit_cards"
+        ],
+        "allowed": [
+          "fetch_related_models",
+          "commit_cards",
+          "datahub_list_glossary_terms",
+          "datahub_graphql_query",
+          "record_metric_conflict",
+          "datahub_list_datasets",
+          "datahub_list_schema_fields",
+          "datahub_get_lineage",
+          "datahub_get_dataset_queries",
+          "propose_sql",
+          "write_gate_reasons",
+          "trino_explain",
+          "trino_desc_table",
+          "hive_desc_table",
+          "trino_list_tables",
+          "trino_list_schemas",
+          "trino_list_catalogs",
+          "update_card_selection",
+          "request_sql_regenerate",
+          "trino_run_query"
+        ],
+        "forbidden": []
+      },
+      "max_tool_calls": 3
+    },
+    {
+      "name": "find_avg_payment_lag_dataset",
+      "query": "Which dataset should I use for average payment lag — the days from checkout to when payment is received? Reply with only the table identity in the form {database}.{table}. Do not wrap it in markdown fences and do not add any other text.",
+      "tools": {
+        "required": [
+          "fetch_related_models",
+          "commit_cards"
+        ],
+        "allowed": [
+          "fetch_related_models",
+          "commit_cards",
+          "datahub_list_glossary_terms",
+          "datahub_graphql_query",
+          "record_metric_conflict",
+          "datahub_list_datasets",
+          "datahub_list_schema_fields",
+          "datahub_get_lineage",
+          "datahub_get_dataset_queries",
+          "propose_sql",
+          "write_gate_reasons",
+          "trino_explain",
+          "trino_desc_table",
+          "hive_desc_table",
+          "trino_list_tables",
+          "trino_list_schemas",
+          "trino_list_catalogs",
+          "update_card_selection",
+          "request_sql_regenerate",
+          "trino_run_query"
+        ],
+        "forbidden": []
+      },
+      "max_tool_calls": 3
+    },
+    {
+      "name": "find_aiv_dataset",
+      "query": "Which dataset should I use for average item value—GMV per purchase unit excluding Limited Time Deal products—at payment-received commerce variation line grain? Reply with only the table identity in the form {database}.{table}. Do not wrap it in markdown fences and do not add any other text.",
+      "tools": {
+        "required": [
+          "fetch_related_models",
+          "commit_cards"
+        ],
+        "allowed": [
+          "fetch_related_models",
+          "commit_cards",
+          "datahub_list_glossary_terms",
+          "datahub_graphql_query",
+          "record_metric_conflict",
+          "datahub_list_datasets",
+          "datahub_list_schema_fields",
+          "datahub_get_lineage",
+          "datahub_get_dataset_queries",
+          "propose_sql",
+          "write_gate_reasons",
+          "trino_explain",
+          "trino_desc_table",
+          "hive_desc_table",
+          "trino_list_tables",
+          "trino_list_schemas",
+          "trino_list_catalogs",
+          "update_card_selection",
+          "request_sql_regenerate",
+          "trino_run_query"
+        ],
+        "forbidden": []
+      },
+      "max_tool_calls": 3
+    },
+    {
+      "name": "find_buyer_rate_dataset",
+      "query": "Which dataset should I use for buyer rate—same-day buyers over attributed DAU at the user-day marketing attribution grain, with LTD purchases excluded upstream? Reply with only the table identity in the form {database}.{table}. Do not wrap it in markdown fences and do not add any other text.",
+      "tools": {
+        "required": [
+          "fetch_related_models",
+          "commit_cards"
+        ],
+        "allowed": [
+          "fetch_related_models",
+          "commit_cards",
+          "datahub_list_glossary_terms",
+          "datahub_graphql_query",
+          "record_metric_conflict",
+          "datahub_list_datasets",
+          "datahub_list_schema_fields",
+          "datahub_get_lineage",
+          "datahub_get_dataset_queries",
+          "propose_sql",
+          "write_gate_reasons",
+          "trino_explain",
+          "trino_desc_table",
+          "hive_desc_table",
+          "trino_list_tables",
+          "trino_list_schemas",
+          "trino_list_catalogs",
+          "update_card_selection",
+          "request_sql_regenerate",
+          "trino_run_query"
+        ],
+        "forbidden": []
+      },
+      "max_tool_calls": 3
+    },
+    {
+      "name": "find_wishpost_overall_logistics_profit_margin",
+      "query": "Which dataset stores WishPost overall logistics finance P&L profit margin in USD—profit over sales revenue across all delivery programs? Reply with only the table identity in the form {database}.{table}. Do not wrap it in markdown fences and do not add any other text.",
+      "tools": {
+        "required": [
+          "fetch_related_models",
+          "commit_cards"
+        ],
+        "allowed": [
+          "fetch_related_models",
+          "commit_cards",
+          "datahub_list_glossary_terms",
+          "datahub_graphql_query",
+          "record_metric_conflict",
+          "datahub_list_datasets",
+          "datahub_list_schema_fields",
+          "datahub_get_lineage",
+          "datahub_get_dataset_queries",
+          "propose_sql",
+          "write_gate_reasons",
+          "trino_explain",
+          "trino_desc_table",
+          "hive_desc_table",
+          "trino_list_tables",
+          "trino_list_schemas",
+          "trino_list_catalogs",
+          "update_card_selection",
+          "request_sql_regenerate",
+          "trino_run_query"
+        ],
+        "forbidden": []
+      },
+      "max_tool_calls": 3
+    },
+    {
+      "name": "find_avg_refund_lag_dataset",
+      "query": "Which dataset should I use for average refund lag — the days from commerce transaction creation to refund completion? Reply with only the table identity in the form {database}.{table}. Do not wrap it in markdown fences and do not add any other text.",
+      "tools": {
+        "required": [
+          "fetch_related_models",
+          "commit_cards"
+        ],
+        "allowed": [
+          "fetch_related_models",
+          "commit_cards",
+          "datahub_list_glossary_terms",
+          "datahub_graphql_query",
+          "record_metric_conflict",
+          "datahub_list_datasets",
+          "datahub_list_schema_fields",
+          "datahub_get_lineage",
+          "datahub_get_dataset_queries",
+          "propose_sql",
+          "write_gate_reasons",
+          "trino_explain",
+          "trino_desc_table",
+          "hive_desc_table",
+          "trino_list_tables",
+          "trino_list_schemas",
+          "trino_list_catalogs",
+          "update_card_selection",
+          "request_sql_regenerate",
+          "trino_run_query"
+        ],
+        "forbidden": []
+      },
+      "max_tool_calls": 3
+    },
+    {
+      "name": "find_merchant_refund_rate_dataset",
+      "query": "Which dataset should I use for Wish merchant refund rate—the share of merchant transactions that were refunded over total orders at one-row-per-merchant-transaction grain? Reply with only the table identity in the form {database}.{table}. Do not wrap it in markdown fences and do not add any other text.",
+      "tools": {
+        "required": [
+          "fetch_related_models",
+          "commit_cards"
+        ],
+        "allowed": [
+          "fetch_related_models",
+          "commit_cards",
+          "datahub_list_glossary_terms",
+          "datahub_graphql_query",
+          "record_metric_conflict",
+          "datahub_list_datasets",
+          "datahub_list_schema_fields",
+          "datahub_get_lineage",
+          "datahub_get_dataset_queries",
+          "propose_sql",
+          "write_gate_reasons",
+          "trino_explain",
+          "trino_desc_table",
+          "hive_desc_table",
+          "trino_list_tables",
+          "trino_list_schemas",
+          "trino_list_catalogs",
+          "update_card_selection",
+          "request_sql_regenerate",
+          "trino_run_query"
+        ],
         "forbidden": []
       },
       "max_tool_calls": 3

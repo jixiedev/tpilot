@@ -1283,5 +1283,23 @@ Implementation notes (behavior only): detect emits intentions + plan steps; publ
 |--------------|--------|-------|
 | Eval MCP | `TAHOEPILOT_SKIP_MCP=1` forced local-only tools | Env flag removed; eval registers MCP like production (failures still one-line warnings) |
 
+## 2026-11-09 — Databot eval tool names
+
+**Goal**: Align golden-query fixtures with real Databot prepare-stage tool names instead of the legacy DataHub MCP alias `search`.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| Prepare-stage expectations | `required`/`allowed`: `search` only | Table cases: `fetch_related_models` → `commit_cards`; metric cases: glossary → fetch → commit |
+| Allow-list | Single-tool | Fetch, DataHub glossary, and typical SQL-stage read tools so full-turn traces do not fail on disallowed names |
+
+## 2026-11-09 — Golden-query databot eval fixtures
+
+**Goal**: Port staged golden-query governance cases into TahoePilot observability so databot functional and performance slices exercise real catalogue lookups.
+
+| Optimization | Before | After |
+|--------------|--------|-------|
+| Databot functional coverage | Single `find_dataset_metadata` smoke case | 71 cases with `expected_output`, table cards, and reference SQL from golden query |
+| Databot performance coverage | One mirrored smoke case | Same 71 queries with `max_tool_calls` budget for prepare-stage scoring |
+
 <!-- Append the next optimization section above this line -->
 

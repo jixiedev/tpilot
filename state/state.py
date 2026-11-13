@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import Any, Literal
+from operator import add
+from typing import Any, Literal, Annotated
 
 from langchain_core.messages import AnyMessage, BaseMessage
 from langgraph.graph import MessagesState
@@ -69,6 +70,8 @@ class SessionAgentState(MessagesState):
     idle_rounds: int
     autonomous_compact_requested: bool
     failed_tools: list[str]
+    tool_call_duration_millis: Annotated[list[int], add]
+    model_call_duration_millis: Annotated[list[int], add]
 
     @staticmethod
     def reset_turn(state: SessionAgentState) -> None:
@@ -76,6 +79,8 @@ class SessionAgentState(MessagesState):
         state["tool_call_count"] = 0
         state["idle_rounds"] = 0
         state["failed_tools"] = []
+        state["tool_call_duration_millis"] = []
+        state["model_call_duration_millis"] = []
 
 
 class IntentionState(MessagesState):

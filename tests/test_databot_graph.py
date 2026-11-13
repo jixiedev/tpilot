@@ -823,3 +823,85 @@ def test_stage_done_plain_assistant_text_counts_as_answered() -> None:
     patch = make_databot_entry_node(static_system_prompt(""))(state)
     assert patch.get("follow_up_turn") is False
 
+
+
+class _RecordingListener:
+    """Minimal ReactAgentListener stand-in that records tool calls."""
+
+    def __init__(self) -> None:
+        self.tool_calls: list[str] = []
+
+    def on_tool_call(self, name: str, args: dict) -> None:
+        self.tool_calls.append(name)
+
+    def on_tool_result(self, name: str, content) -> None:
+        return None
+
+    def on_reason_start(self, tool_call_count: int = 0, max_tool_calls: int = 0, idle_rounds: int = 0) -> None:
+        return None
+
+    def on_reason_step(self, message) -> None:
+        return None
+
+
+class _ScriptedToolModel(FakeMessagesListChatModel):
+    def bind_tools(self, tools, **kwargs):  # type: ignore[override]
+        return self
+
+
+async def test_fetch_subgraph_reports_tool_calls_to_listener():
+    from agent.specialists.databot.subgraphs import build_fetch_cards_subgraph
+
+    listener = _RecordingListener()
+    model = _ScriptedToolModel(
+        responses=[
+            AIMessage(
+                content="",
+                tool_calls=[{"name": "fetch_related_models", "args": {}, "id": "call-1"}],
+            ),
+            AIMessage(content="done"),
+        ]
+    )
+    graph = build_fetch_cards_subgraph(
+        model,
+        [_make_tool("fetch_related_models")],
+        checkpointer=MemorySaver(),
+        max_tool_calls=3,
+        listener=listener,
+    )
+    await graph.ainvoke(
+        _seed(STAGE_FETCH, review_cards=[]),
+        config={"configurable": {"thread_id": "fetch-trace"}, "recursion_limit": 20},
+    )
+    assert listener.tool_calls == ["fetch_related_models"]
+
+
+def test_build_databot_graph_forwards_listener_to_stage_subgraphs(monkeypatch, compiled_graph):
+    import agent.specialists.databot.graph as graph_module
+
+    seen: dict[str, object] = {}
+    for name in (
+        "build_fetch_cards_subgraph",
+        "build_generate_sql_subgraph",
+        "build_knowledge_follow_up_subgraph",
+    ):
+        original = getattr(graph_module, name)
+
+        def spy(*args, _name=name, _original=original, **kwargs):
+            seen[_name] = kwargs.get("listener")
+            return _original(*args, **kwargs)
+
+        monkeypatch.setattr(graph_module, name, spy)
+
+    listener = _RecordingListener()
+    graph_module.build_databot_graph(
+        _ExitStageModel(responses=[AIMessage(content="ok")]),
+        checkpointer=MemorySaver(),
+        runner=_test_runner(),
+        listener=listener,
+    )
+    assert seen == {
+        "build_fetch_cards_subgraph": listener,
+        "build_generate_sql_subgraph": listener,
+        "build_knowledge_follow_up_subgraph": listener,
+    }

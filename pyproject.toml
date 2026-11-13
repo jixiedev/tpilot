@@ -17,6 +17,7 @@ dependencies = [
     "trino>=0.338.0",
     "langgraph-cli[inmem]>=0.4.31",
     "pyyaml>=6.0.3",
+    "codetiming>=1.4.0",
 ]
 
 [project.scripts]

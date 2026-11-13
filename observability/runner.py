@@ -1,64 +1,116 @@
-"""Eval pipeline: bind agents, load cases, run suites, and report scores."""
+"""EvalRunner: run one ``EvalCase`` on a bound agent and capture an ``EvalRunResult``."""
 
 from __future__ import annotations
 
-from pathlib import Path
+import time
+from collections.abc import Awaitable, Callable
+from dataclasses import dataclass, field
+from typing import Any
 
-from langchain_core.language_models import BaseChatModel
-
-from agent.agent import BaseAgent
-from observability.case import CASES_DIR, CaseAggregate, CaseLoader, EvalCase
-
-DEFAULT_MODEL = "MiniMax-M3"
-EVAL_AGENTS = ("databot", "knowledge", "intent")
-DEFAULT_EVAL_SETS: dict[str, list[str]] = {
-    "databot": ["functional"],
-    "knowledge": ["functional", "harness"],
-    "intent": ["functional", "harness"],
-}
+from agent.listener import ReactAgentListener
+from agent.turn import extract_turn_output
+from observability.case import EvalCase
+from observability.timing import EvalTimer, TurnTiming
 
 
-class EvalSuiteReport:
-    def __init__(self, aggregates: list[CaseAggregate]) -> None:
-        self.aggregates = aggregates
+@dataclass
+class ToolCall:
+    name: str
+    args: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class EvalRunResult:
+    """Everything a scorer needs from one (case, model) run."""
+
+    case: EvalCase
+    model_name: str
+    state: dict[str, Any]
+    reply: str
+    tool_calls: list[ToolCall] = field(default_factory=list)
+    cancelled: bool = False
+    timing: TurnTiming = field(default_factory=TurnTiming)
 
     @property
-    def average(self) -> float:
-        if not self.aggregates:
-            return 0.0
-        return sum(item.average for item in self.aggregates) / len(self.aggregates)
-
-    def render(self) -> str:
-        lines = [item.render() for item in self.aggregates]
-        model_runs = sum(len(item.model_results) for item in self.aggregates)
-        lines.append(
-            f"Average score: {self.average:.3f} "
-            f"({len(self.aggregates)} case(s), {model_runs} model run(s))"
-        )
-        return "\n".join(lines)
+    def tool_names(self) -> list[str]:
+        return [call.name for call in self.tool_calls]
 
 
-class EvalAgentPool:
-    """Create and cache bound agents for (agent_name, model_name) pairs."""
+class EvalToolTrace(ReactAgentListener):
+    """Secondary listener that records tool calls for one turn."""
 
     def __init__(self) -> None:
-        self._agents: dict[tuple[str, str], BaseAgent] = {}
+        self.calls: list[ToolCall] = []
 
-    async def get(self, agent_name: str, model_name: str) -> BaseAgent:
+    def on_tool_call(self, name: str, args: dict) -> None:
+        self.calls.append(ToolCall(name=name, args=args))
+
+    def on_turn_output(self, state: Any) -> None:
+        return None
+
+
+class EvalRunner:
+    """Bind one agent per ``(agent_name, model_name)`` and run cases on it."""
+
+    def __init__(self) -> None:
+        self._agents: dict[tuple[str, str], Any] = {}
+
+    async def run(self, case: EvalCase, model_name: str) -> EvalRunResult:
+        agent = await self.agent_for(case.agent_name, model_name)
+        trace = EvalToolTrace()
+        timer = EvalTimer()
+        run_kwargs = dict(case.run_kwargs)
+        if case.gate_reply is not None:
+            run_kwargs["on_interrupt"] = self.gate_answerer(case.gate_reply)
+        if case.traced:
+            agent.register_secondary(trace)
+        started = time.perf_counter()
+        try:
+            with timer.active():
+                turn = await agent.run(
+                    case.prompt,
+                    session=case.session_id(),
+                    user_id=case.user_id,
+                    print_output=False,
+                    **run_kwargs,
+                )
+        finally:
+            if case.traced:
+                agent.clear_secondaries()
+        return EvalRunResult(
+            case=case,
+            model_name=model_name,
+            state=turn.state,
+            reply=extract_turn_output(turn.state),
+            tool_calls=trace.calls,
+            cancelled=turn.cancelled,
+            timing=TurnTiming(wall_seconds=time.perf_counter() - started, calls=timer.calls),
+        )
+
+    def gate_answerer(self, reply: str) -> Callable[[str], Awaitable[str]]:
+        """``on_interrupt`` handler that answers every gate question with ``reply``."""
+
+        async def answer(question: str) -> str:
+            return reply
+
+        return answer
+
+    async def agent_for(self, agent_name: str, model_name: str) -> Any:
         key = (agent_name, model_name)
         if key not in self._agents:
-            self._agents[key] = await self.create(agent_name, model_name)
+            self._agents[key] = await self.create_agent(agent_name, model_name)
         return self._agents[key]
 
-    async def create(self, agent_name: str, model_name: str) -> BaseAgent:
+    async def create_agent(self, agent_name: str, model_name: str) -> Any:
+        """Build a registry agent bound to ``model_name`` with an in-memory checkpointer."""
         from langgraph.checkpoint.memory import MemorySaver
 
-        from agent.listener import ReactAgentListener
         from agent.registry import get_agent
         from agent.runtime.tahoe_runtime_helper import default_profile_store
         from memory import CompressionConfig
+        from models.models import get_model_by_name
 
-        model = self.resolve_model(model_name)
+        model = get_model_by_name(model_name)
         spec = get_agent(agent_name)
         if agent_name == "intent":
             agent = await spec.create_agent()
@@ -75,91 +127,3 @@ class EvalAgentPool:
             compression_config=CompressionConfig(enabled=False),
         )
         return agent
-
-    def resolve_model(self, model_name: str) -> BaseChatModel:
-        from models.models import get_model_by_name
-
-        try:
-            return get_model_by_name(model_name)
-        except KeyError as exc:
-            raise ValueError(str(exc)) from exc
-
-
-class EvalHarness:
-    def __init__(self, loader: CaseLoader, agents: EvalAgentPool | None = None) -> None:
-        self.loader = loader
-        self.agents = agents or EvalAgentPool()
-
-    async def run(
-        self,
-        agents: set[str],
-        models: set[str],
-        eval_set: set[str],
-    ) -> EvalSuiteReport:
-        loaded = self.loader.load(agents, models, eval_set)
-        aggregates_by_key: dict[tuple[str, str, str], CaseAggregate] = {}
-        order: list[tuple[str, str, str]] = []
-        for agent_name, by_model in loaded.items():
-            for model_name, cases in by_model.items():
-                agent = await self.agents.get(agent_name, model_name)
-                for case in cases:
-                    key = (case.agent_name, case.resolved_eval_set().name, case.name)
-                    aggregate = aggregates_by_key.get(key)
-                    if aggregate is None:
-                        aggregate = CaseAggregate(case=case)
-                        aggregates_by_key[key] = aggregate
-                        order.append(key)
-                    result = await case.run(agent, model_name=model_name)
-                    aggregate.model_results.append(result)
-        return EvalSuiteReport([aggregates_by_key[key] for key in order])
-
-
-def default_cases_dir(cases_dir: Path | None = None) -> Path:
-    return cases_dir or CASES_DIR
-
-
-def build_loader(
-    agent_name: str,
-    *,
-    cases_dir: Path | None = None,
-    model_name: str = DEFAULT_MODEL,
-) -> CaseLoader:
-    return CaseLoader(
-        default_cases_dir(cases_dir),
-        {agent_name: model_name},
-    )
-
-
-def format_case_listing(case: EvalCase) -> str:
-    """One-line listing: ``eval_set/agent/name  models=...``."""
-    models = ",".join(case.models) if case.models else "-"
-    return (
-        f"{case.resolved_eval_set().name}/{case.agent_name}/{case.name}  "
-        f"models={models}"
-    )
-
-
-def list_cases(
-    *,
-    agent_name: str,
-    eval_sets: list[str],
-    cases_dir: Path | None = None,
-    model_name: str = DEFAULT_MODEL,
-) -> list[str]:
-    """Return formatted case lines for the selected agent and eval-set slices."""
-    loader = build_loader(agent_name, cases_dir=cases_dir, model_name=model_name)
-    cases = loader.list_cases({agent_name}, set(eval_sets))
-    return [format_case_listing(case) for case in cases]
-
-
-async def run_eval(
-    *,
-    agent_name: str,
-    eval_sets: list[str],
-    cases_dir: Path | None = None,
-    model_name: str = DEFAULT_MODEL,
-) -> EvalSuiteReport:
-    """Load and run the selected agent against one or more eval-set slices."""
-    loader = build_loader(agent_name, cases_dir=cases_dir, model_name=model_name)
-    harness = EvalHarness(loader)
-    return await harness.run({agent_name}, {model_name}, set(eval_sets))

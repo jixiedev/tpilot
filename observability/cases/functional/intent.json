@@ -1,5 +1,4 @@
 {
-  "models": ["MiniMax-M3"],
   "cases": [
     {
       "name": "data_gmv_query",

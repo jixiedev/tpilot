@@ -135,6 +135,7 @@ class DatabotAgent(BaseAgent, RegistryScopedTools):
             system_prompt=self.system_prompt,
             max_tool_calls=self.run_context.max_tool_calls or DEFAULT_STAGE_MAX_TOOL_CALLS,
             profile_dir=self.default_profile_dir,
+            listener=self._runtime.react_listener,
         )
         self._graph = graph
         return graph

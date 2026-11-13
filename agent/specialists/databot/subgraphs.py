@@ -13,6 +13,7 @@ from langchain_core.tools import BaseTool
 from langgraph.graph.state import CompiledStateGraph
 
 from agent.config import AgentRunContext, RouterConfig
+from agent.listener import ReactAgentListener
 from agent.specialists.databot.prompts.fetch import (
     FETCH_CARDS_NEXT_STEP_PROMPT,
     FETCH_CARDS_SYSTEM_PROMPT,
@@ -83,6 +84,18 @@ def _stage_state_exit_router(
     return router.route_after_reason(), router.route_after_action()
 
 
+def _listener_callbacks(listener: ReactAgentListener | None) -> dict[str, Any]:
+    """ReAct hook kwargs for ``build_react_graph`` (none when no listener is given)."""
+    if listener is None:
+        return {}
+    return {
+        "on_tool_call": listener.on_tool_call,
+        "on_tool_result": listener.on_tool_result,
+        "on_reason_start": listener.on_reason_start,
+        "on_reason_step": listener.on_reason_step,
+    }
+
+
 def build_fetch_cards_subgraph(
     model: BaseChatModel,
     tools: list[BaseTool],
@@ -90,6 +103,7 @@ def build_fetch_cards_subgraph(
     checkpointer: Any,
     max_tool_calls: int,
     max_idle_rounds: int = 1,
+    listener: ReactAgentListener | None = None,
 ) -> CompiledStateGraph:
     """Subgraph for the fetch stage.
 
@@ -115,6 +129,7 @@ def build_fetch_cards_subgraph(
         max_tool_calls=max_tool_calls,
         persist_plain_text=False,
         state_class=DatabotState,
+        **_listener_callbacks(listener),
     )
 
 
@@ -125,6 +140,7 @@ def build_generate_sql_subgraph(
     checkpointer: Any,
     max_tool_calls: int,
     max_idle_rounds: int = 1,
+    listener: ReactAgentListener | None = None,
 ) -> CompiledStateGraph:
     """Subgraph for the SQL-draft stage.
 
@@ -152,6 +168,7 @@ def build_generate_sql_subgraph(
         max_tool_calls=max_tool_calls,
         persist_plain_text=False,
         state_class=DatabotState,
+        **_listener_callbacks(listener),
     )
 
 
@@ -162,6 +179,7 @@ def build_knowledge_follow_up_subgraph(
     checkpointer: Any,
     max_tool_calls: int,
     max_idle_rounds: int = 3,
+    listener: ReactAgentListener | None = None,
 ) -> CompiledStateGraph:
     """ReAct loop for knowledge clarifications: delegate to Knowledge, then reply in text."""
     from agent.specialists.databot.tool_scopes import TOOL_ID_DEFAULT, databot_tools
@@ -190,4 +208,5 @@ def build_knowledge_follow_up_subgraph(
         max_tool_calls=max_tool_calls,
         persist_plain_text=True,
         state_class=DatabotState,
+        **_listener_callbacks(listener),
     )
