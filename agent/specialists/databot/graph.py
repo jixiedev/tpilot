@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import datetime
+import functools
 import json
 import logging
 import re
@@ -49,6 +51,13 @@ from tools.registry import find_tool
 logger = logging.getLogger(__name__)
 
 DEFAULT_ROW_LIMIT = 100
+
+# Result preview handed to the turn-summary model (rows and JSON size). Sized to
+# hold a whole executed result (capped at DEFAULT_ROW_LIMIT rows): cutting from
+# the top dropped the "2026-10 TOTAL" row of a 79-row result whose totals sorted
+# after the daily rows, and the summary rightly refused to answer.
+_PREVIEW_MAX_ROWS = 200
+_PREVIEW_MAX_CHARS = 60_000
 
 NODE_FETCH_CARDS = "fetch_cards"
 NODE_INJECT_STAGE_INSTRUCTION = "inject_stage_instruction"
@@ -151,6 +160,60 @@ def after_generate_sql(state: Mapping[str, Any]) -> str:
     ):
         return NODE_GATE_SQL
     return node_for_state(state)
+
+def _names(value: Any) -> list[str]:
+    """Metric/dimension selections: a list, or the ``{"item": [...]}`` shape some models emit."""
+    if isinstance(value, Mapping):
+        value = value.get("item") or value.get("items") or []
+    return [str(v) for v in value or [] if str(v).strip()] if isinstance(value, list) else []
+
+
+def approved_cards_brief(state: Mapping[str, Any], *, today: datetime.date | None = None) -> str:
+    """What the SQL drafter must work from: the approved cards, the removed ones, and today.
+
+    ``approved_cards`` lives in state only; without this the model inferred
+    "the cards" from the fetch step's history, where ``commit_cards`` still
+    lists every card — so a reviewer's deselection at the cards gate was
+    invisible and the drafter kept using removed tables.
+    """
+    from zoneinfo import ZoneInfo
+
+    approved = [c for c in state.get("approved_cards") or [] if isinstance(c, Mapping)]
+    lines = ["Approved table cards for this turn (the reviewer approved exactly these; draft SQL only against them):"]
+    for card in approved:
+        tables = ", ".join(str(t) for t in card.get("physical_tables") or []) or "?"
+        lines.append(f"- {card.get('name')} → {tables}")
+        metrics, dims = _names(card.get("selected_metrics")), _names(card.get("selected_dimensions"))
+        if metrics:
+            lines.append(f"  selected metrics: {', '.join(metrics)}")
+        if dims:
+            lines.append(f"  selected dimensions: {', '.join(dims)}")
+        if (card.get("selection_notes") or "").strip():
+            lines.append(f"  notes: {str(card['selection_notes']).strip()[:400]}")
+        if (card.get("description") or "").strip():
+            lines.append(f"  description: {' '.join(str(card['description']).split())[:900]}")
+    if not approved:
+        lines.append("- (none)")
+    approved_names = {str(c.get("name")) for c in approved}
+    removed = [
+        f"{c.get('name')} ({', '.join(str(t) for t in c.get('physical_tables') or [])})"
+        for c in state.get("committed_cards") or []
+        if isinstance(c, Mapping) and str(c.get("name")) not in approved_names
+    ]
+    if removed:
+        lines.append(
+            "Removed by the reviewer at the cards gate — do not describe, query or "
+            "join these: " + "; ".join(removed)
+        )
+    lines.append(
+        "Card columns describe the dbt model; confirm physical columns with "
+        "`trino_desc_table` before using them. `trino_explain` returns a plan "
+        "only, never values."
+    )
+    day = today or datetime.datetime.now(ZoneInfo("America/Los_Angeles")).date()
+    lines.append(f"Today is {day.isoformat()} (America/Los_Angeles, the business day timezone).")
+    return "\n".join(lines)
+
 
 def sql_react_complete(state: Mapping[str, Any]) -> bool:
     """SQL ReAct subgraph may exit when draft SQL and gate reasons exist."""
@@ -273,16 +336,24 @@ class DatabotTopology:
         }
 
     @staticmethod
-    def inject_stage_instruction(prompt: str) -> Callable[[DatabotState], dict[str, Any]]:
+    def inject_stage_instruction(
+        prompt: str,
+        extra: Callable[[Mapping[str, Any]], str] | None = None,
+    ) -> Callable[[DatabotState], dict[str, Any]]:
         """Append layer opening copy to session ``messages`` before ReAct runs.
+
+        ``extra`` adds state-dependent text after ``prompt`` (the SQL layer
+        lists the approved cards there).
 
         Dedupes only within the current turn: the scan stops at the latest
         real user question (gate redraft messages do not count), so every
         new turn gets the instruction again while a redraft loop does not.
         """
-        text = prompt.strip()
+        base = prompt.strip()
 
         def node(state: DatabotState) -> dict[str, Any]:
+            added = (extra(state) if extra is not None else "").strip()
+            text = f"{base}\n\n{added}".strip() if added else base
             if not text:
                 return {}
             for msg in reversed(state.get("messages") or []):
@@ -339,7 +410,11 @@ class DatabotTopology:
 
     @staticmethod
     def after_gate_cards(state: DatabotState) -> str:
-        """Leave the cards layer on approve, or loop back to fetch on redraft."""
+        """Leave the cards layer on approve or halt, or loop back to fetch on redraft."""
+        if state.get("halt_reason"):
+            # Includes "nothing to review", which adds no audit entry: the last
+            # entry may still be a deny-comments that would loop back to fetch.
+            return END
         gate, decision = latest_gate(state)
         if gate == "cards" and decision == "deny-comments":
             return NODE_INJECT_STAGE_INSTRUCTION
@@ -432,7 +507,9 @@ class DatabotTopology:
                 output_schema=FetchReactOutput,
                 build_input=fetch_react_input,
                 merge_output=merge_fetch_react_output,
-                stage_complete=lambda state: bool(state.get("committed_cards")),
+                # Also end on a model-index outage: rephrasing cannot help.
+                stage_complete=lambda state: bool(state.get("committed_cards"))
+                or bool(human_gates.model_lookup_outage(state)),
             ),
         )
         graph.add_node(NODE_PREPARE_CARDS_FOR_GATE, self.prepare_cards_for_gate())
@@ -488,7 +565,9 @@ class DatabotTopology:
         graph = StateGraph(DatabotState)
         graph.add_node(
             NODE_INJECT_STAGE_INSTRUCTION,
-            DatabotTopology.inject_stage_instruction(sql_instruction),
+            DatabotTopology.inject_stage_instruction(
+                sql_instruction, extra=approved_cards_brief
+            ),
         )
         graph.add_node(
             NODE_GENERATE_SQL,
@@ -497,7 +576,9 @@ class DatabotTopology:
                 run_context=sql_ctx,
                 input_schema=SqlReactInput,
                 output_schema=SqlReactOutput,
-                build_input=sql_react_input,
+                build_input=functools.partial(
+                    sql_react_input, keep_tools=frozenset(t.name for t in sql_tools)
+                ),
                 merge_output=merge_sql_react_output,
                 stage_complete=sql_react_complete,
             ),
@@ -661,11 +742,31 @@ class DatabotTopology:
     def _execution_preview(result: dict[str, Any]) -> dict[str, Any]:
         if not result:
             return {}
+        # Was a fixed 5 rows: a 37-row result whose monthly totals sorted after
+        # its daily rows reached the summary as "only Oct 1-5 visible", and the
+        # lead re-ran the whole retrieval. Keep rows up to a size budget and
+        # always say how many were shown.
         preview = dict(result)
         rows = preview.get("rows")
-        if isinstance(rows, list) and len(rows) > 5:
-            preview["rows"] = rows[:5]
+        if not isinstance(rows, list):
+            return preview
+        kept: list[Any] = []
+        used = 0
+        for row in rows[:_PREVIEW_MAX_ROWS]:
+            size = len(json.dumps(row, ensure_ascii=False, default=str))
+            if kept and used + size > _PREVIEW_MAX_CHARS:
+                break
+            kept.append(row)
+            used += size
+        preview["rows"] = kept
+        preview["rows_shown"] = len(kept)
+        preview["rows_total"] = len(rows)
+        if len(kept) < len(rows):
             preview["rows_truncated"] = True
+            preview["note"] = (
+                f"Only the first {len(kept)} of {len(rows)} result rows are shown here; "
+                "the query itself returned all of them."
+            )
         return preview
 
     @staticmethod
@@ -680,8 +781,23 @@ class DatabotTopology:
 
     @staticmethod
     def _looks_like_user_summary(text: str) -> bool:
+        """Non-empty and not planning monologue, judged on the prose only.
+
+        Fenced code is ignored: a summary that shows the SQL it ran contains
+        ``date_trunc`` / ``interval``, which the narration heuristic (written
+        for mid-loop reasoning) treats as internal — a correct answer
+        ("October 2026 GMV was …") was discarded for the row-count fallback.
+        """
         cleaned = strip_think_blocks(text)
-        return bool(cleaned) and not is_internal_assistant_narration(cleaned)
+        prose = re.sub(r"```.*?(```|$)", "", cleaned, flags=re.DOTALL).strip()
+        return bool(cleaned) and not is_internal_assistant_narration(prose or cleaned)
+
+    @staticmethod
+    def _leading_rows_text(rows: Any, limit: int = 10) -> str:
+        """First rows as compact JSON lines: a fallback summary must still carry values."""
+        if not isinstance(rows, list) or not rows:
+            return ""
+        return "\n".join(json.dumps(r, ensure_ascii=False, default=str) for r in rows[:limit])
 
     @staticmethod
     def _fallback_turn_summary(state: DatabotState, question: str) -> str:
@@ -716,6 +832,9 @@ class DatabotTopology:
             lines.append("This was a preview; no profile artifact was saved.")
         if ok and n_rows is not None:
             lines.append(f"{n_rows} row(s) are in the Results tab.")
+            leading = DatabotTopology._leading_rows_text(rows)
+            if leading:
+                lines.append(f"Leading rows:\n{leading}")
         elif ok:
             lines.append("The query ran; see the Results tab.")
         elif error:

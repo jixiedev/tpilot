@@ -2,18 +2,11 @@
 
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Any
 
 from langchain_core.messages import AnyMessage, BaseMessage
 from langgraph.graph import MessagesState
 from pydantic import BaseModel
-
-# Free-form intention label from IntentOrchestrator; specialists declare labels in the registry.
-UserIntention = str
-IntentionStatus = Literal["pending", "published", "rejected"]
-DEFAULT_USER_INTENTION: UserIntention = "UNCLEAR"
-DEFAULT_INTENTION_STATUS: IntentionStatus = "pending"
-
 
 def message_text(content: Any) -> str:
     """Normalize message content (string or content blocks) to plain text."""
@@ -91,24 +84,6 @@ class ReactAgentState(SessionAgentState):
     def reset_turn(state: ReactAgentState) -> None:
         """Clear per-turn counters; leave ``user_id`` intact across turns."""
         state.update(ReactAgentState.fresh_turn_defaults())
-
-
-class IntentionState(MessagesState):
-    """State for the intent-routing graph.
-
-    ``user_intentions`` lists detected labels (length 1 for simple tasks).
-    Composite requests route to the Plan agent; ``route_target`` is the agent name.
-    """
-
-    user_id: str
-    user_question: str
-    user_intention: UserIntention
-    user_intentions: list[UserIntention]
-    confidence: float
-    need_clarification: str
-    status: IntentionStatus
-    route_target: str
-    clarification_rounds: int
 
 
 # Readers used by ReAct routing; accept a state dict, model, or message list.

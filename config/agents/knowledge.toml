@@ -1,8 +1,7 @@
 name = "knowledge"
 description = "Tahoe team knowledge specialist (code, docs, wikis, Jira)"
-intention = "KNOWLEDGE"
-intention_description = '''
-team knowledge — Tahoe codebase, architecture docs, Google Docs, wikis/FAQs, or Jira tickets (how systems work, where code lives, process questions)
+delegate_when = '''
+team knowledge — what a metric, KPI or business term means (DataHub glossary definitions), Tahoe codebase, architecture docs, Google Docs, wikis/FAQs, or Jira tickets (how systems work, where code lives, process questions)
 '''
 mcp_replace_identifiers = ["catalog"]
 

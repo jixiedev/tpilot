@@ -13,13 +13,13 @@ from tests.minimal_chat_model import MinimalChatModel
 def test_data_analysis_agent_registered() -> None:
     config = AgentCatalog.config("data_analysis")
     assert config.name == "data_analysis"
-    assert config.intention == "ANALYSIS"
+    assert config.delegate_when.startswith("exploratory analysis")
 
 
 def test_swe_agent_registered() -> None:
     config = AgentCatalog.config("swe")
     assert config.name == "swe"
-    assert config.intention == "SWE"
+    assert config.delegate_when.startswith("software engineering")
 
 
 def test_data_analysis_prompt_covers_sql_and_python() -> None:

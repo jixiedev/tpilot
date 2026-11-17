@@ -1,7 +1,6 @@
 name = "swe"
 description = "Software engineering specialist (edit files, shell, Python scripts)"
-intention = "SWE"
-intention_description = """
+delegate_when = """
 software engineering on local files — write or edit code and config, run shell commands or Python scripts, refactor, or fix a bug in the code
 """
 

@@ -7,6 +7,7 @@ import {
 import { z } from "zod";
 import { ToolCallCard } from "./ToolCallCard";
 import {
+  asList,
   cardNamesFromUnknown,
   formatToolResult,
   isToolErrorText,
@@ -75,20 +76,17 @@ function CommitCardsToolRender({
   result,
 }: {
   status: "inProgress" | "executing" | "complete";
-  parameters: { selections?: unknown[] };
+  parameters: { selections?: unknown };
   result?: unknown;
 }) {
-  const selections = parameters.selections ?? [];
-  const lines = selections
+  // asList: arguments may still be streaming (a partial string) or arrive
+  // as `{ item: [...] }`; `.filter` on those crashed the whole page.
+  const lines = asList(parameters.selections)
     .filter((s): s is Record<string, unknown> => typeof s === "object" && s !== null)
     .map((s) => {
       const sid = String(s.staging_id ?? s.card_id ?? s.id ?? "?");
-      const dims = Array.isArray(s.selected_dimensions)
-        ? s.selected_dimensions.join(", ")
-        : "";
-      const metrics = Array.isArray(s.selected_metrics)
-        ? s.selected_metrics.join(", ")
-        : "";
+      const dims = asList(s.selected_dimensions).map(String).join(", ");
+      const metrics = asList(s.selected_metrics).map(String).join(", ");
       return { sid, dims, metrics };
     });
   const resultText = status === "complete" ? formatToolResult(result) : "";

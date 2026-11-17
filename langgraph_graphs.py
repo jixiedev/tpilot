@@ -35,6 +35,11 @@ async def knowledge_ui_agent():
     return await ui_agent_graph("knowledge")
 
 
-async def intent_ui_agent():
+async def lead_ui_agent():
     ensure_local_dirs()
-    return await ui_agent_graph("intent")
+    return await ui_agent_graph("lead")
+
+
+async def warehouse_ui_agent():
+    ensure_local_dirs()
+    return await ui_agent_graph("warehouse")

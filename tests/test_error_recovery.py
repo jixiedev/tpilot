@@ -546,3 +546,63 @@ def test_transient_retry_on_uses_trino_registry() -> None:
     )
     assert transient_retry_on(external) is True
     assert transient_retry_on(user) is False
+
+
+def test_datahub_connect_timeout_is_a_connection_error() -> None:
+    from tools.external.datahub.client import DataHubGraphQLError
+    from tools.errors import ToolErrorType, resolve_exception
+
+    unreachable = DataHubGraphQLError("DataHub GraphQL connection failed: timed out")
+    assert resolve_exception(unreachable)[0] is ToolErrorType.CONNECTION
+    slow = DataHubGraphQLError("read timed out")
+    assert resolve_exception(slow)[0] is ToolErrorType.TIMEOUT
+
+
+async def test_unreachable_tool_is_not_called_again_in_the_same_turn(monkeypatch) -> None:
+    from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+    from langchain_core.tools import tool
+
+    from graph.node import StepActionNode
+
+    async def no_sleep(_s):
+        return None
+
+    monkeypatch.setattr("graph.error_recovery.time.sleep", lambda s: None)
+    monkeypatch.setattr("graph.error_recovery.asyncio.sleep", no_sleep)
+    calls: list[str] = []
+
+    @tool
+    def glossary(query: str) -> str:
+        """Look up glossary terms."""
+        calls.append(query)
+        raise ConnectionRefusedError(61, "Connection refused")
+
+    from langgraph.graph import END, START, StateGraph
+
+    from graph.state import ReactAgentState
+
+    builder = StateGraph(ReactAgentState)
+    builder.add_node("act", StepActionNode([glossary]))
+    builder.add_edge(START, "act")
+    builder.add_edge("act", END)
+    node = builder.compile()
+
+    def ask(query: str, cid: str) -> AIMessage:
+        return AIMessage(content="", tool_calls=[{"name": "glossary", "args": {"query": query}, "id": cid}])
+
+    turn = [HumanMessage(content="gmv?"), ask("gmv", "c1")]
+    first = await node.ainvoke({"messages": turn, "tool_call_count": 0})
+    [failed] = [m for m in first["messages"] if isinstance(m, ToolMessage)]
+    assert '"error_type": "connection"' in failed.content
+    assert len(calls) == 2  # one call, retried once
+
+    turn = [*turn, failed, ask("gross merchandise value", "c2")]
+    second = await node.ainvoke({"messages": turn, "tool_call_count": 1})
+    skipped = [m for m in second["messages"] if isinstance(m, ToolMessage)][-1]
+    assert "not called" in skipped.content and "unreachable this turn" in skipped.content
+    assert len(calls) == 2  # not executed again
+
+    next_turn = [*turn, ToolMessage(content=skipped.content, tool_call_id="c2", name="glossary"),
+                 HumanMessage(content="try again"), ask("gmv", "c3")]
+    await node.ainvoke({"messages": next_turn, "tool_call_count": 0})
+    assert len(calls) == 4  # a new user turn tries the service again

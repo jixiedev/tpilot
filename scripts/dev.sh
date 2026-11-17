@@ -146,7 +146,7 @@ case "$cmd" in
     start_next_bg
     echo "langgraph dev  -> :8000  (pid $(cat "$ROOT/.run/langgraph.pid"))"
     echo "next dev       -> :3000  (pid $(cat "$ROOT/.run/next.pid"))"
-    echo "AG-UI endpoint mounted at http://localhost:8000/agui (inside langgraph dev)"
+    echo "AG-UI endpoints: http://localhost:8000/agui/lead and /agui/databot (inside langgraph dev)"
     echo "logs: $ROOT/.run/{langgraph,next}.log"
     ;;
   stop)
@@ -157,26 +157,28 @@ case "$cmd" in
   status)
     status_check 8000 "langgraph dev  "
     status_check 3000 "next dev       "
-    # If the AG-UI endpoint is mounted, /agui POST will be 422 (missing
-    # required RunAgentInput fields) — that confirms the route is live.
-    # 404 means langgraph dev answered but the route is NOT mounted.
-    agui_code="$(curl -s -o /dev/null -w "%{http_code}" --max-time 2 -X POST -H 'content-type: application/json' -d '{}' "http://127.0.0.1:8000/agui" 2>/dev/null || true)"
-    agui_code="${agui_code:-000}"
-    case "$agui_code" in
-      200|422) echo "AG-UI endpoint  http://127.0.0.1:8000/agui  ALIVE (HTTP $agui_code)" ;;
-      000)     echo "AG-UI endpoint  http://127.0.0.1:8000/agui  not responding (is langgraph dev running?)" ;;
-      *)       echo "AG-UI endpoint  http://127.0.0.1:8000/agui  not mounted (HTTP $agui_code; langgraph.json http.app may be wrong / not loaded)" ;;
-    esac
+    # Each front agent has its own AG-UI endpoint (agui_server.FRONT_AGENTS).
+    # An empty POST is 422 (missing RunAgentInput fields) when it is mounted.
+    for agent in lead databot; do
+      url="http://127.0.0.1:8000/agui/${agent}"
+      agui_code="$(curl -s -o /dev/null -w "%{http_code}" --max-time 2 -X POST -H 'content-type: application/json' -d '{}' "$url" 2>/dev/null || true)"
+      agui_code="${agui_code:-000}"
+      case "$agui_code" in
+        200|422) echo "AG-UI ${agent}  $url  ALIVE (HTTP $agui_code)" ;;
+        000)     echo "AG-UI ${agent}  $url  not responding (is langgraph dev running?)" ;;
+        *)       echo "AG-UI ${agent}  $url  not mounted (HTTP $agui_code; langgraph.json http.app may be wrong / not loaded)" ;;
+      esac
+    done
     ;;
   help|*)
     cat <<EOF
 Usage: $0 <command>
 
-  backend   run langgraph dev on :8000 (foreground) — also serves /agui
+  backend   run langgraph dev on :8000 (foreground) — also serves /agui/lead and /agui/databot
   frontend  run next dev on :3000 (foreground)
   start     start both in the background; PIDs in .run/*.pid
   stop      stop the background processes recorded in .run/*.pid (and their children)
-  status    show whether :8000 and :3000 are alive, and whether /agui is mounted
+  status    show whether :8000 and :3000 are alive, and whether /agui/lead and /agui/databot are mounted
 
 After 'start', open http://localhost:3000 in your browser.
 EOF

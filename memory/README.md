@@ -56,11 +56,10 @@ START → [react_turn_init] → compress_on_start → step_reason ⇄ step_actio
 - `compress_after_action` (`COMPRESS_AFTER_ACTION`) runs after every tool batch,
   before `CompletionToolRouter.route_after_action()` decides the next node.
 
-Only the `BaseReactAgent` specialists (`knowledge`, `diagnostic`,
-`data_analysis`, `swe`) pass a compressor. The databot stage subgraphs
-(`agent/specialists/databot/graph.py`) and plan subgraphs
-(`agent/plan/graph.py`) call `build_react_graph` without one, so they do not
-compress.
+Only the `BaseReactAgent` agents (`knowledge`, `diagnostic`, `data_analysis`,
+`swe`, `warehouse`, and the `lead`) pass a compressor. The databot stage subgraphs
+(`agent/specialists/databot/graph.py`) call `build_react_graph` without one, so
+they do not compress.
 
 With `[compression] enabled = false`, `make_compressor` still returns a
 `ContextCompressor` (so graph wiring does not change), but `run` returns no
@@ -90,7 +89,10 @@ only if the cheaper layers did not bring fill below `fill_trigger`.
 For each `ToolMessage` whose content exceeds `tool_result_offload_threshold`
 tokens (default 2,000):
 
-- skipped if the tool name is in `never_offload_tools`, the content contains
+- skipped if the tool name is in `never_offload_tools` or is
+  `read_offloaded_file` (`ALWAYS_KEEP_TOOL_RESULTS`, whatever the config:
+  re-offloading a recovered file would hand the model a new path and it
+  loops), the content contains
   the autonomous-compact marker, the content is already an offload preview
   (starts with `[OFFLOADED — `), or the message has no `id`;
 - the full content is written as `tool_<name>_<8 hex>.txt`;
@@ -340,5 +342,5 @@ when constructing agents.
 - **`read_offloaded_file` reads any registered store.** Any agent in the
   process can read files under any other agent's `offload_dir` (still only
   inside registered roots).
-- **Databot and plan subgraphs do not compress.** Long stage loops rely on their
+- **Databot stage subgraphs do not compress.** Long stage loops rely on their
   tool budgets instead.

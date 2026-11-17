@@ -63,6 +63,18 @@ def test_layer1_offloads_large_tool_result(tmp_path: Path) -> None:
     assert stored[0].read_text(encoding="utf-8") == big
 
 
+def test_layer1_never_reoffloads_what_the_reader_recovered(tmp_path: Path) -> None:
+    """Offloading a ``read_offloaded_file`` result loops: the model gets a new path each read."""
+    cfg = _config(tmp_path)  # never_offload_tools is empty
+    compressor = ContextCompressor(config=cfg, store=OffloadStore(cfg.offload_dir))
+    big = "column description " * 80
+    messages = [
+        AIMessage(content="", id="ai-1", tool_calls=[{"name": "read_offloaded_file", "args": {}, "id": "c1"}]),
+        ToolMessage(content=big, tool_call_id="c1", name="read_offloaded_file", id="tm-1"),
+    ]
+    assert compressor.layer1_offload_tool_results(messages) == []
+
+
 def test_layer2_evicts_write_tool_args(tmp_path: Path) -> None:
     cfg = _config(tmp_path)
     compressor = ContextCompressor(config=cfg, store=OffloadStore(cfg.offload_dir))

@@ -12,11 +12,11 @@ from langchain_core.language_models import BaseChatModel
 
 load_dotenv(Path(__file__).resolve().parents[1] / ".env")
 
-EVAL_AGENTS = ("databot", "knowledge", "intent")
+EVAL_AGENTS = ("databot", "knowledge", "lead")
 DEFAULT_GROUPS: dict[str, list[str]] = {
     "databot": ["databot"],
     "knowledge": ["knowledge", "general", "tahoe"],
-    "intent": ["intent"],
+    "lead": ["routing"],
 }
 
 
@@ -87,15 +87,10 @@ async def create_eval_agent(agent_name: str, model_name: str):
             profile_store=TahoeRuntimeHelper.default_profile_store(),
             model=model,
             checkpointer=MemorySaver(),
-            compression_config=(
-                CompressionConfig(enabled=False) if agent_name != "intent" else None
-            ),
+            compression_config=CompressionConfig(enabled=False),
         )
     )
-    overrides: dict = {}
-    if agent_name != "intent":
-        overrides["listener"] = AgentListener()
-    return await catalog.create(agent_name, **overrides)
+    return await catalog.create(agent_name, listener=AgentListener())
 
 
 async def run_eval(
@@ -107,19 +102,19 @@ async def run_eval(
     async def agent_factory(model_name: str):
         return await create_eval_agent(agent_name, model_name)
 
-    if agent_name == "intent":
-        from evals.intent_case import (
-            format_intent_case_aggregate,
-            run_intent_cases,
+    if agent_name == "lead":
+        from evals.routing_case import (
+            format_routing_case_aggregate,
+            run_routing_cases,
         )
 
-        average, aggregates = await run_intent_cases(
+        average, aggregates = await run_routing_cases(
             groups,
             agent_factory,
             cases_dir=cases_dir,
         )
         for aggregate in aggregates:
-            print(format_intent_case_aggregate(aggregate))
+            print(format_routing_case_aggregate(aggregate))
     else:
         from evals.tool_case import format_case_aggregate, run_cases
 

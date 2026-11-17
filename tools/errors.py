@@ -92,6 +92,26 @@ def resolve_exception(exc: BaseException) -> tuple[ToolErrorType, bool, str]:
 
 
 def _resolve_registered(exc: BaseException) -> tuple[ToolErrorType, bool, str]:
+    """Most specific mapping for ``exc``, else for the first mapped exception in its cause chain.
+
+    Client libraries wrap network failures in their own types (Qdrant raises
+    ``ResponseHandlingException`` from ``httpx.ConnectError`` from
+    ``ConnectionRefusedError``), so an unmapped wrapper is classified by what
+    it wraps; the message stays the outer exception's.
+    """
+    seen: set[int] = set()
+    current: BaseException | None = exc
+    while current is not None and id(current) not in seen and len(seen) < 8:
+        seen.add(id(current))
+        found = _resolve_one(current)
+        if found is not None:
+            error_type, retryable, message = found
+            return error_type, retryable, message if current is exc else str(exc) or message
+        current = current.__cause__ or current.__context__
+    return ToolErrorType.UNKNOWN, False, str(exc)
+
+
+def _resolve_one(exc: BaseException) -> tuple[ToolErrorType, bool, str] | None:
     for cls in type(exc).mro():
         if cls is BaseException:
             break
@@ -105,7 +125,7 @@ def _resolve_registered(exc: BaseException) -> tuple[ToolErrorType, bool, str]:
         if rule.error_type is not None:
             msg_fn = rule.message or (lambda e: str(e))
             return rule.error_type, rule.retryable, msg_fn(exc)
-    return ToolErrorType.UNKNOWN, False, str(exc)
+    return None
 
 
 def _register_builtin_exception_mappings() -> None:
@@ -133,8 +153,9 @@ def _hint_for(
 
     if error_type is ToolErrorType.CONNECTION:
         base = (
-            f"`{tool}` failed with a connection error. "
-            "Do not repeat the same call; fix connectivity or try another approach."
+            f"`{tool}` could not reach its service (connection error). Calling it "
+            "again, with any arguments, will fail the same way. Do not call it again "
+            "this turn; say which service is unreachable in your reply."
             if tool
             else "Check network connectivity and data-source host/port, then retry."
         )

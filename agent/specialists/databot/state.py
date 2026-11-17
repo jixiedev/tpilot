@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from langchain_core.messages import BaseMessage
+from langchain_core.messages import AIMessage, BaseMessage, ToolMessage
 from typing_extensions import TypedDict
 
 from graph.state import ReactAgentState, SessionAgentState
@@ -94,10 +94,36 @@ def merge_fetch_react_output(output: dict[str, Any]) -> dict[str, Any]:
             patch[key] = output[key]
     return patch
 
-def sql_react_input(state: dict[str, Any]) -> SqlReactInput:
-    """Clone session messages and copy SQL-stage pipeline fields for ReAct."""
+def without_foreign_tool_trail(
+    messages: list[BaseMessage], keep_tools: frozenset[str] | None
+) -> list[BaseMessage]:
+    """Drop tool calls and results for tools outside ``keep_tools``.
+
+    The SQL stage's history includes the fetch stage's glossary, search and
+    ``commit_cards`` trail. Seeing it, the drafter called fetch-only tools it
+    does not have and treated ``commit_cards`` (every card, before the review)
+    as the card list. Its own tool history is kept for redrafts. The parent
+    state is unaffected: the layer's output merges back by message id.
+    """
+    if not keep_tools:
+        return list(messages)
+    kept: list[BaseMessage] = []
+    for message in messages:
+        if isinstance(message, ToolMessage) and (message.name or "") not in keep_tools:
+            continue
+        calls = getattr(message, "tool_calls", None) or []
+        if isinstance(message, AIMessage) and any(c.get("name") not in keep_tools for c in calls):
+            continue
+        kept.append(message)
+    return kept
+
+
+def sql_react_input(
+    state: dict[str, Any], *, keep_tools: frozenset[str] | None = None
+) -> SqlReactInput:
+    """Session messages without the fetch tool trail, plus SQL-stage pipeline fields."""
     return {
-        "messages": list(state.get("messages") or []),
+        "messages": without_foreign_tool_trail(list(state.get("messages") or []), keep_tools),
         "session_name": str(state.get("session_name") or ""),
         "user_id": str(state.get("user_id") or ""),
         "approved_cards": list(state.get("approved_cards") or []),

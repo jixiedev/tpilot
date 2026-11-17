@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useAgent } from "@copilotkit/react-core/v2";
+import { DATABOT_AGENT_ID } from "./databotAgent";
 
 /**
  * AgentDebugPanel — minimal observability surface for the CopilotKit ↔
@@ -27,7 +28,7 @@ import { useAgent } from "@copilotkit/react-core/v2";
  * distract from the chat during normal use.
  */
 export function AgentDebugPanel() {
-  const { agent, isReady } = useAgent({ agentId: "databot" });
+  const { agent, isReady } = useAgent({ agentId: DATABOT_AGENT_ID });
 
   // ``agent`` is a class instance whose fields are mutated in place by
   // the AG-UI client when ``STATE_SNAPSHOT`` / ``MESSAGES_SNAPSHOT``

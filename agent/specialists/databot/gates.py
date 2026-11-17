@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from typing import Any, Literal, Union
 
 from langgraph.types import interrupt
@@ -358,6 +358,58 @@ def _sql_gate_update(
         "dryrun": decision == "dryrun",
     }
 
+NOTHING_TO_REVIEW_CARDS = (
+    "No table models were found for this question, so there was nothing to "
+    "review at the cards gate. The model lookup may have failed or returned no match."
+)
+NOTHING_TO_REVIEW_SQL = (
+    "No SQL was drafted, so there was nothing to review at the SQL gate."
+)
+
+
+MODEL_LOOKUP_TOOL = "fetch_related_models"
+
+
+def model_lookup_outage(state: Mapping[str, Any]) -> str:
+    """The connection error of the latest model lookup in this run, or ``""``.
+
+    The model index (RAG search over Qdrant) being unreachable is an outage,
+    not a bad query: every other phrasing fails the same way.
+    """
+    from langchain_core.messages import ToolMessage
+
+    from tools.errors import StructuredToolError, ToolErrorType
+
+    for message in reversed(list(state.get("messages") or [])):
+        if not isinstance(message, ToolMessage) or message.name != MODEL_LOOKUP_TOOL:
+            continue
+        error = StructuredToolError.from_message_content(str(message.content))
+        if error is not None and error.error_type is ToolErrorType.CONNECTION:
+            return error.message or "connection refused"
+        return ""
+    return ""
+
+
+def nothing_to_review_cards_reason(state: Mapping[str, Any]) -> str:
+    outage = model_lookup_outage(state)
+    if not outage:
+        return NOTHING_TO_REVIEW_CARDS
+    return (
+        f"The table-model index (RAG search on Qdrant) is unreachable ({outage}), "
+        "so no table models could be looked up and there was nothing to review. "
+        "Start the index (`docker compose up -d` in docker/qdrant) and ask again."
+    )
+
+
+def nothing_to_review(state: DatabotState, reason: str) -> dict[str, Any]:
+    """End the turn without asking: approving an empty gate can only fail later.
+
+    Not recorded in ``gate_decisions`` — no human decided anything.
+    """
+    logger.info("databot: %s", reason)
+    return {"stage": PHASE_SUMMARY, "halt_reason": reason}
+
+
 def cards_node(*, enabled: bool = True) -> Callable[[DatabotState], dict[str, Any]]:
     """Cards gate: approve moves to SQL, comments re-fetch, halt ends the turn."""
     def gate_cards(state: DatabotState) -> dict[str, Any]:
@@ -369,6 +421,9 @@ def cards_node(*, enabled: bool = True) -> Callable[[DatabotState], dict[str, An
         raw_reasons = state.get("cards_reasons") or {}
         state_reasons = raw_reasons if isinstance(raw_reasons, dict) else {}
         reasons = merge_reasons("cards", state_reasons)
+
+        if not cards:
+            return nothing_to_review(state, nothing_to_review_cards_reason(state))
 
         if not enabled:
             logger.info("databot: cards gate disabled in config; auto-approving")
@@ -407,6 +462,9 @@ def sql_node(*, enabled: bool = True) -> Callable[[DatabotState], dict[str, Any]
         raw_reasons = state.get("sql_reasons") or {}
         state_reasons = raw_reasons if isinstance(raw_reasons, dict) else {}
         reasons = merge_reasons("sql", state_reasons)
+
+        if not (state.get("draft_sql") or "").strip():
+            return nothing_to_review(state, NOTHING_TO_REVIEW_SQL)
 
         if not enabled:
             logger.info("databot: sql gate disabled in config; auto-approving")

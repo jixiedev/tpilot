@@ -108,6 +108,20 @@ function inferShape(columns: string[], rows: Array<Record<string, unknown>>): In
     };
   }
 
+  // One row of several values (e.g. a month's totals): a chart of one point
+  // per column says nothing, so show the table.
+  if (rows.length === 1) {
+    return {
+      kind: "table",
+      xKey: null,
+      yKeys: numericKeys,
+      numericKeys,
+      categoricalKeys,
+      timeKeys,
+      scalar: null,
+    };
+  }
+
   // Time series: time key + ≥1 numeric
   if (timeKeys.length >= 1 && numericKeys.length >= 1) {
     return {

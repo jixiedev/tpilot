@@ -9,7 +9,7 @@ from trino.dbapi import connect
 
 from config.tool_config import tool_config, trino_password
 from tools.registry import alternative_tool, register_tool
-from tools.data.sql_guard import validate_read_only_sql
+from tools.data.sql_guard import validate_plan_only_sql, validate_read_only_sql
 from tools.data.trino_errors import register_trino_exception_mappings
 
 register_trino_exception_mappings()
@@ -30,6 +30,8 @@ def get_connection():
             catalog=cfg.catalog,
             schema=cfg.schema_name,
             http_scheme=cfg.http_scheme,
+            request_timeout=cfg.request_timeout_seconds,
+            max_attempts=cfg.max_attempts,
         )
         _thread_local.conn = conn
     return conn
@@ -89,9 +91,9 @@ def trino_explain(sql: str) -> dict[str, Any]:
     guard rejects non-read-only statements before they reach Trino, so
     callers cannot accidentally use this as a side-effecting execute.
 
-    The guard also checks the statement inside ``EXPLAIN`` (including
-    ``EXPLAIN ANALYZE``, which executes it), so only read-only statements
-    can be explained.
+    Only a SELECT or WITH query is accepted (``validate_plan_only_sql``):
+    ``ANALYZE ...`` or an explicit ``EXPLAIN ANALYZE ...`` would execute the
+    query before the human SQL gate, so they are refused.
     """
     cleaned = (sql or "").strip()
     if not cleaned:
@@ -99,11 +101,14 @@ def trino_explain(sql: str) -> dict[str, Any]:
     # Strip a single trailing semicolon so ``EXPLAIN WITH ...;`` still
     # parses; the guard also rejects multi-statement inputs.
     rendered = cleaned.rstrip(";").rstrip()
-    explain_sql = f"EXPLAIN {rendered}"
     try:
-        # ``EXPLAIN`` does not execute the query, so the default row
+        explain_sql = validate_plan_only_sql(rendered)
+    except ValueError as exc:
+        return {"ok": False, "error": str(exc), "sql": rendered}
+    try:
+        # Plain ``EXPLAIN`` does not execute the query, so the default row
         # limit is irrelevant — we only read the plan rows.
-        result = _execute_query(validate_read_only_sql(explain_sql), limit=DEFAULT_ROW_LIMIT)
+        result = _execute_query(explain_sql, limit=DEFAULT_ROW_LIMIT)
     except Exception as exc:  # noqa: BLE001 - we want to surface the trino/guard error verbatim
         return {"ok": False, "error": str(exc), "sql": rendered}
     plan_rows = result.get("rows") or []
@@ -156,14 +161,26 @@ def trino_desc_table(
 ) -> list[dict[str, Any]]:
     """Describe columns of a Trino table.
 
-    ``catalog`` / ``schema_name`` default to tools.toml ``[trino]`` when omitted.
+    ``table`` may be ``table``, ``schema.table`` or ``catalog.schema.table``;
+    parts in the name win over ``catalog`` / ``schema_name``, which default to
+    tools.toml ``[trino]``. Trino reads the Hive metastore server-side, so this
+    works without a local metastore connection.
     """
     cfg = tool_config.trino
-    cat = (catalog or "").strip() or cfg.catalog
-    schema = (schema_name or "").strip() or cfg.schema_name
-    table_name = (table or "").strip()
-    if not table_name:
-        raise ValueError("table is required")
+    parts = [p.strip().strip('"`') for p in (table or "").strip().split(".")]
+    if any(not p for p in parts):
+        raise ValueError("table is required (table, schema.table or catalog.schema.table)")
+    if len(parts) > 3:
+        raise ValueError(f"too many name parts in {table!r}; use catalog.schema.table")
+    name_catalog, name_schema = "", ""
+    if len(parts) == 3:
+        name_catalog, name_schema, table_name = parts
+    elif len(parts) == 2:
+        name_schema, table_name = parts
+    else:
+        table_name = parts[0]
+    cat = name_catalog or (catalog or "").strip() or cfg.catalog
+    schema = name_schema or (schema_name or "").strip() or cfg.schema_name
     if not cat or not schema:
         raise ValueError(
             "catalog and schema_name are required "

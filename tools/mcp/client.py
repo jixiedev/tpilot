@@ -11,7 +11,6 @@ from pathlib import Path
 
 from langchain_core.tools import BaseTool
 from langchain_mcp_adapters.client import MultiServerMCPClient
-from langchain_mcp_adapters.tools import load_mcp_tools
 
 from config.local_config import get_local_paths
 
@@ -164,10 +163,14 @@ async def get_mcp_tools() -> list[BaseTool]:
 
 
 async def get_tools_for_server(server_name: str) -> list[BaseTool]:
-    """Load tools from a single MCP server using a persistent session."""
-    client = get_client()
-    async with client.session(server_name) as session:
-        return await load_mcp_tools(session)
+    """Load tools from a single MCP server; each tool call opens its own session.
+
+    Tools loaded inside ``async with client.session(...)`` are bound to that
+    session, which closes when the block ends: every later call failed with
+    ``ClosedResourceError`` (Airflow MCP listed 41 tools, none callable).
+    ``get_tools(server_name=...)`` keeps the connection config instead.
+    """
+    return await get_client().get_tools(server_name=server_name)
 
 
 DATAHUB_MCP_SERVER_NAME = "datahub"

@@ -1,25 +1,25 @@
 # TahoePilot
 
-An AI agent platform for data teams. Ask questions in a terminal or a browser; TahoePilot routes each question to a specialist agent that reasons with an LLM and calls read-only tools against your data platform (Trino, Hive, S3, DataHub, Kubernetes, Airflow via MCP) and your team's knowledge (Jira tickets and dbt models in Qdrant). Built on LangGraph and LangChain.
+An AI agent platform for data teams. Ask questions in a terminal or a browser; a lead agent answers it or hands the work to specialist agents that reason with an LLM and call read-only tools against your data platform (Trino, Hive, S3, DataHub, Kubernetes, Airflow via MCP) and your team's knowledge (Jira tickets and dbt models in Qdrant). Built on LangGraph and LangChain.
 
 **Version** 0.1.0 · **Python** 3.11+
 
 ## What it does
 
-- **Routes questions to the right specialist.** The default `intent` agent classifies a question and hands it to one specialist, or to the `plan` agent when it needs several.
-- **Answers data questions with human approval.** Databot finds candidate tables, drafts SQL, and runs it on Trino only after you approve both the tables and the query.
+- **One lead agent, many specialists.** The default `lead` agent answers from the conversation, asks a clarifying question, or delegates to the right specialist with a written brief; when a request needs several specialists it writes a plan and runs them step by step.
+- **Answers data questions with human approval.** The lead's `warehouse` specialist finds tables, drafts one read-only SQL query and runs it on Trino only after you approve it. Databot, a separate front agent with its own page, runs the same job as a staged pipeline with two gates: you approve the tables, then the SQL.
 - **Keeps long conversations.** Sessions are checkpointed in SQLite, so `--session` resumes after a restart; long histories are compressed without losing anything.
 - **Is configured, not coded.** Each agent's prompt, budgets, tool set and MCP servers live in `config/agents/<name>.toml`.
 
 | Agent | Kind | Use it for |
 |-------|------|-----------|
-| `intent` (default) | Orchestrator | Any question; routes to the agents below |
-| `databot` | Specialist | Data retrieval: tables → SQL → approval → results |
+| `lead` (default) | Front agent (web page `/lead`) | Any question; answers, plans and delegates to the specialists below |
+| `databot` | Front agent (web page `/databot`) | Data retrieval as a staged pipeline: tables → approval → SQL → approval → results |
+| `warehouse` | Specialist | Data retrieval: tables → SQL → approval → results, in one ReAct loop |
 | `knowledge` | Specialist | Team knowledge: Jira, DataHub, dbt models, docs, code |
 | `diagnostic` | Specialist | Production triage: Kubernetes, S3, Trino, Airflow (MCP) |
 | `data_analysis` | Specialist | Exploratory analysis with SQL and Python |
 | `swe` | Specialist | Editing files, running shell commands and scripts |
-| `plan` | Orchestrator | Multi-step tasks split across specialists |
 
 ## Quick start
 
@@ -66,7 +66,7 @@ python main.py
 Type at the `You>` prompt; `quit` exits. Useful flags:
 
 ```bash
-python main.py --agent databot     # talk to one specialist directly
+python main.py --agent databot     # talk to databot (or any specialist) directly
 python main.py -s alice            # named session, resumable across restarts
 python main.py -u alice            # user id for the stored profile
 python main.py -v                  # also print checkpoint and profile paths
@@ -77,10 +77,10 @@ python main.py -v                  # also print checkpoint and profile paths
 Install the frontend once (`cd frontend && npm install`), download the retrieval models once (`python -m rag download`), then start both servers:
 
 ```bash
-./scripts/dev.sh start     # langgraph dev on :8000 (with /agui) and Next.js on :3000
+./scripts/dev.sh start     # langgraph dev on :8000 (with /agui/lead, /agui/databot) and Next.js on :3000
 ```
 
-Open http://localhost:3000. `./scripts/dev.sh status` and `./scripts/dev.sh stop` check and stop them; logs are in `.run/`. Details in [frontend/README.md](frontend/README.md).
+Open http://localhost:3000 and pick the lead (`/lead`) or Databot (`/databot`) page. `./scripts/dev.sh status` and `./scripts/dev.sh stop` check and stop them; logs are in `.run/`. Details in [frontend/README.md](frontend/README.md).
 
 ### Test
 
@@ -96,8 +96,9 @@ Reader-facing documentation is published at [jixiedev.github.io/tpilot](https://
 | Doc | Read it to… |
 |-----|-------------|
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Understand the system, core concepts and design principles |
-| [agent/README.md](agent/README.md) | Learn how agents run a turn, route, plan, and how to add one |
+| [agent/README.md](agent/README.md) | Learn how agents run a turn, how the lead plans and delegates, and how to add one |
 | [agent/specialists/databot/README.md](agent/specialists/databot/README.md) | Understand Databot's staged pipeline and human gates |
+| [agent/specialists/warehouse/README.md](agent/specialists/warehouse/README.md) | Understand the warehouse specialist and its SQL review |
 | [docs/databot-graph.html](docs/databot-graph.html) | The Databot state machine in full: every stage, gate and transition |
 | [tools/README.md](tools/README.md) | See every tool, how agents get them, and how to add one |
 | [config/README.md](config/README.md) | Configure agents, prompts, connections, models and paths |
@@ -112,7 +113,7 @@ Reader-facing documentation is published at [jixiedev.github.io/tpilot](https://
 ## Repository layout
 
 ```
-agent/        agents: base class, catalog, turn lifecycle, intent, plan, specialists (incl. databot/)
+agent/        agents: base class, catalog, turn lifecycle, lead/, subagent contract, specialists (databot/, warehouse/, …)
 graph/        LangGraph building blocks: ReAct builder, nodes, state, error recovery
 tools/        tool registry and tools (data/, external/datahub/, code/, rag/, mcp/, web/, k8s, plan)
 memory/       context compression, offload store, user profiles, session runtime

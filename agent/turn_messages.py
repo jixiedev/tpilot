@@ -42,6 +42,12 @@ class TurnMessagePolicy(ABC):
         """Return full checkpoint state after turn commit (side effects + any field updates)."""
         return dict(state)
 
+    def commit_subagent_state(self, state: SessionAgentState) -> dict[str, Any]:
+        """Commit a delegated run. The prompt was written by the lead, not the user,
+        so user-facing side effects (profile refinement) are skipped; domain records
+        (databot retrieval history) still apply. Defaults to ``commit_turn_state``."""
+        return self.commit_turn_state(state)
+
 
 class DefaultTurnMessagePolicy(TurnMessagePolicy):
     """Pass-through restore; commit returns graph state unchanged."""
@@ -63,6 +69,9 @@ class SessionTurnProcessor:
 
     def commit_turn_state(self, state: SessionAgentState) -> dict[str, Any]:
         return self.turn_message_policy.commit_turn_state(state)
+
+    def commit_subagent_state(self, state: SessionAgentState) -> dict[str, Any]:
+        return self.turn_message_policy.commit_subagent_state(state)
 
     def new_turn_state_with_messages(
         self,

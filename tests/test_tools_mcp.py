@@ -92,30 +92,29 @@ async def test_get_mcp_tools_returns_tools_on_success(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_get_tools_for_server_uses_session(tmp_path: Path) -> None:
+async def test_get_tools_for_server_keeps_tools_callable(tmp_path: Path) -> None:
+    """Tools must not be bound to a session that closes once they are listed.
+
+    Loading them inside ``async with client.session(...)`` made every later call
+    fail with ``ClosedResourceError``; ``get_tools(server_name=...)`` returns
+    tools that open their own session per call.
+    """
     config_file = tmp_path / "mcp.json"
     config_file.write_text("{}", encoding="utf-8")
-    session = MagicMock()
     expected = [MagicMock(name="get_lineage")]
 
     client = MagicMock()
-    client.session.return_value.__aenter__ = AsyncMock(return_value=session)
-    client.session.return_value.__aexit__ = AsyncMock(return_value=None)
+    client.get_tools = AsyncMock(return_value=expected)
 
     with (
         patch.object(mcp_module, "mcp_config_path", return_value=config_file),
         patch.object(mcp_module, "get_client", return_value=client),
-        patch(
-            "tools.mcp.client.load_mcp_tools",
-            new_callable=AsyncMock,
-            return_value=expected,
-        ) as mock_load,
     ):
         result = await mcp_module.get_tools_for_server("datahub")
 
     assert result == expected
-    client.session.assert_called_once_with("datahub")
-    mock_load.assert_awaited_once_with(session)
+    client.get_tools.assert_awaited_once_with(server_name="datahub")
+    client.session.assert_not_called()
 
 
 @pytest.mark.asyncio

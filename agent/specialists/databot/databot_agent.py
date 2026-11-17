@@ -7,9 +7,11 @@ from typing import Any
 
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import SystemMessage
+from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import BaseTool
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph.state import CompiledStateGraph
+from langgraph.types import StateSnapshot
 
 from agent.agent import BaseAgent
 from agent.listener import AgentListener, CliListener, ListenerHub
@@ -23,6 +25,8 @@ from agent.specialists.databot.graph import (
 )
 from agent.specialists.databot.history import DataRetrievalRecord, DataRetrievalStore
 from agent.specialists.databot.state import DatabotState
+from agent.specialists.databot.ui_actions import databot_state_subset
+from agent.subagent import SubagentResult, SubagentTask, leading_rows
 from config.agent_config import AgentConfig, DatabotAgentConfig, agent_config_path
 from memory.session_runtime import SessionRuntime
 
@@ -49,6 +53,15 @@ _DATABOT_FIELD_DEFAULTS: dict[str, Any] = {
     "deny_feedback": "",
     "execution_result": {},
 }
+
+_ARTIFACT_MAX_ROWS = 20
+_ARTIFACT_MAX_CHARS = 4000
+
+
+def result_rows_preview(rows: Any) -> list[Any]:
+    """The first result rows, bounded by count and JSON size (for the lead and fallbacks)."""
+    return leading_rows(rows, max_rows=_ARTIFACT_MAX_ROWS, max_chars=_ARTIFACT_MAX_CHARS)
+
 
 class DatabotTurnMessagePolicy(TurnMessagePolicy):
     """Retrieval history on accept; persist artifacts on commit."""
@@ -205,6 +218,67 @@ class DatabotAgent(BaseAgent):
         )
         self.graph = compiled
         return compiled
+
+    def subagent_input(self, task: SubagentTask) -> dict[str, Any]:
+        """Delegated turn: same per-turn baseline, plus the retrieval-history briefing."""
+        state = super().subagent_input(task)
+        DatabotTurnMessagePolicy.inject_history_briefing(state)
+        return state
+
+    def ui_view(self, state: Mapping[str, Any]) -> dict[str, Any]:
+        """Artifact-panel and gate fields (``DATABOT_STATE_KEYS``)."""
+        return databot_state_subset(state)
+
+    async def aget_active_snapshot(self, config: RunnableConfig) -> StateSnapshot:
+        """Gates pause inside layer subgraphs: return the paused layer's snapshot."""
+        return await DatabotGraphBuilder.aget_active_state(self.build_graph(), config)
+
+    def result_from_state(self, state: Mapping[str, Any]) -> SubagentResult:
+        """Turn summary as text; approved models, SQL and result shape as artifacts."""
+        base = super().result_from_state(state)
+        # ``halted`` means a person stopped the run at a gate; a stop with no
+        # gate decision (nothing to review) is a failure the lead reports.
+        decisions = state.get("gate_decisions") or []
+        stopped_by_reviewer = bool(decisions) and decisions[-1].get("decision") == "deny-halt"
+        halted = bool((state.get("halt_reason") or "").strip()) and stopped_by_reviewer
+        stopped_early = bool((state.get("halt_reason") or "").strip()) and not stopped_by_reviewer
+        execution = state.get("execution_result") or {}
+        artifacts: dict[str, Any] = {}
+        approved = [
+            str(card.get("name"))
+            for card in (state.get("approved_cards") or [])
+            if isinstance(card, Mapping) and card.get("name")
+        ]
+        if approved:
+            artifacts["models"] = approved
+        if (state.get("approved_sql") or "").strip():
+            artifacts["sql"] = state["approved_sql"]
+        if isinstance(execution, Mapping) and execution:
+            artifacts["execution"] = {
+                key: execution[key]
+                for key in ("ok", "columns", "row_count", "truncated", "error")
+                if key in execution
+            }
+            # The values themselves: without them a weak summary left the lead
+            # with nothing to answer from, and it re-ran the whole retrieval.
+            leading = result_rows_preview(execution.get("rows"))
+            if leading:
+                artifacts["execution"]["leading_rows"] = leading
+        if state.get("metric_conflicts"):
+            artifacts["metric_conflicts"] = list(state["metric_conflicts"])
+        if state.get("dryrun"):
+            artifacts["dryrun"] = True
+        if halted or stopped_early:
+            artifacts["halt_reason"] = state["halt_reason"]
+        failed = isinstance(execution, Mapping) and execution.get("ok") is False
+        status = "halted" if halted else ("failed" if failed or stopped_early else base.status)
+        return SubagentResult(
+            agent=base.agent,
+            status=status,
+            summary=base.summary,
+            artifacts=artifacts,
+            ui_state=self.ui_view(state),
+        )
 
     async def accept_user_request(
         self,

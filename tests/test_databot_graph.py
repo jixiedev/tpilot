@@ -15,6 +15,7 @@ from langchain_core.tools import tool
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.types import Command
 
+from agent.specialists.databot.gates import NOTHING_TO_REVIEW_CARDS, NOTHING_TO_REVIEW_SQL
 from agent.specialists.databot.graph import DatabotGraphBuilder
 from config.agent_config import DatabotAgentConfig, agent_config_path
 from agent.specialists.databot.graph import (
@@ -177,30 +178,35 @@ async def test_cards_gate_approve_promotes_to_sql_stage(compiled_graph):
     graph, _ = compiled_graph
     config = {"configurable": {"thread_id": "t1"}, "recursion_limit": 50}
     await graph.ainvoke(_seed(PHASE_PREPARE_CARDS), config=config)
-    # After the gate approves, the state machine moves to the SQL stage
-    # and its subgraph fires. The stub returns text with no tool calls so
-    # the subgraph idle-exits, then the SQL gate interrupts.
+    # After the gate approves, the SQL stage runs. The stub drafts no SQL, so
+    # the SQL gate has nothing to review and the turn stops without asking.
     r2 = await graph.ainvoke(Command(resume="approve"), config=config)
-    # The SQL gate is now blocking; the interrupt is the new top-level
-    # ``__interrupt__`` and ``stage`` stayed at the value the gate-cards
-    # node wrote (``sql``) until the SQL gate resolves.
-    assert "__interrupt__" in r2
-    interrupt_obj = r2["__interrupt__"][0]
-    raw_message = getattr(interrupt_obj, "value", interrupt_obj)
-    if isinstance(raw_message, str):
-        import json
-        payload = json.loads(raw_message)
-    elif isinstance(raw_message, dict) and "message" in raw_message:
-        import json
-        payload = json.loads(raw_message["message"])
-    else:
-        payload = raw_message
-    assert payload["gate"] == "sql"
+    assert "__interrupt__" not in r2
     assert r2.get("approved_cards") == [{"name": "orders_daily"}]
-    assert any(
-        entry.get("decision") == "approve" and entry.get("gate") == "cards"
-        for entry in (r2.get("gate_decisions") or [])
+    assert r2.get("stage") == PHASE_SUMMARY
+    assert r2.get("halt_reason") == NOTHING_TO_REVIEW_SQL
+    assert [(e.get("gate"), e.get("decision")) for e in r2.get("gate_decisions") or []] == [
+        ("cards", "approve")
+    ]
+
+
+async def test_empty_gates_never_ask_the_reviewer(compiled_graph):
+    """Approving an empty gate could only fail later ("no approved SQL in state")."""
+    graph, _ = compiled_graph
+    no_cards = await graph.ainvoke(
+        _seed(PHASE_PREPARE_CARDS, review_cards=[]),
+        config={"configurable": {"thread_id": "empty-cards"}, "recursion_limit": 50},
     )
+    assert "__interrupt__" not in no_cards
+    assert no_cards.get("halt_reason") == NOTHING_TO_REVIEW_CARDS
+    assert no_cards.get("gate_decisions") == []
+    no_sql = await graph.ainvoke(
+        _seed(PHASE_PREPARE_SQL, approved_cards=[{"name": "o"}], draft_sql="", sql_reasons={"approve": "x"}),
+        config={"configurable": {"thread_id": "empty-sql"}, "recursion_limit": 50},
+    )
+    assert "__interrupt__" not in no_sql
+    assert no_sql.get("halt_reason") == NOTHING_TO_REVIEW_SQL
+    assert not (no_sql.get("execution_result") or {})
 
 
 async def test_sql_gate_approve_runs_execute(compiled_graph):
@@ -245,16 +251,19 @@ async def test_cards_gate_deny_with_comments_loops_back(compiled_graph):
         Command(resume='{"decision":"deny-comments","comments":"use daily_orders instead"}'),
         config=config,
     )
-    # After deny-comments the gate stays in prepare_cards and routes back to fetch.
-    # The gate runs inside the layer subgraph, so read the paused layer's state.
-    active = (await DatabotGraphBuilder.aget_active_state(graph, config)).values
-    assert active.get("stage") == PHASE_PREPARE_CARDS
-    assert active.get("deny_feedback") == "use daily_orders instead"
-    audit = active.get("gate_decisions") or []
+    # deny-comments clears the cards and sends the run back to fetch with the
+    # feedback. The stub fetch finds nothing, so the turn stops before the gate.
+    assert "__interrupt__" not in r2
+    assert r2.get("halt_reason") == NOTHING_TO_REVIEW_CARDS
+    audit = r2.get("gate_decisions") or []
     assert any(
         entry.get("decision") == "deny-comments"
         and entry.get("comments") == "use daily_orders instead"
         for entry in audit
+    )
+    assert any(
+        "use daily_orders instead" in str(getattr(m, "content", ""))
+        for m in r2.get("messages") or []
     )
 
 
@@ -390,22 +399,13 @@ async def test_sql_gate_deny_comments_clears_sql_contract(compiled_graph):
         ),
         config=config,
     )
-    active = (await DatabotGraphBuilder.aget_active_state(graph, config)).values
-    assert active.get("deny_feedback") == "use commission_revenue not gmv"
-    assert active.get("draft_sql") == ""
-    assert active.get("sql_reasons") == {}
-    assert "__interrupt__" in r2
-    interrupt_obj = r2["__interrupt__"][0]
-    raw_message = getattr(interrupt_obj, "value", interrupt_obj)
-    if isinstance(raw_message, str):
-        import json
-        payload = json.loads(raw_message)
-    elif isinstance(raw_message, dict) and "message" in raw_message:
-        import json
-        payload = json.loads(raw_message["message"])
-    else:
-        payload = raw_message
-    assert payload["gate"] == "sql"
+    # The draft and its reasons are cleared for a redraft. The stub drafts
+    # nothing, so the SQL gate has nothing to review and the turn stops.
+    assert r2.get("draft_sql") == ""
+    assert r2.get("sql_reasons") == {}
+    assert r2.get("deny_feedback") == "use commission_revenue not gmv"
+    assert "__interrupt__" not in r2
+    assert r2.get("halt_reason") == NOTHING_TO_REVIEW_SQL
 
 
 async def test_disabled_cards_gate_auto_approves_without_cards_interrupt():
@@ -846,12 +846,184 @@ async def test_new_question_in_finished_thread_starts_fresh_pipeline(compiled_gr
     r2 = await graph.ainvoke(
         {"messages": [HumanMessage(content="and last week?")]}, config=config
     )
-    assert "__interrupt__" in r2, "new question should run fetch and pause at cards gate"
-    assert _interrupt_payload(r2)["gate"] == "cards"
+    # The stub fetch finds no models, so the new turn stops before the cards
+    # gate; what matters here is that the pipeline was reset first.
+    assert "__interrupt__" not in r2
+    assert r2.get("halt_reason") == NOTHING_TO_REVIEW_CARDS
     active = (await DatabotGraphBuilder.aget_active_state(graph, config)).values
-    assert active["stage"] == PHASE_PREPARE_CARDS
     assert active["approved_cards"] == []
     assert active["approved_sql"] == "" and active["draft_sql"] == ""
     assert active["execution_result"] == {}
     assert active["gate_decisions"] == []
     assert active["history_cards"] == [{"name": "orders_daily", "prior_question": "q1"}]
+
+
+async def test_fetch_stops_after_model_index_outage(monkeypatch):
+    """Rephrasing a lookup cannot fix a down index: one failure ends the fetch step."""
+    import uuid
+
+    from langchain_core.tools import tool as make_tool
+
+    monkeypatch.setattr("graph.error_recovery.time.sleep", lambda s: None)
+    monkeypatch.setattr("graph.error_recovery.asyncio.sleep", _no_sleep)
+
+    class IndexDown(Exception):
+        pass
+
+    lookups: list[str] = []
+
+    @make_tool("fetch_related_models")
+    def fetch_related_models(query: str) -> str:
+        """Search table models."""
+        lookups.append(query)
+        try:
+            raise ConnectionRefusedError(61, "Connection refused")
+        except ConnectionRefusedError as inner:
+            raise IndexDown("[Errno 61] Connection refused") from inner
+
+    class _AlwaysLookup(FakeMessagesListChatModel):
+        def bind_tools(self, tools, **kwargs):  # type: ignore[override]
+            return self
+
+        def _generate(self, messages, stop=None, **kwargs):
+            from langchain_core.outputs import ChatGeneration, ChatResult
+
+            call = {"name": "fetch_related_models", "args": {"query": f"gmv {len(lookups)}"}, "id": uuid.uuid4().hex[:8]}
+            return ChatResult(generations=[ChatGeneration(message=AIMessage(content="", tool_calls=[call]))])
+
+    ensure_tools_registered()
+    register_tool_binding(f"{REGISTRY_NAME},{TOOL_ID_FETCH}", fetch_related_models, replace=True)
+    graph = DatabotGraphBuilder.build(
+        _AlwaysLookup(responses=[AIMessage(content="x")]),
+        checkpointer=MemorySaver(),
+        run_context=DatabotAgentConfig(agent_config_path("databot")).run_context,
+    )
+    result = await graph.ainvoke(
+        _seed(PHASE_PREPARE_CARDS, review_cards=[], cards_reasons={}),
+        config={"configurable": {"thread_id": "index-down"}, "recursion_limit": 80},
+    )
+    assert "__interrupt__" not in result
+    assert "index (RAG search on Qdrant) is unreachable" in result["halt_reason"]
+    # One tool call, retried once by the transient-error wrapper; no rephrasing loop.
+    assert len(lookups) == 2
+
+
+async def _no_sleep(_seconds):
+    return None
+
+
+def test_approved_cards_brief_lists_approved_removed_and_today():
+    import datetime
+
+    from agent.specialists.databot.graph import approved_cards_brief
+
+    text = approved_cards_brief(
+        {
+            "approved_cards": [
+                {
+                    "name": "order_level",
+                    "physical_tables": ["bi.order_level"],
+                    "selected_metrics": {"item": ["gmv"]},
+                    "selected_dimensions": ["order_approved_dt"],
+                }
+            ],
+            "committed_cards": [
+                {"name": "daily_rev_tahoe", "physical_tables": ["analytics.daily_rev_tahoe"]},
+                {"name": "order_level", "physical_tables": ["bi.order_level"]},
+            ],
+        },
+        today=datetime.date(2026, 11, 16),
+    )
+    assert "- order_level → bi.order_level" in text
+    assert "selected metrics: gmv" in text
+    assert "Removed by the reviewer" in text and "daily_rev_tahoe (analytics.daily_rev_tahoe)" in text
+    assert "Today is 2026-11-16" in text
+
+
+async def test_sql_stage_opens_with_the_approved_cards(compiled_graph):
+    """A deselection at the cards gate used to be invisible to SQL drafting."""
+    graph, _ = compiled_graph
+    result = await graph.ainvoke(
+        _seed(
+            PHASE_PREPARE_SQL,
+            approved_cards=[{"name": "order_level", "physical_tables": ["bi.order_level"]}],
+            committed_cards=[
+                {"name": "daily_rev_tahoe", "physical_tables": ["analytics.daily_rev_tahoe"]},
+                {"name": "order_level", "physical_tables": ["bi.order_level"]},
+            ],
+        ),
+        config={"configurable": {"thread_id": "sql-brief"}, "recursion_limit": 50},
+    )
+    system_texts = [m.content for m in result["messages"] if getattr(m, "type", "") == "system"]
+    brief = next(t for t in system_texts if "prepare SQL" in t)
+    assert "- order_level → bi.order_level" in brief
+    assert "do not describe, query or join these: daily_rev_tahoe" in brief
+
+
+def test_sql_stage_view_drops_the_fetch_tool_trail():
+    from langchain_core.messages import SystemMessage, ToolMessage
+
+    from agent.specialists.databot.state import sql_react_input
+
+    def call(name, cid):
+        return AIMessage(content="", tool_calls=[{"name": name, "args": {}, "id": cid}])
+
+    messages = [
+        SystemMessage(content="persona"),
+        HumanMessage(content="what's wish's gmv last month"),
+        call("fetch_related_models", "f1"),
+        ToolMessage(content="staged", tool_call_id="f1", name="fetch_related_models"),
+        call("commit_cards", "f2"),
+        ToolMessage(content="committed 2 cards", tool_call_id="f2", name="commit_cards"),
+        SystemMessage(content="prepare SQL stage"),
+        call("trino_desc_table", "s1"),
+        ToolMessage(content="[cols]", tool_call_id="s1", name="trino_desc_table"),
+    ]
+    view = sql_react_input(
+        {"messages": messages}, keep_tools=frozenset({"trino_desc_table", "propose_sql"})
+    )["messages"]
+    names = [getattr(m, "name", None) or [c["name"] for c in getattr(m, "tool_calls", [])] for m in view]
+    assert ["fetch_related_models"] not in names and ["commit_cards"] not in names
+    assert "commit_cards" not in names and "fetch_related_models" not in names
+    assert ["trino_desc_table"] in names and "trino_desc_table" in names
+    assert len(view) == 5
+    # Without a tool list nothing is filtered (other callers keep old behaviour).
+    assert len(sql_react_input({"messages": messages})["messages"]) == len(messages)
+
+
+def test_execution_preview_keeps_rows_within_budget():
+    from agent.specialists.databot.graph import DatabotTopology
+
+    rows = [{"grain": "DAY", "gmv": i} for i in range(34)] + [
+        {"grain": "MONTH", "gmv": 9_999_999} for _ in range(3)
+    ]
+    preview = DatabotTopology._execution_preview({"ok": True, "rows": rows, "row_count": 37})
+    assert preview["rows_shown"] == 37 and preview["rows_total"] == 37
+    assert "rows_truncated" not in preview
+    assert preview["rows"][-1]["grain"] == "MONTH"  # the monthly totals reach the summary
+
+    # A full executed result (<= DEFAULT_ROW_LIMIT rows of typical width) fits whole,
+    # so totals that sort after daily rows still reach the summary.
+    wide = [{"period": f"2026-10-{d:02d}", "gmv": 1.0, "pad": "x" * 200} for d in range(1, 100)]
+    assert DatabotTopology._execution_preview({"ok": True, "rows": wide})["rows_shown"] == 99
+
+    big = [{"blob": "x" * 5000} for _ in range(50)]
+    cut = DatabotTopology._execution_preview({"ok": True, "rows": big})
+    assert cut["rows_truncated"] is True and cut["rows_shown"] < 50
+    assert "of 50 result rows" in cut["note"]
+
+
+def test_summary_with_sql_block_is_kept():
+    """Seen live: a correct GMV answer was dropped because its SQL had date_trunc."""
+    from agent.specialists.databot.graph import DatabotTopology
+
+    summary = (
+        "## Wish GMV for the latest complete month\n\n"
+        "**Wish's total marketplace GMV for October 2026 was 767,083.27, across 46,656 orders.**\n\n"
+        "### SQL\n```sql\nSELECT date_trunc('month', order_day) AS period, SUM(gmv)\n"
+        "FROM bi.order_level WHERE order_day >= current_date - interval '60' day\nGROUP BY 1\n```\n"
+    )
+    assert DatabotTopology._looks_like_user_summary(summary)
+    assert DatabotTopology._extract_summary_text(AIMessage(content=summary)) == summary.strip()
+    # Planning monologue is still rejected.
+    assert not DatabotTopology._looks_like_user_summary("Let me check the results again before answering.")

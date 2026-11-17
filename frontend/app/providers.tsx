@@ -103,7 +103,7 @@ export function ColorSchemeToggle() {
 
 export function Providers({ children }: { children: React.ReactNode }) {
   return (
-    <CopilotKit runtimeUrl="/api/copilotkit" agent="databot" useSingleEndpoint={false}>
+    <CopilotKit runtimeUrl="/api/copilotkit" useSingleEndpoint={false}>
       <ColorSchemeProvider>{children}</ColorSchemeProvider>
     </CopilotKit>
   );

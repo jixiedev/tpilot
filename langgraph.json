@@ -1,9 +1,12 @@
 {
-  "dependencies": ["."],
+  "dependencies": [
+    "."
+  ],
   "graphs": {
     "databot": "./langgraph_graphs.py:databot_ui_agent",
     "knowledge": "./langgraph_graphs.py:knowledge_ui_agent",
-    "intent": "./langgraph_graphs.py:intent_ui_agent"
+    "lead": "./langgraph_graphs.py:lead_ui_agent",
+    "warehouse": "./langgraph_graphs.py:warehouse_ui_agent"
   },
   "env": ".env",
   "http": {

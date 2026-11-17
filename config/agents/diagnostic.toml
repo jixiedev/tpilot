@@ -1,7 +1,6 @@
 name = "diagnostic"
 description = "Production diagnostics specialist (K8s, S3, Hive/Trino, Airflow MCP, and other infra tools)"
-intention = "DIAGNOSTIC"
-intention_description = """
+delegate_when = """
 production troubleshooting — why a job, DAG, pod, query or pipeline is failing, slow or stuck; inspect Kubernetes, S3, Hive/Trino and Airflow state, logs and errors
 """
 

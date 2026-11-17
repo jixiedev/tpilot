@@ -1,9 +1,9 @@
 """Load per-agent settings from ``config/agents/<name>.toml``.
 
 Each registered agent has one file. Top-level keys are identity (name,
-description, intention, MCP). Subclasses type ``run_context``
-(``DatabotAgentConfig``, ``ReactAgentConfig``, ``StageReactConfig``, ``PlanAgentConfig``,
-``IntentAgentConfig``). ``[system_prompt]`` is optional and is the
+description, delegate_when, front, MCP). Subclasses type ``run_context``
+(``DatabotAgentConfig``, ``ReactAgentConfig``, ``StageReactConfig``,
+``LeadAgentConfig``). ``[system_prompt]`` is optional and is the
 only table consumed by ``SystemPromptAssembler``.
 
 ``[system_prompt]`` may set ``extends = "tahoe"`` (or another file name).
@@ -35,8 +35,7 @@ from typing import Any, ClassVar, Literal, Self
 from agent.run_context import (
     DatabotGatesConfig,
     DatabotRunContext,
-    HandoffRunContext,
-    PlanRunContext,
+    StageRunContext,
     ReactRunContext,
 )
 from memory.config import CompressionConfig
@@ -291,15 +290,18 @@ class PromptSpec:
 class AgentConfig:
     """Identity, resolved system prompt, and run context for one agent file.
 
-    Subclasses type ``run_context`` (ReAct, plan stages, databot pipeline, intent
-    handoff). Construct from a file path; pass ``run_overrides`` to overlay
+    Subclasses type ``run_context`` (ReAct, lead delegation budget, databot
+    pipeline). Construct from a file path; pass ``run_overrides`` to overlay
     catalog/CLI limits onto that file.
     """
 
     name: str
     description: str = ""
-    intention: str | None = None
-    intention_description: str = ""
+    #: When the lead should delegate to this agent (one line in the lead's roster).
+    delegate_when: str = ""
+    #: Front agents talk to the user directly (own endpoint and page); the lead
+    #: never delegates to them.
+    front: bool = False
     accepted_mcp: Mapping[str, tuple[str, ...]] = field(default_factory=dict)
     mcp_replace_identifiers: frozenset[str] = frozenset()
     system_prompt: PromptSpec | None = None
@@ -321,15 +323,12 @@ class AgentConfig:
         table: dict[str, Any] = {}
         if "run_context" in raw:
             table = _merged_run_context_table(path)
-        intention = str(raw.get("intention") or "").strip()
         object.__setattr__(self, "name", name)
         object.__setattr__(self, "description", str(raw.get("description") or "").strip())
-        object.__setattr__(self, "intention", intention or None)
         object.__setattr__(
-            self,
-            "intention_description",
-            str(raw.get("intention_description") or "").strip(),
+            self, "delegate_when", str(raw.get("delegate_when") or "").strip()
         )
+        object.__setattr__(self, "front", bool(raw.get("front", False)))
         object.__setattr__(self, "accepted_mcp", _accepted_mcp(raw.get("accepted_mcp")))
         object.__setattr__(
             self,
@@ -560,45 +559,6 @@ class StageReactConfig(ReactAgentConfig):
 
 
 @dataclass(frozen=True, init=False)
-class PlanAgentConfig(AgentConfig):
-    """Plan orchestrator stage budgets.
-
-    ``max_tool_calls`` (tool batches per stage run) and ``max_subagent_rounds``
-    (execute/adjust cycles per turn) are kept only when the file or a run
-    override sets them; ``build_plan_graph`` falls back to
-    ``DEFAULT_STAGE_MAX_TOOL_CALLS`` / ``DEFAULT_MAX_SUBAGENT_ROUNDS``.
-    ``max_idle_reason_rounds`` applies to the create stage, the only plan stage
-    with a stage contract.
-    """
-
-    run_context: PlanRunContext = field(default_factory=dict)
-
-    @classmethod
-    def resolve_run_context(
-        cls,
-        raw: Mapping[str, Any],
-        overrides: Mapping[str, Any] | None = None,
-    ) -> PlanRunContext:
-        defaults: PlanRunContext = {"max_idle_reason_rounds": 1}
-        optional = ("max_tool_calls", "max_subagent_rounds")
-        merged: dict[str, Any] = {**defaults, **cls._without_nested_react(raw)}
-        merged.update(cls._overlay(overrides, frozenset({*defaults, *optional})))
-        out: PlanRunContext = {
-            "max_idle_reason_rounds": cls._as_int(
-                merged.get("max_idle_reason_rounds"),
-                defaults["max_idle_reason_rounds"],
-            ),
-        }
-        for key in optional:
-            if merged.get(key) is None:
-                continue
-            value = cls._as_int(merged.get(key), 0)
-            if value > 0:
-                out[key] = value  # type: ignore[literal-required]
-        return out
-
-
-@dataclass(frozen=True, init=False)
 class DatabotAgentConfig(AgentConfig):
     """Databot pipeline, nested per-stage ReAct, and human-gate toggles."""
 
@@ -614,7 +574,7 @@ class DatabotAgentConfig(AgentConfig):
         react_raw = data.pop("react", None)
         gates_raw = data.pop("gates", None)
         flat = cls._without_nested_react(data)
-        stage_defaults: PlanRunContext = {"max_tool_calls": 10, "max_idle_reason_rounds": 1}
+        stage_defaults: StageRunContext = {"max_tool_calls": 10, "max_idle_reason_rounds": 1}
         merged: dict[str, Any] = {**stage_defaults, **flat}
         if overrides:
             merged.update(cls._overlay(overrides, frozenset(stage_defaults)))
@@ -687,51 +647,64 @@ class DatabotAgentConfig(AgentConfig):
 
 
 @dataclass(frozen=True, init=False)
-class IntentAgentConfig(AgentConfig):
-    """Intent orchestrator handoff defaults for delegated specialists."""
+class LeadAgentConfig(ReactAgentConfig):
+    """Lead agent: ReAct loop settings plus the per-turn delegation budget."""
 
-    run_context: HandoffRunContext = field(default_factory=dict)
+    DEFAULT_MAX_DELEGATIONS: ClassVar[int] = 6
 
     @classmethod
     def resolve_run_context(
         cls,
         raw: Mapping[str, Any],
         overrides: Mapping[str, Any] | None = None,
-    ) -> HandoffRunContext:
-        default_max = 30
-        default_threshold = 0.85
-        default_rounds = 2
-        allowed = frozenset(
-            {"max_tool_calls", "clarification_threshold", "max_clarification_rounds"}
+    ) -> ReactRunContext:
+        out = dict(super().resolve_run_context(raw, overrides))
+        merged = {**cls._without_nested_react(raw)}
+        merged.update(cls._overlay(overrides, frozenset({"max_delegations"})))
+        out["max_delegations"] = cls._as_int(
+            merged.get("max_delegations"), cls.DEFAULT_MAX_DELEGATIONS
         )
-        merged: dict[str, Any] = {
-            "max_tool_calls": default_max,
-            "clarification_threshold": default_threshold,
-            "max_clarification_rounds": default_rounds,
-            **cls._without_nested_react(raw),
-        }
-        merged.update(cls._overlay(overrides, allowed))
-        return {
-            "max_tool_calls": cls._as_int(merged.get("max_tool_calls"), default_max),
-            "clarification_threshold": cls._as_float(
-                merged.get("clarification_threshold"),
-                default_threshold,
-            ),
-            "max_clarification_rounds": cls._as_int(
-                merged.get("max_clarification_rounds"),
-                default_rounds,
-            ),
-        }
+        return out  # type: ignore[return-value]
+
+
+@dataclass(frozen=True, init=False)
+class WarehouseAgentConfig(ReactAgentConfig):
+    """Warehouse data specialist: ReAct loop plus its SQL review gate.
+
+    ``[run_context.gates] sql_enabled`` turns the human SQL review on (default)
+    or off (approval is then automatic, but ``run_sql`` still only runs SQL that
+    went through ``request_sql_approval``). ``result_row_limit`` caps the rows
+    one query fetches.
+    """
+
+    DEFAULT_RESULT_ROW_LIMIT: ClassVar[int] = 200
+
+    @classmethod
+    def resolve_run_context(
+        cls,
+        raw: Mapping[str, Any],
+        overrides: Mapping[str, Any] | None = None,
+    ) -> ReactRunContext:
+        out = dict(super().resolve_run_context(raw, overrides))
+        merged = {**cls._without_nested_react(raw)}
+        merged.update(cls._overlay(overrides, frozenset({"result_row_limit", "sql_gate_enabled"})))
+        gates = raw.get("gates") if isinstance(raw.get("gates"), Mapping) else {}
+        enabled = merged.get("sql_gate_enabled", gates.get("sql_enabled", True))
+        out["sql_gate_enabled"] = bool(enabled)
+        out["result_row_limit"] = cls._as_int(
+            merged.get("result_row_limit"), cls.DEFAULT_RESULT_ROW_LIMIT
+        )
+        return out  # type: ignore[return-value]
 
 
 AGENT_CONFIG_TYPES: dict[str, type[AgentConfig]] = {
     "databot": DatabotAgentConfig,
-    "plan": PlanAgentConfig,
-    "intent": IntentAgentConfig,
+    "lead": LeadAgentConfig,
     "knowledge": ReactAgentConfig,
     "diagnostic": ReactAgentConfig,
     "data_analysis": ReactAgentConfig,
     "swe": ReactAgentConfig,
+    "warehouse": WarehouseAgentConfig,
 }
 
 

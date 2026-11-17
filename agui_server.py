@@ -1,36 +1,33 @@
 """AG-UI FastAPI entry point for CopilotKit (path B wiring).
 
 Mounted by ``langgraph dev`` via the ``http.app`` field in
-``langgraph.json`` (so the dev server, the AG-UI endpoint, and the
-checkpointed graph all run in the same process — no second deployment).
-Exposes a single ``/agui`` endpoint that wraps the compiled databot
-graph in an AG-UI adapter so CopilotKit's runtime can talk to it
-without losing tool / interrupt / state events.
+``langgraph.json`` (so the dev server, the AG-UI endpoints, and the
+checkpointed graphs all run in the same process — no second deployment).
+
+Two front agents, each with its own endpoint and web page:
+
+* ``/agui/lead`` — the lead agent (page ``/lead``). It answers, plans and
+  delegates to specialists that run nested inside its ``delegate`` tool. A
+  specialist's review ``interrupt(...)`` (warehouse's SQL review) pauses the
+  lead's run with the same payload, and resuming the lead's thread resumes it.
+  Root state snapshots carry ``active_subagent`` — the latest specialist's UI
+  view, overlaid with the live state of one paused at a gate.
+* ``/agui/databot`` — databot, the staged data-retrieval pipeline with its
+  cards and SQL gates (page ``/databot``). ``/agui/databot/actions`` patches
+  its paused gate state from the artifact panel.
+
+Both share one SQLite checkpointer; threads are separate per page.
 
 Why this file exists
 --------------------
 ``@copilotkit/runtime``'s ``LangGraphAgent`` proxies raw AG-UI events
 without teaching the runtime which tools/interrupts the LangGraph graph
-actually exposes. The result on the frontend is that any tool/inject
-event whose name isn't pre-registered with ``useCopilotAction`` falls
-into the "View in Inspector (local only)" bucket and never reaches the
-chat panel.
-
-The fix is to wrap the compiled graph in
-``ag_ui_langgraph.LangGraphAgent`` and serve it through the official
-``add_langgraph_fastapi_endpoint`` helper. The wrapper:
-
-* Re-emits every LangGraph tool call as a first-class AG-UI
-  ``TOOL_CALL_*`` triplet so the runtime's tool registry sees them.
-* Carries ``messages`` / state deltas through the AG-UI snapshot
-  channel so the chat panel re-renders without manual state wiring.
-* Re-exposes LangGraph ``interrupt(...)`` payloads under the standard
-  ``{id, reason, message}`` shape, so the existing ``GatePanel`` keeps
-  working with no code change on the frontend.
-
-The Next.js ``/api/copilotkit`` route then stops using
-``LangGraphAgent`` and just forwards the AG-UI request to this
-process's ``/agui`` endpoint via a plain ``@ag-ui/client`` ``HttpAgent``.
+actually exposes, so tool calls fell into the "View in Inspector (local
+only)" bucket. Wrapping each compiled graph in
+``ag_ui_langgraph.LangGraphAgent`` re-emits tool calls as ``TOOL_CALL_*``
+events, carries state snapshots, and exposes ``interrupt(...)`` payloads as
+standard AG-UI interrupts. The Next.js ``/api/copilotkit`` route forwards
+each agent to its endpoint with a plain ``@ag-ui/client`` ``HttpAgent``.
 """
 
 from __future__ import annotations
@@ -54,6 +51,8 @@ from pydantic import BaseModel, Field
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 
 from agent.catalog import AgentCatalog, AgentCatalogSettings
+from agent.session import GRAPH_RECURSION_LIMIT
+from agent.lead.paused import live_subagent_view
 from agent.runtime import TahoeRuntimeHelper
 from ag_ui_langgraph import LangGraphAgent  # add_langgraph_fastapi_endpoint no longer used
 from config.local_config import ensure_local_dirs, get_local_paths
@@ -69,15 +68,41 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname
 # Path to the SQLite checkpoint DB (``config/local.toml`` + env overrides).
 CHECKPOINT_DB = str(get_local_paths().checkpoint_db)
 
-# AG-UI mount path. Frontend's ``CopilotKit runtimeUrl`` resolves to
-# ``/api/copilotkit``, which the Next.js route handler proxies to
-# ``http://localhost:8000{AGUI_PATH}``.
-AGUI_PATH = os.environ.get("AGUI_AGENT_PATH", "/agui")
+# AG-UI base path; each front agent is served at ``{AGUI_PATH}/{name}``. The
+# Next.js route ``frontend/app/api/copilotkit/[...path]/route.ts`` forwards
+# CopilotKit agent ``lead`` / ``databot`` to these endpoints.
+AGUI_PATH = os.environ.get("AGUI_AGENT_PATH", "/agui").rstrip("/") or "/agui"
 
-# Agent name (must match frontend's ``CopilotKit agent="..."`` and
-# ``useAgent({ agentId: "..." })``). We pin it to the same string the
-# existing LangGraph deployment uses so neither side has to change.
-AGENT_NAME = "databot"
+LEAD_AGENT = "lead"
+DATABOT_AGENT = "databot"
+#: Front agents served over AG-UI, in mount order.
+FRONT_AGENTS = (LEAD_AGENT, DATABOT_AGENT)
+
+AGENT_DESCRIPTIONS = {
+    LEAD_AGENT: (
+        "TahoePilot lead agent — answers, plans and delegates to specialists "
+        "(warehouse: reviewed SQL; knowledge; diagnostic; data_analysis; swe)."
+    ),
+    DATABOT_AGENT: "Databot — RAG table cards → human-gated SQL → execute.",
+}
+
+
+def agent_path(name: str) -> str:
+    return f"{AGUI_PATH}/{name}"
+
+
+# How a delegated specialist's own stream reaches the client (ag_ui_langgraph):
+# "inline" streams its text and tool calls as the lead's work (the only mode a
+# @ag-ui/client <= 0.0.57 accepts), "hidden" shows only the delegate call and
+# its result, "attributed" adds SUBAGENT_* events (needs a newer client).
+SUBAGENT_VISIBILITY = os.environ.get("AGUI_SUBAGENT_VISIBILITY", "inline")
+
+# The adapter's raw LangGraph event copies are off by default. With them on it
+# attaches each underlying event (full prompts, full specialist state) to every
+# AG-UI event: a dozen nested databot steps streamed ~95 MB to the browser,
+# against ~0.3 MB without, and a longer run hung a 16 GB machine. Nothing in
+# the frontend reads them; set AGUI_EMIT_RAW_EVENTS=1 to debug the stream.
+EMIT_RAW_EVENTS = os.environ.get("AGUI_EMIT_RAW_EVENTS", "").strip().lower() in {"1", "true", "yes"}
 
 
 # ---------------------------------------------------------------------------
@@ -85,30 +110,135 @@ AGENT_NAME = "databot"
 # ---------------------------------------------------------------------------
 
 
-async def _build_graph() -> tuple[Any, aiosqlite.Connection]:
-    """Compile the databot graph with a long-lived SQLite checkpointer.
+class LeadGraphView:
+    """The lead's compiled graph as the AG-UI adapter sees it.
 
-    The checkpointer's ``aiosqlite.Connection`` must outlive the request
-    scope: every AG-UI request does ``agent.clone() -> agent.run()``, which
-    calls ``self.graph.aget_state(config)`` and needs a live connection.
-    ``AsyncSqliteSaver.from_conn_string`` closes the connection on exit, so
-    we open it ourselves; :meth:`AguiRuntime.close` closes it at shutdown.
+    Root ``aget_state`` snapshots overlay ``active_subagent`` with the live view
+    of a specialist paused at a gate (``agent/lead/paused.py``); the lead's own
+    state only receives that view when ``delegate`` returns. Everything else is
+    delegated to the compiled graph unchanged.
     """
+
+    def __init__(self, lead: Any) -> None:
+        self.lead = lead
+        self._graph = lead.build_graph()
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._graph, name)
+
+    async def aget_state(self, config: Any, *, subgraphs: bool = False) -> Any:
+        snapshot = await self._graph.aget_state(config, subgraphs=subgraphs)
+        if (config.get("configurable") or {}).get("checkpoint_ns"):
+            return snapshot
+        try:
+            view = await live_subagent_view(self.lead, config)
+        except Exception:  # noqa: BLE001 - the overlay is best effort
+            logger.exception("could not read the paused specialist's state")
+            return snapshot
+        if not view:
+            return snapshot
+        values = {**(snapshot.values or {}), "active_subagent": view}
+        return snapshot._replace(values=values)
+
+
+class DatabotGraphView:
+    """Databot's compiled graph as the AG-UI adapter sees it.
+
+    Databot's gates pause inside layer subgraphs, so the root checkpoint still
+    holds pre-layer values and the artifact panel showed "idle, no models"
+    while the gate listed them. Root ``aget_state`` snapshots overlay the
+    paused layer's UI fields (``DatabotAgent.ui_view``); everything else is
+    delegated to the compiled graph unchanged.
+    """
+
+    def __init__(self, agent: Any) -> None:
+        self.agent = agent
+        self._graph = agent.build_graph()
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._graph, name)
+
+    async def aget_state(self, config: Any, *, subgraphs: bool = False) -> Any:
+        snapshot = await self._graph.aget_state(config, subgraphs=subgraphs)
+        if subgraphs or (config.get("configurable") or {}).get("checkpoint_ns"):
+            return snapshot
+        try:
+            active = await self.agent.aget_active_snapshot(config)
+        except Exception:  # noqa: BLE001 - the overlay is best effort
+            logger.exception("could not read databot's paused layer state")
+            return snapshot
+        if active is None or active.config == snapshot.config or not active.values:
+            return snapshot
+        live = self.agent.ui_view(active.values)
+        return snapshot._replace(values={**(snapshot.values or {}), **live})
+
+
+class CheckpointStore:
+    """One long-lived SQLite checkpointer shared by every front agent.
+
+    The ``aiosqlite.Connection`` must outlive the request scope: every AG-UI
+    request does ``agent.clone() -> agent.run()``, which calls
+    ``graph.aget_state(config)`` and needs a live connection.
+    ``AsyncSqliteSaver.from_conn_string`` closes it on exit, so it is opened
+    here and closed at shutdown.
+    """
+
+    def __init__(self, path: str = CHECKPOINT_DB) -> None:
+        self.path = path
+        self.saver: AsyncSqliteSaver | None = None
+        self._conn: aiosqlite.Connection | None = None
+        self._lock = asyncio.Lock()
+
+    async def get(self) -> AsyncSqliteSaver:
+        async with self._lock:
+            if self.saver is None:
+                self._conn = await aiosqlite.connect(self.path)
+                saver = AsyncSqliteSaver(self._conn)
+                await saver.setup()
+                self.saver = saver
+        return self.saver
+
+    async def close(self) -> None:
+        if self._conn is not None:
+            try:
+                await self._conn.close()
+            except Exception:  # pragma: no cover - shutdown best effort
+                logger.exception("failed to close checkpoint connection cleanly")
+        self._conn = None
+        self.saver = None
+
+
+CHECKPOINTS = CheckpointStore()
+
+
+async def _create_front_agent(name: str) -> Any:
     profile_store = TahoeRuntimeHelper.default_profile_store(get_local_paths().profiles_dir)
-    conn = await aiosqlite.connect(CHECKPOINT_DB)
-    saver = AsyncSqliteSaver(conn)
-    await saver.setup()
     catalog = AgentCatalog(
         AgentCatalogSettings.for_agent(
-            AGENT_NAME,
+            name,
             profile_store=profile_store,
             model=get_default_model(),
-            checkpointer=saver,
+            checkpointer=await CHECKPOINTS.get(),
             max_tool_calls=30,
         )
     )
-    agent = await catalog.create(AGENT_NAME)
-    return agent.graph, conn
+    return await catalog.create(name)
+
+
+async def _build_lead() -> tuple[Any, None]:
+    """The lead's graph, wrapped so root snapshots show a paused specialist."""
+    return LeadGraphView(await _create_front_agent(LEAD_AGENT)), None
+
+
+async def _build_databot() -> tuple[Any, None]:
+    """Databot's graph, wrapped so root snapshots show the paused gate layer."""
+    return DatabotGraphView(await _create_front_agent(DATABOT_AGENT)), None
+
+
+GRAPH_BUILDERS: dict[str, Callable[[], Awaitable[tuple[Any, Any]]]] = {
+    LEAD_AGENT: _build_lead,
+    DATABOT_AGENT: _build_databot,
+}
 
 
 class _DummyCompiledGraph:  # pragma: no cover - never executed
@@ -121,18 +251,16 @@ class _DummyCompiledGraph:  # pragma: no cover - never executed
     nodes: dict = {}
 
 
-def _make_agent() -> LangGraphAgent:
+def _make_agent(name: str = LEAD_AGENT) -> LangGraphAgent:
     # ``ag_ui_langgraph.LangGraphAgent`` rather than
     # ``copilotkit.LangGraphAGUIAgent``: in the pinned versions the latter's
     # ``__init__`` is narrower than its parent's and ``agent.clone()`` breaks.
     # The missing layer only filters ``copilotkit:emit-*`` metadata, which
-    # this graph never emits.
+    # these graphs never emit.
     return LangGraphAgent(
-        name=AGENT_NAME,
+        name=name,
         graph=_DummyCompiledGraph(),  # swapped for the real graph by ensure_built()
-        description=(
-            "Databot — staged data retrieval pipeline (RAG → human-gated SQL → execute)."
-        ),
+        description=AGENT_DESCRIPTIONS.get(name, name),
         # CopilotKit v2 interrupt UX:
         # - emit_interrupt_outcome attaches ``outcome: {type: "interrupt"}`` to
         #   RUN_FINISHED, so a paused gate isn't treated as a finished run.
@@ -140,11 +268,14 @@ def _make_agent() -> LangGraphAgent:
         #   custom event, which made the chat panel freeze.
         emit_interrupt_outcome=True,
         enable_legacy_on_interrupt_event=False,
+        subagent_visibility=SUBAGENT_VISIBILITY,
+        emit_raw_events=EMIT_RAW_EVENTS,
+        config={"recursion_limit": GRAPH_RECURSION_LIMIT},
     )
 
 
 class AguiRuntime:
-    """Process-wide server state, stored on ``app.state.runtime``.
+    """One front agent's server state; ``app.state.runtimes`` maps name → runtime.
 
     The graph can only be built inside a running event loop, and
     ``langgraph dev`` imports this module before its loop is available, so
@@ -154,7 +285,7 @@ class AguiRuntime:
     def __init__(
         self,
         agent: LangGraphAgent,
-        build: Callable[[], Awaitable[tuple[Any, Any]]] = _build_graph,
+        build: Callable[[], Awaitable[tuple[Any, Any]]],
     ) -> None:
         self.agent = agent
         self.graph: Any | None = None
@@ -172,7 +303,7 @@ class AguiRuntime:
                 # Per-request ``agent.clone()`` copies ``agent.graph``.
                 self.agent.graph = graph  # type: ignore[attr-defined]
                 self.graph = graph
-                logger.info("AG-UI agent graph built; ready to serve %s", AGUI_PATH)
+                logger.info("AG-UI agent %s built; serving %s", self.agent.name, agent_path(self.agent.name))
         return self.graph
 
     async def close(self) -> None:
@@ -185,8 +316,15 @@ class AguiRuntime:
         self._conn = None
 
 
-def _runtime(request: Request) -> AguiRuntime:
-    return request.app.state.runtime
+def _runtime(request: Request, name: str = LEAD_AGENT) -> AguiRuntime:
+    runtimes: dict[str, AguiRuntime] = request.app.state.runtimes
+    if name not in runtimes:
+        raise HTTPException(status_code=404, detail=f"unknown agent: {name}")
+    return runtimes[name]
+
+
+def make_runtimes() -> dict[str, AguiRuntime]:
+    return {name: AguiRuntime(_make_agent(name), build=GRAPH_BUILDERS[name]) for name in FRONT_AGENTS}
 
 
 # ``langgraph dev``'s router merger only accepts a single ``lifespan=``
@@ -194,13 +332,16 @@ def _runtime(request: Request) -> AguiRuntime:
 @asynccontextmanager
 async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     ensure_local_dirs()
-    runtime: AguiRuntime = app.state.runtime
+    runtimes: dict[str, AguiRuntime] = app.state.runtimes
     # Build eagerly so a broken setup fails startup instead of each request.
-    await runtime.ensure_built()
+    for runtime in runtimes.values():
+        await runtime.ensure_built()
     try:
         yield
     finally:
-        await runtime.close()
+        for runtime in runtimes.values():
+            await runtime.close()
+        await CHECKPOINTS.close()
 
 
 # ---------------------------------------------------------------------------
@@ -208,14 +349,15 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
 # ---------------------------------------------------------------------------
 
 app = FastAPI(title="tpilot-agui", version="0.1.0", lifespan=_lifespan)
-app.state.runtime = AguiRuntime(_make_agent())
+app.state.runtimes = make_runtimes()
 
 
 @app.get("/health")
 def health(request: Request) -> dict:
+    runtimes: dict[str, AguiRuntime] = request.app.state.runtimes
     return {
         "status": "ok",
-        "agent": {"name": _runtime(request).agent.name, "path": AGUI_PATH},
+        "agents": {name: agent_path(name) for name in runtimes},
         "checkpoint_db": CHECKPOINT_DB,
     }
 
@@ -294,9 +436,9 @@ def _log_schema_keys(agent: LangGraphAgent, thread_id: str) -> None:
 # Hand-rolled instead of ``ag_ui_langgraph.add_langgraph_fastapi_endpoint``:
 # that helper has no hook for the deferred graph build, and its signature
 # changes between versions. The body mirrors what it does internally.
-@app.post(AGUI_PATH)
-async def agui_endpoint(input_data: RunAgentInput, request: Request):
-    runtime = _runtime(request)
+@app.post(f"{AGUI_PATH}/{{agent_name}}")
+async def agui_endpoint(agent_name: str, input_data: RunAgentInput, request: Request):
+    runtime = _runtime(request, agent_name)
     await runtime.ensure_built()
     encoder = EventEncoder(accept=request.headers.get("accept"))
     # Clone per request: LangGraphAgent keeps per-run state in
@@ -309,13 +451,13 @@ async def agui_endpoint(input_data: RunAgentInput, request: Request):
     )
 
 
-@app.get(f"{AGUI_PATH.rstrip('/')}/health")
-def agui_health(request: Request) -> dict:
-    return {"status": "ok", "agent": {"name": _runtime(request).agent.name}}
+@app.get(f"{AGUI_PATH}/{{agent_name}}/health")
+def agui_health(agent_name: str, request: Request) -> dict:
+    return {"status": "ok", "agent": {"name": _runtime(request, agent_name).agent.name}}
 
 
 # ---------------------------------------------------------------------------
-# UI action endpoint — direct state patches from the artifact panel
+# Databot UI actions — direct state patches from the artifact panel
 # ---------------------------------------------------------------------------
 
 
@@ -328,13 +470,13 @@ class DatabotUiActionBody(BaseModel):
     feedback: str | None = None
 
 
-@app.post(f"{AGUI_PATH.rstrip('/')}/actions")
+@app.post(f"{agent_path(DATABOT_AGENT)}/actions")
 async def databot_ui_action(body: DatabotUiActionBody, request: Request) -> dict:
-    """Apply a human UI edit directly to the LangGraph checkpoint."""
+    """Apply a human UI edit to databot's checkpoint while it waits at a gate."""
     from agent.specialists.databot.graph import DatabotGraphBuilder
     from agent.specialists.databot.ui_actions import build_ui_action_patch, databot_state_subset
 
-    graph = await _runtime(request).ensure_built()
+    graph = await _runtime(request, DATABOT_AGENT).ensure_built()
 
     action = body.action
     if action not in {
@@ -348,7 +490,9 @@ async def databot_ui_action(body: DatabotUiActionBody, request: Request) -> dict
     # Gates pause inside layer subgraphs; read and patch that layer's checkpoint,
     # not the outer one (which still holds pre-layer values).
     snapshot = await DatabotGraphBuilder.aget_active_state(graph, config)
-    state = dict(snapshot.values or {}) if snapshot else {}
+    if snapshot is None:
+        raise HTTPException(status_code=409, detail="no databot run on this thread")
+    state = dict(snapshot.values or {})
 
     try:
         patch = build_ui_action_patch(
@@ -376,7 +520,11 @@ async def databot_ui_action(body: DatabotUiActionBody, request: Request) -> dict
     }
 
 
-logger.info("AG-UI server ready: agent=%s path=%s checkpoint_db=%s", AGENT_NAME, AGUI_PATH, CHECKPOINT_DB)
+logger.info(
+    "AG-UI server ready: agents=%s checkpoint_db=%s",
+    ", ".join(f"{name}={agent_path(name)}" for name in FRONT_AGENTS),
+    CHECKPOINT_DB,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -390,7 +538,7 @@ logger.info("AG-UI server ready: agent=%s path=%s checkpoint_db=%s", AGENT_NAME,
 # this is the entry point. ``AGUI_HOST`` / ``AGUI_PORT`` override the
 # bind address; the defaults match what
 # ``frontend/app/api/copilotkit/[...path]/route.ts`` expects
-# (``http://localhost:8000/agui``).
+# (``http://localhost:8000/agui/<agent>``).
 
 def main() -> None:
     import uvicorn

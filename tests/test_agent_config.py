@@ -6,8 +6,7 @@ from agent.prompt import SystemPromptAssembler
 from config.agent_config import (
     AgentConfig,
     DatabotAgentConfig,
-    IntentAgentConfig,
-    PlanAgentConfig,
+    LeadAgentConfig,
     ReactAgentConfig,
     agent_config_path,
 )
@@ -41,7 +40,7 @@ def test_base_layout_has_core_sections() -> None:
 
 def test_tahoe_layout_includes_output_extension() -> None:
     spec = _prompt("tahoe")
-    assert spec.layout == ("role", "general_rules", "output", "session_layout")
+    assert spec.layout == ("role", "business_context", "general_rules", "output", "session_layout")
     text = _assembler("tahoe").build()
     assert "Output:" in text
     assert text.find("General rules:") < text.find("Output:")
@@ -52,6 +51,7 @@ def test_databot_layout_lists_extension_sections() -> None:
     spec = _prompt("databot")
     assert spec.layout == (
         "role",
+        "business_context",
         "general_rules",
         "chat_style",
         "data_prohibitions",
@@ -79,29 +79,30 @@ def test_child_spec_appends_general_rules() -> None:
 def test_agent_file_holds_identity_and_system_prompt() -> None:
     cfg = _config("databot")
     assert cfg.name == "databot"
-    assert cfg.intention == "DATA"
+    # Databot is a front agent (own page); the lead delegates data work to warehouse.
+    assert cfg.front and cfg.delegate_when == ""
+    assert _config("warehouse").delegate_when.startswith("data retrieval")
+    assert not _config("warehouse").front
     assert cfg.accepted_mcp["default"] == ("*",)
     assert cfg.system_prompt is not None
     assert cfg.system_prompt.layout[0] == "role"
 
-    intent = _config("intent")
-    assert intent.description.startswith("Intent router")
-    assert intent.system_prompt is not None
-    assert intent.system_prompt.layout == ("role", "rules")
+    lead = _config("lead")
+    assert lead.front
+    assert lead.description.startswith("Front agent")
+    assert lead.system_prompt is not None
+    assert lead.delegate_when == ""
 
 
 def test_agent_run_context_merges_extends() -> None:
-    plan = PlanAgentConfig(agent_config_path("plan"))
-    assert "max_tool_calls" not in plan.run_context
-    assert "next_step" not in plan.run_context
     databot = DatabotAgentConfig(agent_config_path("databot"))
     assert databot.run_context.get("max_tool_calls") == 10
     assert isinstance(databot.run_context.get("react"), dict)
     assert "fetch" in databot.run_context["react"]
-    intent = IntentAgentConfig(agent_config_path("intent"))
-    assert intent.run_context.get("max_tool_calls") == 30
-    assert intent.run_context.get("clarification_threshold") == 0.85
-    assert intent.run_context.get("max_clarification_rounds") == 2
+    lead = LeadAgentConfig(agent_config_path("lead"))
+    assert lead.run_context.get("max_tool_calls") == 12
+    assert lead.run_context.get("max_delegations") == 6
+    assert lead.run_context.get("next_step", "").strip()
 
 
 def test_compression_inherits_base_and_keeps_code_paths() -> None:
@@ -120,8 +121,10 @@ def test_compression_inherits_base_and_keeps_code_paths() -> None:
     assert base.offload_dir == defaults.offload_dir
     assert base.turn_boundary_marker == defaults.turn_boundary_marker
     assert _config("knowledge").compression == base
-    assert _config("intent").compression == base
-    assert PlanAgentConfig(agent_config_path("plan")).compression == base
+    from dataclasses import replace
+
+    # The lead keeps specialist results in full (never offloads `delegate`).
+    assert _config("lead").compression == replace(base, never_offload_tools=frozenset({"delegate"}))
 
 
 def test_compression_extends_overrides_named_fields(tmp_path: Path) -> None:
@@ -162,5 +165,4 @@ def test_registered_agents_use_typed_config() -> None:
 
     assert isinstance(AgentCatalog.config("databot"), DatabotAgentConfig)
     assert isinstance(AgentCatalog.config("knowledge"), ReactAgentConfig)
-    assert isinstance(AgentCatalog.config("plan"), PlanAgentConfig)
-    assert isinstance(AgentCatalog.config("intent"), IntentAgentConfig)
+    assert isinstance(AgentCatalog.config("lead"), LeadAgentConfig)

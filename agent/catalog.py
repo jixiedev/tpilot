@@ -19,7 +19,7 @@ from memory.profile_store import ProfileStore
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_AGENT = "intent"
+DEFAULT_AGENT = "lead"
 
 _AgentFactory = Callable[..., Awaitable[BaseAgent]]
 
@@ -256,78 +256,6 @@ class AgentCatalog:
         cls.restore_tools_snapshot()
 
     @classmethod
-    def intention_routes(cls) -> dict[str, str]:
-        """Map intention label → specialist agent name."""
-        routes: dict[str, str] = {}
-        for name in cls.names():
-            config = cls.config(name)
-            if not config.intention:
-                continue
-            label = config.intention.strip().upper()
-            if not label:
-                continue
-            if label in routes:
-                raise ValueError(
-                    f"Duplicate intention {label!r}: "
-                    f"{routes[label]!r} and {name!r}"
-                )
-            routes[label] = name
-        return routes
-
-    @classmethod
-    def routable_intentions(cls) -> frozenset[str]:
-        """Intention labels that IntentOrchestrator may publish and route."""
-        return frozenset(cls.intention_routes())
-
-    @classmethod
-    def resolve_route_target(cls, intention: str) -> str:
-        """Return specialist agent name for ``intention``, or ``\"\"`` if none."""
-        label = (intention or "").strip().upper()
-        if not label or label == "UNCLEAR":
-            return ""
-        return cls.intention_routes().get(label, "")
-
-    @classmethod
-    def agent_for_intention(cls, intention: str) -> str | None:
-        """Return the specialist agent name for ``intention``, if registered."""
-        target = cls.resolve_route_target(intention)
-        return target or None
-
-    @classmethod
-    def intention_catalog(cls) -> list[tuple[str, str]]:
-        """Ordered (intention, description) pairs for prompts and clarification copy."""
-        items: list[tuple[str, str]] = []
-        for label, name in sorted(cls.intention_routes().items()):
-            config = cls.config(name)
-            description = (config.intention_description or config.description).strip()
-            items.append((label, description))
-        return items
-
-    @classmethod
-    def is_routable_intention(cls, intention: str) -> bool:
-        return (intention or "").strip().upper() in cls.routable_intentions()
-
-    @classmethod
-    def get_routable_agent(cls, name: str) -> str:
-        """Return a registered specialist name (must declare ``intention``)."""
-        config = cls.config(name)
-        if not config.intention:
-            raise SystemExit(
-                f"Agent {name!r} is not a routable specialist "
-                f"(set intention in config/agents/{name}.toml to enable intent routing)"
-            )
-        return config.name
-
-    @classmethod
-    def published_route_target(cls, state: Any) -> str:
-        """Extract the published agent name from a finished intent orchestrator state."""
-        if not isinstance(state, dict):
-            return ""
-        if (state.get("status") or "").strip().lower() != "published":
-            return ""
-        return str(state.get("route_target") or "").strip()
-
-    @classmethod
     def _require_name(cls, name: str) -> str:
         key = name.strip().lower()
         if key not in cls._factories:
@@ -498,16 +426,16 @@ class AgentCatalog:
         return cls._new_agent(SWEAgent, **kwargs)
 
     @classmethod
-    async def _create_plan(cls, **kwargs: Any) -> BaseAgent:
-        from agent.plan.plan_agent import PlanAgent
+    async def _create_warehouse(cls, **kwargs: Any) -> BaseAgent:
+        from agent.specialists.warehouse import WarehouseAgent
 
-        return cls._new_agent(PlanAgent, **kwargs)
+        return cls._new_agent(WarehouseAgent, **kwargs)
 
     @classmethod
-    async def _create_intent(cls, **kwargs: Any) -> BaseAgent:
-        from agent.intent.orchestrator import IntentOrchestrator
+    async def _create_lead(cls, **kwargs: Any) -> BaseAgent:
+        from agent.lead.lead_agent import LeadAgent
 
-        return cls._new_agent(IntentOrchestrator, **kwargs)
+        return cls._new_agent(LeadAgent, **kwargs)
 
     @classmethod
     def register_builtins(cls) -> None:
@@ -516,8 +444,8 @@ class AgentCatalog:
         cls.register("diagnostic", cls._create_diagnostic)
         cls.register("data_analysis", cls._create_data_analysis)
         cls.register("swe", cls._create_swe)
-        cls.register("plan", cls._create_plan)
-        cls.register("intent", cls._create_intent)
+        cls.register("warehouse", cls._create_warehouse)
+        cls.register("lead", cls._create_lead)
 
 
 AgentCatalog.register_builtins()

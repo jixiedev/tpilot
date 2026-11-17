@@ -8,7 +8,9 @@ environment-variable override, and `.env` is loaded at startup.
 Related docs: [agent/README.md](../agent/README.md) (catalog, agent classes),
 [tools/README.md](../tools/README.md) (tool registry, MCP),
 [agent/specialists/databot/README.md](../agent/specialists/databot/README.md)
-(databot pipeline and gates), [rag/README.md](../rag/README.md) (RAG ingest and
+(databot pipeline and gates),
+[agent/specialists/warehouse/README.md](../agent/specialists/warehouse/README.md)
+(warehouse SQL review), [rag/README.md](../rag/README.md) (RAG ingest and
 `rag.toml`), [memory/README.md](../memory/README.md) (context compression),
 [docs/ARCHITECTURE.md](../docs/ARCHITECTURE.md).
 
@@ -16,7 +18,7 @@ Related docs: [agent/README.md](../agent/README.md) (catalog, agent classes),
 
 | File | Parsed by | Holds |
 | --- | --- | --- |
-| `config/agents/<name>.toml` | `config/agent_config.py` (`AgentConfig` and subclasses) | Identity, intent label, system prompt, run context, compression, tool scopes, accepted MCP servers |
+| `config/agents/<name>.toml` | `config/agent_config.py` (`AgentConfig` and subclasses) | Identity, `delegate_when` roster line, system prompt, run context, compression, tool scopes, accepted MCP servers |
 | `config/agents/base.toml`, `tahoe.toml`, `stage.toml` | same | Shared parents for `extends`; not registered agents |
 | `config/tool_groups.toml` | `tool_groups()` in `config/agent_config.py` | Named tool sets referenced as `@group` |
 | `config/tools.toml` | `config/tool_config.py` (`ToolConfig`) | Hive, Trino, DataHub, Kubernetes, web search, S3 connection settings |
@@ -39,7 +41,7 @@ an `extends` in one table does not affect the others.
 **Resolved run context.** `[run_context]` holds loop budgets and step prompts.
 After `extends` is merged, the agent's `AgentConfig` subclass fills defaults,
 coerces types and applies runtime overrides. The result is a plain mapping
-(`ReactRunContext`, `DatabotRunContext`, `PlanRunContext`, `HandoffRunContext`
+(`ReactRunContext`, `DatabotRunContext`, `StageRunContext`
 in `agent/run_context.py`) read by routers and graph builders.
 
 **Design rules.**
@@ -59,8 +61,8 @@ with the class from `AGENT_CONFIG_TYPES`:
 | Agent file | Config class | Run context type |
 | --- | --- | --- |
 | `databot.toml` | `DatabotAgentConfig` | `DatabotRunContext` |
-| `plan.toml` | `PlanAgentConfig` | `PlanRunContext` |
-| `intent.toml` | `IntentAgentConfig` | `HandoffRunContext` |
+| `lead.toml` | `LeadAgentConfig` | `ReactRunContext` (plus `max_delegations`) |
+| `warehouse.toml` | `WarehouseAgentConfig` | `ReactRunContext` (plus `sql_gate_enabled`, `result_row_limit`) |
 | `knowledge.toml`, `diagnostic.toml`, `data_analysis.toml`, `swe.toml` | `ReactAgentConfig` | `ReactRunContext` |
 | any other name | `AgentConfig` | untyped mapping |
 
@@ -69,9 +71,9 @@ with the class from `AGENT_CONFIG_TYPES`:
 | Key | Type | Meaning |
 | --- | --- | --- |
 | `name` | string | Agent name; defaults to the file stem |
-| `description` | string | Short description (catalog listing, intent fallback text) |
-| `intention` | string | Intent label routed to this agent (e.g. `DATA`, `KNOWLEDGE`, `PLAN`); the classifier picks exactly one label per request. Upper-cased; two agents with the same label raise `ValueError` in `AgentCatalog.intention_routes` |
-| `intention_description` | string | Text shown to the intent classifier for this label; falls back to `description` |
+| `description` | string | Short description (catalog listing; the lead's roster falls back to it) |
+| `delegate_when` | string | When the lead should delegate to this agent. `LeadSystemPrompt` (`agent/lead/prompt.py`) lists every agent that is not a front agent as one roster line with this text |
+| `front` | bool (default `false`) | A front agent: the user talks to it directly (own AG-UI endpoint and web page). `delegatable_agents()` leaves it out of the lead's roster and `delegate` refuses it. Set in `lead.toml` and `databot.toml` |
 | `mcp_replace_identifiers` | list of strings | Tool scopes whose built-in tools are dropped when MCP tools load for that scope (knowledge uses `["catalog"]`, so DataHub MCP replaces the native `@datahub` tools) |
 
 ### `[system_prompt]`
@@ -111,8 +113,8 @@ Rendering (`SystemPromptAssembler.build` in `agent/prompt.py`) emits
 `Title:\nbody` blocks separated by blank lines, skips sections with empty text,
 and inserts a `User profile` block after the first section when the user
 profile has data (see [memory/README.md](../memory/README.md#user-profiles)).
-`IntentSystemPrompt` (`agent/intent/prompt.py`) also substitutes `{intentions}`,
-`{prefer}`, `{labels}`, `{choices}` and `{threshold}` in `intent.toml` text.
+`LeadSystemPrompt` (`agent/lead/prompt.py`) appends the specialist roster
+(one line per non-front agent, from `delegate_when`) after the rendered `lead.toml` prompt.
 
 Example: the effective Databot `general_rules` is base's text followed by one
 bullet from `databot.toml`; its `layout` comes from `databot.toml`, while
@@ -146,16 +148,15 @@ Keys and defaults by class:
 | | `max_idle_reason_rounds` | 1 | Plain-text replies retried while the stage predicate is unmet (`agent/router.py`) |
 | | `idle_nudge_prompt` | `""` | Sent on those retries |
 | | `fetch_instruction`, `sql_instruction` | – | Kept only when present (databot stage openers) |
-| `PlanAgentConfig` | `max_tool_calls` | – (code fallback 6) | Tool-call batches per stage run (create, each execute round, adjust); kept only when set |
-| | `max_subagent_rounds` | – (code fallback 8) | Execute/adjust cycles per turn; kept only when set |
-| | `max_idle_reason_rounds` | 1 | Idle retries of the create stage |
+| `LeadAgentConfig` | the `ReactAgentConfig` keys, plus: | | `lead.toml` sets `max_tool_calls = 12` |
+| | `max_delegations` | 6 | Specialist runs (`delegate` calls) per turn; at the limit `delegate` tells the lead to answer with what it has |
+| `WarehouseAgentConfig` | the `ReactAgentConfig` keys, plus: | | `warehouse.toml` sets `max_tool_calls = 24` |
+| | `gates.sql_enabled` (resolved as `sql_gate_enabled`) | `true` | Human SQL review in `request_sql_approval`; `false` approves automatically, but `run_sql` still runs only SQL that went through it |
+| | `result_row_limit` | 200 | Rows one `run_sql` call fetches (the model sees a preview of at most 50) |
 | `DatabotAgentConfig` | `max_tool_calls`, `max_idle_reason_rounds` | 10, 1 | Outer pipeline (via `extends = "stage"`) |
 | | `react.fetch`, `react.sql` | – | Each resolved with `StageReactConfig.resolve_run_context` |
 | | `gates.cards_enabled`, `gates.sql_enabled` | `true` | `false` auto-approves and skips the human pause |
 | | `prepare_cards_for_gate_prompt`, `turn_summary_system_prompt` | `""` | One-shot node prompts; `node_prompt_from` raises `KeyError` if still empty |
-| `IntentAgentConfig` | `max_tool_calls` | 30 | Budget handed to delegated specialists |
-| | `clarification_threshold` | 0.85 | Below this confidence the router asks a question |
-| | `max_clarification_rounds` | 2 | |
 
 Pure ReAct specialists end the turn on their first plain-text reply, so
 idle-retry keys do nothing for them and `ReactAgentConfig` drops them. Prompt
@@ -167,8 +168,8 @@ and `AgentCatalog.create(..., run_context={...})` overlay values after the file
 is resolved (`AgentConfig.with_run_overrides`). Only keys the subclass knows are
 accepted (for ReAct: the default keys above; for Databot: `max_tool_calls`,
 `max_idle_reason_rounds`, nested `react` and `gates` mappings, and the two node
-prompts; for Plan: `max_tool_calls`, `max_subagent_rounds`,
-`max_idle_reason_rounds`). `None` values are ignored.
+prompts; for the lead: the ReAct keys and `max_delegations`; for warehouse: the
+ReAct keys, `sql_gate_enabled` and `result_row_limit`). `None` values are ignored.
 
 ### `[compression]`
 
@@ -196,8 +197,13 @@ Maps a tool scope id to built-in tool names. Read by `agent_tool_scopes(name)`:
   raises `ValueError`.
 - Duplicates are dropped, keeping the first position.
 - `default` is the agent's main scope; other ids (`fetch`, `sql`, `execute`,
-  `rag`, `create`, `adjust`, `subagent`, `catalog`) are looked up as
-  `"<agent>,<scope>"` by the code that builds each subgraph.
+  `rag`, `catalog`) are looked up as `"<agent>,<scope>"` by the code that
+  builds each subgraph.
+- The lead's `delegate` and `write_plan` tools are not listed here: `LeadAgent`
+  binds them itself, next to the `[tools]` scopes (`@memory` in `lead.toml`).
+- Warehouse's `request_sql_approval` and `run_sql` are bound by
+  `WarehouseAgent`; it also drops `trino_run_query` (and any configured tool
+  with a gate tool's name) from its scopes, so SQL runs only after review.
 
 How tools register by name is covered in [tools/README.md](../tools/README.md).
 
@@ -346,15 +352,15 @@ text = "- GMV means gross merchandise value."
 **Raise `max_tool_calls`.** For a ReAct specialist, add
 `[run_context] max_tool_calls = 40` to its file. Note that `cli.py`,
 `agui_server.py` and `langgraph_graphs.py` pass `max_tool_calls=30` as a run
-override, which wins over the file; change the call site too. The same override
-reaches `plan` (as its per-stage budget) and, through `intent`'s
-`max_tool_calls`, every agent intent hands off to; specialists delegated by
-`plan` keep their file budgets. For databot
+override, which wins over the file; change the call site too. The override
+reaches only the agent the entry point creates (the lead by default);
+specialists delegated by the lead keep their file budgets. For databot
 stages, set `max_tool_calls` under `[run_context.react.fetch]` or
 `[run_context.react.sql]` (the override above only reaches the outer value).
 
 **Disable a databot gate.** In `databot.toml`:
-`[run_context.gates] sql_enabled = false`.
+`[run_context.gates] sql_enabled = false`. The same key in `warehouse.toml`
+turns off warehouse's human SQL review (approval becomes automatic).
 
 **Add a model.** Add a `[model."<id>"]` table with `base_url`, `provider` and
 `api_key_env`, put the key in `.env`, and set `[basic].default_model_name` to

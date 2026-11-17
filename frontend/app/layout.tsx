@@ -4,6 +4,7 @@ import { Providers } from "./providers";
 import "@copilotkit/react-core/v2/styles.css";
 import "./globals.css";
 import "./databot.css";
+import "./lead.css";
 
 const sans = Plus_Jakarta_Sans({
   subsets: ["latin"],
@@ -18,8 +19,8 @@ const mono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "TahoePilot · Databot",
-  description: "Ask about tables and metrics, draft SQL, and approve execution behind human gates.",
+  title: "TahoePilot",
+  description: "TahoePilot: the lead agent answers, plans and hands work to specialists (data questions go to Warehouse, with every query reviewed); Databot runs the staged, gated data pipeline.",
 };
 
 const colorSchemeScript = `(function(){try{var k="tahoepilot-color-scheme";var s=localStorage.getItem(k);var d=s==="dark"||(s!=="light"&&window.matchMedia("(prefers-color-scheme: dark)").matches);document.documentElement.classList.toggle("dark",d);document.documentElement.style.colorScheme=d?"dark":"light";}catch(e){}})();`;

@@ -1,9 +1,8 @@
 name = "databot"
-description = "Data-retrieval specialist (glossary-first → SQL → evidenced answer)"
-intention = "DATA"
-intention_description = """
-data retrieval — find tables, metric/glossary definitions and schemas, or answer a concrete data question with read-only SQL against the warehouse (a number, a list, a lookup)
-"""
+description = "Data-retrieval front agent (glossary-first → reviewed cards → reviewed SQL → evidenced answer)"
+# Databot talks to the user directly on its own page (/databot, AG-UI
+# /agui/databot); the lead delegates data work to `warehouse` instead.
+front = true
 
 [accepted_mcp]
 # Tool scopes merged at agent startup (see AgentCatalog.register_mcp_tools).
@@ -88,6 +87,8 @@ the pipeline can pause for human SQL review. In the reasons, dryrun means "run t
 approve but do not save this retrieval to history" — never a preview without execution. This stage ends when draft SQL and gate
 reasons are staged; execution happens only after approval in a later layer.
 Respect gate redraft feedback in state when the reviewer sent the turn back.
+Shape the result so the rows that answer the question (for example the month
+total) come first, and keep any breakdown small: results are capped at 100 rows.
 """
 # Per-turn instruction appended in the generate_sql ReAct loop.
 next_step = """
@@ -113,6 +114,7 @@ extends = "tahoe"
 
 layout = [
     "role",
+    "business_context",
     "general_rules",
     "chat_style",
     "data_prohibitions",
@@ -226,8 +228,10 @@ fetch = [
     "record_metric_conflict",
 ]
 rag = ["commit_cards", "fetch_related_models"]
+# SQL drafting describes tables through Trino only (`trino_desc_table` takes
+# table, schema.table or catalog.schema.table). Trino reads the Hive metastore
+# server-side; `hive_desc_table` needs a direct metastore connection.
 sql = [
-    "hive_desc_table",
     "propose_sql",
     "trino_desc_table",
     "trino_explain",

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable, Mapping
 from typing import Any
 
 from langchain_core.language_models import BaseChatModel
@@ -10,6 +11,7 @@ from langgraph.types import Command
 from agent.listener import ListenerHub
 
 from graph.error_recovery import (
+    BubbleUpCarrier,
     invoke_with_transient_retry,
     make_async_retrying_tool_wrapper,
     make_handle_tool_errors,
@@ -120,14 +122,21 @@ class StepActionNode(ToolNode):
 
     def invoke(self, state: ReactAgentState, config=None, **kwargs) -> Any:
         self._emit_tool_calls(state)
-        result = super().invoke(state, config, **kwargs)
+        try:
+            result = super().invoke(state, config, **kwargs)
+        except BubbleUpCarrier as carrier:
+            raise carrier.original from None
         if isinstance(result, dict):
             self._emit_tool_results(result)
         return self._apply_counter(state, result)
 
     async def ainvoke(self, state: ReactAgentState, config=None, **kwargs) -> Any:
         self._emit_tool_calls(state)
-        result = await super().ainvoke(state, config, **kwargs)
+        try:
+            result = await super().ainvoke(state, config, **kwargs)
+        except BubbleUpCarrier as carrier:
+            # An interrupt inside a tool (a nested specialist's gate) pauses the graph.
+            raise carrier.original from None
         if isinstance(result, dict):
             self._emit_tool_results(result)
         return self._apply_counter(state, result)
@@ -139,10 +148,18 @@ BUDGET_EXHAUSTED_FALLBACK_REPLY = (
 )
 
 
+StepPrompt = str | Callable[[Mapping[str, Any]], str]
+"""A step prompt: fixed text, or built from the current state each step."""
+
+
+def _prompt_text(prompt: StepPrompt, state: Mapping[str, Any]) -> str:
+    return (prompt(state) if callable(prompt) else prompt) or ""
+
+
 def make_step_reason_node(
     model: BaseChatModel,
-    next_step_prompt: str,
-    idle_nudge_prompt: str = "",
+    next_step_prompt: StepPrompt,
+    idle_nudge_prompt: StepPrompt = "",
     tool_budget_exhausted_prompt: str = "",
     max_tool_calls: int = 10,
     listener: ListenerHub | None = None,
@@ -152,7 +169,8 @@ def make_step_reason_node(
     """Build the ReAct ``step_reason`` node: one model call, then update idle state.
 
     Ephemeral system prompts (not written back to checkpoint history):
-    - Always append ``next_step_prompt`` (per-step tool guidance).
+    - Append ``next_step_prompt`` (per-step tool guidance). Either prompt may be
+      a callable that builds the text from the current state; empty text is skipped.
     - If ``tool_call_count >= max_tool_calls``, append ``tool_budget_exhausted_prompt``.
     - Else if ``idle_reason_rounds > 0``, append ``idle_nudge_prompt``.
 
@@ -170,18 +188,25 @@ def make_step_reason_node(
     idle rounds, and budget to choose ``step_action``, another ``step_reason``, or end.
     """
 
-    def step_reason(state: ReactAgentState) -> dict[str, Any]:
+    # Unannotated on purpose: a ``ReactAgentState`` hint would make LangGraph pass
+    # only that schema's keys, hiding extra state (e.g. the lead's plan) from
+    # callable step prompts.
+    def step_reason(state) -> dict[str, Any]:
         # Local copy only: ephemeral SystemMessages below are not returned in the
         # update, so they never enter checkpoint / session history.
         messages = list(state["messages"])
-        messages.append(SystemMessage(content=next_step_prompt))
+        step_text = _prompt_text(next_step_prompt, state)
+        if step_text:
+            messages.append(SystemMessage(content=step_text))
 
         # Prefer budget guidance over idle nudge when both could apply.
         budget_exhausted = state.get("tool_call_count", 0) >= max_tool_calls
         if budget_exhausted:
             messages.append(SystemMessage(content=tool_budget_exhausted_prompt))
         elif state.get("idle_reason_rounds", 0) > 0:
-            messages.append(SystemMessage(content=idle_nudge_prompt))
+            nudge_text = _prompt_text(idle_nudge_prompt, state)
+            if nudge_text:
+                messages.append(SystemMessage(content=nudge_text))
 
         messages = sanitize_messages_for_strict_tool_providers(messages)
 

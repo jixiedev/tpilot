@@ -1,8 +1,10 @@
 # Databot
 
-Databot is TahoePilot's data-retrieval specialist. It turns a natural-language data question into an auditable query workflow: find the dbt models that can answer it, draft read-only SQL against them, run the SQL on Trino after a human approves it, and close the turn with an evidenced answer.
+Databot is TahoePilot's staged data-retrieval agent. It turns a natural-language data question into an auditable query workflow: find the dbt models that can answer it, draft read-only SQL against them, run the SQL on Trino after a human approves it, and close the turn with an evidenced answer.
 
 It is not a single LLM call that emits SQL. It is a staged pipeline with two human gates, so the table selection and the SQL can be inspected and corrected before anything runs.
+
+Databot is a front agent (`front = true` in `config/agents/databot.toml`): users talk to it directly, on its own web page (`/databot`, AG-UI endpoint `/agui/databot`) or with `--agent databot` in the CLI. The `lead` agent does not delegate to it; the lead's data specialist is `warehouse` (see [its README](../warehouse/README.md)). `DatabotAgent` still implements the subagent hooks (`subagent_input`, `result_from_state`, `ui_view`, `aget_active_snapshot`); the AG-UI server uses `ui_view` and `aget_active_snapshot` to show a paused gate's state.
 
 Related docs: [agent framework and ReAct loop](../../README.md) · [tools](../../../tools/README.md) · [config](../../../config/README.md) · [memory](../../../memory/README.md) · [web UI and AG-UI server](../../../frontend/README.md) · [architecture](../../../docs/ARCHITECTURE.md)
 
@@ -15,7 +17,7 @@ Related docs: [agent framework and ReAct loop](../../README.md) · [tools](../..
 | `card_staging.py` | Staging ids and `commit_cards` resolution (staging → committed) |
 | `ui_actions.py` | Pure state patches for UI actions and gate redrafts; `ACTION_ALLOWED_STAGES` |
 | `history.py` | `DataRetrievalRecord`, `DataRetrievalStore` (per-user retrieval history) |
-| `databot_agent.py` | `DatabotAgent`, `DatabotTurnMessagePolicy` (per-turn reset and persistence) |
+| `databot_agent.py` | `DatabotAgent` (including the subagent hooks `subagent_input`, `result_from_state`, `ui_view`, `aget_active_snapshot`), `DatabotTurnMessagePolicy` (per-turn reset and persistence) |
 | `tools/rag/dbt_models.py` | `TableCard`, `fetch_related_models`, `commit_cards` |
 | `config/agents/databot.toml` | Prompts, gate toggles, tool scopes, budgets |
 
@@ -86,7 +88,7 @@ After a turn commits, `DatabotTurnMessagePolicy.commit_turn_state` calls `DataRe
 
 **Read-only SQL.** The system prompt forbids writes, and the tools enforce it: `trino_run_query` and `trino_explain` pass SQL through `validate_read_only_sql` (`tools/data/sql_guard.py`), which accepts a single statement whose first token is `SELECT`, `WITH`, `SHOW`, `DESCRIBE`, `DESC` or `EXPLAIN`; for `EXPLAIN` (including `EXPLAIN ANALYZE`, which executes the statement) the wrapped statement must itself be read-only.
 
-**Retrieval only.** The Databot graph does not delegate to other specialists. Glossary and definition lookups happen inside the fetch stage through DataHub tools.
+**Retrieval only.** The Databot graph does not delegate to other agents, and the lead does not delegate to it. Glossary and definition lookups happen inside the fetch stage through DataHub tools.
 
 ## How it works
 
@@ -169,7 +171,7 @@ Routing reads the last `gate_decisions` row, so a new gate kind or decision must
 
 ### Nodes
 
-- **`start_turn`** (outer graph, first node after `START`) applies the per-turn baseline (`DatabotTurnMessagePolicy.baseline_fields()`, keeping `history_cards`) when `starts_new_turn` holds; otherwise it is a no-op. This is what resets web (`/agui`) turns; CLI turns arrive already reset, so it does nothing there.
+- **`start_turn`** (outer graph, first node after `START`) applies the per-turn baseline (`DatabotTurnMessagePolicy.baseline_fields()`, keeping `history_cards`) when `starts_new_turn` holds; otherwise it is a no-op. This is what resets turns when the graph is invoked directly (the web page via `/agui/databot`, and the `databot` graph in LangGraph Studio); CLI turns arrive already reset, so it does nothing there.
 - **`inject_stage_instruction`** appends the layer's opening system message (`fetch_instruction` or `sql_instruction`) unless an identical system message already appears in the current turn, i.e. after the latest real user question (gate redraft messages do not start a turn). A redraft loop therefore does not repeat it, and every new turn gets it again.
 - **`fetch_cards`** runs the fetch ReAct loop. It exits when `committed_cards` is non-empty, when the tool budget is spent, or after the idle-retry allowance. The next node runs regardless, so an exhausted fetch can reach the gate with zero cards.
 - **`prepare_cards_for_gate`** copies `committed_cards` to `review_cards`, asks the model (with `prepare_cards_for_gate_prompt`) for the four option reasons as a JSON array, normalizes them with `coerce_reasons`/`merge_reasons` (falling back to `DEFAULT_CARDS_GATE_REASONS`), and writes `cards_selection_summary`.
@@ -198,7 +200,9 @@ outer DatabotState ──build_input──▶ ReAct subgraph ──merge_output�
 
 On the CLI path, `DatabotAgent` accepts each user message as a new retrieval question. `DatabotTurnMessagePolicy.history_state` starts the turn from `baseline_fields()`, which resets every pipeline field to its default (`stage = prepare_cards`, empty cards, SQL, reasons, audit, result, `dryrun = False`). Then it fills `history_cards` from the prior checkpoint or, if empty, from `DataRetrievalStore`.
 
-On the web path the graph is invoked directly, so the outer `start_turn` node applies the same `baseline_fields()` (keeping the checkpoint's `history_cards`) when a new question arrives in a thread whose `stage` is `summary`. The history briefing and retrieval persistence still run only on the CLI path.
+When the graph is invoked directly (the web page through `/agui/databot`, LangGraph Studio), the outer `start_turn` node applies the same `baseline_fields()` (keeping the checkpoint's `history_cards`) when a new question arrives in a thread whose `stage` is `summary`. The history briefing and retrieval persistence do not run on that path.
+
+`run_as_subagent` (used only by tests and scripts now that the lead does not delegate here) starts from `subagent_input`: the same baseline with `history_cards` from `DataRetrievalStore` and the history briefing, and the brief as the question; `commit_subagent_state` falls through to `commit_turn_state`, so approved retrievals are persisted.
 
 | Persists across turns | Reset every turn |
 |-----------------------|------------------|
@@ -220,6 +224,8 @@ await graph.aupdate_state(snapshot.config, patch)   # patch the paused layer, no
 
 It falls back to the outer snapshot when no layer is in flight. `graph.aget_state(config)` alone will show stale gate state.
 
+The AG-UI server does this for the web page: `DatabotGraphView` overlays the paused layer's UI fields (`DatabotAgent.ui_view`) onto root state snapshots, and `/agui/databot/actions` patches the paused layer.
+
 ## Usage
 
 ### CLI
@@ -228,7 +234,7 @@ It falls back to the outer snapshot when no layer is in flight. `graph.aget_stat
 .venv/bin/python main.py --agent databot            # -s SESSION, -u USER_ID, -v also available
 ```
 
-Each line you type is a new question. When a gate pauses, the CLI prints a `Prompt>` line and reads your answer from `You>`; typing `quit`, `exit`, `q` or `:q` cancels the turn. The gate's question, option reasons and card list are in the interrupt's JSON `message` field; the CLI's `AgentTurnResult.interrupt_question` looks for a top-level `question` key, so for Databot gates it currently prints the generic "Please provide the information needed to continue." Answer with any form `gates.parse_resume` accepts:
+This runs Databot without the lead (the default `lead` agent never reaches Databot). Each line you type is a new question. When a gate pauses, the CLI prints a `Prompt>` line and reads your answer from `You>`; typing `quit`, `exit`, `q` or `:q` cancels the turn. The gate's question, option reasons and card list are in the interrupt's JSON `message` field; the CLI's `AgentTurnResult.interrupt_question` looks for a top-level `question` key, so for Databot gates it currently prints the generic "Please provide the information needed to continue." Answer with any form `gates.parse_resume` accepts:
 
 | You type | Parsed as |
 |----------|-----------|
@@ -244,8 +250,8 @@ To send the pipeline back with feedback you must use the JSON form with `"decisi
 
 `./scripts/dev.sh backend` starts `langgraph dev` on `:8000`, which mounts `agui_server.py:app`; `./scripts/dev.sh frontend` starts the Next.js app on `:3000`. See [frontend/README.md](../../../frontend/README.md) for the server and UI details.
 
-- **`POST /agui`** streams AG-UI events for the compiled Databot graph. Gate interrupts arrive as `{id, reason, message}` (`id` is `databot-cards-gate` or `databot-sql-gate`; `message` is the JSON payload with `question`, `options`, `default`, `gate`, and for the cards gate `review_cards` and `selection_summary`). The gate panel resumes the run with the chosen decision and comments.
-- **`POST /agui/actions`** applies a direct state patch to the paused layer checkpoint without an LLM round trip. The body is `{thread_id, action, selected_card_names?, sql?, validated?, feedback?}`; the response is `{ok, action, state}` with the fields in `DATABOT_STATE_KEYS`.
+- **`POST /agui/databot`** streams AG-UI events for the compiled Databot graph (the `/databot` page; CopilotKit agent id `databot`). Root state snapshots carry the paused layer's fields (`DatabotGraphView`). Gate interrupts arrive as `{id, reason, message}` (`id` is `databot-cards-gate` or `databot-sql-gate`; `message` is the JSON payload with `question`, `options`, `default`, `gate`, and for the cards gate `review_cards` and `selection_summary`). The gate panel resumes the run with the chosen decision and comments.
+- **`POST /agui/databot/actions`** applies a direct state patch to the paused layer checkpoint, without an LLM round trip. It returns 409 when no Databot gate is waiting on the thread. The body is `{thread_id, action, selected_card_names?, sql?, validated?, feedback?}`; the response is `{ok, action, state}` with the fields in `DATABOT_STATE_KEYS`.
 
 | Action | Allowed `stage` (`ACTION_ALLOWED_STAGES`) | Effect | Required field |
 |--------|------------------------------------------|--------|----------------|
@@ -255,7 +261,7 @@ To send the pipeline back with feedback you must use the JSON form with `"decisi
 
 An unknown action returns 400; a wrong stage or missing field returns 409. Patches take effect when the gate resumes: approve copies the current `review_cards` / `draft_sql`.
 
-The `/agui` path drives the compiled graph directly, not `DatabotAgent.run`, so `DatabotTurnMessagePolicy` (history briefing, retrieval persistence) does not run there. The per-turn reset does: the graph's `start_turn` node starts a fresh pipeline when a new question arrives after a finished turn.
+The `/agui/databot` path drives the compiled graph directly, not `DatabotAgent.run`, so `DatabotTurnMessagePolicy` (history briefing, retrieval persistence) does not run there. The per-turn reset does: the graph's `start_turn` node starts a fresh pipeline when a new question arrives after a finished turn.
 
 ### Configuration (`config/agents/databot.toml`)
 
@@ -271,7 +277,7 @@ See [config/README.md](../../../config/README.md) for `extends`, prompt layout a
 | `fetch_instruction`, `sql_instruction` | Opening system message for each layer |
 | `next_step`, `tool_budget_exhausted_prompt`, `idle_nudge_prompt` | Per-layer ReAct prompts |
 | `[tools] fetch` | `commit_cards`, `datahub_graphql_query`, `datahub_list_glossary_terms`, `fetch_related_models`, `record_metric_conflict` |
-| `[tools] sql` | `hive_desc_table`, `propose_sql`, `trino_desc_table`, `trino_explain`, `write_gate_reasons` |
+| `[tools] sql` | `propose_sql`, `trino_desc_table` (accepts `table`, `schema.table` or `catalog.schema.table`; Trino only, no local metastore connection), `trino_explain` (plan only: SELECT/WITH), `write_gate_reasons` |
 | `[tools] execute` | `trino_run_query` |
 | `[tools] default`, `rag` | Scopes not used by the staged graph's layers |
 | `[accepted_mcp] fetch = ["datahub"]` | DataHub MCP tools added to the fetch scope |
@@ -299,7 +305,7 @@ See [config/README.md](../../../config/README.md) for `extends`, prompt layout a
 
 1. Write a pure patch function in `ui_actions.py`, add the name to `DatabotUiAction` and `ACTION_ALLOWED_STAGES`, and dispatch it in `build_ui_action_patch`.
 2. Add the name to the allow-list in `databot_ui_action` in `agui_server.py`, and any new body fields to `DatabotUiActionBody`.
-3. Call it from the frontend (`frontend/app/components/useDatabotActions.ts` posts to `/api/databot/actions`, which proxies to `/agui/actions`).
+3. Call it from the frontend (`frontend/app/components/useDatabotActions.ts` posts to `/api/databot/actions`, which proxies to `/agui/databot/actions`).
 4. If the LLM should have the same capability, wrap the patch function in a stage tool, as `update_card_selection` and `request_sql_regenerate` do.
 
 ### Tests
@@ -317,7 +323,7 @@ See [config/README.md](../../../config/README.md) for `extends`, prompt layout a
 - **SQL-layer routing follows the draft, not the audit trail.** After a SQL `deny-comments` the last audit row stays `sql/deny-comments` until the gate runs again, so routing must not key on it; `node_for_state` and `prepare_sql_entry` use `sql_react_complete` only (`tests/test_databot_graph.py::test_sql_redraft_pauses_at_gate_again`).
 - **Fetch can reach the gate empty.** If the fetch budget runs out before a non-empty `commit_cards`, `prepare_cards_for_gate` still runs and the gate shows zero cards. `commit_cards` with `selections=[]` does not satisfy the exit predicate.
 - **Tool writes outside the output schema are dropped**, e.g. `write_gate_reasons`' `stage` update.
-- **Web turn reset keys on the last message.** `start_turn` resets only when the trailing message is a fresh `HumanMessage` and `stage = summary`. A message sent while a gate is paused is not a new turn; answer or halt the gate first.
-- **Web UI does not persist retrieval history.** `/agui` bypasses `DatabotTurnMessagePolicy.commit_turn_state`, so approved web turns are not written to `*.databot_turns.jsonl`.
+- **Direct-graph turn reset keys on the last message.** `start_turn` resets only when the trailing message is a fresh `HumanMessage` and `stage = summary`. A message sent while a gate is paused is not a new turn; answer or halt the gate first.
+- **Web UI and LangGraph Studio do not persist retrieval history.** `/agui/databot` and the `databot` graph in `langgraph.json` invoke the graph directly, bypassing `DatabotTurnMessagePolicy.commit_turn_state`, so approved web and Studio turns are not written to `*.databot_turns.jsonl`. Only CLI turns are.
 - **The SQL guard is keyword-based, not a parser.** It checks the leading keyword (and the statement inside `EXPLAIN`) and rejects multiple statements; it does not parse SQL. Use a read-only Trino user for defense in depth.
 - **Row limit is fixed.** `execute_sql` fetches at most `DEFAULT_ROW_LIMIT` (100) rows; `execution_result.truncated` marks a cut.

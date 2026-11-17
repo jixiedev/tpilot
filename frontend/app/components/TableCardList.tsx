@@ -342,7 +342,7 @@ export function TableCardList({
       {pool.length === 0 && (
         <div className="card-list-empty">
           <span className="card-list-empty-icon" aria-hidden>◇</span>
-          <p>No models yet — Databot is still searching the semantic index.</p>
+          <p>No models yet — they appear here when Databot handles a data question.</p>
         </div>
       )}
       {openCard && (

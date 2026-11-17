@@ -1,7 +1,6 @@
 name = "data_analysis"
 description = "Exploratory data analysis specialist (SQL, Python, charts)"
-intention = "ANALYSIS"
-intention_description = """
+delegate_when = """
 exploratory analysis beyond fetching a number — compare, trend, segment or model data with several queries and Python, compute statistics, or produce charts
 """
 

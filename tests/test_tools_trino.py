@@ -160,3 +160,31 @@ def test_trino_desc_table(mock_execute: MagicMock) -> None:
     )
     assert result == [{"Column": "id", "Type": "bigint"}]
     mock_execute.assert_called_once_with("DESCRIBE hive.analytics.users")
+
+
+@pytest.mark.parametrize(
+    ("args", "expected"),
+    [
+        ({"table": "core_data.fct_transaction_variations"}, "DESCRIBE hive.core_data.fct_transaction_variations"),
+        ({"table": "hive.bi.order_level"}, "DESCRIBE hive.bi.order_level"),
+        ({"table": "bi.order_level", "schema_name": "ignored"}, "DESCRIBE hive.bi.order_level"),
+        ({"table": '"wish"."dim_all_products"', "catalog": "hive"}, "DESCRIBE hive.wish.dim_all_products"),
+    ],
+)
+@patch("tools.data.trino._execute_query")
+def test_trino_desc_table_accepts_qualified_names(mock_execute: MagicMock, args, expected) -> None:
+    """A qualified name used to become hive.<default>.schema.table and fail."""
+    mock_execute.return_value = {"rows": []}
+    with patch("tools.data.trino.tool_config") as cfg:
+        cfg.trino.catalog = "hive"
+        cfg.trino.schema_name = "default"
+        trino_desc_table.invoke(args)
+    mock_execute.assert_called_once_with(expected)
+
+
+@patch("tools.data.trino._execute_query")
+def test_trino_desc_table_rejects_malformed_names(mock_execute: MagicMock) -> None:
+    for bad in ("a.b.c.d", "schema.", ""):
+        with pytest.raises(Exception):
+            trino_desc_table.invoke({"table": bad, "catalog": "hive", "schema_name": "x"})
+    mock_execute.assert_not_called()

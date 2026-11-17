@@ -51,6 +51,10 @@ Preserve concrete identifiers (table names, SQL, paths, IDs). Omit stale interme
 OFFLOAD_PREFIX = "[OFFLOADED — "
 # Prefix of the note that replaces a folded prior-turn tool trail (Layer 1b).
 PRIOR_TURN_FOLD_PREFIX = "[PRIOR-TURN TOOL OUTPUT ARCHIVED — "
+# Results never offloaded, whatever the config: re-offloading what the reader
+# just recovered sends the model a new path to read, and it loops (seen live:
+# warehouse read the same offloaded schema three times and never saw it).
+ALWAYS_KEEP_TOOL_RESULTS = frozenset({"read_offloaded_file"})
 # Hard cap on preview characters, whatever the threshold.
 _PREVIEW_MAX_CHARS = 2_000
 
@@ -270,7 +274,9 @@ class ContextCompressor:
         for message in messages:
             if not isinstance(message, ToolMessage):
                 continue
-            if message.name in self.config.never_offload_tools:
+            if message.name in self.config.never_offload_tools or (
+                message.name in ALWAYS_KEEP_TOOL_RESULTS
+            ):
                 continue
             raw = _content_to_text(message.content)
             if AUTONOMOUS_COMPACT_MARKER in raw:

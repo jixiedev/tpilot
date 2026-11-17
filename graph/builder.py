@@ -19,7 +19,7 @@ from graph.error_recovery import (
     default_tool_retry_policy,
     make_step_action_error_handler,
 )
-from graph.node import StepActionNode, make_step_reason_node
+from graph.node import StepActionNode, StepPrompt, make_step_reason_node
 from memory.compress import ContextCompressor
 from graph.state import ReactAgentState
 
@@ -32,6 +32,7 @@ STEP_ACTION = "step_action"
 InnerStateClass = type[MessagesState]
 
 REACT_TURN_INIT = "react_turn_init"
+REACT_TURN_FINISH = "react_turn_finish"
 COMPRESS_ON_START = "compress_on_start"
 COMPRESS_AFTER_ACTION = "compress_after_action"
 
@@ -40,8 +41,8 @@ COMPRESS_AFTER_ACTION = "compress_after_action"
 class ReactLoopSpec:
     """Step prompts and tool budget for one ReAct loop."""
 
-    next_step_prompt: str
-    idle_nudge_prompt: str = ""
+    next_step_prompt: StepPrompt
+    idle_nudge_prompt: StepPrompt = ""
     tool_budget_exhausted_prompt: str = ""
     max_tool_calls: int = 10
 
@@ -77,6 +78,8 @@ class ReactStateSpec:
     input_schema: type | None = None
     output_schema: type | None = None
     turn_init: Callable[..., dict[str, Any]] | None = None
+    #: Runs once when the loop ends, before END (e.g. close out per-turn records).
+    turn_finish: Callable[..., dict[str, Any]] | None = None
 
 
 def build_react_graph(
@@ -133,12 +136,25 @@ def build_react_graph(
     for src, dst in zip([START, *entry], [*entry, STEP_REASON]):
         graph.add_edge(src, dst)
 
+    # Optional finish node: every route to END goes through it instead.
+    path_map: dict[str, str] | None = None
+    if state.turn_finish is not None:
+        graph.add_node(REACT_TURN_FINISH, state.turn_finish)
+        graph.add_edge(REACT_TURN_FINISH, END)
+        path_map = {
+            STEP_REASON: STEP_REASON,
+            STEP_ACTION: STEP_ACTION,
+            END: REACT_TURN_FINISH,
+        }
+
     if compressor is not None:
         graph.add_node(COMPRESS_AFTER_ACTION, compressor)
         graph.add_edge(STEP_ACTION, COMPRESS_AFTER_ACTION)
-        graph.add_conditional_edges(COMPRESS_AFTER_ACTION, router.route_after_action())
+        graph.add_conditional_edges(
+            COMPRESS_AFTER_ACTION, router.route_after_action(), path_map
+        )
     else:
-        graph.add_conditional_edges(STEP_ACTION, router.route_after_action())
+        graph.add_conditional_edges(STEP_ACTION, router.route_after_action(), path_map)
 
-    graph.add_conditional_edges(STEP_REASON, router.route_after_reason())
+    graph.add_conditional_edges(STEP_REASON, router.route_after_reason(), path_map)
     return graph.compile(checkpointer=checkpointer)

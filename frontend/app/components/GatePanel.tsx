@@ -10,6 +10,7 @@ import {
   type GateInterruptValue,
 } from "./databotGateUtils";
 import { stripThinkBlocks } from "./databotChatUtils";
+import { DATABOT_AGENT_ID, databotStateOf } from "./databotAgent";
 
 // ---------------------------------------------------------------------------
 // GatePanel
@@ -43,17 +44,15 @@ const GATE_OPTIONS: GateDecision[] = [
 ];
 
 export function GatePanel() {
-  const { agent, isReady } = useAgent({ agentId: "databot" });
-  const liveState = isReady
-    ? ((agent.state as DatabotAgentState | undefined) ?? undefined)
-    : undefined;
+  const { agent, isReady } = useAgent({ agentId: DATABOT_AGENT_ID });
+  const liveState = isReady ? databotStateOf(agent.state) : undefined;
 
   // ``renderInChat: false`` keeps the gate UI in this right-column
   // slot (matches the v1 layout) while still using the v2 AG-UI
   // standard interrupt protocol underneath. The hook returns the
   // element to mount, or ``null`` when no interrupt is pending.
   const element = useInterrupt({
-    agentId: "databot",
+    agentId: DATABOT_AGENT_ID,
     renderInChat: false,
     render: ({ interrupt, resolve, cancel }) => {
       if (!interrupt) return <></>;

@@ -1,12 +1,12 @@
 # Evals
 
-`evals/` runs JSON case suites against TahoePilot agents and scores each run. ReAct agents (`databot`, `knowledge`) are scored on tool order, ReAct rounds, and JSON answer fields. The intent router (`intent`) is scored on routing status, detected intentions, and the chosen route.
+`evals/` runs JSON case suites against TahoePilot agents and scores each run. ReAct agents (`databot`, `knowledge`) are scored on tool order, ReAct rounds, and JSON answer fields. The lead agent (`lead`) is scored on its decision (answer, clarify, delegate or plan), the specialists it delegates to, and how many delegations it uses.
 
 The CLI is `python -m evals`. Cases live in this repo under `evals/cases/`, so a case change is reviewed with the code it tests.
 
 Related docs:
 
-- [`agent/README.md`](../agent/README.md) — agents, `AgentCatalog`, `AgentListener`, and the intent orchestrator being evaluated.
+- [`agent/README.md`](../agent/README.md) — agents, `AgentCatalog`, `AgentListener`, and the lead agent being evaluated.
 - [`agent/specialists/databot/README.md`](../agent/specialists/databot/README.md) — Databot behavior that the `databot` cases exercise.
 - [`tools/README.md`](../tools/README.md) — tool names that appear in `expected_tools`.
 - [`config/README.md`](../config/README.md) — per-agent tool sets and prompts in `config/agents/*.toml`.
@@ -18,7 +18,7 @@ Related docs:
 |------|---------|
 | Group | One case file, `evals/cases/<group>.json`. Selected with `--groups`. The group key is the file stem. |
 | Suite | A named list of cases inside a group file (any top-level key other than `models`). A file that is a bare JSON list has one suite named `default`. |
-| Case | One query plus expectations. Two types: `ToolCallCase` (ReAct agents) and `IntentRouterCase` (intent router). Reported as `<group>/<suite>/<name>`. |
+| Case | One query plus expectations. Two types: `ToolCallCase` (ReAct agents) and `LeadRoutingCase` (lead agent). Reported as `<group>/<suite>/<name>`. |
 | Model fan-out | Each case lists model names from `models/models.toml`. The case runs once per model, each on a fresh session. |
 | Case score | Per model run: the equal-weight mean of three dimension scores in `[0, 1]` (`CaseScore.total`). |
 | Case average | Mean of a case's per-model scores. A cancelled run counts as 0. |
@@ -30,7 +30,7 @@ Related docs:
 - **Behavior, not only answers.** A ReAct run is judged on which tools were called and in what order, how many reasoning rounds it took, and on structured fields in the reply.
 - **Partial credit.** Calling the right tools in the wrong order earns half credit per covered tool instead of zero. Exceeding the round budget lowers the score gradually.
 - **Per-model averaging.** Every model in a case counts equally for that case, and every case counts equally for the suite, regardless of how many models it runs on.
-- **Same agent construction as production.** Agents are built through `AgentCatalog` with the configured prompts and tools, with an in-memory checkpointer and history compression disabled for ReAct agents.
+- **Same agent construction as production.** Agents are built through `AgentCatalog` with the configured prompts and tools, with an in-memory checkpointer and history compression disabled.
 
 ## Layout
 
@@ -39,12 +39,12 @@ Related docs:
 | `evals/__main__.py` | CLI, agent construction (`create_eval_agent`), default groups |
 | `evals/case_base.py` | `BaseCase`, case-file loading, `score_sequence`, `run_case_aggregates`, group aliases |
 | `evals/tool_case.py` | `ToolCallCase`, `CaseResult`, `CaseAggregate`, `run_cases`, output formatting |
-| `evals/intent_case.py` | `IntentRouterCase`, `extract_routing_outcome`, `run_intent_cases` |
+| `evals/routing_case.py` | `LeadRoutingCase`, `RoutingStub`, `extract_lead_outcome`, `run_routing_cases` |
 | `evals/answer_match.py` | `score_answer`, `extract_json_object`, `values_equal` |
 | `evals/listeners.py` | `EvalReactListener` (records tool calls and reason steps), `CaseScore` |
-| `evals/cases/*.json` | Case groups: `databot`, `general`, `intent`, `knowledge`, `tahoe` |
+| `evals/cases/*.json` | Case groups: `databot`, `general`, `knowledge`, `routing`, `tahoe` |
 
-Tests: `tests/test_evals_cases.py`, `tests/test_evals_intent_cases.py`, `tests/test_evals_answer_match.py`.
+Tests: `tests/test_evals_cases.py`, `tests/test_evals_routing_cases.py`, `tests/test_evals_answer_match.py`.
 
 ## How a run works
 
@@ -55,7 +55,7 @@ python -m evals --agent A --groups G1 G2
 iter_raw_cases: for each group file -> each suite -> each raw case
    |   (file-level "models" is the default for cases without their own)
    v
-find_cases / find_intent_cases  -> ToolCallCase | IntentRouterCase
+find_cases / find_routing_cases  -> ToolCallCase | LeadRoutingCase
    |
    v
 run_case_aggregates
@@ -73,13 +73,13 @@ exit 1 if --fail-under and average < threshold
 
 ReAct runs (`ToolCallCase.run`): the harness clears the agent's secondary listeners, registers an `EvalReactListener`, runs one turn with `user_id="case_bot"` and `print_output=False`, scores it, then clears the listener again. The agent must support `register_secondary` (`BaseReactAgent`), otherwise the run fails with a `TypeError`.
 
-Intent runs (`IntentRouterCase.run`): the orchestrator runs with `handoff=False`, so it stops after publishing a route and never executes the target agent. The resulting graph state is normalized by `extract_routing_outcome`.
+Lead runs (`LeadRoutingCase.run`): the harness swaps the lead's specialists for stubs, runs one turn with `user_id="case_bot"` and `print_output=False`, and classifies the turn with `extract_lead_outcome`. No specialist actually runs.
 
 ## Scoring
 
 ### Sequence score (`score_sequence`)
 
-Used for tool order, intentions, and routes.
+Used for tool order and lead routes.
 
 | Condition | Score | `reason` |
 |-----------|-------|----------|
@@ -109,29 +109,28 @@ Round examples with `total_rounds: 2`: 1 or 2 rounds → 1.0, 3 rounds → 0.5, 
 - Score = matched keys / expected keys. Keys are reported as `matched`, `missing`, or `mismatched`.
 - `values_equal`: two numbers compare as floats; everything else compares as stripped, case-folded strings (`"3"` matches `3`, `"tahoe-949"` matches `"TAHOE-949"`). An empty expected string matches any value, as long as the key is present.
 
-### IntentRouterCase
+### LeadRoutingCase
 
-The three dimensions reuse `CaseScore` fields; the output labels them `status`, `intentions`, `routes`.
+Scores the lead agent's first decision for a request, not the specialists' work. During the run every specialist is replaced by a `RoutingStub` (the case sets `agent.specialists.get_or_create`), whose `run_as_subagent` records the `SubagentTask` and returns a short `done` result, so the lead finishes its turn without calling real backends.
+
+The three dimensions reuse `CaseScore` fields; the output labels them `decision`, `economy`, `routes`.
 
 | Dimension | Field in `CaseScore` | Rule |
 |-----------|----------------------|------|
-| Status | `tool_score` | 1.0 if the normalized status equals `expected_status` (lower-cased), else 0.0 |
-| Intentions | `round_score` | `score_sequence` over upper-cased labels |
-| Routes | `answer_score` | `score_sequence` over route names |
+| Decision | `tool_score` | 1.0 if the classified decision is one of the `expected_decision` values, else 0.0 |
+| Economy | `round_score` | 1.0 if the number of delegations is at most `max_delegations`, else 0.0 |
+| Routes | `answer_score` | `score_sequence(expected_routes, delegated agent names in call order)` |
 
-`extract_routing_outcome(state)`:
+`extract_lead_outcome(state)` classifies the current turn's messages:
 
-| Graph state | `status` | `intentions` | `routes` |
-|-------------|----------|--------------|----------|
-| empty | `pending` | `[]` | `[]` |
-| interrupt pending (clarification question) | `clarify` | from state | `[]` |
-| `status == "published"` | `published` | `user_intentions` | `[route_target]` |
-| `status == "rejected"` | `rejected` | `[]` | `[]` |
-| anything else | that status, or `pending` | from state | `[]` |
+| Turn | `decision` |
+|------|------------|
+| `write_plan` was called | `plan` |
+| one or more `delegate` calls, no plan | `delegate` |
+| no tools and the reply ends with `?` (or `？`) | `clarify` |
+| no tools otherwise | `answer` |
 
-A published intention routes to the agent resolved by `AgentCatalog.resolve_route_target` (`PLAN` → `plan`); a reply with several labels also routes to `plan`. So `expected_routes` holds at most one name in practice.
-
-`IntentRouterCase.run` leaves a clarifying question unanswered: the run stops there and scores as `clarify`, and it is not counted as a cancelled run. The model still emits a tentative label while asking; a `clarify` case with empty `expected_intentions` does not check it, while a case that lists labels does.
+`routes` lists the `agent` argument of every `delegate` call in order (including rejected ones, such as a second call in the same AI message).
 
 ## Case files
 
@@ -170,24 +169,22 @@ Every case needs `name`, `query`, and a non-empty `models` (its own or the file 
 
 When `answer` is set, tell the model in `query` to reply with a single JSON object of that shape; otherwise the parse step fails and the answer scores 0.
 
-### IntentRouterCase example
+### LeadRoutingCase example
 
 ```jsonc
 {
   "models": ["MiniMax-M3"],
-  "router": [
+  "lead": [
     {
       "name": "composite_gmv_definition_then_query",
       "query": "Look up the GMV metric definition in team docs, then query yesterday's GMV from the warehouse.",
-      "expected_status": "published",          // required: published | rejected | clarify | ...
-      "expected_intentions": ["PLAN"],         // ordered labels; case-insensitive
-      "expected_routes": ["plan"]              // [] = no route expected
+      "expected_decision": "plan",                  // required: answer | clarify | delegate | plan
+      "expected_routes": ["knowledge", "warehouse"] // specialists in delegation order; [] = none
     },
     {
-      "name": "clarify_small_talk",
+      "name": "answer_small_talk",
       "query": "hello",
-      "expected_status": "clarify",
-      "expected_intentions": [],
+      "expected_decision": "answer",
       "expected_routes": []
     }
   ]
@@ -197,11 +194,12 @@ When `answer` is set, tell the model in `query` to reply with a single JSON obje
 | Field | Required | Default | Meaning |
 |-------|----------|---------|---------|
 | `name`, `query`, `models` | as above | | |
-| `expected_status` | yes | | Normalized routing status |
-| `expected_intentions` | no | `[]` | Intention labels in detection order |
-| `expected_routes` | no | `[]` | Route target agent names |
+| `expected_decision` | yes | | `answer`, `clarify`, `delegate` or `plan`, or a list of accepted values (for example `["answer", "clarify"]` for a greeting); any other value raises `ValueError` |
+| `expected_routes` | no | `[]` | Specialist names the lead delegates to, in order |
+| `max_delegations` | no | `len(expected_routes) + 1` | Delegations allowed before the economy score drops to 0 |
+| `stub_results` | no | `{}` | Per specialist, `{"status", "summary"}` its `RoutingStub` returns instead of the default `done` result (for example a `failed` warehouse run) |
 
-The intention labels and route targets come from the intent agent's configuration; see [`agent/README.md`](../agent/README.md).
+Specialist names are the registered agents that are not front agents (`warehouse`, `knowledge`, `diagnostic`, `data_analysis`, `swe`; not `lead` or `databot`); see [`agent/README.md`](../agent/README.md). Data questions route to `warehouse`.
 
 `.jsonc` comments above are for explanation only. Case files must be plain JSON.
 
@@ -211,7 +209,7 @@ The intention labels and route targets come from the intent agent's configuratio
 |-----------|-----------|--------------------|
 | `databot` (default) | `ToolCallCase` | `databot` |
 | `knowledge` | `ToolCallCase` | `knowledge` `general` `tahoe` |
-| `intent` | `IntentRouterCase` | `intent` |
+| `lead` | `LeadRoutingCase` | `routing` |
 
 Current groups:
 
@@ -219,8 +217,8 @@ Current groups:
 |-------|--------|-------|----------|
 | `databot` | `catalog` | 1 | DataHub `search` lookup |
 | `general` | `default` | 2 | No-tool answers (`arithmetic`, `greeting`; `total_rounds: 0`) |
-| `intent` | `router` | 10 | Routing to each label (multi-specialist requests → `PLAN`) and a clarifying question for small talk |
 | `knowledge` | `jira` | 1 | `fetch_related_jira_tickets` with a JSON answer |
+| `routing` | `lead` | 15 | One delegation to each specialist (data questions to `warehouse`), plans for multi-specialist requests, direct answers, clarifying questions for ambiguous requests, and a specialist infrastructure error that the lead reports instead of debugging |
 | `tahoe` | `planning` | 1 | `planning` tool before replying |
 
 `knowledge_case` is accepted as an alias for the `knowledge` group (`GROUP_ALIASES`).
@@ -235,7 +233,7 @@ uv run python -m evals
 
 # pick an agent; groups default per agent
 uv run python -m evals --agent knowledge
-uv run python -m evals -a intent
+uv run python -m evals -a lead
 
 # choose groups explicitly
 uv run python -m evals -a knowledge -g knowledge general
@@ -255,7 +253,7 @@ Without `uv`, use the project interpreter: `.venv/bin/python -m evals ...`.
 
 | Flag | Meaning |
 |------|---------|
-| `-a` / `--agent` | `databot` \| `knowledge` \| `intent` (default `databot`) |
+| `-a` / `--agent` | `databot` \| `knowledge` \| `lead` (default `databot`) |
 | `-g` / `--groups` | One or more group keys (`cases/<group>.json`); default depends on the agent |
 | `--cases-dir` | Directory of case files (default `evals/cases`) |
 | `--fail-under` | Exit `1` when the suite average is below this value |
@@ -273,7 +271,7 @@ Without `uv`, use the project interpreter: `.venv/bin/python -m evals ...`.
 Average score: 0.667 (1 case(s), 1 model run(s))
 ```
 
-A cancelled run prints `[CANCELLED]` and counts as 0. Intent lines show `status=`, `intentions=`, `routes=` instead.
+A cancelled run prints `[CANCELLED]` and counts as 0. Lead lines show `decision=`, `economy=`, `routes=` instead, plus the delegation count.
 
 ### Exit codes and CI
 
@@ -286,7 +284,7 @@ A cancelled run prints `[CANCELLED]` and counts as 0. Intent lines show `status=
 Other exceptions (for example an LLM or backend error during a turn) propagate and end the process with a traceback. In CI, run one agent per job and treat both `1` and `2` as failures:
 
 ```bash
-uv run python -m evals --agent intent --fail-under 0.9
+uv run python -m evals --agent lead --fail-under 0.9
 uv run python -m evals --agent knowledge --fail-under 0.7
 ```
 
@@ -306,5 +304,6 @@ uv run python -m evals --agent knowledge --fail-under 0.7
 - **Answer comparison is string-based.** Nested objects and lists are compared through `str()`, so key order and quoting matter. `true` and `1` compare equal (booleans are numbers). Prefer flat string or number fields.
 - **The JSON search is greedy.** If the reply has prose with braces before the JSON, the first-to-last-brace candidate may not parse; ask for a bare JSON object.
 - **One agent per model is reused across cases** within a run, with a fresh session id per case. State kept outside the session (for example a profile store) can leak between cases.
-- **Intent runs never hand off,** so they do not test the target agent. Test the target agent with its own `--agent` run.
+- **Lead runs stub every specialist,** so they test only the lead's choice, not the specialists' work or what the lead writes from real results. Test a specialist with its own `--agent` run.
+- **`clarify` is detected from punctuation.** A reply without tools that ends with a question mark counts as `clarify`; an answer that happens to end with a question scores as `clarify` too.
 - **Unknown model names fail the whole run** with exit code 2 when that model's agent is built, after earlier cases have already run.

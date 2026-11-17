@@ -9,6 +9,7 @@ import { useDatabotActions } from "./useDatabotActions";
 import { databotDisplayCardPool } from "./databotCardPool";
 import { hasExecutionResult } from "./executionResultUtils";
 import type { DatabotAgentState, DatabotStage } from "./types";
+import { DATABOT_AGENT_ID, databotStateOf } from "./databotAgent";
 
 // ---------------------------------------------------------------------------
 // DatabotArtifactPanel
@@ -31,9 +32,8 @@ function stageToTab(stage: DatabotStage | undefined): Tab {
 }
 
 export function DatabotArtifactPanel() {
-  const { agent, isReady } = useAgent({ agentId: "databot" });
-  const rawState = isReady ? (agent as unknown as { state: unknown }).state : undefined;
-  const ds = (rawState as DatabotAgentState | undefined) ?? undefined;
+  const { agent, isReady } = useAgent({ agentId: DATABOT_AGENT_ID });
+  const ds = isReady ? databotStateOf(agent.state) : undefined;
   const [manualTab, setManualTab] = useState<Tab | null>(null);
   const activeTab = manualTab ?? stageToTab(ds?.stage);
 
@@ -66,7 +66,7 @@ export function DatabotArtifactPanel() {
     <aside className="artifact-panel" data-testid="artifact-panel">
       <header className="artifact-header">
         <div className="artifact-title">
-          <h2>Working state</h2>
+          <h2>Databot working state</h2>
           <span className={`stage-pill stage-${stageLabel}`} data-testid="stage-pill">
             {stageLabel.replaceAll("_", " ")}
           </span>
