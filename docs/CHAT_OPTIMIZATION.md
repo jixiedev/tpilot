@@ -2038,3 +2038,250 @@ Checked live: `airflow_tahoe` and `airflow_legacy` each load 41 read-only
 tools; `get_health` reports healthy and `get_dags` returns DAGs on both.
 `mcp.json` has no `datahub` server, so `[accepted_mcp] datahub` entries load
 nothing (agents fall back to the native DataHub tools).
+
+## Metric catalog before semantic search (2026-11-18)
+
+### Why (design discussion)
+
+`fetch_related_models` finds dbt models by vector search over the Qdrant index.
+It covers every indexed hive model and also answers column, dimension and
+entity questions. Ranking follows embedding similarity, though, so a metric
+question ("GMV last month") can surface a table that mentions GMV but computes
+a different variant, or rank the right model below a look-alike.
+
+The repo now has a curated metric catalog (`tools/data/lib/`): 75 metric roots
+(`final_root.csv`), 455 members, the precise variants of each root such as
+with/without LTD or distinct vs. row count (`root_member.csv`), and a mapping
+from 39 dbt models' metrics to `(root_id, member_id)` with a `related_ratio`
+(`root_member_assign.json`). The model files are copied into
+`tools/data/lib/models/<db>/` from data-governance.
+
+The user's position: the catalog lookup should perform better but has lower
+coverage, so use it first and fall back to semantic search when it cannot
+determine the metric. The options weighed were:
+
+- **Replace `fetch_related_models` outright.** Rejected: the catalog covers 39
+  models against the full index, has nothing for column or entity questions,
+  and `commit_cards`, the human card gate, the frontend and tests are built
+  around the staged card shape.
+- **Catalog first, semantic search as fallback (chosen).** Both tools stage
+  the same `TableCard` shape into `staging_cards`, so everything after
+  staging (`commit_cards`, the gate, warehouse's candidate list) is unchanged.
+
+Two hints the user asked to put in the prompts:
+
+1. The LLM resolves the most relevant `root_id` and `member_id` from the CSV
+   files itself, by grep-like search, rather than the tool guessing them.
+2. `related_ratio` is a preference, not the decision. The LLM weighs every
+   candidate model on description, grain, dimensions, time column and the
+   matched metric definition, and may pick a lower-ratio model that fits better.
+
+### What changed
+
+- `tools/data/metrics.py`: typed loaders (`Root`, `Member`,
+  `MetricAssignment`, `Model`), cached on first use, and two tools.
+  - `search_metric_catalog(pattern, scope, root_id, limit)` is the "grep" over
+    the CSVs: a case-insensitive regex (literal fallback) over ids, Chinese
+    names, definitions and aliases. `scope="roots"` returns roots with `not_a`
+    (look-alikes to rule out); `scope="members"` with `root_id` lists that
+    root's members, the default first. The tool description lists all root ids.
+    A dedicated tool instead of `bash`/`grep` because databot's fetch scope
+    and warehouse have no shell, and they should not get one for this.
+  - `find_models_metrics(root_id, member_id, limit)` stages one card per model
+    assigned to the pair, with `related_ratio` and the matched metric(s)
+    (definition, agg, confidence, evidence). The compact result shows each
+    candidate's description, usage, time column, dimensions and metrics so the
+    LLM can compare them. An unknown pair, the `unassigned` root or an empty
+    result returns a message pointing to `search_metric_catalog` or
+    `fetch_related_models`; `alternative_tool` registers the fallback too.
+- `rag/dbt/ingest.py`: `build_model_payload` extracted from the Qdrant ingest,
+  so catalog cards and indexed cards are built by the same code.
+- Prompts: databot's fetch-stage instruction, next-step and budget prompts, and
+  warehouse's workflow step 1 describe the catalog-first order, the fallback
+  conditions and the `related_ratio` hint.
+- Tool scopes: databot (default, fetch, rag) and warehouse (default) get both
+  tools. Tool names are added to the narration filters in `graph/messages.py`
+  and `databotChatUtils.ts`.
+
+### Guardrails
+
+- Fallback to `fetch_related_models` when no root or member fits, nothing is
+  staged, or the question is about columns or entities.
+- `unassigned` assignments in the JSON are never served.
+- Both tool schemas use plain strings and ints (no `Literal`/`Union`), like
+  `fetch_related_models`, for strict OpenAI-compatible providers.
+
+### Verified
+
+`tests/test_metric_catalog.py` (12 tests): catalog files agree with each other,
+every assigned model has its yml, lookups are sorted and do not mutate the
+index, regex and Chinese search, card shape, staging merge and fallback
+messages. Full suite: 624 passed. Not yet checked in a live chat run.
+
+## Model selection eval: semantic search vs. metric catalog (2026-11-18)
+
+### Why (design discussion)
+
+After adding the metric catalog in front of `fetch_related_models`, the user
+wanted to measure the difference: a dedicated agent that only selects the
+model (no SQL, no query) for a question, run with each retrieval method.
+
+**Could warehouse do it?** Asked directly; the answer was no, for three reasons:
+
+- Its job and prompt end in SQL: discovery, `trino_desc_table`,
+  `request_sql_approval` (a human interrupt), `run_sql`. A "just pick the model"
+  instruction fights the workflow, and the review gate would pause eval runs.
+- It has both retrieval tools at once, so a run cannot isolate one method;
+  every arm needs its own tool set and its own workflow prompt.
+- Its result is free text plus SQL artifacts; the eval needs a structured choice
+  to score, and the staged candidates to tell a retrieval miss from a choice miss.
+
+Building it as a warehouse mode would mean a mode flag across its prompt, tools
+and gate. A small agent on `BaseReactAgent` is less code and keeps warehouse
+unchanged.
+
+### What changed
+
+- `model_selection` agent (`agent/specialists/model_selection`,
+  `config/agents/model_selection.toml`, `ModelSelectionAgentConfig`). `front =
+  true`, so the lead never delegates to it. `run_context.retrieval` picks the
+  arm: `rag` (`fetch_related_models`), `catalog` (`search_metric_catalog` +
+  `find_models_metrics`) or `hybrid` (catalog first, search as fallback). The
+  agent keeps only that arm's tools and the prompt renders only its
+  `workflow_<arm>` section; the choosing rules (grain, dimensions, metric
+  definition; ratio/score are preferences) and the JSON output are shared.
+  Profile refinement is off so eval runs write no user profiles.
+- `evals/selection_case.py` and `python -m evals -a model_selection [--arms ...]
+  [--out file.json]`: each case runs per arm and per LLM (one agent per
+  pair), scored on selection (chosen model in `expected_models`), recall (an
+  expected model was staged at all) and economy (tool calls vs. budget). The
+  report adds a case x arm matrix and a per-arm table with mean tool calls,
+  candidates and seconds.
+- Seed cases `evals/cases/model_selection.json`: six metric questions, one
+  entity question and one metric outside the catalog (`ads.country_spend`).
+  Gold models are a first pass from the catalog and model descriptions and
+  need the user's review.
+
+### Found on the way
+
+25 of the 39 catalog models (everything under `wish/` and `wishpost/`) are not
+in the Qdrant collection `aug_dbt_models`; `core_data` models and other hive
+schemas are. Until the index is rebuilt, `rag` cannot find those gold models,
+which shows up as recall 0, not as a choice error.
+
+### Live smoke run (MiniMax-M3, 1 case)
+
+`dau_yesterday_without_bots`, all three arms:
+
+| Arm | Chosen | Selection | Recall | Tool calls | Seconds |
+|-----|--------|-----------|--------|------------|---------|
+| rag | `fct_dau_w_bots` (look-alike that keeps bots) | 0 | 1 | 2 | 59.5 |
+| catalog | `fct_dau` | 1 | 1 | 5 | 32.8 |
+| hybrid | `fct_dau` | 1 | 1 | 3 | 16.4 |
+
+Vector search staged the right model but ranked the bot-inclusive table first
+and the LLM took it; the catalog's member definitions steered to `fct_dau`.
+One case only: the full 8-case run is still to do.
+
+### Full run (2026-11-18, MiniMax-M3, 8 cases x 3 arms)
+
+The 39 catalog models were ingested into a new Qdrant collection,
+`metric_catalog_models` (5,234 points; job `rag-jobs/metric_catalog_models.json`),
+and `rag` was pointed at it with `--rag-collection`, so all three arms search
+the same 39 models. Results: `evals/results/model_selection_2026-11-18.json`.
+
+| Arm | Selection | Recall | Mean tool calls | Mean candidates | Mean seconds |
+|-----|-----------|--------|-----------------|-----------------|--------------|
+| rag | 0.75 | 0.88 | 3.6 | 9.4 | 77.9 |
+| catalog | 0.88 | 0.88 | 4.0 | 3.1 | 17.4 |
+| hybrid | 0.88 | 0.88 | 4.0 | 5.8 | 26.9 |
+
+- The only choice difference is the DAU case: `rag` again picked
+  `fct_dau_w_bots`, ranked above `fct_dau` by search; both catalog arms
+  picked `fct_dau`. On the other six covered cases all arms chose an accepted model.
+- The catalog is about 4x faster and stages a third of the candidates. `rag`
+  needed 8 searches for the refund case.
+- `facebook_ad_spend_by_country` scores 0 everywhere by construction:
+  `country_spend` is not in the 39-model corpus. It exposed a real problem
+  though: catalog and hybrid ran out of tool budget (9-10 calls) and ended
+  without the JSON answer instead of returning `"model": null`.
+- Seven covered cases is too few to call 0.88 vs 0.75 significant; more cases
+  (especially look-alike tables) and more LLMs are needed.
+
+### Follow-up: warehouse uses the metric catalog only (2026-11-18)
+
+User direction after the eval: warehouse finds models with
+`search_metric_catalog` + `find_models_metrics` and no longer has
+`fetch_related_models` (RAG). Databot keeps catalog-first with the RAG fallback.
+
+- `config/agents/warehouse.toml`: `fetch_related_models` removed from `[tools]`;
+  workflow step 1 is the catalog flow. When the catalog has no fitting root or
+  member, or stages no model, warehouse stops and says no catalog model covers
+  the task (listing what it checked) instead of browsing catalogs or guessing.
+  This also gives it an explicit exit for the "nothing fits" case where the
+  eval agents ran out of budget without answering.
+- Consequence: warehouse can now only answer questions whose metric maps to
+  one of the 39 catalog models (`tools/data/lib/models`); column or entity
+  questions and metrics outside the catalog get a "not covered" answer.
+
+## Fewer `read_offloaded_file` round trips (2026-11-18)
+
+### Why (design discussion)
+
+`read_offloaded_file` was called often. Layer-1 offload runs on every
+compression pass regardless of context fill, and the threshold was 2,000
+tokens (1.5% of the 128k window). The offload store showed most offloaded
+results sat at 2–4k tokens: `trino_run_query`, `search_metric_catalog`,
+`fetch_related_models`, `trino_desc_table`, `bash`. The 10-line / 2,000-char
+preview was too short to work from, so the agent read the file back. Because
+`read_offloaded_file` results are never offloaded, the full text landed in
+context anyway, plus an extra LLM round trip and the preview tokens. The
+largest file group was `prior_turn_tools_archive` (57 files): follow-ups that
+needed an earlier turn's query output had to read the archive.
+
+### What changed
+
+- `tool_result_offload_threshold` 2000 → 8000 (`base.toml`, `CompressionConfig`).
+  Results that are actually large (`get_dags`, `datahub_list_datasets`, big
+  `trino_explain`) are still offloaded.
+- `preview_lines` 10 → 30; the preview character cap (`_PREVIEW_MAX_CHARS`)
+  2,000 → 6,000, otherwise more lines would still be cut at 2,000 chars.
+- `register_tool(offload=False)` marks a tool whose result stays in context at
+  any size (`tools.registry.never_offload_tool_names()`, merged with
+  `[compression] never_offload_tools` in layer 1). Applied to
+  `trino_desc_table`, `hive_desc_table`, `search_metric_catalog`,
+  `fetch_related_models`, `read_offloaded_file`.
+- `warehouse.toml` and `databot.toml`: `[compression] prior_turns_qa_only = false`,
+  so earlier turns' tool results stay available for follow-ups. Layer 3
+  summarization still bounds the context when fill passes `fill_trigger`.
+
+### Open
+
+- A fill-aware layer 1 (skip offloading while fill is low) would remove most
+  remaining round trips; not done.
+
+
+
+### 69-case evaluation (2026-11-18)
+
+The 8-case result was too thin to act on, so the evaluation was redone with 69
+cases (41 metric, 14 look-alike traps, 7 entity, 7 out-of-corpus) on the same
+39-model corpus for every arm. Motivation, method, results and threats to
+validity are in [`evals/MODEL_SELECTION_EVAL.md`](../evals/MODEL_SELECTION_EVAL.md).
+Changes made on the way: `staging_cards` merge reducer (parallel retrieval calls
+crashed LangGraph), crash-tolerant runner with `.partial.jsonl` output, JSON
+answer forced at tool-budget end, `<think>`-aware answer parsing, abstain cases
+(`expected_models: []`), and `python -m evals.selection_report [--rescore]`.
+
+Outcome (all arms, 69 cases): `catalog` 69/69, `hybrid` 69/69, `rag` 67/69
+(two choice misses: `fct_dau_w_bots` for "DAU excluding bots", and `null` for
+merchant ticket response time). 2–0 is not significant, so the decision does
+not rest on accuracy but on cost: the catalog shows the LLM 2.1 candidates
+against 9.6, stays within the 4-call budget on 60 of 69 cases against 49, and
+needs no embedding calls. That supports catalog-first databot and catalog-only
+warehouse. `hybrid` fell back to `fetch_related_models` in 33 of 69 runs
+without changing a single answer, so in production the fallback should stay a
+last resort (no fitting root, or nothing staged), not a second opinion.
+Out-of-corpus questions cost every arm about 8 tool calls before the `null`
+answer: a cap on catalog retries is a candidate change for warehouse. Reviewing
+every miss also found two wrong gold labels, both of which had penalised `rag`.

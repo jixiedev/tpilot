@@ -1,0 +1,309 @@
+version: 2
+
+models:
+  - name: master_warehouse_shipping
+    description: >
+      Master warehouse shipping options and pricing for products across
+      warehouses and destinations. Grain is one row per
+      `(merchant_id, warehouse_id, product_id, variation_id,
+      dest_country, shipping_type)` shipping option within a `dt`
+      partition. Built daily by Airflow DAG
+      `TahoeMasterWarehouseShipping` (07:00 UTC) from MongoDB
+      `warehouseshippingv2` / `merchantwarehousev2` / `commerceproduct` /
+      `commercevariation`, with incremental updates from
+      `sweeper_pt.warehouse_service_changes`. The wrapper adds a
+      surrogate primary key `shipping_option_key` on the six-field
+      composite so MetricFlow can address a single primary entity.
+      `time` is derived from the first 8 hex chars of `product_id`
+      (MongoDB ObjectId creation epoch). `correct_shipping_type` is
+      the derived Wish Express / Standard classifier based on
+      `shipping_speed` and country-specific speed requirements. Join
+      `merchant_id` / `warehouse_id` / `product_id` to commerce
+      dimensions for fulfillment and pricing analysis.
+    config:
+      meta:
+        owner: data-governance
+        hive_table: wish.master_warehouse_shipping
+        dag_id: TahoeMasterWarehouseShipping
+        incremental_source: sweeper_pt.warehouse_service_changes
+    semantic_model:
+      enabled: true
+      name: master_warehouse_shipping
+      config:
+        meta:
+          usage: >
+            One row per shipping option per partition. Use `dt` for
+            partition pruning and `product_id_created_day` for the
+            business time axis. `time` is the Mongo ObjectId
+            creation epoch; `dt` is the daily ETL snapshot. The
+            `shipping_type` enum and the `correct_shipping_type`
+            derived enum are both exposed (raw + `_name`).
+    agg_time_dimension: product_id_created_day
+
+    columns:
+      - name: shipping_option_key
+        description: >
+          Surrogate primary key. `concat_ws('||', merchant_id,
+          warehouse_id, product_id, variation_id, dest_country,
+          shipping_type)`. Used by MetricFlow to address a single
+          primary entity in this otherwise six-column-keyed table.
+        data_tests:
+          - not_null
+          - unique
+        entity:
+          type: primary
+          name: warehouse_shipping_option
+          description: One (merchant, warehouse, product, variation, country, shipping_type) shipping option.
+
+      - name: time
+        description: >
+          Unix epoch seconds derived from `product_id` (first 8 hex
+          chars converted to decimal). Represents the Mongo ObjectId
+          creation time of the underlying product, not the ETL
+          write time.
+        is_partition: false
+
+      - name: product_id_created_at
+        description: >
+          Timestamp version of `time` (UTC). Kept for display; not a
+          MetricFlow time dimension (project spine is day).
+
+      - name: product_id_created_day
+        description: >
+          Calendar day (UTC) of the product's Mongo ObjectId
+          creation. Default metric time dimension.
+        granularity: day
+        dimension:
+          type: time
+          label: Product id created day
+
+      - name: merchant_id
+        description: >
+          CommerceMerchant ObjectId (varchar) from MongoDB. Foreign
+          key to merchant dimensions.
+        entity:
+          type: foreign
+          name: merchant
+          description: CommerceMerchant owning the product / shipping option.
+
+      - name: warehouse_id
+        description: >
+          MerchantWarehouse ObjectId (varchar) from MongoDB. Foreign
+          key to warehouse dimensions.
+        entity:
+          type: foreign
+          name: warehouse
+          description: MerchantWarehouse that fulfills the shipping option.
+
+      - name: product_id
+        description: >
+          CommerceProduct ObjectId (varchar) from MongoDB. Foreign
+          key to product dimensions.
+        entity:
+          type: foreign
+          name: product
+          description: CommerceProduct the shipping option applies to.
+
+      - name: variation_id
+        description: >
+          CommerceVariation ObjectId (varchar) from MongoDB; NULL
+          for product-level shipping options. Foreign key to
+          variation dimensions.
+        entity:
+          type: foreign
+          name: variation
+          description: CommerceVariation the shipping option applies to (NULL for product-level).
+
+      - name: dest_country
+        description: >
+          Destination country code (ISO 3166-1 alpha-2) for the
+          shipping option.
+        dimension:
+          type: categorical
+          label: Destination country
+
+      - name: shipping_type
+        description: >
+          Original shipping method type code. Closed domain from
+          `WarehouseShipping.Type`:
+          1=REGULAR, 2=WISH_EXPRESS, 3=WAIT_AND_SAVE,
+          100=FBW_V1, 101=FBW_V1_WLC, 200=FBW_V2,
+          201=FBW_V2_REGULAR, 202=FBW_V2_EXPRESS,
+          203=FBW_V2_CALCULATED, 300=WISH_EXPRESS_2_DAY,
+          301=WISH_EXPRESS_7_DAY, 500=WISH_BLUE,
+          601..646=MERCHANT_TTD_X_DAY.
+        dimension:
+          type: categorical
+          label: Shipping type code
+
+      - name: shipping_type_name
+        description: Human-readable label for the shipping type enum (REGULAR, WISH_EXPRESS, FBW_V2, MERCHANT_TTD_5_DAY, …).
+        dimension:
+          type: categorical
+          label: Shipping type
+
+      - name: price
+        description: >
+          Shipping price in USD (from merchant currency
+          `get_displayable_usd_price`, or raw price when no
+          merchant currency is configured).
+      - name: localized_price
+        description: >
+          Shipping price in the merchant's local currency.
+      - name: localized_currency_code
+        description: ISO 4217 currency code for `localized_price`.
+        dimension:
+          type: categorical
+          label: Localized currency
+
+      - name: enabled
+        description: >
+          Whether the shipping option is enabled
+          (`'true'` / `'false'`), from the warehouse service
+          changes log.
+        dimension:
+          type: categorical
+          label: Enabled
+
+      - name: shipping_speed
+        description: >
+          Override shipping speed in days (varchar), from the
+          warehouse service changes log. Used together with
+          country-specific speed requirements to compute
+          `correct_shipping_type`.
+        dimension:
+          type: categorical
+          label: Shipping speed override
+
+      - name: correct_shipping_type
+        description: >
+          Derived shipping type classification
+          (`shipping_speed` + country-specific speed requirement):
+          1 = STANDARD, 2 = WISH_EXPRESS, or the original
+          `shipping_type` when `shipping_speed IS NULL`.
+        dimension:
+          type: categorical
+          label: Correct shipping type code
+
+      - name: correct_shipping_type_name
+        description: Human-readable label for `correct_shipping_type` (STANDARD, WISH_EXPRESS, or original shipping_type_name).
+        dimension:
+          type: categorical
+          label: Correct shipping type
+
+      - name: dt
+        description: >
+          Hive partition date in YYYY-MM-DD (UTC). Drives partition
+          pruning. Updated daily at 07:00 UTC by the
+          `TahoeMasterWarehouseShipping` DAG.
+        dimension:
+          type: categorical
+          label: Partition date
+        is_partition: true
+
+    metrics:
+      - name: warehouse_shipping_rows
+        type: simple
+        label: Warehouse shipping rows
+        description: >
+          Row count at the
+          (merchant_id, warehouse_id, product_id, variation_id,
+          dest_country, shipping_type) grain.
+        agg: count
+        expr: 1
+        fill_nulls_with: 0
+
+      - name: warehouse_shipping_enabled_rows
+        type: simple
+        label: Enabled warehouse shipping rows
+        description: >
+          Count of enabled shipping options
+          (`enabled = 'true'`).
+        agg: count
+        expr: 1
+        fill_nulls_with: 0
+        filter: "{{ Dimension('master_warehouse_shipping__enabled') }} = 'true'"
+
+      - name: warehouse_shipping_distinct_products
+        type: simple
+        label: Distinct products in warehouse shipping
+        description: >
+          Distinct `product_id` values represented in the warehouse
+          shipping snapshot.
+        agg: count_distinct
+        expr: product_id
+        fill_nulls_with: 0
+
+      - name: warehouse_shipping_distinct_merchants
+        type: simple
+        label: Distinct merchants in warehouse shipping
+        description: >
+          Distinct `merchant_id` values represented in the warehouse
+          shipping snapshot.
+        agg: count_distinct
+        expr: merchant_id
+        fill_nulls_with: 0
+
+      - name: warehouse_shipping_distinct_warehouses
+        type: simple
+        label: Distinct warehouses in warehouse shipping
+        description: >
+          Distinct `warehouse_id` values represented in the warehouse
+          shipping snapshot.
+        agg: count_distinct
+        expr: warehouse_id
+        fill_nulls_with: 0
+
+      - name: warehouse_shipping_distinct_countries
+        type: simple
+        label: Distinct destination countries
+        description: >
+          Distinct `dest_country` values represented in the
+          warehouse shipping snapshot.
+        agg: count_distinct
+        expr: dest_country
+        fill_nulls_with: 0
+
+      - name: warehouse_shipping_avg_price
+        type: simple
+        label: Average shipping price USD (warehouse shipping)
+        description: >
+          Average USD `price` across enabled warehouse shipping
+          options (`enabled = 'true'` and `price > 0`).
+        agg: average
+        expr: price
+        fill_nulls_with: 0
+        filter: "{{ Dimension('master_warehouse_shipping__enabled') }} = 'true'"
+
+      - name: warehouse_shipping_max_price
+        type: simple
+        label: Max shipping price USD (warehouse shipping)
+        description: >
+          Max USD `price` across enabled warehouse shipping options.
+        agg: max
+        expr: price
+        fill_nulls_with: 0
+        filter: "{{ Dimension('master_warehouse_shipping__enabled') }} = 'true'"
+
+      - name: warehouse_shipping_min_price
+        type: simple
+        label: Min shipping price USD (warehouse shipping)
+        description: >
+          Min USD `price` across enabled warehouse shipping options
+          with non-null price.
+        agg: min
+        expr: price
+        fill_nulls_with: 0
+        filter: "{{ Dimension('master_warehouse_shipping__enabled') }} = 'true'"
+
+      - name: warehouse_shipping_wish_express_rows
+        type: simple
+        label: Wish Express rows (warehouse shipping)
+        description: >
+          Count of enabled shipping options whose derived
+          `correct_shipping_type = 2` (Wish Express) per the
+          speed-requirement rule.
+        agg: count
+        expr: 1
+        fill_nulls_with: 0
+        filter: "{{ Dimension('master_warehouse_shipping__correct_shipping_type') }} = '2' AND {{ Dimension('master_warehouse_shipping__enabled') }} = 'true'"

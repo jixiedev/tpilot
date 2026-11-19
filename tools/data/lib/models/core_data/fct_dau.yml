@@ -1,0 +1,313 @@
+version: 2
+
+models:
+  - name: fct_dau
+    description: >
+      Daily active user engagement fact at user × calendar-day grain. One row per
+      registered user with activity on partition dt, aggregated from
+      sweeper_pt.requests with bots, temporary users, and suspicious traffic
+      filtered upstream. Captures last-seen client, country, locale, and
+      same-day impression, click, wishlist, add-to-cart, cart-impression, and
+      search-impression counts. Primary input for experiment DAU and funnel
+      metrics. Source: core_data.fct_dau (DailyCorePipelines / MRFDailyCore).
+    config:
+      meta:
+        owner: org_data-science_cde
+        hive_table: core_data.fct_dau
+        dag: DailyCorePipelines
+    semantic_model:
+      enabled: true
+      name: fct_dau
+      config:
+        meta:
+          owner: org_data-science_cde
+          usage: >
+            Always filter metric_time / dt first for partition pruning. Each row
+            is one user on one day; count_distinct(user_id) over a date range
+            counts user-days, not unique users across days. Join other user-day
+            facts on user_id AND dt. Buyer / GMV / transaction metrics are not
+            on this table — use dau_attribution or fct_transaction_variations.
+    agg_time_dimension: dt
+
+    columns:
+      - name: user_day_id
+        description: Surrogate primary key, user_id|dt.
+        data_tests:
+          - not_null
+        entity:
+          type: primary
+          name: user_day
+          description: One daily active user row for partition dt.
+
+      - name: user_id
+        description: Wish user identifier. Grain key with dt.
+        entity:
+          type: foreign
+          name: user
+          description: User join key to dau_attribution, fct_transaction_variations, and other user-day facts.
+
+      - name: dt
+        description: >
+          Hive partition date (YYYY-MM-DD string cast to date). Primary metric
+          time for DAU and engagement counts. Always filter first.
+        granularity: day
+        dimension:
+          type: time
+          label: Activity day
+          is_partition: true
+
+      - name: dau_activity_date
+        description: >
+          Calendar day of DAU activity from MAX(dt) in requests (cast from
+          dau_date string). Usually aligns with partition dt.
+        granularity: day
+        dimension:
+          type: time
+          label: DAU activity date
+
+      - name: client
+        description: >
+          Client platform string from most recent session (web, iosapp,
+          androidapp, mobileweb, wishapp, etc.).
+        dimension:
+          type: categorical
+          label: Client code
+
+      - name: client_name
+        description: Human-readable client / platform label.
+        dimension:
+          type: categorical
+          label: Client
+
+      - name: country_code
+        description: ISO 3166-1 alpha-2 country code from most recent session.
+        dimension:
+          type: categorical
+          label: Country code
+
+      - name: locale
+        description: User locale from most recent session.
+        dimension:
+          type: categorical
+          label: Locale
+
+      - name: has_click
+        description: 1 when num_clicks > 0 on the row; 0 otherwise.
+        dimension:
+          type: categorical
+          label: Has click flag
+
+      - name: has_impression
+        description: 1 when num_impressions > 0 on the row; 0 otherwise.
+        dimension:
+          type: categorical
+          label: Has impression flag
+
+      - name: has_wishlist
+        description: 1 when num_wishlists > 0 on the row; 0 otherwise.
+        dimension:
+          type: categorical
+          label: Has wishlist flag
+
+      - name: has_a2c
+        description: 1 when num_a2c_actions > 0 on the row; 0 otherwise.
+        dimension:
+          type: categorical
+          label: Has add-to-cart flag
+
+      - name: has_cart_impression
+        description: 1 when num_cart_impressions > 0 on the row; 0 otherwise.
+        dimension:
+          type: categorical
+          label: Has cart impression flag
+
+      - name: has_cart_visit_and_a2c
+        description: >
+          1 when the user both visited the cart page (cart impressions) and
+          added to cart on the row; 0 otherwise.
+        dimension:
+          type: categorical
+          label: Has cart visit and A2C flag
+
+      - name: time
+        description: >
+          Unix epoch seconds (UTC) of the user's last activity on dt. Kept for
+          joins; not a MetricFlow time dimension.
+
+      - name: last_activity_ts
+        description: >
+          Timestamp converted from time (last activity on dt). Not a MetricFlow
+          time dimension (spine is day).
+
+      - name: dau_date
+        description: Source dau_date string YYYY-MM-DD from requests aggregation.
+
+      - name: ds
+        description: Legacy date string; always NULL upstream.
+
+      - name: num_impressions
+        description: >
+          Same-day product impression count (sum of contest_impressions cardinality).
+
+      - name: num_clicks
+        description: Same-day click event count (_tid IN (5, 807)).
+
+      - name: num_wishlists
+        description: Same-day wishlist action count (_tid = 1002).
+
+      - name: num_a2c_actions
+        description: Same-day add-to-cart action count (_tid = 1267).
+
+      - name: num_cart_impressions
+        description: Same-day cart impression count (_tid IN (89, 30371, 33918)).
+
+      - name: num_search_impressions
+        description: >
+          Same-day search impression count (_tid IN (234, 235), contest_impressions
+          cardinality).
+
+    metrics:
+      - name: dau
+        type: simple
+        label: DAU
+        description: >
+          Distinct users at user-day grain. Each row is one user on one activity
+          day; summing across days yields user-days, not unique users over a
+          range.
+        agg: count_distinct
+        expr: user_id
+
+      - name: click_user
+        type: simple
+        label: Click users
+        description: Distinct users with at least one click on dt.
+        agg: count_distinct
+        expr: user_id
+        filter: "{{ Dimension('user_day__has_click') }} = 1"
+
+      - name: imp_user
+        type: simple
+        label: Impression users
+        description: Distinct users with at least one server-side impression on dt.
+        agg: count_distinct
+        expr: user_id
+        filter: "{{ Dimension('user_day__has_impression') }} = 1"
+
+      - name: wishlist_user
+        type: simple
+        label: Wishlist users
+        description: Distinct users who added to wishlist on dt.
+        agg: count_distinct
+        expr: user_id
+        filter: "{{ Dimension('user_day__has_wishlist') }} = 1"
+
+      - name: a2c_user
+        type: simple
+        label: Add-to-cart users
+        description: Distinct users who added to cart on dt.
+        agg: count_distinct
+        expr: user_id
+        filter: "{{ Dimension('user_day__has_a2c') }} = 1"
+
+      - name: cart_visits_user
+        type: simple
+        label: Cart visit users
+        description: Distinct users with at least one cart page impression on dt.
+        agg: count_distinct
+        expr: user_id
+        filter: "{{ Dimension('user_day__has_cart_impression') }} = 1"
+
+      - name: cart_visits_and_a2c_user
+        type: simple
+        label: Cart visit and A2C users
+        description: >
+          Distinct users who both visited the cart page and added to cart on dt.
+        agg: count_distinct
+        expr: user_id
+        filter: "{{ Dimension('user_day__has_cart_visit_and_a2c') }} = 1"
+
+      - name: num_of_clicks
+        type: simple
+        label: Clicks
+        description: >
+          Sum of same-day click events per user. Deprecating request-table alias;
+          prefer fct_visitor_events for visitor-level click analysis.
+        agg: sum
+        expr: num_clicks
+        fill_nulls_with: 0
+
+      - name: num_of_wishlists
+        type: simple
+        label: Wishlists
+        description: Sum of same-day wishlist actions per user.
+        agg: sum
+        expr: num_wishlists
+        fill_nulls_with: 0
+
+      - name: num_of_a2c
+        type: simple
+        label: Add-to-cart actions
+        description: Sum of same-day add-to-cart actions per user.
+        agg: sum
+        expr: num_a2c_actions
+        fill_nulls_with: 0
+
+      - name: num_impressions
+        type: simple
+        label: Impressions
+        description: Sum of same-day product impression counts per user.
+        agg: sum
+        expr: num_impressions
+        fill_nulls_with: 0
+
+      - name: num_search_impressions
+        type: simple
+        label: Search impressions
+        description: Sum of same-day search impression counts per user.
+        agg: sum
+        expr: num_search_impressions
+        fill_nulls_with: 0
+
+      - name: num_cart_impressions
+        type: simple
+        label: Cart impressions
+        description: Sum of same-day cart impression counts per user.
+        agg: sum
+        expr: num_cart_impressions
+        fill_nulls_with: 0
+
+      - name: fct_dau_rows
+        type: simple
+        label: DAU rows
+        description: Row count at user_id × dt grain.
+        agg: count
+        expr: 1
+        fill_nulls_with: 0
+
+      - name: click_rate
+        type: ratio
+        label: Click rate
+        description: Click users / DAU (Datapack & WBR).
+        numerator: click_user
+        denominator: dau
+
+      - name: a2c_rate
+        type: ratio
+        label: A2C rate
+        description: Add-to-cart users / click users (Datapack & WBR).
+        numerator: a2c_user
+        denominator: click_user
+
+      - name: click_per_dau
+        type: ratio
+        label: Clicks per DAU
+        description: Total clicks / DAU (events per daily active user).
+        numerator: num_of_clicks
+        denominator: dau
+
+      - name: event_a2c_rate
+        type: ratio
+        label: Event A2C rate
+        description: Total add-to-cart actions / total clicks.
+        numerator: num_of_a2c
+        denominator: num_of_clicks

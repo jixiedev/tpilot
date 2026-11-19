@@ -35,11 +35,11 @@ class CompressionConfig:
 
     enabled: bool = True
     context_window: int = 128_000
-    tool_result_offload_threshold: int = 2_000
+    tool_result_offload_threshold: int = 8_000
     tool_input_offload_threshold: int = 500
     fill_trigger: float = 0.85
     recent_messages_keep: float = 0.10
-    preview_lines: int = 10
+    preview_lines: int = 30
     # Delete offload files older than this when a store is created; 0 disables.
     offload_max_age_days: float = 30.0
     offload_dir: Path = field(default_factory=lambda: get_local_paths().offload_dir)

@@ -1,0 +1,865 @@
+version: 2
+
+models:
+  - name: merchant_transaction_refund_items
+    description: >
+      Merchant-side refund line items. Grain is one row per refund item
+      (`id`, the MongoDB `MerchantTransactionRefundItem._id` string) - one
+      refund item belongs to one merchant transaction (`m_transaction_id`),
+      and one merchant transaction can carry many refund items, so aggregate
+      at `id` before joining to avoid fan-out.
+
+
+      The physical object is a partitioned Hive VIEW over the daily snapshot
+      `sweeper.merchant_transaction_refund_items_YYYYMMDD`, recreated by
+      Airflow DAG `incremental_mtrefund_tahoe` (the table doc calls it
+      `IncrementalMTRefund_Tahoe`). The DAG extracts the MongoDB
+      `MerchantTransaction.refund_items` sub-documents for the run-day
+      window, merges them into the previous master and keeps the newest
+      version of each `id`
+      (`ROW_NUMBER() OVER (PARTITION BY id ORDER BY dt DESC)`). The wrapper
+      materializes as a view in `semantic_dw`, so
+      `wish.merchant_transaction_refund_items` is never overwritten.
+
+
+      Time semantics: `dt` (varchar YYYY-MM-DD, cast to DATE here) is the
+      ETL **load / change day** of the row version, NOT the business day of
+      the refund. The upstream ETL is a MongoDB change-data-capture merge,
+      so a refund item that is edited upstream is re-emitted into a later
+      `dt` partition. `dt` is the default metric time dimension and drives
+      partition pruning; always filter it. `refund_date` is the business
+      refund day (the UTC calendar day of the refund creation) and is the
+      correct axis for refund-day reporting. `merchant_payment_date` is the
+      business day the merchant payout was deducted. The refund-leg status
+      change days (`payment_refund_status_date`,
+      `cash_refund_status_date`), the legacy non-ISO `refunded_date`
+      rendering and the `time` / `time_ts` ETL load-window marker are kept
+      as plain columns - the project time spine is day, and only `dt`,
+      `refund_date` and `merchant_payment_date` are registered as MetricFlow
+      time dimensions.
+
+
+      Amounts: every amount column in this table is in the **original
+      (merchant) currency**, not USD - `amount`, `refund_payment_amount`,
+      `refund_cash_amount`, `refund_credit_amount` are in the transaction
+      currency, and `merchant_amount` / `merchant_responsible_amount` are in
+      the merchant source currency (the ETL writes the *localized* merchant
+      cost basis, not the USD one). There is no USD-normalized amount
+      column on this table. Read the amount metrics per currency - use
+      `merchant_source_currency` / `merchant_currency_code` /
+      `authority_currency_code` to slice - or within a single merchant. The
+      `localized_*` columns are the buyer's local-currency counterparts and
+      are deliberately not exposed as metrics because they are not
+      aggregatable across currencies.
+
+
+      Enums: `source`, `type`, `amount_type`, `refund_payment_method` and
+      `merchant_payment_status` keep their raw code and gain a
+      human-readable `*_name` column. `payment_refund_status` and
+      `cash_refund_status` already carry the readable text produced by the
+      ETL (`Pending` / `Confirmed` / `Not Paid` / `Denied`).
+
+
+      Known gaps carried from the source: `net_tax`, `sales_tax` and the
+      three `*_in_merchant_currency` tax columns are deprecated and are not
+      populated by the current ETL (always NULL for rows it writes), so
+      they are exposed for lineage but carry no metric. `reason_id` has no
+      name column on this table - use `reason_text` and join
+      `sweeper_dev.dim_refund_reasons` in a Tableau model if the code list
+      is needed. `source` has no documented code list in the table doc; the
+      `source_name` mapping follows the `RefundSource` enum in
+      `clroot/sweeper/model/commerce_transaction_refund.py`, and
+      `source_text` is the ETL's context-aware rendering, which can be more
+      specific than `source_name` (e.g. "Refunded by Wish Assistant").
+    config:
+      meta:
+        owner: data-governance
+        hive_table: wish.merchant_transaction_refund_items
+        dag: incremental_mtrefund_tahoe
+        grain: one row per merchant refund item (id)
+    semantic_model:
+      enabled: true
+      name: merchant_transaction_refund_items
+    primary_entity: merchant_refund_item
+    agg_time_dimension: dt
+
+    columns:
+      # ------------------------------------------------------------------
+      # entities
+      # ------------------------------------------------------------------
+      - name: id
+        description: >
+          Unique id of the merchant refund line item (Mongo ObjectId string).
+          The documented primary key of the table and the unique row key of
+          the semantic model. The ETL keeps the newest version of each `id`
+          across `dt` partitions, so an item is counted once per table
+          snapshot.
+        data_tests:
+          - not_null
+        entity:
+          type: primary
+          name: merchant_refund_item
+          description: One refund line item on wish.merchant_transaction_refund_items.
+
+      - name: m_transaction_id
+        description: >
+          Merchant transaction id (Mongo ObjectId string) of the parent
+          `MerchantTransaction` document. Join key into the merchant
+          transaction fact (`wish.master_merchant_transactions`). One
+          merchant transaction has many refund items.
+        entity:
+          type: foreign
+          name: merchant_transaction
+          description: Merchant transaction (order) id.
+
+      - name: merchant_payment_id
+        description: >
+          Associated `MerchantPayment.id` (Mongo ObjectId string) for the
+          merchant payout deduction caused by this refund. The ETL writes
+          `str(<id>)`, which yields the literal string 'None' when there is
+          no merchant payment; the wrapper converts that back to NULL.
+        entity:
+          type: foreign
+          name: merchant_payment
+          description: Merchant payment (payout) id.
+
+      # ------------------------------------------------------------------
+      # time
+      # ------------------------------------------------------------------
+      - name: dt
+        description: >
+          ETL load / change day partition (varchar YYYY-MM-DD), cast to DATE
+          here. It records when this version of the row was written by the
+          upstream change-data-capture merge, NOT the day the refund
+          happened - an edited refund item moves to a later `dt`. This is
+          the default metric time dimension and the preferred filter for
+          partition pruning. Use `refund_date` for refund-day reporting.
+        granularity: day
+        is_partition: true
+        dimension:
+          type: time
+          label: ETL load day
+
+      - name: refund_date
+        description: >
+          Business refund day: the UTC calendar day the refund item was
+          created, derived by the ETL from the refund creation instant
+          (`refund_time`, stored as a "%Y-%m-%d" date string) and cast to
+          DATE here. This is the correct time axis for refund reporting and
+          for daily refund trends.
+        granularity: day
+        dimension:
+          type: time
+          label: Refund day
+
+      - name: merchant_payment_date
+        description: >
+          Business day the merchant payout was deducted, from
+          `merchant_payment_time` (a "%Y-%m-%d" date string written by the
+          ETL). NULL while `merchant_payment_status` is UNDEDUCTED, so this
+          is a sparse time dimension - it is not the default metric time.
+        granularity: day
+        dimension:
+          type: time
+          label: Merchant payment day
+
+      - name: payment_refund_status_date
+        description: >
+          Day the original-payment refund leg status last changed (PSP
+          confirmation, e.g. Confirmed). NULL when the status was never
+          updated. Kept as a plain column - the project time spine is day
+          and only the refund and merchant-payment days are registered as
+          MetricFlow time dimensions.
+        label: Payment refund status day
+
+      - name: cash_refund_status_date
+        description: >
+          Day the Wish Cash refund leg status last changed. NULL when the
+          status was never updated. Kept as a plain column.
+        label: Cash refund status day
+
+      - name: refunded_date
+        description: >
+          Legacy non-ISO rendering of the refund day written by the ETL as
+          "%b %d, %Y" (e.g. "Jan 05, 2024"). It is the same day as
+          `refund_date`, just formatted for display, so it is kept for
+          lineage only and is not a time dimension.
+        label: Refunded date (legacy text)
+
+      - name: time
+        description: >
+          Unix epoch seconds of the ETL day-window START for the batch that
+          wrote this row (the DAG assigns `start_date_epoch` to every row
+          it loads). Pipeline metadata only - identical for every row of
+          one DAG run. It is not the refund creation time, despite the
+          table doc describing it that way. Do not report on it.
+        label: ETL load window start (unix s)
+
+      - name: time_ts
+        description: >
+          `time` converted to a UTC timestamp for joins and display. Not
+          registered as a MetricFlow time dimension.
+        label: ETL load window start timestamp
+
+      # ------------------------------------------------------------------
+      # enums: raw code + human-readable label
+      # ------------------------------------------------------------------
+      - name: source
+        description: >
+          Refund issuer channel code (`RefundSource`). 100=MERCHANT,
+          200=USER, 300=WISH, 400=PAYMENT_PROVIDER. See `source_name` for
+          the enum label and `source_text` for the ETL's context-aware
+          rendering.
+        dimension:
+          type: categorical
+          label: Refund source code
+
+      - name: source_name
+        description: >
+          Refund issuer channel label derived from `source` via the
+          `RefundSource.text_dict()` mapping: Merchant, Customer Cancelled,
+          Wish, Payment Provider. Use `source_text` when the finer-grained
+          issuer context is needed.
+        dimension:
+          type: categorical
+          label: Refund source
+
+      - name: source_text
+        description: >
+          Human-readable refund source rendered by the ETL, which is more
+          specific than `source_name` - it resolves the issuer further (e.g.
+          "Customer Cancelled" vs "Refunded by Wish Assistant", and the
+          refund reason for USER-sourced refunds).
+        dimension:
+          type: categorical
+          label: Refund source (detailed)
+
+      - name: type
+        description: >
+          Refund scope code (`RefundType`). 1=FULL, 2=PARTIAL_QUANTITY,
+          3=PARTIAL_AMOUNT. `type` = 3 additionally uses
+          `partial_amount_percentage` and `amount_type`. See `type_name`.
+        dimension:
+          type: categorical
+          label: Refund type code
+
+      - name: type_name
+        description: >
+          Human-readable refund scope derived from `type`: FULL,
+          PARTIAL_QUANTITY, PARTIAL_AMOUNT.
+        dimension:
+          type: categorical
+          label: Refund type
+
+      - name: amount_type
+        description: >
+          Partial-amount component code (`RefundAmountType`). 1=GENERAL,
+          2=SHIPPING, 3=PRICE. Only relevant when `type` is 3
+          (PARTIAL_AMOUNT). See `amount_type_name`.
+        dimension:
+          type: categorical
+          label: Refund amount type code
+
+      - name: amount_type_name
+        description: >
+          Human-readable partial-amount component derived from `amount_type`:
+          GENERAL, SHIPPING, PRICE.
+        dimension:
+          type: categorical
+          label: Refund amount type
+
+      - name: refund_payment_method
+        description: >
+          Destination of `refund_payment_amount` (`RefundMethod`).
+          1=ORIGINAL_PAYMENT, 2=COMMERCE_CASH (Wish Cash). See
+          `refund_payment_method_name`.
+        dimension:
+          type: categorical
+          label: Refund payment method code
+
+      - name: refund_payment_method_name
+        description: >
+          Human-readable refund destination derived from
+          `refund_payment_method`: ORIGINAL_PAYMENT, COMMERCE_CASH.
+        dimension:
+          type: categorical
+          label: Refund payment method
+
+      - name: refund_payment_method_text
+        description: >
+          App-facing rendering of `refund_payment_method` written by the
+          ETL ("Original Payment" / "Wish Cash"). Kept for lineage; use
+          `refund_payment_method_name` for the stable enum label.
+        label: Refund payment method text
+
+      - name: payment_refund_status
+        description: >
+          Status of the original-payment refund leg, stored as the readable
+          text produced by the ETL (`RefundStatus.id_to_text`): Pending
+          (REFUND_INITIATED), Confirmed (REFUND_ISSUED), Not Paid
+          (REFUND_VOIDED), Denied (REFUND_FAILED). The final statuses are
+          Confirmed and Not Paid. Note the table doc lists the raw enum
+          names (Initiated / Issued / Voided / Failed) instead of the
+          values actually written.
+        dimension:
+          type: categorical
+          label: Payment refund status
+
+      - name: cash_refund_status
+        description: >
+          Status of the Wish Cash refund leg, stored as the readable text
+          produced by the ETL: Pending / Confirmed / Not Paid / Denied. NULL
+          when the Wish Cash leg was never opened.
+        dimension:
+          type: categorical
+          label: Cash refund status
+
+      - name: merchant_payment_status
+        description: >
+          Merchant payout deduction state code (`PaymentStatus`).
+          0=UNDEDUCTED, 1=DEDUCTED_BEFORE_PAYMENT,
+          2=DEDUCTED_AFTER_PAYMENT. See `merchant_payment_status_name`.
+        dimension:
+          type: categorical
+          label: Merchant payment status code
+
+      - name: merchant_payment_status_name
+        description: >
+          Human-readable merchant payout deduction state derived from
+          `merchant_payment_status`: UNDEDUCTED, DEDUCTED_BEFORE_PAYMENT,
+          DEDUCTED_AFTER_PAYMENT.
+        dimension:
+          type: categorical
+          label: Merchant payment status
+
+      # ------------------------------------------------------------------
+      # reason
+      # ------------------------------------------------------------------
+      - name: reason_id
+        description: >
+          Refund reason category id (`RefundReasonCategory` code). There is
+          deliberately no name column on this table - the code list lives in
+          `sweeper_dev.dim_refund_reasons`, which may lag the Python enum,
+          so join that dimension in a Tableau model. `reason_text` already
+          carries the ETL's human-readable reason.
+        dimension:
+          type: categorical
+          label: Refund reason id
+
+      - name: reason_text
+        description: >
+          Human-readable refund reason rendered by the ETL for the merchant
+          view. Open set of labels.
+        dimension:
+          type: categorical
+          label: Refund reason
+
+      - name: reason_note
+        description: >
+          Free-text note attached to the refund reason. Unstructured and
+          high cardinality - filter on it only with care.
+        dimension:
+          type: categorical
+          label: Refund reason note
+
+      - name: buyer_fraud_reason_category
+        description: >
+          Category of buyer fraud reason reported by the merchant. Numeric
+          code with no name column on this table.
+        dimension:
+          type: categorical
+          label: Buyer fraud reason category
+
+      # ------------------------------------------------------------------
+      # dispute
+      # ------------------------------------------------------------------
+      - name: dispute_reason
+        description: >
+          Merchant dispute reason code (`merchant_dispute_reason` on the
+          Mongo document). Numeric code with no name column on this table -
+          the readable rendering is in `dispute_reason_text`.
+        dimension:
+          type: categorical
+          label: Dispute reason code
+
+      - name: dispute_reason_policy
+        description: >
+          Merchant policy reference for the dispute reason (e.g. "7.6" for
+          the sizing-related refund policy).
+        dimension:
+          type: categorical
+          label: Dispute reason policy
+
+      - name: dispute_reason_text
+        description: >
+          Human-readable description of the dispute reason rendered by the
+          ETL, including the merchant responsibility wording.
+        dimension:
+          type: categorical
+          label: Dispute reason
+
+      - name: is_dispute_approved
+        description: >
+          Boolean flag stored as the string 'true' / 'false'. 'true' means
+          a dispute was approved for this refund item
+          (`dispute_approved_id` is set). The ETL writes `str()` of a Python
+          bool, so the stored values are lowercase.
+        dimension:
+          type: categorical
+          label: Is dispute approved
+
+      - name: is_refund_item_disputable
+        description: >
+          Boolean flag stored as the string 'true' / 'false'. 'true' means
+          the refund item is still eligible to be disputed - the ETL clears
+          it for Unity/WishPost orders, for refunds that already have a
+          dispute payment, for MMRP returns and for dispute reasons that
+          cannot open a dispute.
+        dimension:
+          type: categorical
+          label: Is refund item disputable
+
+      - name: is_refund_to_cash
+        description: >
+          Boolean flag stored as the string 'true' / 'false'. 'true' means
+          the refund went to Wish Cash (either the method is COMMERCE_CASH
+          or the cash leg carries the whole refund).
+        dimension:
+          type: categorical
+          label: Is refund to cash
+
+      # ------------------------------------------------------------------
+      # currency / country context
+      # ------------------------------------------------------------------
+      - name: merchant_source_currency
+        description: >
+          ISO 4217 code of the currency the merchant transacts and settles
+          in. `merchant_amount`, `merchant_responsible_amount` and
+          `refund_tax` are denominated in this currency, so the amount
+          metrics must be read per currency.
+        dimension:
+          type: categorical
+          label: Merchant source currency
+
+      - name: merchant_currency_code
+        description: >
+          ISO 4217 code of the merchant currency. Distinct from
+          `merchant_source_currency` - use it to check the currency of the
+          tax- and dispute-related amounts.
+        dimension:
+          type: categorical
+          label: Merchant currency code
+
+      - name: authority_currency_code
+        description: >
+          ISO 4217 code of the currency of the tax authority the tax is
+          remitted in.
+        dimension:
+          type: categorical
+          label: Tax authority currency code
+
+      - name: authority_country_code
+        description: >
+          Country code of the tax authority the refund tax is remitted to.
+        dimension:
+          type: categorical
+          label: Tax authority country code
+
+      # ------------------------------------------------------------------
+      # refund amounts (original / merchant currency - not USD)
+      # ------------------------------------------------------------------
+      - name: amount
+        description: >
+          Total refund amount for this item in the original (merchant)
+          currency - the whole refund the buyer gets back, across the
+          payment, cash and credit legs. Not USD-normalized. Referenced by
+          the `refund_amount` metric.
+        label: Refund amount
+
+      - name: refund_payment_amount
+        description: >
+          Part of `amount` that refunds the buyer's external payment spend,
+          in the original currency. Referenced by the `refund_payment_amount`
+          metric.
+        label: Refund payment amount
+
+      - name: refund_cash_amount
+        description: >
+          Part of `amount` that refunds the buyer's Wish Cash balance, in
+          the original currency. Referenced by the `refund_cash_amount`
+          metric.
+        label: Refund cash amount
+
+      - name: refund_credit_amount
+        description: >
+          Part of `amount` that refunds the buyer's store credit, in the
+          original currency. Referenced by the `refund_credit_amount`
+          metric.
+        label: Refund credit amount
+
+      - name: localized_amount
+        description: >
+          Total refund amount in the buyer's local currency. Not
+          aggregatable across currencies, so it is deliberately not exposed
+          as a metric.
+        label: Localized refund amount
+
+      - name: localized_refund_payment_amount
+        description: >
+          Localized-currency counterpart of `refund_payment_amount`. Not
+          aggregatable across currencies, so it is deliberately not exposed
+          as a metric.
+        label: Localized refund payment amount
+
+      - name: localized_refund_cash_amount
+        description: >
+          Localized-currency counterpart of `refund_cash_amount`. Not
+          aggregatable across currencies, so it is deliberately not exposed
+          as a metric.
+        label: Localized refund cash amount
+
+      - name: localized_refund_credit_amount
+        description: >
+          Localized-currency counterpart of `refund_credit_amount`. Not
+          aggregatable across currencies, so it is deliberately not exposed
+          as a metric.
+        label: Localized refund credit amount
+
+      # ------------------------------------------------------------------
+      # merchant cost basis and responsibility (merchant source currency)
+      # ------------------------------------------------------------------
+      - name: merchant_amount
+        description: >
+          Merchant cost basis for the refunded line, in the merchant source
+          currency. The ETL writes the localized form:
+          `(localized_merchant_cost + localized_merchant_shipping_cost) *
+          quantity`, multiplied by `partial_amount_percentage` when `type`
+          is 3 (PARTIAL_AMOUNT). Referenced by the `merchant_amount` metric.
+        label: Merchant amount
+
+      - name: merchant_amount_with_wishpost
+        description: >
+          `merchant_amount` plus the WishPost shipping refund for Unity
+          orders, in the merchant source currency. Referenced by the
+          `merchant_amount_with_wishpost` metric.
+        label: Merchant amount with WishPost
+
+      - name: merchant_responsible_amount
+        description: >
+          Merchant share of the refund cost, in the merchant source
+          currency. The ETL computes it as
+          `merchant_amount * merchant_responsibility`, where
+          `merchant_amount` is the localized cost basis above. This is the
+          merchant eat-cost figure used by risk / finance reporting.
+          Referenced by the `merchant_responsible_amount` metric.
+        label: Merchant responsible amount
+
+      - name: merchant_responsible_amount_with_wishpost
+        description: >
+          `merchant_responsible_amount` plus the WishPost shipping refund for
+          Unity orders, in the merchant source currency. Referenced by the
+          `merchant_responsible_amount_with_wishpost` metric.
+        label: Merchant responsible amount with WishPost
+
+      - name: merchant_responsibility
+        description: >
+          Float in [0.0, 1.0]: the share of the refund cost borne by the
+          merchant. 1.0 = merchant fully responsible, 0.0 = Wish fully
+          responsible. Used as a multiplier in `merchant_responsible_amount`.
+          A continuous ratio, so it is exposed as a coefficient rather than
+          a groupable dimension. Referenced by the
+          `avg_merchant_responsibility` metric.
+        label: Merchant responsibility share
+
+      - name: merchant_tax_amount
+        description: >
+          Tax amount associated with this merchant refund, taken from the
+          Mongo document. Referenced by the `merchant_tax_amount` metric.
+        label: Merchant tax amount
+
+      # ------------------------------------------------------------------
+      # tax
+      # ------------------------------------------------------------------
+      - name: refund_tax
+        description: >
+          Tax remitted on this refund, converted into the merchant source
+          currency. It is 0 when the refund carries no remittable tax
+          items. Referenced by the `refund_tax` metric.
+        label: Refund tax
+
+      - name: net_tax
+        description: >
+          Deprecated net tax amount. Not populated by the current ETL (NULL
+          for every row it writes) - use `refund_tax` instead. Kept for
+          lineage only.
+        label: Net tax (deprecated)
+
+      - name: sales_tax
+        description: >
+          Deprecated sales tax amount. Not populated by the current ETL
+          (NULL for every row it writes) - use `refund_tax` instead. Kept for
+          lineage only.
+        label: Sales tax (deprecated)
+
+      - name: net_tax_in_merchant_currency
+        description: >
+          Deprecated net tax in the merchant currency. Not populated by the
+          current ETL (NULL for every row it writes). Kept for lineage only.
+        label: Net tax in merchant currency (deprecated)
+
+      - name: sales_tax_in_merchant_currency
+        description: >
+          Deprecated sales tax in the merchant currency. Not populated by
+          the current ETL (NULL for every row it writes). Kept for lineage
+          only.
+        label: Sales tax in merchant currency (deprecated)
+
+      - name: refund_tax_in_merchant_currency
+        description: >
+          Refund tax in the merchant currency. Not populated by the current
+          ETL (NULL for every row it writes) - `refund_tax` already carries
+          the merchant-currency amount. Kept for lineage only.
+        label: Refund tax in merchant currency (deprecated)
+
+      # ------------------------------------------------------------------
+      # quantity and partial-refund share
+      # ------------------------------------------------------------------
+      - name: quantity
+        description: >
+          Number of items covered by this refund line (relevant for FULL
+          and PARTIAL_QUANTITY refunds). Referenced by the `refund_quantity`
+          metric.
+        label: Refund quantity
+
+      - name: partial_amount_percentage
+        description: >
+          Multiplicative factor in [0.0, 1.0] applied when `type` is 3
+          (PARTIAL_AMOUNT) to the merchant amount calculation. A
+          continuous ratio, so it is exposed as a coefficient rather than a
+          groupable dimension.
+        label: Partial amount percentage
+
+      - name: partial_amount_percentage_formatted
+        description: >
+          `partial_amount_percentage` rendered as a percentage string by the
+          ETL (e.g. "50.0%"). Kept for lineage; use
+          `partial_amount_percentage` for computation.
+        label: Partial amount percentage (formatted)
+
+      # ------------------------------------------------------------------
+      # dispute / warning ids
+      # ------------------------------------------------------------------
+      - name: dispute_approved_id
+        description: >
+          Id of the approved dispute for this refund item, when one exists.
+          The ETL writes `str(<id>)`, which yields the literal string
+          'None' when there is no approved dispute; the wrapper converts
+          that back to NULL.
+        label: Approved dispute id
+
+      - name: dispute_payment_id
+        description: >
+          Payment id associated with the dispute for this refund item. The
+          ETL writes `str(<id>)`, which yields the literal string 'None'
+          when there is no dispute; the wrapper converts that back to NULL.
+        label: Dispute payment id
+
+      - name: eat_cost_warning_id
+        description: >
+          Warning id raised for this refund item because of a high refund
+          rate or a low product rating. NULL when no warning was raised.
+        label: Eat cost warning id
+
+    metrics:
+      - name: refund_amount
+        type: simple
+        label: Refund amount
+        description: >
+          Total amount refunded to the buyer for this refund item, in the
+          original (merchant) currency. Not USD-normalized - read it per
+          currency.
+        agg: sum
+        expr: amount
+        fill_nulls_with: 0
+
+      - name: refund_payment_amount
+        type: simple
+        label: Refund payment amount
+        description: >
+          Part of the refunded amount that goes back to the buyer's
+          external payment, in the original currency.
+        agg: sum
+        expr: refund_payment_amount
+        fill_nulls_with: 0
+
+      - name: refund_cash_amount
+        type: simple
+        label: Refund cash amount
+        description: >
+          Part of the refunded amount that goes back to the buyer's Wish
+          Cash balance, in the original currency.
+        agg: sum
+        expr: refund_cash_amount
+        fill_nulls_with: 0
+
+      - name: refund_credit_amount
+        type: simple
+        label: Refund credit amount
+        description: >
+          Part of the refunded amount that goes back to the buyer's store
+          credit, in the original currency.
+        agg: sum
+        expr: refund_credit_amount
+        fill_nulls_with: 0
+
+      - name: confirmed_refund_amount
+        type: simple
+        label: Confirmed refund amount
+        description: >
+          Refunded amount whose original-payment leg reached the final
+          Confirmed status (the ETL's rendering of REFUND_ISSUED), so the
+          money actually left the buyer's payment method. Excludes refunds
+          that are still Pending, Not Paid or Denied. In the original
+          currency.
+        agg: sum
+        expr: amount
+        fill_nulls_with: 0
+        filter: |
+          {{ Dimension('merchant_refund_item__payment_refund_status') }} = 'Confirmed'
+
+      - name: merchant_amount
+        type: simple
+        label: Merchant amount
+        description: >
+          Merchant cost basis of the refunded lines, in the merchant source
+          currency: `(localized_merchant_cost + localized_merchant_shipping_cost)
+          * quantity`, adjusted by `partial_amount_percentage` for
+          PARTIAL_AMOUNT refunds. This is the merchant cost, not the amount
+          refunded to the buyer.
+        agg: sum
+        expr: merchant_amount
+        fill_nulls_with: 0
+
+      - name: merchant_amount_with_wishpost
+        type: simple
+        label: Merchant amount with WishPost
+        description: >
+          `merchant_amount` plus the WishPost shipping refund that applies
+          to Unity orders, in the merchant source currency.
+        agg: sum
+        expr: merchant_amount_with_wishpost
+        fill_nulls_with: 0
+
+      - name: merchant_responsible_amount
+        type: simple
+        label: Merchant responsible amount
+        description: >
+          Merchant share of the refund cost, in the merchant source
+          currency: `merchant_amount * merchant_responsibility`. This is the
+          merchant eat-cost figure used by risk / finance reporting.
+        agg: sum
+        expr: merchant_responsible_amount
+        fill_nulls_with: 0
+
+      - name: merchant_responsible_amount_with_wishpost
+        type: simple
+        label: Merchant responsible amount with WishPost
+        description: >
+          `merchant_responsible_amount` plus the WishPost shipping refund
+          that applies to Unity orders, in the merchant source currency.
+        agg: sum
+        expr: merchant_responsible_amount_with_wishpost
+        fill_nulls_with: 0
+
+      - name: avg_merchant_responsibility
+        type: simple
+        label: Average merchant responsibility
+        description: >
+          Average share of the refund cost borne by the merchant over the
+          refund items in scope (1.0 = merchant fully responsible, 0.0 =
+          Wish fully responsible). Unweighted, so it differs from the
+          weighted ratio of `merchant_responsible_amount` to
+          `merchant_amount`.
+        agg: average
+        expr: merchant_responsibility
+
+      - name: merchant_tax_amount
+        type: simple
+        label: Merchant tax amount
+        description: >
+          Tax amount associated with the merchant refunds in scope.
+        agg: sum
+        expr: merchant_tax_amount
+        fill_nulls_with: 0
+
+      - name: refund_tax
+        type: simple
+        label: Refund tax
+        description: >
+          Tax remitted on the refunds in scope, in the merchant source
+          currency. Zero for refund items without remittable tax.
+        agg: sum
+        expr: refund_tax
+        fill_nulls_with: 0
+
+      - name: refund_quantity
+        type: simple
+        label: Refunded quantity
+        description: >
+          Total number of items covered by the refund lines in scope.
+          Relevant for FULL and PARTIAL_QUANTITY refunds; `type` = 3
+          (PARTIAL_AMOUNT) lines are amount-based.
+        agg: sum
+        expr: quantity
+        fill_nulls_with: 0
+
+      - name: refund_items
+        type: simple
+        label: Refund line items
+        description: >
+          Count of refund line items in scope. One row per
+          `MerchantTransactionRefundItem`.
+        agg: count
+        expr: 1
+
+      - name: refunded_transactions
+        type: simple
+        label: Refunded transactions
+        description: >
+          Distinct merchant transactions that have at least one refund item
+          in scope. A merchant transaction may carry several refund items.
+        agg: count_distinct
+        expr: m_transaction_id
+
+      - name: refunded_merchant_payments
+        type: simple
+        label: Refunded merchant payments
+        description: >
+          Distinct merchant payments (payouts) that were charged for a
+          refund item in scope. Refund items with no merchant payment are
+          excluded.
+        agg: count_distinct
+        expr: merchant_payment_id
+
+      - name: disputable_refund_items
+        type: simple
+        label: Disputable refund items
+        description: >
+          Refund line items that are still eligible to be disputed. The ETL
+          clears the flag for Unity/WishPost orders, refunds that already
+          have a dispute payment, MMRP returns and dispute reasons that
+          cannot open a dispute.
+        agg: count
+        expr: 1
+        filter: |
+          {{ Dimension('merchant_refund_item__is_refund_item_disputable') }} = 'true'
+
+      - name: dispute_approved_refund_items
+        type: simple
+        label: Dispute approved refund items
+        description: >
+          Refund line items with an approved dispute.
+        agg: count
+        expr: 1
+        filter: |
+          {{ Dimension('merchant_refund_item__is_dispute_approved') }} = 'true'

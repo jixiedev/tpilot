@@ -1,0 +1,542 @@
+version: 2
+
+models:
+  - name: add_to_cart_detail
+    description: >
+      Cleaned, attribution-enriched add-to-cart detail for Wish feed and
+      merchandising surfaces. One row per deduplicated add-to-cart log
+      event, carrying product / variation, logged-in user, guest visitor,
+      event amounts (price, shipping, cost, quantity) and page / module /
+      feed attribution. Source: `sweeper.add_to_cart_data`, cleaned by the
+      `dag_clean_add_to_cart_data_hh` Airflow DAG (hourly refresh, full
+      `INSERT OVERWRITE` per partition).
+
+      Partitioned by `dt` (varchar YYYY-MM-DD) and `hr` (bigint 0-23),
+      both in US/Pacific. `dt` is the default metric time dimension;
+      `hr` is a categorical partition-hour dimension because the project
+      time spine is day-grained only.
+
+      The upstream table enforces no key: the hourly DAG only removes
+      exact-source duplicates by grouping all source columns, and the
+      source-only columns are dropped by the ETL. The wrapper therefore
+      exposes the surrogate key `atc_detail_event_id`, built from every
+      event-identifying column that survives the ETL. It is null-free and
+      unique for all practical purposes, but two source rows that differ
+      only in a dropped column can still collapse onto the same
+      `atc_detail_event_id`; do not treat it as a stable event UUID.
+    config:
+      meta:
+        owner: jixie
+        hive_table: wish.add_to_cart_detail
+        dag_id: dag_clean_add_to_cart_data_hh
+        timezone: US/Pacific
+    semantic_model:
+      enabled: true
+      name: wish_add_to_cart_detail
+      config:
+        meta:
+          usage: >
+            Always filter `dt` (and `hr` for hourly scans) for partition
+            pruning. `dt` is the Pacific-time ETL partition and is the
+            default metric time; `event_day` is the UTC calendar day of
+            the source event and is available as an alternative day
+            dimension. Filter `likely_bot` / `is_deleted_user` for
+            analytics-quality metrics. `page_type` and `module_type` come
+            from `sweeper_dev.feed_tile_page_module_mapping` and are null
+            when no mapping row exists for the (page_id, module_id) pair;
+            `page_id` / `module_id` may also carry the literal string
+            'None' for legacy clients. Dimension joins (products,
+            merchants, collections) belong in a Tableau datasource model,
+            not in this Hive wrapper.
+    agg_time_dimension: dt
+
+    columns:
+      - name: atc_detail_event_id
+        description: >
+          Surrogate primary key. `concat_ws('||', ...)` over the
+          event-identifying columns retained by the ETL. Null-free and
+          unique for all practical purposes; two source rows differing
+          only in an ETL-dropped column can still collapse onto the same
+          key.
+        entity:
+          type: primary
+          name: add_to_cart_detail_event
+          description: One add-to-cart log event.
+
+      - name: dt
+        description: >
+          Hive partition date, cast from the varchar YYYY-MM-DD source
+          value. US/Pacific ETL partition day; the default metric time
+          dimension.
+        granularity: day
+        dimension:
+          type: time
+          label: Add to cart day
+        is_partition: true
+
+      - name: event_day
+        description: >
+          UTC calendar day of the source add-to-cart event. Alternative
+          day-granularity time dimension when the Pacific partition day
+          is not the desired reporting day.
+        granularity: day
+        dimension:
+          type: time
+          label: Add to cart event day
+        is_partition: false
+
+      - name: time
+        description: >
+          Unix epoch seconds of the source add-to-cart event (UTC),
+          carried through from `sweeper.add_to_cart_data.time` without
+          timezone conversion. Kept for joins and drill-down; it is not
+          registered as a MetricFlow time dimension.
+        is_partition: false
+
+      - name: event_ts
+        description: >
+          Timestamp converted from `time` (UTC). Not registered as a
+          MetricFlow time dimension — the project time spine is
+          day-grained only.
+        is_partition: false
+
+      - name: hr
+        description: >
+          Hive partition hour (0-23, US/Pacific) paired with `dt`. Filter
+          `dt` + `hr` for tighter scans.
+        dimension:
+          type: categorical
+          label: Partition hour
+        is_partition: false
+
+      - name: user_id
+        description: >
+          Logged-in user identifier. Sparse for guest sessions. Join key
+          to `wish.master_users` and lifecycle tables.
+        entity:
+          type: foreign
+          name: user
+          description: User who added the item to cart.
+        is_partition: false
+
+      - name: visitor_id
+        description: >
+          Guest visitor identifier extracted by the ETL from the
+          `unknown` JSON payload. Null for logged-in users.
+        entity:
+          type: foreign
+          name: visitor
+          description: Guest visitor who added the item to cart.
+        is_partition: false
+
+      - name: product_id
+        description: >
+          Product identifier for the item added to cart. Join key to the
+          product dimension models.
+        entity:
+          type: foreign
+          name: product
+          description: Product added to cart.
+        is_partition: false
+
+      - name: variation_id
+        description: >
+          Product variation identifier (variant-level selection such as
+          color / size). Pair with `product_id` to address a specific
+          SKU.
+        entity:
+          type: foreign
+          name: variation
+          description: Product variation added to cart.
+        is_partition: false
+
+      - name: collection_id
+        description: >
+          Collection identifier extracted by the ETL from
+          `page_fields` / `module_fields`. Null when neither payload
+          carries a collection.
+        entity:
+          type: foreign
+          name: collection
+          description: Collection the add-to-cart came from.
+        is_partition: false
+
+      - name: root_impression_id
+        description: >
+          Root impression identifier linking the add-to-cart event back
+          to the originating impression event.
+        entity:
+          type: foreign
+          name: impression
+          description: Originating impression event.
+        is_partition: false
+
+      - name: client
+        description: >
+          Raw client platform identifier. May carry the integer code
+          documented for this table (0=WEB, 1=IOS_APP, 2=IPAD_APP,
+          3=ANDROID_APP, 4=MOBILE_WEB, 5=WINDOWS_APP,
+          6=WINDOWS_PHONE_APP, 7=ANDROID_INSTANT_APP) or the equivalent
+          channel name. Use `client_name` for a normalized label.
+        dimension:
+          type: categorical
+          label: Client code
+        is_partition: false
+
+      - name: client_name
+        description: >
+          Normalized client channel label derived from `client`
+          (WEB / IOS_APP / IPAD_APP / ANDROID_APP / MOBILE_WEB /
+          WINDOWS_APP / WINDOWS_PHONE_APP / ANDROID_INSTANT_APP).
+          Unrecognized values are passed through unchanged.
+        dimension:
+          type: categorical
+          label: Client
+        is_partition: false
+
+      - name: page_id
+        description: >
+          Originating page numeric ID (1=Home, 2=Express, 3=Wishlist,
+          4=Blitz Buy, 5=Recently Viewed, 8=Clips, 10=Collection,
+          11=PDP, 12=Brands, 13=Merchant, 14=Cart, 19=WAD,
+          20=Micro Collection). Null or the literal 'None' for legacy
+          clients that did not log the new attribution system.
+        dimension:
+          type: categorical
+          label: Page id
+        is_partition: false
+
+      - name: page_type
+        description: >
+          Human-readable page type resolved by the ETL from
+          `page_id` via `sweeper_dev.feed_tile_page_module_mapping`.
+          Null when no mapping row exists.
+        dimension:
+          type: categorical
+          label: Page type
+        is_partition: false
+
+      - name: module_id
+        description: >
+          Module identifier within the originating page (1=Feed Tile,
+          2=Product Row, 3=Tabbed Module, 4=Collection Tile, 5=Mini Pdp,
+          6=Collection Tray, 7=Video Collection). The mapping is global
+          and consistent across all page types.
+        dimension:
+          type: categorical
+          label: Module id
+        is_partition: false
+
+      - name: module_type
+        description: >
+          Human-readable module type resolved by the ETL from
+          `module_id` via `sweeper_dev.feed_tile_page_module_mapping`.
+          Null when no mapping row exists.
+        dimension:
+          type: categorical
+          label: Module type
+        is_partition: false
+
+      - name: feed_type
+        description: >
+          Feed surface that produced the add-to-cart (latest, search,
+          related, tab, productDetailSelf1pStrip, collectionTile,
+          productDetailViewAllExpress, wishlist, express, blitz_buy,
+          merchant).
+        dimension:
+          type: categorical
+          label: Feed type
+        is_partition: false
+
+      - name: feed_identifier
+        description: >
+          Specific feed instance or campaign identifier.
+        dimension:
+          type: categorical
+          label: Feed identifier
+        is_partition: false
+
+      - name: tile_position
+        description: >
+          Position of the product tile in the feed (when applicable).
+        dimension:
+          type: categorical
+          label: Tile position
+        is_partition: false
+
+      - name: module
+        description: >
+          Legacy module identifier logged before the new attribution
+          system.
+        dimension:
+          type: categorical
+          label: Legacy module
+        is_partition: false
+
+      - name: likely_bot
+        description: >
+          Bot likelihood flag unpacked from the `extra` JSON payload
+          ("true" / "false" / null). Filter `likely_bot = 'false'` for
+          buyer-funnel analysis.
+        dimension:
+          type: categorical
+          label: Likely bot
+        is_partition: false
+
+      - name: is_deleted_user
+        description: >
+          User deletion flag unpacked from the `extra` JSON payload
+          ("true" / "false"). Filter out for user-attributed reporting.
+        dimension:
+          type: categorical
+          label: Deleted user
+        is_partition: false
+
+      - name: product_source
+        description: >
+          Product source context unpacked from the `extra` JSON payload
+          (search, feed, pdp, etc.).
+        dimension:
+          type: categorical
+          label: Product source
+        is_partition: false
+
+      - name: quantity
+        description: >
+          Number of items added by this event (not the cart total).
+        is_partition: false
+
+      - name: price
+        description: >
+          Product price per item in USD.
+        is_partition: false
+
+      - name: shipping
+        description: >
+          Shipping cost per item in USD.
+        is_partition: false
+
+      - name: shipping_cost
+        description: >
+          Additional merchant shipping cost component in USD.
+        is_partition: false
+
+      - name: merchant_price
+        description: >
+          Merchant-side product price in USD.
+        is_partition: false
+
+      - name: merchant_shipping
+        description: >
+          Merchant-side shipping cost in USD.
+        is_partition: false
+
+      - name: cost
+        description: >
+          Total product cost amount in USD.
+        is_partition: false
+
+      - name: extra
+        description: >
+          JSON payload written by the ETL carrying the `likely_bot`,
+          `is_deleted_user` and `product_source` attributes.
+        is_partition: false
+
+      - name: feed_filters
+        description: >
+          JSON string of active feed filters at log time.
+        is_partition: false
+
+      - name: page_fields
+        description: >
+          JSON string of page-specific context at log time.
+        is_partition: false
+
+      - name: module_fields
+        description: >
+          JSON string of module-specific context at log time.
+        is_partition: false
+
+    metrics:
+      - name: add_to_cart_events
+        type: simple
+        label: Add to cart events
+        description: >
+          Count of logged add-to-cart events at this grain
+          (wish.add_to_cart_detail). One row is one logged add-to-cart
+          action, not one cart line.
+        agg: count
+        expr: 1
+        fill_nulls_with: 0
+
+      - name: add_to_cart_users
+        type: simple
+        label: Add to cart users
+        description: >
+          Distinct logged-in user count. Sparse for guest sessions, which
+          are only visible through `add_to_cart_visitors`.
+        agg: count_distinct
+        expr: user_id
+
+      - name: add_to_cart_visitors
+        type: simple
+        label: Add to cart visitors
+        description: >
+          Distinct guest visitor count, extracted by the ETL from the
+          `unknown` payload.
+        agg: count_distinct
+        expr: visitor_id
+
+      - name: add_to_cart_products
+        type: simple
+        label: Add to cart products
+        description: >
+          Distinct product count among add-to-cart events.
+        agg: count_distinct
+        expr: product_id
+
+      - name: add_to_cart_variations
+        type: simple
+        label: Add to cart variations
+        description: >
+          Distinct product variation count among add-to-cart events.
+        agg: count_distinct
+        expr: variation_id
+
+      - name: add_to_cart_collections
+        type: simple
+        label: Add to cart collections
+        description: >
+          Distinct collection count among add-to-cart events.
+        agg: count_distinct
+        expr: collection_id
+
+      - name: add_to_cart_impressions
+        type: simple
+        label: Add to cart impressions
+        description: >
+          Distinct originating impression count among add-to-cart
+          events.
+        agg: count_distinct
+        expr: root_impression_id
+
+      - name: add_to_cart_quantity
+        type: simple
+        label: Add to cart quantity
+        description: >
+          Sum of quantity added across add-to-cart events. Quantity is the
+          per-event add amount, not the cart line total.
+        agg: sum
+        expr: quantity
+        fill_nulls_with: 0
+
+      - name: add_to_cart_price
+        type: simple
+        label: Add to cart price
+        description: >
+          Sum of product price (USD) across add-to-cart events.
+        agg: sum
+        expr: price
+        fill_nulls_with: 0
+
+      - name: add_to_cart_avg_price
+        type: simple
+        label: Add to cart average price
+        description: >
+          Average logged product price (USD) per add-to-cart event.
+        agg: average
+        expr: price
+
+      - name: add_to_cart_shipping
+        type: simple
+        label: Add to cart shipping
+        description: >
+          Sum of shipping cost (USD) across add-to-cart events.
+        agg: sum
+        expr: shipping
+        fill_nulls_with: 0
+
+      - name: add_to_cart_shipping_cost
+        type: simple
+        label: Add to cart shipping cost
+        description: >
+          Sum of the merchant shipping cost component (USD) across
+          add-to-cart events.
+        agg: sum
+        expr: shipping_cost
+        fill_nulls_with: 0
+
+      - name: add_to_cart_merchant_price
+        type: simple
+        label: Add to cart merchant price
+        description: >
+          Sum of merchant product price (USD) across add-to-cart events.
+        agg: sum
+        expr: merchant_price
+        fill_nulls_with: 0
+
+      - name: add_to_cart_merchant_shipping
+        type: simple
+        label: Add to cart merchant shipping
+        description: >
+          Sum of merchant shipping cost (USD) across add-to-cart events.
+        agg: sum
+        expr: merchant_shipping
+        fill_nulls_with: 0
+
+      - name: add_to_cart_cost
+        type: simple
+        label: Add to cart cost
+        description: >
+          Sum of product cost (USD) across add-to-cart events.
+        agg: sum
+        expr: cost
+        fill_nulls_with: 0
+
+      - name: add_to_cart_mapped_events
+        type: simple
+        label: Add to cart attributed events
+        description: >
+          Count of add-to-cart events that resolved to a mapped page and
+          module (both `page_type` and `module_type` non-null). Use
+          against `add_to_cart_events` to measure attribution
+          completeness.
+        agg: count
+        expr: 1
+        fill_nulls_with: 0
+        filter: >
+          {{ Dimension('add_to_cart_detail_event__page_type') }} IS NOT NULL
+          AND {{ Dimension('add_to_cart_detail_event__module_type') }} IS NOT NULL
+
+      - name: add_to_cart_non_bot_events
+        type: simple
+        label: Add to cart non-bot events
+        description: >
+          Count of add-to-cart events excluding likely bots
+          (`likely_bot = 'true'`) and deleted users
+          (`is_deleted_user = 'true'`). Standard quality-filtered
+          denominator for buyer-funnel analysis.
+        agg: count
+        expr: 1
+        fill_nulls_with: 0
+        filter: >
+          ({{ Dimension('add_to_cart_detail_event__likely_bot') }} IS NULL
+           OR {{ Dimension('add_to_cart_detail_event__likely_bot') }} = 'false')
+          AND ({{ Dimension('add_to_cart_detail_event__is_deleted_user') }} IS NULL
+           OR {{ Dimension('add_to_cart_detail_event__is_deleted_user') }} = 'false')
+
+      - name: add_to_cart_price_per_event
+        type: ratio
+        label: Add to cart price per event
+        description: >
+          Average logged product price (USD) per add-to-cart event.
+        numerator: add_to_cart_price
+        denominator: add_to_cart_events
+
+      - name: add_to_cart_quantity_per_event
+        type: ratio
+        label: Add to cart quantity per event
+        description: >
+          Average quantity added per add-to-cart event.
+        numerator: add_to_cart_quantity
+        denominator: add_to_cart_events

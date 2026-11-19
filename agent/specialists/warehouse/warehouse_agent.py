@@ -14,10 +14,11 @@ from __future__ import annotations
 
 import re
 from collections.abc import Mapping
-from typing import Any
+from typing import Annotated, Any
 
 from langgraph.graph.state import CompiledStateGraph
 
+from agent.specialists.databot.card_staging import staging_cards_reducer
 from agent.prompt import SystemPromptAssembler
 from agent.react import BaseReactAgent
 from agent.specialists.warehouse.tools import (
@@ -107,8 +108,8 @@ def _dedupe(names: Any) -> list[str]:
 class WarehouseState(ReactAgentState):
     """ReAct state plus what the review and the query left behind."""
 
-    #: Models staged by ``fetch_related_models`` (RAG hits), newest last.
-    staging_cards: list[dict[str, Any]]
+    #: Models staged by ``find_models_metrics`` (metric catalog), newest last.
+    staging_cards: Annotated[list[dict[str, Any]], staging_cards_reducer]
     #: Fingerprints of approved SQL (``tools.sql_fingerprint``).
     approved_sql: list[str]
     #: Latest review: ``{status, sql, explanation, tables, comments, edited}``.
@@ -172,7 +173,7 @@ class WarehouseAgent(BaseReactAgent):
 
         ``tables`` are the ones the SQL reads (or that the review lists), with
         the dbt model description when one was found. Every search hit lands
-        in ``staging_cards`` (about five per search), so listing those showed
+        in ``staging_cards`` (several per lookup), so listing those showed
         27 mostly unrelated models; the rest go in ``candidates`` by name only.
         """
         view: dict[str, Any] = {}

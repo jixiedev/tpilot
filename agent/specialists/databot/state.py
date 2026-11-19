@@ -15,11 +15,12 @@ Design (snapshot-first):
 
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
 from langchain_core.messages import AIMessage, BaseMessage, ToolMessage
 from typing_extensions import TypedDict
 
+from agent.specialists.databot.card_staging import staging_cards_reducer
 from graph.state import ReactAgentState, SessionAgentState
 
 PHASE_PREPARE_CARDS = "prepare_cards"
@@ -149,7 +150,7 @@ class DatabotReactState(ReactAgentState):
     """Inner ReAct loop state (tools + counters + pipeline fields tools may write)."""
 
     history_cards: list[dict[str, Any]]
-    staging_cards: list[dict[str, Any]]
+    staging_cards: Annotated[list[dict[str, Any]], staging_cards_reducer]
     committed_cards: list[dict[str, Any]]
     approved_cards: list[dict[str, Any]]
     metric_conflicts: list[dict[str, Any]]

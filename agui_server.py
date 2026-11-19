@@ -55,8 +55,13 @@ from agent.session import GRAPH_RECURSION_LIMIT
 from agent.lead.paused import live_subagent_view
 from agent.runtime import TahoeRuntimeHelper
 from ag_ui_langgraph import LangGraphAgent  # add_langgraph_fastapi_endpoint no longer used
+from agui_history import AguiHistoryRepair
 from config.local_config import ensure_local_dirs, get_local_paths
 from models.llm import get_default_model
+
+# Follow-up requests resend streamed tool-call arguments. Install before any
+# request reaches LangGraphAgent.prepare_stream.
+AguiHistoryRepair().install()
 
 logger = logging.getLogger("agui_server")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")

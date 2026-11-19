@@ -17,7 +17,8 @@ Related docs: [agent framework, lead and delegation](../../README.md) · [tools]
 
 | Tool | Source | Use |
 |------|--------|-----|
-| `fetch_related_models` | `[tools] default` | Candidate dbt models (RAG over Qdrant); hits are kept in `staging_cards` |
+| `search_metric_catalog` | `[tools] default` | Resolves a metric to a catalog `root_id` / `member_id` (`tools/data/lib`) |
+| `find_models_metrics` | `[tools] default` | Candidate dbt models the metric catalog maps to that pair; kept in `staging_cards`. Warehouse has no RAG search (`fetch_related_models`): no catalog fit means it reports that instead of guessing |
 | `trino_desc_table`, `trino_list_schemas`, `trino_list_tables` | `[tools] default` | Confirm table names and columns |
 | `trino_explain` | `[tools] default` | Check the SQL parses (plan only, never data) |
 | `datahub_get_table_docs(table, section, columns)` | `[tools] default` | A table's DataHub documentation: URN, owners, description head and section list, column names and types; `section` reads one section, `columns` adds matching column notes. No glossary terms or tags. |
@@ -75,7 +76,7 @@ Under the lead, warehouse runs nested inside `delegate`, so the interrupt pauses
 
 | Field | Meaning |
 |-------|---------|
-| `staging_cards` | Models found by `fetch_related_models` |
+| `staging_cards` | Models found by `find_models_metrics` |
 | `approved_sql` | Fingerprints of approved SQL |
 | `sql_review` | Latest review: `status` (`approved`, `revise`, `stopped`), `sql`, `explanation`, `tables`, `comments`, `edited` |
 | `execution` | Latest `run_sql` result: `sql`, `columns`, `rows`, `row_count`, `truncated`, or `sql` and `error` |

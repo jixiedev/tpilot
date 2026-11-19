@@ -51,7 +51,7 @@ def _store_for(path: str) -> OffloadStore | None:
     return max(matches, key=lambda store: len(store.root.resolve().parts))
 
 
-@register_tool
+@register_tool(offload=False)
 @tool
 def read_offloaded_file(path: str) -> str:
     """Read a previously offloaded tool result or archive from disk by path."""

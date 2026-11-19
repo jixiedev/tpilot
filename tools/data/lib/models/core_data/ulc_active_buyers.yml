@@ -1,0 +1,227 @@
+version: 2
+
+models:
+  - name: ulc_active_buyers
+    description: >
+      User Lifecycle (ULC) active-buyer snapshot: one row per user_id × dt for
+      buyers whose ulc_base_buyers purchase-activity interval covers the snapshot
+      calendar day. Records lifecycle stage (New / Retained / Resurrected),
+      loyalty (loyal_cycles, loyal_flag at threshold 2), and power buying
+      (power_days, power_flag at threshold 4) from a rolling 28-day purchase-day
+      window. Grain is (user_id, dt). Buyers missing from this table on a day may
+      still appear in fct_daily_buyer or transaction facts if not in
+      ulc_base_buyers for that snapshot — use LEFT JOIN when inactive or
+      unclassified buyers matter. dt aligns to Airflow ds (YYYY-MM-DD snapshot
+      day). Source: core_data.ulc_active_buyers (UlcActiveBuyerDaily /
+      UlcActiveBuyerOverwrite).
+    config:
+      meta:
+        owner: jpearcy
+        hive_table: core_data.ulc_active_buyers
+        dag: UlcActiveBuyerDaily
+        timezone: UTC
+    semantic_model:
+      enabled: true
+      name: ulc_active_buyers
+      config:
+        meta:
+          owner: jpearcy
+          usage: >
+            Always filter metric_time / dt first for partition pruning. Join
+            facts on user_id AND dt for daily grain. loyal_cycles encodes current
+            purchase interval length in 28-day cycle units; power_days is distinct
+            buyer days in a rolling 28-day window ending on dt (not days-since-X).
+            Buyers without a row on dt are not classified as ULC-active on that day.
+            Do not mix with ulc_active_users (login ULC; power_thresh 10 vs 4).
+    agg_time_dimension: dt
+
+    columns:
+      - name: buyer_day_id
+        description: Surrogate primary key, user_id|dt.
+        data_tests:
+          - not_null
+        entity:
+          type: primary
+          name: active_buyer_day
+          description: One active ULC buyer row for a snapshot calendar day.
+
+      - name: user_id
+        description: Wish buyer identifier. Grain key with dt.
+        entity:
+          type: foreign
+          name: user
+          description: >
+            Join key to fct_daily_buyer, fct_transaction_variations,
+            dau_attribution, and other user-day facts.
+
+      - name: dt
+        description: >
+          Hive partition and ULC snapshot calendar day (source string cast to
+          date). Buyer must satisfy ulc_base_buyers interval filter for ds.
+          Aligns to Airflow ds on write.
+        granularity: day
+        dimension:
+          type: time
+          label: ULC snapshot day
+          is_partition: true
+
+      - name: lifecycle
+        description: >
+          Buyer lifecycle stage at snapshot dt: New (first interval, <28 days
+          from start_dt), Retained (≥28 days in streak or <28 days since
+          previous_end_dt), or Resurrected (return after longer gap).
+        dimension:
+          type: categorical
+          label: Lifecycle stage
+
+      - name: loyal_flag
+        description: >
+          Binary loyalty flag: 1 when loyal_cycles >= 2 (loyal_thresh), else 0.
+        dimension:
+          type: categorical
+          label: Loyal flag code
+
+      - name: loyal_flag_name
+        description: Human-readable loyalty label (Loyal / Not loyal).
+        dimension:
+          type: categorical
+          label: Is loyal
+
+      - name: power_flag
+        description: >
+          Binary power-buyer flag: 1 when power_days >= 4 (power_thresh), else 0.
+          NULL power_days maps to 0.
+        dimension:
+          type: categorical
+          label: Power flag code
+
+      - name: power_flag_name
+        description: Human-readable power-buyer label (Power buyer / Not power buyer).
+        dimension:
+          type: categorical
+          label: Is power buyer
+
+      - name: loyal_cycles
+        description: >
+          Current purchase-activity interval length in 28-day cycle units
+          (DATE_DIFF(start_dt, end_dt) / 27, rounded). Non-negative integer.
+
+      - name: power_days
+        description: >
+          Distinct calendar days with buyer activity in rolling 28-day window
+          ending on dt (from ulc_power_buyer). NULL when no qualifying upstream
+          row; else 1–28.
+
+      - name: dt_str
+        description: Source partition string YYYY-MM-DD (varchar).
+
+    metrics:
+      - name: active_buyers
+        type: simple
+        label: Active buyers
+        description: >
+          Distinct buyers classified as ULC-active on dt. Each row is one
+          buyer-day; summing across days yields buyer-days, not unique buyers
+          over a range.
+        agg: count_distinct
+        expr: user_id
+
+      - name: buyer_day_rows
+        type: simple
+        label: Active buyer-day rows
+        description: Row count at user_id × dt grain.
+        agg: count
+        expr: 1
+        fill_nulls_with: 0
+
+      - name: lifecycle_new
+        type: simple
+        label: Lifecycle New buyers
+        description: >
+          Distinct active buyers with lifecycle = New on dt (first interval,
+          <28 days from start_dt).
+        agg: count_distinct
+        expr: user_id
+        filter: "{{ Dimension('active_buyer_day__lifecycle') }} = 'New'"
+
+      - name: lifecycle_retained
+        type: simple
+        label: Lifecycle Retained buyers
+        description: >
+          Distinct active buyers with lifecycle = Retained on dt.
+        agg: count_distinct
+        expr: user_id
+        filter: "{{ Dimension('active_buyer_day__lifecycle') }} = 'Retained'"
+
+      - name: lifecycle_resurrected
+        type: simple
+        label: Lifecycle Resurrected buyers
+        description: >
+          Distinct active buyers with lifecycle = Resurrected on dt.
+        agg: count_distinct
+        expr: user_id
+        filter: "{{ Dimension('active_buyer_day__lifecycle') }} = 'Resurrected'"
+
+      - name: loyal_flag
+        type: simple
+        label: Loyal buyers
+        description: >
+          Distinct active buyers with loyal_flag = 1 (loyal_cycles >= 2) on dt.
+        agg: count_distinct
+        expr: user_id
+        filter: "{{ Dimension('active_buyer_day__loyal_flag_name') }} = 'Loyal'"
+
+      - name: power_flag
+        type: simple
+        label: Power buyers
+        description: >
+          Distinct active buyers with power_flag = 1 (power_days >= 4) on dt.
+        agg: count_distinct
+        expr: user_id
+        filter: "{{ Dimension('active_buyer_day__power_flag_name') }} = 'Power buyer'"
+
+      - name: loyal_cycles_total
+        type: simple
+        label: Loyal cycles total
+        description: >
+          Sum of loyal_cycles across active buyer-days on dt.
+        agg: sum
+        expr: loyal_cycles
+        fill_nulls_with: 0
+
+      - name: power_days_total
+        type: simple
+        label: Power days total
+        description: >
+          Sum of power_days across active buyer-days on dt (NULL treated as 0).
+        agg: sum
+        expr: power_days
+        fill_nulls_with: 0
+
+      - name: loyal_buyer_days
+        type: simple
+        label: Loyal buyer-days
+        description: Buyer-day rows where loyal_flag = 1.
+        agg: sum_boolean
+        expr: loyal_flag
+
+      - name: power_buyer_days
+        type: simple
+        label: Power buyer-days
+        description: Buyer-day rows where power_flag = 1.
+        agg: sum_boolean
+        expr: power_flag
+
+      - name: loyal_rate
+        type: ratio
+        label: Loyal rate
+        description: Loyal buyers / active buyers on dt.
+        numerator: loyal_flag
+        denominator: active_buyers
+
+      - name: power_buyer_rate
+        type: ratio
+        label: Power buyer rate
+        description: Power buyers / active buyers on dt.
+        numerator: power_flag
+        denominator: active_buyers

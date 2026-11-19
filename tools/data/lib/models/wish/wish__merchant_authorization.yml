@@ -1,0 +1,181 @@
+version: 2
+
+models:
+  - name: wish__merchant_authorization
+    description: >
+      Merchant × ERP/partner OAuth authorization snapshot in the `wish` Hive
+      schema, exported daily from Treasure Data. Grain is one row per active
+      public Merchant App refresh-token grant (merchant_id ×
+      partner_user_id). Records which Wish merchants hold a non-revoked OAuth
+      authorization to a public partner/ERP app, together with the partner
+      owner identity and the authorization date derived from Mongo ObjectId
+      token-creation time (UTC). Written by the `DailyTDTahoeExport` DAG
+      (daily, lookback 1 day), which copies `sweeper.merchant_authorization`
+      into `wish.merchant_authorization`. The table is non-partitioned and is
+      a full drop-create-reload snapshot, so revoked grants disappear on the
+      next export instead of being retained as history. `auth_date` is the only
+      business-event time column; `time` is Treasure Data ingest metadata.
+      Join merchants on merchant_id (entity `merchant`) and stable partner
+      labels on partner_user_id (entity `erp_partner`) to
+      analytics.erp_client_id_mapping_dump. Do not confuse with signup-channel
+      attribution (analytics.merchant_signup_source_table) or with the sister
+      table merchant_external_api.merchant_authorization, which the cron
+      producer writes directly and which may differ in freshness and row count.
+    config:
+      meta:
+        hive_table: wish.merchant_authorization
+        td_source_table: sweeper.merchant_authorization
+        producer: export_merchant_auth_dates_to_td.py
+        airflow_dag: DailyTDTahoeExport
+        update_frequency: daily
+        partitioned: false
+        sister_table: merchant_external_api.merchant_authorization
+    semantic_model:
+      enabled: true
+      name: wish_merchant_authorization
+      config:
+        meta:
+          usage: >
+            Pre-aggregate array_agg(partner_name) by merchant_id before joining
+            large fact tables (Business Development Tableau pattern). Filter the
+            metric time on auth_dt for authorization-cohort analysis; auth_date
+            also supports lexicographic '>= YYYY-MM-DD' string filters.
+            partner_name is the live MerchantUser.name of the app owner at
+            export time and is not a closed enum — prefer partner_user_id for
+            stable partner labels and partner counts. This is a snapshot of
+            currently active authorizations, not a historical grant ledger:
+            revoked apps are absent after the next export. Join
+            dim_all_merchants and merchant quality scores in Tableau models
+            under semantic_layer/models/tableau/ — not here.
+    agg_time_dimension: auth_dt
+
+    columns:
+      - name: merchant_partner_auth_id
+        description: >
+          Surrogate primary key: merchant_id|partner_user_id. One row per active
+          merchant–partner OAuth authorization in the current snapshot. The
+          upstream model expects one refresh token per merchant–app pair, but
+          Hive does not enforce the natural key — verify uniqueness before
+          relying on a strict one-row-per-pair interpretation.
+        data_tests:
+          - not_null
+        entity:
+          type: primary
+          name: wish_merchant_partner_auth
+          description: >
+            One active public-app OAuth authorization for a merchant–partner pair.
+
+      - name: merchant_id
+        description: >
+          Wish merchant identifier for the store that authorized the partner app.
+          Foreign join key to wish.dim_all_merchants, wish.merchant_user and
+          supply.merchant_quality_score.
+        data_tests:
+          - not_null
+        entity:
+          type: foreign
+          name: merchant
+          description: Authorizing Wish merchant store.
+
+      - name: partner_user_id
+        description: >
+          ERP / partner owner user ObjectId (MerchantApp.owner). Foreign join key
+          to analytics.erp_client_id_mapping_dump.partner_id,
+          analytics.merchant_signup_source_table.erp_code and
+          wish.erp_daily_dump.partner_id.
+        data_tests:
+          - not_null
+        entity:
+          type: foreign
+          name: erp_partner
+          description: ERP/partner owner identity for the authorized public app.
+
+      - name: partner_name
+        description: >
+          Display name of the ERP/partner owner taken from MerchantUser.name at
+          export time. Free-form string, not a closed enum — spelling may differ
+          from erp_client_id_mapping_dump.partner_name or the PARTNER_NAME_MAP
+          application catalog (labels such as Deliverr appear outside it).
+        dimension:
+          type: categorical
+          label: Partner name
+
+      - name: auth_dt
+        description: >
+          Authorization calendar date (UTC) cast from the auth_date YYYY-MM-DD
+          string. OAuth refresh-token creation day from Mongo ObjectId
+          generation time; not merchant signup, not last ERP API activity and
+          not snapshot load time.
+        granularity: day
+        dimension:
+          type: time
+          label: Authorization date
+
+      - name: auth_date
+        description: >
+          Raw authorization date string YYYY-MM-DD as produced by the exporter.
+          Kept for string-range filters and for legacy Tableau SQL that
+          compares against 'YYYY-MM-DD' literals.
+
+      - name: ingest_time
+        description: >
+          Treasure Data / Hive row load timestamp (unix epoch seconds converted
+          to a timestamp). Ingest metadata only — it is not the OAuth
+          authorization event, so it is not registered as a MetricFlow time
+          dimension and never drives the metric time. Autofilled by the ingest
+          layer rather than set by the producer, so it is not asserted non-null
+          here.
+
+      - name: ingest_time_epoch
+        description: >
+          Raw Treasure Data ingest time as unix epoch seconds (bigint), kept for
+          pipeline freshness checks and joins against other load-time metadata.
+
+    metrics:
+      - name: authorizations
+        type: simple
+        label: Authorizations
+        description: >
+          Count of active merchant–partner OAuth authorization rows in the
+          snapshot (one row per merchant_id × partner_user_id).
+        agg: count
+        expr: 1
+
+      - name: merchants
+        type: simple
+        label: Authorized merchants
+        description: >
+          Distinct merchants with at least one active public-app OAuth
+          authorization in the selected auth_dt period.
+        agg: count_distinct
+        expr: merchant_id
+
+      - name: erp_partners
+        type: simple
+        label: Authorized ERP partners
+        description: >
+          Distinct ERP/partner owner identities (partner_user_id) with at least
+          one active merchant authorization in the selected period.
+        agg: count_distinct
+        expr: partner_user_id
+
+      - name: partner_names
+        type: simple
+        label: Distinct partner names
+        description: >
+          Distinct partner_name display labels in the snapshot. Spelling variants
+          of the same ERP can appear as separate values — prefer erp_partners on
+          partner_user_id for stable partner counts.
+        agg: count_distinct
+        expr: partner_name
+
+      - name: latest_ingest_time
+        type: simple
+        label: Latest ingest time
+        description: >
+          Most recent Treasure Data load timestamp among the authorizations in
+          the selected period. Use for pipeline freshness only — business
+          timing is auth_dt, and the export window is independent of when the
+          merchant actually authorized the app.
+        agg: max
+        expr: ingest_time

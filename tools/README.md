@@ -56,7 +56,13 @@ def trino_explain(sql: str) -> dict: ...
 @register_tool(key="family.planning")   # hypothetical: same model-facing name as tools.plan.planning
 @tool
 def planning(...): ...
+
+@register_tool(offload=False)     # result always stays in context, whatever its size
+@tool
+def trino_desc_table(...): ...
 ```
+
+`offload=False` is for results the agent needs verbatim (table schemas, catalog lookups). Context compression (`memory/compress.py`, layer 1) never moves them to a file, so the agent does not have to call `read_offloaded_file` to see them. Today: `trino_desc_table`, `hive_desc_table`, `search_metric_catalog`, `fetch_related_models`, `read_offloaded_file`. Per-agent exclusions still go in `[compression] never_offload_tools`.
 
 Registering a different object under an existing key raises `ValueError`; re-registering the same object is a no-op. Modules that build a `TOOLS` list (`tools/k8s.py`, `tools/external/datahub/tools.py`) call `register_tool(t)` in a loop instead of decorating.
 
@@ -209,7 +215,9 @@ tool raises
 | `web_search` | `tools/web/search.py` | Public web search (Tavily, Brave or DuckDuckGo) | Yes | databot; knowledge; swe |
 | `planning` | `tools/plan.py` | In-memory plans: create, update, list, get, mark_step, delete | In-memory | data_analysis; databot; knowledge; swe |
 | `fetch_related_jira_tickets` | `tools/rag/jira.py` | Semantic search over Jira collections in Qdrant | Yes | knowledge |
-| `fetch_related_models` | `tools/rag/dbt_models.py` | Semantic search over dbt models; stages hits in `staging_cards` | Graph state | databot (default, fetch, rag); warehouse |
+| `fetch_related_models` | `tools/rag/dbt_models.py` | Semantic search over dbt models; stages hits in `staging_cards`. Databot's fallback after the metric catalog | Graph state | databot (default, fetch, rag) |
+| `search_metric_catalog` | `tools/data/metrics.py` | Regex search over the curated metric roots / members (`lib/final_root.csv`, `lib/root_member.csv`) | No | databot (default, fetch, rag); warehouse |
+| `find_models_metrics` | `tools/data/metrics.py` | Stage the dbt models the metric catalog maps to a `root_id` + `member_id`, with `related_ratio` and the matched metrics on each card. Databot's prompt falls back to `fetch_related_models` when the catalog has no fit; warehouse has no fallback | Graph state | databot (default, fetch, rag); warehouse |
 | `commit_cards` | `tools/rag/dbt_models.py` | Move staged cards to `committed_cards` | Graph state | databot (default, fetch, rag) |
 | `compact_context` | `memory/tools.py` | Ask the compressor to compact context | Yes | data_analysis; databot; diagnostic; knowledge; lead; swe; warehouse |
 | `read_offloaded_file` | `memory/tools.py` | Read an offloaded tool result back | Yes | data_analysis; databot; diagnostic; knowledge; lead; swe; warehouse |

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import asyncio
 import sys
 from pathlib import Path
@@ -12,11 +13,12 @@ from langchain_core.language_models import BaseChatModel
 
 load_dotenv(Path(__file__).resolve().parents[1] / ".env")
 
-EVAL_AGENTS = ("databot", "knowledge", "lead")
+EVAL_AGENTS = ("databot", "knowledge", "lead", "model_selection")
 DEFAULT_GROUPS: dict[str, list[str]] = {
     "databot": ["databot"],
     "knowledge": ["knowledge", "general", "tahoe"],
     "lead": ["routing"],
+    "model_selection": ["model_selection"],
 }
 
 
@@ -51,6 +53,26 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="exit with code 1 when average score is below this threshold",
     )
     parser.add_argument(
+        "--arms",
+        nargs="+",
+        default=None,
+        help="model_selection only: retrieval arms to compare (default: rag catalog hybrid)",
+    )
+    parser.add_argument(
+        "--rag-collection",
+        default=None,
+        help=(
+            "model_selection only: Qdrant collection fetch_related_models searches "
+            "(default: its production layer, aug_dbt_models)"
+        ),
+    )
+    parser.add_argument(
+        "--out",
+        type=Path,
+        default=None,
+        help="model_selection only: write every run and the arm summary to this JSON file",
+    )
+    parser.add_argument(
         "--list-groups",
         action="store_true",
         help="list available case group keys and exit",
@@ -72,7 +94,12 @@ def resolve_eval_model(model_name: str) -> BaseChatModel:
         raise ValueError(str(exc)) from exc
 
 
-async def create_eval_agent(agent_name: str, model_name: str):
+async def create_eval_agent(
+    agent_name: str,
+    model_name: str,
+    *,
+    run_context: dict | None = None,
+):
     from langgraph.checkpoint.memory import MemorySaver
 
     from agent.catalog import AgentCatalog, AgentCatalogSettings
@@ -90,7 +117,63 @@ async def create_eval_agent(agent_name: str, model_name: str):
             compression_config=CompressionConfig(enabled=False),
         )
     )
-    return await catalog.create(agent_name, listener=AgentListener())
+    return await catalog.create(agent_name, listener=AgentListener(), run_context=run_context)
+
+
+async def run_selection_eval(
+    *,
+    groups: list[str],
+    cases_dir: Path | None,
+    arms: list[str] | None,
+    out: Path | None,
+    rag_collection: str | None = None,
+) -> tuple[float, list]:
+    """Run model-selection cases once per retrieval arm and compare the arms."""
+    from evals.selection_case import (
+        ARMS,
+        format_arm_summary,
+        format_case_matrix,
+        format_selection_result,
+        result_to_json,
+        run_selection_cases,
+        write_results,
+    )
+
+    async def agent_factory(model_name: str, arm: str):
+        return await create_eval_agent(
+            "model_selection",
+            model_name,
+            run_context={"retrieval": arm, "rag_collection": rag_collection or ""},
+        )
+
+    partial = out.with_suffix(".partial.jsonl") if out is not None else None
+    if partial is not None:
+        partial.parent.mkdir(parents=True, exist_ok=True)
+        partial.write_text("", encoding="utf-8")
+
+    def on_result(result) -> None:
+        print(format_selection_result(result), flush=True)
+        if partial is not None:
+            # One line per finished run, so a crash or Ctrl-C keeps the work done.
+            with partial.open("a", encoding="utf-8") as handle:
+                handle.write(json.dumps(result_to_json(result), ensure_ascii=False) + "\n")
+
+    aggregates = await run_selection_cases(
+        groups,
+        agent_factory,
+        arms=arms or list(ARMS),
+        cases_dir=cases_dir,
+        on_result=on_result,
+    )
+    print()
+    print(format_case_matrix(aggregates))
+    print()
+    print(format_arm_summary(aggregates))
+    if out is not None:
+        write_results(aggregates, out)
+        print(f"Wrote {out}")
+    average = sum(a.average for a in aggregates) / len(aggregates) if aggregates else 0.0
+    return average, aggregates
 
 
 async def run_eval(
@@ -152,13 +235,24 @@ def main(argv: list[str] | None = None) -> int:
 
     groups = args.groups or DEFAULT_GROUPS[args.agent]
     try:
-        average, _ = asyncio.run(
-            run_eval(
-                agent_name=args.agent,
-                groups=groups,
-                cases_dir=args.cases_dir,
+        if args.agent == "model_selection":
+            average, _ = asyncio.run(
+                run_selection_eval(
+                    groups=groups,
+                    cases_dir=args.cases_dir,
+                    arms=args.arms,
+                    out=args.out,
+                    rag_collection=args.rag_collection,
+                )
             )
-        )
+        else:
+            average, _ = asyncio.run(
+                run_eval(
+                    agent_name=args.agent,
+                    groups=groups,
+                    cases_dir=args.cases_dir,
+                )
+            )
     except FileNotFoundError as exc:
         print(str(exc), file=sys.stderr)
         return 2

@@ -1,0 +1,382 @@
+version: 2
+
+models:
+  - name: daily_commerce_product_metrics
+    description: >
+      Daily product-level performance fact for commerce engagement and
+      monetization signals. One row per (product_id, dt) per Airflow load
+      cycle of the `DailyCommerceProductMetrics` DAG (daily at 01:00
+      America/Los_Angeles, covering the previous business-day aggregation
+      window). Consolidates contest impressions, feed-tile and cart-page
+      impressions, exploration traffic, click interactions, WE-scoped
+      signals, purchases and GMV for a product-day.
+
+
+      The physical Hive table declares no primary key. The wrapper exposes
+      the surrogate `product_day_key` (product_id + dt) as the primary
+      entity. `dt` is the partition column, cast to `date` for MetricFlow
+      time semantics, and is the default metric time dimension; it holds
+      the Pacific-time business date of the upstream aggregation window
+      (DAG run date minus one day), not an event timestamp.
+
+
+      Reading notes. Bot filtering, HTTP response-status filtering,
+      excluded transaction states (0 PENDING, 4 DECLINED, 5 REFUNDED,
+      10 EXCEPTION, 12 REQUIRE_REVIEW) and China-IP traffic exclusion are
+      already applied upstream, so these columns are not raw event counts
+      and must not be compared against unfiltered logs. `purchases` is a
+      summed item quantity, not an order or transaction count. `gmv` and
+      `we_gmv` are physical `bigint` columns, so the stored amounts carry
+      no currency decimals. `we_impressions` and `we_gmv` are WE-scoped
+      subsets of `impressions` and `gmv` and must be read as scoped
+      signals rather than global totals. Rows are only written when the
+      product cleared the upstream inclusion gate (`impressions > 10` or
+      any of wishes / add_to_carts / recommends / product_views /
+      cart_impressions / purchases present), so the row count measures
+      coverage, not the size of the product catalogue.
+
+
+      This table has no user dimension, so buyer- or user-level metrics
+      are not derivable here. Dimension joins (product, merchant,
+      category) belong in a Tableau datasource model that `ref()`s this
+      Hive wrapper, not in this model.
+    config:
+      meta:
+        owner: jixie
+        hive_table: wish.daily_commerce_product_metrics
+        dag_id: DailyCommerceProductMetrics
+        dag_owner: sufyan
+        timezone: US/Pacific
+    semantic_model:
+      enabled: true
+      name: daily_commerce_product_metrics
+      config:
+        meta:
+          usage: >
+            Always filter `dt` for partition pruning. `dt` is the default
+            metric time and holds the Pacific business date of the
+            upstream aggregation window (DAG run date minus one day), so
+            it is a daily snapshot date rather than an event timestamp.
+            The grain is one product-day row, so a sum over a date range
+            is a product-day aggregate, not a deduplicated daily total.
+            `purchases` counts purchased units, not orders. `gmv` and
+            `we_gmv` are integer amounts and exclude tax, refunds and
+            buyer-paid amounts other than price plus shipping. The
+            upstream inclusion gate means only products with meaningful
+            engagement or a purchase are present, so row counts and
+            distinct-product counts measure coverage rather than
+            catalogue size. Product ids arrive from two different id
+            spaces (`cid` for event-derived metrics, `pid` for
+            transaction-derived metrics), so coverage can be sparse for
+            some products.
+    agg_time_dimension: dt
+
+    columns:
+      - name: product_day_key
+        description: >
+          Surrogate primary key for the product-day grain, built as
+          `product_id || '||' || dt` with both parts coalesced to an
+          empty string so the key is never null. The physical table
+          declares no Hive primary key; the documented grain is one row
+          per (product_id, dt) per DAG load cycle.
+        data_type: varchar
+        data_tests:
+          - not_null
+        entity:
+          type: primary
+          name: product_day
+          description: One product-day metric row.
+
+      - name: product_id
+        description: >
+          Product identifier (`cid` or `pid`) used as the product-level
+          aggregation key. Event-derived metrics take the id from
+          request contest ids, while purchase and GMV metrics take it
+          from the transaction product id, so a small number of products
+          appear sparsely. Open domain - not a controlled enum.
+        data_type: varchar
+        entity:
+          type: foreign
+          name: product
+          description: Wish product the metrics belong to.
+
+      - name: dt
+        description: >
+          Hive partition date, cast from the varchar `YYYY-MM-DD`
+          partition value to `date`. Holds the Pacific-time business date
+          of the upstream aggregation window (DAG run date minus one
+          day), not an event timestamp. This is the default metric time
+          dimension and drives partition pruning.
+        data_type: date
+        granularity: day
+        dimension:
+          type: time
+          label: Metric date
+          is_partition: true
+
+      - name: product_views
+        description: >
+          Count of `IMPRESSION_CONTEST` request events (event id 5) per
+          product, after bot filtering and response-status filtering.
+        data_type: bigint
+
+      - name: impressions
+        description: >
+          Total contest impressions per product, from
+          `sweeper_pt.requests` with the `contest_impressions` array
+          exploded, aggregated per (cid, country, uid) and then rolled up
+          by product with bot filtering.
+        data_type: bigint
+
+      - name: cs_impressions
+        description: >
+          Count of feed tile impression events from
+          `sweeper_pt.feed_tile_interactions` where `action = 'impression'`
+          and `product_id` is not null, with the CSV product ids exploded
+          into individual products.
+        data_type: bigint
+
+      - name: cart_impressions
+        description: >
+          Count of cart-page impression events per product for event ids
+          89 (`IMPRESSION_MOBILE_NATIVE_CART`) and 30371
+          (`IMPRESSION_WEB_CART_PAGE_LOADED`), with response-status and
+          non-bot filtering.
+        data_type: bigint
+
+      - name: exploration_impression
+        description: >
+          Sum of exploration model impression counts per product, from
+          `sweeper_pt.contest_impressions_by_models` with
+          `contests_from_exploration` exploded, aggregated per
+          (product_id, uid) with bot filtering and then rolled up by
+          product.
+        data_type: bigint
+
+      - name: exploration_c_impression
+        description: >
+          Sum of exploration conditional impressions per product. Same
+          exploration source and pipeline as `exploration_impression`,
+          but the per-user measure is
+          `SUM(CASE WHEN ci IS NOT NULL THEN 1 ELSE 0 END)` before the
+          product-level rollup.
+        data_type: bigint
+
+      - name: wishes
+        description: >
+          Count of `CLICK_WISH_BUTTON` events (event id 1002) per
+          product, with response-status and non-bot filtering.
+        data_type: bigint
+
+      - name: add_to_carts
+        description: >
+          Count of `CLICK_COMMERCE_ADD_TO_CART` events (event id 1267)
+          per product, with response-status and non-bot filtering.
+        data_type: bigint
+
+      - name: recommends
+        description: >
+          Count of `CLICK_RECOMMEND_VIA_APP_REQUEST` events (event id
+          1521) per product, with response-status and non-bot filtering.
+        data_type: bigint
+
+      - name: we_impressions
+        description: >
+          WE-scoped subset of `impressions`. Counts only impressions
+          whose product-country pair matches a request row with
+          `_tid = 5` and `is_we = true`. Read as a scoped signal, not a
+          global total; it is bounded by `impressions`.
+        data_type: bigint
+
+      - name: purchases
+        description: >
+          Sum of deduplicated transaction quantity per product
+          (`qty = MAX(quantity)` per `_id`, `pid`, `variation_id`), after
+          excluding transaction states 0, 4, 5, 10 and 12 and excluding
+          China-IP traffic. This is a purchased-unit count, not an order
+          or transaction count.
+        data_type: bigint
+
+      - name: gmv
+        description: >
+          Product GMV, `SUM(paid_price + paid_shipping)` over deduplicated
+          transaction rows. Paid price plus paid shipping only - no tax
+          and no other buyer-paid amounts. Stored as `bigint`, so the
+          amount carries no currency decimals.
+        data_type: bigint
+
+      - name: we_gmv
+        description: >
+          WE-scoped GMV, `SUM(IF(is_we = 'true', paid_price +
+          paid_shipping, 0))` over the same deduplicated transaction rows
+          as `gmv`. Read as a scoped signal, not a global total; it is
+          bounded by `gmv`.
+        data_type: bigint
+
+    metrics:
+      - name: product_day_rows
+        type: simple
+        label: Product-day rows
+        description: >
+          Number of product-day rows present in the selected scope. The
+          upstream DAG only writes a row when the product cleared its
+          inclusion gate, so this is a coverage count and not the size of
+          the product catalogue.
+        agg: count
+        expr: 1
+        fill_nulls_with: 0
+
+      - name: distinct_products
+        type: simple
+        label: Distinct products
+        description: >
+          Distinct products with at least one row in the selected scope.
+          Coverage-scoped, for the same reason as `product_day_rows`.
+        agg: count_distinct
+        expr: product_id
+        fill_nulls_with: 0
+
+      - name: impressions
+        type: simple
+        label: Impressions
+        description: >
+          Sum of contest impressions per product-day. Bot-filtered
+          upstream; not comparable with raw request-log impression counts.
+        agg: sum
+        expr: impressions
+        fill_nulls_with: 0
+
+      - name: product_views
+        type: simple
+        label: Product views
+        description: >
+          Sum of `IMPRESSION_CONTEST` request events per product-day.
+        agg: sum
+        expr: product_views
+        fill_nulls_with: 0
+
+      - name: cs_impressions
+        type: simple
+        label: Feed tile impressions
+        description: >
+          Sum of feed tile impression events per product-day.
+        agg: sum
+        expr: cs_impressions
+        fill_nulls_with: 0
+
+      - name: cart_impressions
+        type: simple
+        label: Cart page impressions
+        description: >
+          Sum of cart-page impression events per product-day (mobile
+          native cart and web cart page loads).
+        agg: sum
+        expr: cart_impressions
+        fill_nulls_with: 0
+
+      - name: exploration_impression
+        type: simple
+        label: Exploration impressions
+        description: >
+          Sum of exploration model impressions per product-day.
+        agg: sum
+        expr: exploration_impression
+        fill_nulls_with: 0
+
+      - name: exploration_c_impression
+        type: simple
+        label: Exploration conditional impressions
+        description: >
+          Sum of exploration conditional impressions per product-day.
+        agg: sum
+        expr: exploration_c_impression
+        fill_nulls_with: 0
+
+      - name: wishes
+        type: simple
+        label: Wishes
+        description: >
+          Sum of wish-button click events per product-day.
+        agg: sum
+        expr: wishes
+        fill_nulls_with: 0
+
+      - name: add_to_carts
+        type: simple
+        label: Add to carts
+        description: >
+          Sum of add-to-cart click events per product-day.
+        agg: sum
+        expr: add_to_carts
+        fill_nulls_with: 0
+
+      - name: recommends
+        type: simple
+        label: Recommends
+        description: >
+          Sum of in-app recommend request click events per product-day.
+        agg: sum
+        expr: recommends
+        fill_nulls_with: 0
+
+      - name: we_impressions
+        type: simple
+        label: WE impressions
+        description: >
+          Sum of the WE-scoped impression subset per product-day. Bounded
+          by `impressions`.
+        agg: sum
+        expr: we_impressions
+        fill_nulls_with: 0
+
+      - name: purchases
+        type: simple
+        label: Purchases
+        description: >
+          Sum of purchased units per product-day. The upstream measure is
+          a summed item quantity over deduplicated transactions, so this
+          is a unit count rather than an order or transaction count.
+        agg: sum
+        expr: purchases
+        fill_nulls_with: 0
+
+      - name: gmv
+        type: simple
+        label: GMV
+        description: >
+          Sum of product GMV (paid price + paid shipping) per product-day.
+          Stored as `bigint` upstream, so the amount carries no currency
+          decimals. Excludes tax and all other buyer-paid amounts.
+        agg: sum
+        expr: gmv
+        fill_nulls_with: 0
+
+      - name: we_gmv
+        type: simple
+        label: WE GMV
+        description: >
+          Sum of the WE-scoped GMV subset per product-day. Bounded by
+          `gmv`.
+        agg: sum
+        expr: we_gmv
+        fill_nulls_with: 0
+
+      - name: add_to_cart_rate
+        type: ratio
+        label: Add to cart rate
+        description: >
+          Add-to-cart events per impression. Mirrors the funnel query in
+          the source table documentation
+          (`add_to_carts / impressions`).
+        numerator: add_to_carts
+        denominator: impressions
+
+      - name: gmv_per_purchase
+        type: ratio
+        label: GMV per purchased unit
+        description: >
+          Average GMV per purchased unit. `purchases` is a summed item
+          quantity rather than an order count, so this is GMV per unit
+          and not GMV per order.
+        numerator: gmv
+        denominator: purchases

@@ -46,8 +46,20 @@ fetch_instruction = """
 You are in Databot's **prepare cards** stage for this turn.
 
 Goal: choose the dbt/Hive models that can answer the user's latest data question.
-Prefer ``history_cards`` when they still fit; otherwise call ``fetch_related_models``,
-then ``commit_cards`` with the ``staging_id`` values and the metrics/dimensions you need.
+Prefer ``history_cards`` when they still fit. Otherwise find candidates in this order:
+1. Metric catalog first (higher precision, fewer models). Resolve the metric to a
+   ``root_id`` with ``search_metric_catalog`` (scope="roots"; try English and Chinese
+   synonyms in the regex, and read ``not_a`` to rule out look-alike roots), then pick the
+   ``member_id`` with scope="members" and that root_id (compare definition, scope_filter,
+   time_basis; the default member is listed first). Then call ``find_models_metrics``.
+2. Fall back to ``fetch_related_models`` when the catalog has no fitting root or member,
+   when ``find_models_metrics`` stages nothing, or when the question is about columns,
+   dimensions or entities rather than a metric.
+Treat ``related_ratio`` as a preference, not the decision: weigh every staged model on
+its description, grain, available dimensions and time column, and the matched metric
+definition against the question, and pick the one that fits best even if its ratio is
+lower. Then ``commit_cards`` with the ``staging_id`` values and the metrics/dimensions
+you need.
 This stage ends only after a successful ``commit_cards`` that fills ``committed_cards``;
 then the pipeline runs a human review gate (not your job in this loop).
 Respect gate redraft feedback in state when the reviewer sent the turn back.
@@ -57,15 +69,16 @@ next_step = """
 Pick the next single step toward the stage goal. Take exactly one action: one tool
 call, optionally with a short user-facing status line (see Chat style). If
 ``history_cards`` already answer the latest question, call ``commit_cards`` with
-those staging_ids or model names — do not fetch first. Otherwise fetch, then
-``commit_cards``. If nothing was staged and history is empty, ``commit_cards`` with
+those staging_ids or model names — do not fetch first. Otherwise resolve the metric
+with ``search_metric_catalog`` and stage with ``find_models_metrics`` (fall back to
+``fetch_related_models``), then ``commit_cards``. If nothing was staged and history is empty, ``commit_cards`` with
 ``selections=[]``. Do not exit with plain text before that call.
 """
 # Injected when the fetch-stage tool budget is exhausted (ReAct router).
 tool_budget_exhausted_prompt = """
 You have used the per-stage tool budget. Call ``commit_cards`` now — with staged
-ids if you have them, or ``selections=[]`` if ``fetch_related_models`` failed or
-returned nothing. The stage cannot end without that call.
+ids if you have them, or ``selections=[]`` if ``find_models_metrics`` and
+``fetch_related_models`` failed or returned nothing. The stage cannot end without that call.
 One tool call per turn; optional one user-facing status line (see Chat style).
 """
 # Nudge when the model replies with plain text instead of a tool call.
@@ -201,6 +214,12 @@ Status lines during tool use must follow the Chat style rules.
 
 # Built-in tools per tool scope ("agent,scope" in AgentCatalog.tools_for).
 # "@name" expands a set from config/tool_groups.toml. MCP tools: [accepted_mcp].
+# Keep earlier turns' tool results in context: follow-ups ("now break that down
+# by X") reuse prior query output, and folding it made the agent read archives.
+[compression]
+extends = "base"
+prior_turns_qa_only = false
+
 [tools]
 default = [
     "@memory",
@@ -211,10 +230,12 @@ default = [
     "@datahub",
     "commit_cards",
     "fetch_related_models",
+    "find_models_metrics",
     "planning",
     "propose_sql",
     "record_metric_conflict",
     "request_sql_regenerate",
+    "search_metric_catalog",
     "update_card_selection",
     "web_search",
     "write_gate_reasons",
@@ -225,9 +246,11 @@ fetch = [
     "datahub_graphql_query",
     "datahub_list_glossary_terms",
     "fetch_related_models",
+    "find_models_metrics",
     "record_metric_conflict",
+    "search_metric_catalog",
 ]
-rag = ["commit_cards", "fetch_related_models"]
+rag = ["commit_cards", "fetch_related_models", "find_models_metrics", "search_metric_catalog"]
 # SQL drafting describes tables through Trino only (`trino_desc_table` takes
 # table, schema.table or catalog.schema.table). Trino reads the Hive metastore
 # server-side; `hive_desc_table` needs a direct metastore connection.

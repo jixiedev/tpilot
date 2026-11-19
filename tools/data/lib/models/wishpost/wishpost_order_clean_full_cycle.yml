@@ -1,0 +1,1871 @@
+version: 2
+
+models:
+  - name: wishpost_order_clean_full_cycle
+    description: >
+      WishPost logistics order fact covering the complete parcel lifecycle, from first-mile pickup through last-mile delivery, with the commerce and China payment finance rollups attached. Grain is one row per first-mile WishPost parcel (`tracking_id`) per `dt` snapshot partition.
+      Built by the Airflow DAG `dag_tahoe_wosp_order_clean_full_cycle` (task `full_cycle_query`, daily 09:00 Asia/Shanghai). The task LEFT JOINs `wishpost.tmp_wishpost_order_clean_with_finance` (first-mile rows, `combined_to <> 'None'`) to the combined-program rows of the same table on `pre.combined_to = post.id`, and UNION ALLs the standalone rows (`combined_to = 'None'`). The optional last-mile shipment is therefore exposed through the `*_post` columns, and the parcel's share of the combined shipment's weight through `weight_proportion`.
+      IMPORTANT - `dt` is a snapshot ("as of") date, not the order date: the upstream `wishpost.wishpost_order_clean` keeps a rolling ~200-day window of orders per partition (`order_created_time >= unix_timestamp(ds - 200 days)`), so every parcel re-appears in up to ~200 consecutive `dt` partitions. Summing an additive measure over more than one `dt` value counts each parcel once per partition it appears in. `dt` is the default metric time dimension; use `order_created_day` (or the other journey `*_day` columns) for business-date cuts, and restrict to a single `dt` for snapshot-scoped ("as of") reporting.
+      All `bigint` time columns are Unix epoch seconds: the raw integer is kept for joins, and a `*_at` timestamp plus a `*_day` calendar date are added for the day-granularity time dimensions (the project time spine is day). `time` is the Spark load instant and must never be used as a business filter. Money columns are swept per `tracking_id` from `wish.fact_trans_detail` and are not FX-converted upstream; the finance step applies the documented currency conversion (USD x 6.5, ZAR x 0.45).
+      This wrapper performs no joins. Tableau models under `semantic_layer/models/tableau/` own the dimension joins (channel, warehouse, pricing program) and `ref()` this model. Materialized as a view in `semantic_dw`; the physical Hive table is never modified.
+    config:
+      meta:
+        owner: jixie
+        hive_table: wishpost.wishpost_order_clean_full_cycle
+        dag: dag_tahoe_wosp_order_clean_full_cycle
+        task: full_cycle_query
+        upstream_table: wishpost.tmp_wishpost_order_clean_with_finance
+        grain: one row per (dt, tracking_id) - first-mile parcel per daily snapshot
+        timezone: Asia/Shanghai
+    semantic_model:
+      enabled: true
+      name: wishpost_order_clean_full_cycle
+      config:
+        meta:
+          usage: >
+            **Grain**: one row per `(dt, tracking_id)` - a daily snapshot of the WishPost order book, not an event log. Always filter `dt` for partition pruning and restrict to a single `dt` before summing an additive measure; use `order_created_day` for business-date cohort cuts.
+            The default metric time dimension is `dt`. Every journey milestone is also exposed as a day-granularity time dimension (`order_created_day`, `pickup_day`, `arrive_hub_day`, `out_for_delivery_day`, `delivered_day`, ...), so TTD can be sliced at any point of the journey.
+            `state` / `state_post` / `carrier_pickup_state` / `cancel_source` / `cancel_reason` / `pay_currency` / `warehouse` are raw codes and each has a `*_name` label alongside it. `order_channel` keeps its raw id plus a `order_channel_name` label for the documented channel ids; join `wishpost.dim_order_channel_cn_mongo` in a Tableau model for the full channel taxonomy.
+            Unix-epoch timestamps stay as bigint columns for joins; the `*_day` columns are the day-granularity time dimensions and the `*_at` columns are display-only timestamps.
+    agg_time_dimension: dt
+    columns:
+      - name: tracking_dt_id
+        description: >
+          Surrogate primary key: `dt | tracking_id`. Identifies one first-mile
+          parcel inside one `dt` snapshot partition. `tracking_id` alone is not
+          unique in this table because every `dt` partition is a full daily
+          snapshot of the order book.
+        entity:
+          type: primary
+          name: wp_order_full_cycle_day
+          description: >
+            One first-mile WishPost parcel inside one `dt` snapshot
+            partition.
+        data_tests:
+          - not_null
+          - unique
+      - name: tracking_id
+        description: >
+          First-mile WishPost tracking id - the parcel key and the grain of this
+          table. Unique within a `dt` partition; the same parcel reappears in
+          every daily snapshot.
+        entity:
+          type: foreign
+          name: wishpost_tracking
+          description: >
+            One first-mile WishPost parcel (tracking id) of the
+            order book.
+      - name: tracking_id_post
+        description: >
+          Tracking id of the combined (post) shipment the parcel was merged
+          into. NULL for standalone parcels that were never combined.
+        entity:
+          type: foreign
+          name: wp_combine_tracking
+          description: >
+            One combined (post) shipment that first-mile parcels
+            were merged into.
+      - name: id
+        description: >
+          Mongo order document id of the first-mile order (passthrough from
+          `wishpost.wishpost_order_clean`).
+        entity:
+          type: foreign
+          name: wp_order
+          description: >
+            One WishPost logistics order (Mongo order id).
+      - name: id_post
+        description: >
+          Mongo order document id of the combined (post) order. NULL for
+          standalone parcels.
+        entity:
+          type: foreign
+          name: wp_combine_order
+          description: >
+            One combined (post) WishPost order.
+      - name: wishpost_user_id
+        description: WishPost user.
+        entity:
+          type: foreign
+          name: wishpost_user
+          description: >
+            One WishPost app user (the merchant-side account that
+            owns the order).
+      - name: wishpost_user_id_post
+        description: WishPost user.
+        entity:
+          type: foreign
+          name: wishpost_user
+          description: >
+            One WishPost app user (combined shipment).
+      - name: wish_standard_tracking_id
+        description: Wish standard tracking.
+        entity:
+          type: foreign
+          name: wishpost_standard_tracking
+          description: >
+            One Wish standard tracking id.
+      - name: wish_standard_tracking_id_post
+        description: Wish standard tracking.
+        entity:
+          type: foreign
+          name: wishpost_standard_tracking
+          description: >
+            One Wish standard tracking id (combined shipment).
+      - name: last_mile_tracking_id
+        description: Last mile tracking.
+        entity:
+          type: foreign
+          name: last_mile_tracking
+          description: >
+            One last-mile carrier parcel tracking number.
+      - name: last_mile_carrier
+        description: Last mile carrier.
+        dimension:
+          type: categorical
+          label: Last mile carrier
+      - name: wish_transaction_id
+        description: Wish transaction.
+        entity:
+          type: foreign
+          name: wish_transaction
+          description: >
+            One Wish commerce transaction.
+      - name: wish_transaction_id_post
+        description: Wish transaction.
+        entity:
+          type: foreign
+          name: wish_transaction
+          description: >
+            One Wish commerce transaction (combined shipment).
+      - name: wish_transaction_id_list
+        description: Wish transaction id list.
+        dimension:
+          type: categorical
+          label: Wish transaction id list
+      - name: wish_transaction_id_list_post
+        description: Wish transaction id list.
+        dimension:
+          type: categorical
+          label: Wish transaction id list
+      - name: tax_id
+        description: Tax id.
+        dimension:
+          type: categorical
+          label: Tax id
+      - name: tax_id_post
+        description: Tax id.
+        dimension:
+          type: categorical
+          label: Tax id
+      - name: merchant_id
+        description: Merchant.
+        entity:
+          type: foreign
+          name: merchant
+          description: >
+            One Wish merchant.
+      - name: wish_user_id
+        description: Wish buyer.
+        entity:
+          type: foreign
+          name: user
+          description: >
+            One Wish buyer (end shopper).
+      - name: dt
+        description: >
+          Hive partition date, cast from the varchar `YYYY-MM-DD` partition key.
+          Written by the DAG as `dt = ds + 1` day, so it is the batch scope /
+          snapshot date, NOT a parcel event date. Always filter on `dt` for
+          partition pruning and restrict to a single `dt` before summing an
+          additive measure.
+        granularity: day
+        dimension:
+          type: time
+          label: Snapshot date
+          is_partition: true
+        data_tests:
+          - not_null
+      - name: time
+        description: >
+          ETL load timestamp: Spark `unix_timestamp()` when the row was written.
+          Not a business time and not the partition date - never use it as a
+          business filter.
+      - name: order_created_time
+        description: >
+          When the first-mile WishPost order was created (UTC epoch seconds).
+      - name: order_created_at
+        description: >
+          `order_created_time` projected to a timestamp (UTC epoch seconds).
+          Kept for joins and sub-day TTD arithmetic; not registered as a
+          MetricFlow time dimension (the project time spine is day).
+      - name: order_created_day
+        description: >
+          UTC calendar day of the 'Order created' journey milestone
+          (`order_created_time`, UTC epoch seconds).
+        granularity: day
+        dimension:
+          type: time
+          label: Order created date
+      - name: order_created_time_post
+        description: >
+          When the combined (post) order was created (UTC epoch seconds).
+      - name: order_created_post_at
+        description: >
+          `order_created_time_post` projected to a timestamp (UTC epoch
+          seconds). Kept for joins and sub-day TTD arithmetic; not registered as
+          a MetricFlow time dimension (the project time spine is day).
+      - name: order_created_post_day
+        description: >
+          UTC calendar day of the 'Order created (combined shipment)' journey
+          milestone (`order_created_time_post`, UTC epoch seconds).
+        granularity: day
+        dimension:
+          type: time
+          label: Order created (combined shipment) date
+      - name: track_created_time
+        description: When tracking for the parcel was created (UTC epoch seconds).
+      - name: track_created_at
+        description: >
+          `track_created_time` projected to a timestamp (UTC epoch seconds).
+          Kept for joins and sub-day TTD arithmetic; not registered as a
+          MetricFlow time dimension (the project time spine is day).
+      - name: track_created_day
+        description: >
+          UTC calendar day of the 'Tracking created' journey milestone
+          (`track_created_time`, UTC epoch seconds).
+        granularity: day
+        dimension:
+          type: time
+          label: Tracking created date
+      - name: track_created_time_post
+        description: >
+          When tracking for the combined shipment was created (UTC epoch
+          seconds).
+      - name: track_created_post_at
+        description: >
+          `track_created_time_post` projected to a timestamp (UTC epoch
+          seconds). Kept for joins and sub-day TTD arithmetic; not registered as
+          a MetricFlow time dimension (the project time spine is day).
+      - name: track_created_post_day
+        description: >
+          UTC calendar day of the 'Tracking created (combined shipment)' journey
+          milestone (`track_created_time_post`, UTC epoch seconds).
+        granularity: day
+        dimension:
+          type: time
+          label: Tracking created (combined shipment) date
+      - name: last_updated
+        description: Last update on the order document in Mongo (UTC epoch seconds).
+      - name: last_updated_at
+        description: >
+          `last_updated` projected to a timestamp (UTC epoch seconds). Kept for
+          joins and sub-day TTD arithmetic; not registered as a MetricFlow time
+          dimension (the project time spine is day).
+      - name: last_updated_day
+        description: >
+          UTC calendar day of the 'Order last updated' journey milestone
+          (`last_updated`, UTC epoch seconds).
+        granularity: day
+        dimension:
+          type: time
+          label: Order last updated date
+      - name: epc_combined_time
+        description: EPC combined-shipment handling time (UTC epoch seconds).
+      - name: epc_combined_at
+        description: >
+          `epc_combined_time` projected to a timestamp (UTC epoch seconds). Kept
+          for joins and sub-day TTD arithmetic; not registered as a MetricFlow
+          time dimension (the project time spine is day).
+      - name: epc_combined_day
+        description: >
+          UTC calendar day of the 'EPC combined' journey milestone
+          (`epc_combined_time`, UTC epoch seconds).
+        granularity: day
+        dimension:
+          type: time
+          label: EPC combined date
+      - name: pickup_ts
+        description: pickup ts.
+      - name: pickup_at
+        description: >
+          `pickup_ts` projected to a timestamp (UTC epoch seconds). Kept for
+          joins and sub-day TTD arithmetic; not registered as a MetricFlow time
+          dimension (the project time spine is day).
+      - name: pickup_day
+        description: >
+          UTC calendar day of the 'Pickup' journey milestone (`pickup_ts`, UTC
+          epoch seconds).
+        granularity: day
+        dimension:
+          type: time
+          label: Pickup date
+      - name: arrive_first_mile_ts
+        description: arrive first mile ts.
+      - name: arrive_first_mile_at
+        description: >
+          `arrive_first_mile_ts` projected to a timestamp (UTC epoch seconds).
+          Kept for joins and sub-day TTD arithmetic; not registered as a
+          MetricFlow time dimension (the project time spine is day).
+      - name: arrive_first_mile_day
+        description: >
+          UTC calendar day of the 'Arrive first mile' journey milestone
+          (`arrive_first_mile_ts`, UTC epoch seconds).
+        granularity: day
+        dimension:
+          type: time
+          label: Arrive first mile date
+      - name: depart_first_mile_ts
+        description: depart first mile ts.
+      - name: depart_first_mile_at
+        description: >
+          `depart_first_mile_ts` projected to a timestamp (UTC epoch seconds).
+          Kept for joins and sub-day TTD arithmetic; not registered as a
+          MetricFlow time dimension (the project time spine is day).
+      - name: depart_first_mile_day
+        description: >
+          UTC calendar day of the 'Depart first mile' journey milestone
+          (`depart_first_mile_ts`, UTC epoch seconds).
+        granularity: day
+        dimension:
+          type: time
+          label: Depart first mile date
+      - name: arrive_hub_ts
+        description: arrive hub ts.
+      - name: arrive_hub_at
+        description: >
+          `arrive_hub_ts` projected to a timestamp (UTC epoch seconds). Kept for
+          joins and sub-day TTD arithmetic; not registered as a MetricFlow time
+          dimension (the project time spine is day).
+      - name: arrive_hub_day
+        description: >
+          UTC calendar day of the 'Arrive hub' journey milestone
+          (`arrive_hub_ts`, UTC epoch seconds).
+        granularity: day
+        dimension:
+          type: time
+          label: Arrive hub date
+      - name: depart_hub_ts
+        description: depart hub ts.
+      - name: depart_hub_at
+        description: >
+          `depart_hub_ts` projected to a timestamp (UTC epoch seconds). Kept for
+          joins and sub-day TTD arithmetic; not registered as a MetricFlow time
+          dimension (the project time spine is day).
+      - name: depart_hub_day
+        description: >
+          UTC calendar day of the 'Depart hub' journey milestone
+          (`depart_hub_ts`, UTC epoch seconds).
+        granularity: day
+        dimension:
+          type: time
+          label: Depart hub date
+      - name: arrive_warehouse_ts
+        description: arrive warehouse ts.
+      - name: arrive_warehouse_at
+        description: >
+          `arrive_warehouse_ts` projected to a timestamp (UTC epoch seconds).
+          Kept for joins and sub-day TTD arithmetic; not registered as a
+          MetricFlow time dimension (the project time spine is day).
+      - name: arrive_warehouse_day
+        description: >
+          UTC calendar day of the 'Arrive warehouse' journey milestone
+          (`arrive_warehouse_ts`, UTC epoch seconds).
+        granularity: day
+        dimension:
+          type: time
+          label: Arrive warehouse date
+      - name: depart_warehouse_ts
+        description: depart warehouse ts.
+      - name: depart_warehouse_at
+        description: >
+          `depart_warehouse_ts` projected to a timestamp (UTC epoch seconds).
+          Kept for joins and sub-day TTD arithmetic; not registered as a
+          MetricFlow time dimension (the project time spine is day).
+      - name: depart_warehouse_day
+        description: >
+          UTC calendar day of the 'Depart warehouse' journey milestone
+          (`depart_warehouse_ts`, UTC epoch seconds).
+        granularity: day
+        dimension:
+          type: time
+          label: Depart warehouse date
+      - name: handover_carrier_ts
+        description: handover carrier ts.
+      - name: handover_carrier_at
+        description: >
+          `handover_carrier_ts` projected to a timestamp (UTC epoch seconds).
+          Kept for joins and sub-day TTD arithmetic; not registered as a
+          MetricFlow time dimension (the project time spine is day).
+      - name: handover_carrier_day
+        description: >
+          UTC calendar day of the 'Handover to carrier' journey milestone
+          (`handover_carrier_ts`, UTC epoch seconds).
+        granularity: day
+        dimension:
+          type: time
+          label: Handover to carrier date
+      - name: post_waybill_ts
+        description: post waybill ts.
+      - name: post_waybill_at
+        description: >
+          `post_waybill_ts` projected to a timestamp (UTC epoch seconds). Kept
+          for joins and sub-day TTD arithmetic; not registered as a MetricFlow
+          time dimension (the project time spine is day).
+      - name: post_waybill_day
+        description: >
+          UTC calendar day of the 'Waybill posted' journey milestone
+          (`post_waybill_ts`, UTC epoch seconds).
+        granularity: day
+        dimension:
+          type: time
+          label: Waybill posted date
+      - name: warehouse_delivered_ts
+        description: warehouse delivered ts.
+      - name: warehouse_delivered_at
+        description: >
+          `warehouse_delivered_ts` projected to a timestamp (UTC epoch seconds).
+          Kept for joins and sub-day TTD arithmetic; not registered as a
+          MetricFlow time dimension (the project time spine is day).
+      - name: warehouse_delivered_day
+        description: >
+          UTC calendar day of the 'Delivered to warehouse' journey milestone
+          (`warehouse_delivered_ts`, UTC epoch seconds).
+        granularity: day
+        dimension:
+          type: time
+          label: Delivered to warehouse date
+      - name: return_from_epc_warehouse_ts
+        description: return from epc warehouse ts.
+      - name: return_from_epc_warehouse_at
+        description: >
+          `return_from_epc_warehouse_ts` projected to a timestamp (UTC epoch
+          seconds). Kept for joins and sub-day TTD arithmetic; not registered as
+          a MetricFlow time dimension (the project time spine is day).
+      - name: return_from_epc_warehouse_day
+        description: >
+          UTC calendar day of the 'Return from EPC warehouse' journey milestone
+          (`return_from_epc_warehouse_ts`, UTC epoch seconds).
+        granularity: day
+        dimension:
+          type: time
+          label: Return from EPC warehouse date
+      - name: returned_to_merchant_ts
+        description: returned to merchant ts.
+      - name: returned_to_merchant_at
+        description: >
+          `returned_to_merchant_ts` projected to a timestamp (UTC epoch
+          seconds). Kept for joins and sub-day TTD arithmetic; not registered as
+          a MetricFlow time dimension (the project time spine is day).
+      - name: returned_to_merchant_day
+        description: >
+          UTC calendar day of the 'Returned to merchant' journey milestone
+          (`returned_to_merchant_ts`, UTC epoch seconds).
+        granularity: day
+        dimension:
+          type: time
+          label: Returned to merchant date
+      - name: arrive_carrier_adj_ts
+        description: arrive carrier adj ts.
+      - name: arrive_carrier_adj_at
+        description: >
+          `arrive_carrier_adj_ts` projected to a timestamp (UTC epoch seconds).
+          Kept for joins and sub-day TTD arithmetic; not registered as a
+          MetricFlow time dimension (the project time spine is day).
+      - name: arrive_carrier_adj_day
+        description: >
+          UTC calendar day of the 'Arrive carrier adjustment' journey milestone
+          (`arrive_carrier_adj_ts`, UTC epoch seconds).
+        granularity: day
+        dimension:
+          type: time
+          label: Arrive carrier adjustment date
+      - name: depart_carrier_ts
+        description: depart carrier ts.
+      - name: depart_carrier_at
+        description: >
+          `depart_carrier_ts` projected to a timestamp (UTC epoch seconds). Kept
+          for joins and sub-day TTD arithmetic; not registered as a MetricFlow
+          time dimension (the project time spine is day).
+      - name: depart_carrier_day
+        description: >
+          UTC calendar day of the 'Depart carrier' journey milestone
+          (`depart_carrier_ts`, UTC epoch seconds).
+        granularity: day
+        dimension:
+          type: time
+          label: Depart carrier date
+      - name: return_by_carrier_ts
+        description: return by carrier ts.
+      - name: return_by_carrier_at
+        description: >
+          `return_by_carrier_ts` projected to a timestamp (UTC epoch seconds).
+          Kept for joins and sub-day TTD arithmetic; not registered as a
+          MetricFlow time dimension (the project time spine is day).
+      - name: return_by_carrier_day
+        description: >
+          UTC calendar day of the 'Returned by carrier' journey milestone
+          (`return_by_carrier_ts`, UTC epoch seconds).
+        granularity: day
+        dimension:
+          type: time
+          label: Returned by carrier date
+      - name: depart_orign_country_adj_ts
+        description: depart orign country adj ts.
+      - name: depart_orign_country_adj_at
+        description: >
+          `depart_orign_country_adj_ts` projected to a timestamp (UTC epoch
+          seconds). Kept for joins and sub-day TTD arithmetic; not registered as
+          a MetricFlow time dimension (the project time spine is day).
+      - name: depart_orign_country_adj_day
+        description: >
+          UTC calendar day of the 'Depart origin country adjustment' journey
+          milestone (`depart_orign_country_adj_ts`, UTC epoch seconds).
+        granularity: day
+        dimension:
+          type: time
+          label: Depart origin country adjustment date
+      - name: arrive_dest_country_adj_ts
+        description: arrive dest country adj ts.
+      - name: arrive_dest_country_adj_at
+        description: >
+          `arrive_dest_country_adj_ts` projected to a timestamp (UTC epoch
+          seconds). Kept for joins and sub-day TTD arithmetic; not registered as
+          a MetricFlow time dimension (the project time spine is day).
+      - name: arrive_dest_country_adj_day
+        description: >
+          UTC calendar day of the 'Arrive destination country adjustment'
+          journey milestone (`arrive_dest_country_adj_ts`, UTC epoch seconds).
+        granularity: day
+        dimension:
+          type: time
+          label: Arrive destination country adjustment date
+      - name: arrive_dest_carrier_adj_ts
+        description: arrive dest carrier adj ts.
+      - name: arrive_dest_carrier_adj_at
+        description: >
+          `arrive_dest_carrier_adj_ts` projected to a timestamp (UTC epoch
+          seconds). Kept for joins and sub-day TTD arithmetic; not registered as
+          a MetricFlow time dimension (the project time spine is day).
+      - name: arrive_dest_carrier_adj_day
+        description: >
+          UTC calendar day of the 'Arrive destination carrier adjustment'
+          journey milestone (`arrive_dest_carrier_adj_ts`, UTC epoch seconds).
+        granularity: day
+        dimension:
+          type: time
+          label: Arrive destination carrier adjustment date
+      - name: arrive_carrier_ts
+        description: arrive carrier ts.
+      - name: arrive_carrier_at
+        description: >
+          `arrive_carrier_ts` projected to a timestamp (UTC epoch seconds). Kept
+          for joins and sub-day TTD arithmetic; not registered as a MetricFlow
+          time dimension (the project time spine is day).
+      - name: arrive_carrier_day
+        description: >
+          UTC calendar day of the 'Arrive carrier' journey milestone
+          (`arrive_carrier_ts`, UTC epoch seconds).
+        granularity: day
+        dimension:
+          type: time
+          label: Arrive carrier date
+      - name: arrive_origin_airport_ts
+        description: arrive origin airport ts.
+      - name: arrive_origin_airport_at
+        description: >
+          `arrive_origin_airport_ts` projected to a timestamp (UTC epoch
+          seconds). Kept for joins and sub-day TTD arithmetic; not registered as
+          a MetricFlow time dimension (the project time spine is day).
+      - name: arrive_origin_airport_day
+        description: >
+          UTC calendar day of the 'Arrive origin airport' journey milestone
+          (`arrive_origin_airport_ts`, UTC epoch seconds).
+        granularity: day
+        dimension:
+          type: time
+          label: Arrive origin airport date
+      - name: depart_origin_airport_ts
+        description: depart origin airport ts.
+      - name: depart_origin_airport_at
+        description: >
+          `depart_origin_airport_ts` projected to a timestamp (UTC epoch
+          seconds). Kept for joins and sub-day TTD arithmetic; not registered as
+          a MetricFlow time dimension (the project time spine is day).
+      - name: depart_origin_airport_day
+        description: >
+          UTC calendar day of the 'Depart origin airport' journey milestone
+          (`depart_origin_airport_ts`, UTC epoch seconds).
+        granularity: day
+        dimension:
+          type: time
+          label: Depart origin airport date
+      - name: arrive_dest_airport_ts
+        description: arrive dest airport ts.
+      - name: arrive_dest_airport_at
+        description: >
+          `arrive_dest_airport_ts` projected to a timestamp (UTC epoch seconds).
+          Kept for joins and sub-day TTD arithmetic; not registered as a
+          MetricFlow time dimension (the project time spine is day).
+      - name: arrive_dest_airport_day
+        description: >
+          UTC calendar day of the 'Arrive destination airport' journey milestone
+          (`arrive_dest_airport_ts`, UTC epoch seconds).
+        granularity: day
+        dimension:
+          type: time
+          label: Arrive destination airport date
+      - name: depart_dest_customs_ts
+        description: depart dest customs ts.
+      - name: depart_dest_customs_at
+        description: >
+          `depart_dest_customs_ts` projected to a timestamp (UTC epoch seconds).
+          Kept for joins and sub-day TTD arithmetic; not registered as a
+          MetricFlow time dimension (the project time spine is day).
+      - name: depart_dest_customs_day
+        description: >
+          UTC calendar day of the 'Depart destination customs' journey milestone
+          (`depart_dest_customs_ts`, UTC epoch seconds).
+        granularity: day
+        dimension:
+          type: time
+          label: Depart destination customs date
+      - name: dest_customs_failure_ts
+        description: dest customs failure ts.
+      - name: dest_customs_failure_at
+        description: >
+          `dest_customs_failure_ts` projected to a timestamp (UTC epoch
+          seconds). Kept for joins and sub-day TTD arithmetic; not registered as
+          a MetricFlow time dimension (the project time spine is day).
+      - name: dest_customs_failure_day
+        description: >
+          UTC calendar day of the 'Customs failure' journey milestone
+          (`dest_customs_failure_ts`, UTC epoch seconds).
+        granularity: day
+        dimension:
+          type: time
+          label: Customs failure date
+      - name: arrive_dest_country_ts
+        description: arrive dest country ts.
+      - name: arrive_dest_country_at
+        description: >
+          `arrive_dest_country_ts` projected to a timestamp (UTC epoch seconds).
+          Kept for joins and sub-day TTD arithmetic; not registered as a
+          MetricFlow time dimension (the project time spine is day).
+      - name: arrive_dest_country_day
+        description: >
+          UTC calendar day of the 'Arrive destination country' journey milestone
+          (`arrive_dest_country_ts`, UTC epoch seconds).
+        granularity: day
+        dimension:
+          type: time
+          label: Arrive destination country date
+      - name: arrive_transithub_ts
+        description: arrive transithub ts.
+      - name: arrive_transithub_at
+        description: >
+          `arrive_transithub_ts` projected to a timestamp (UTC epoch seconds).
+          Kept for joins and sub-day TTD arithmetic; not registered as a
+          MetricFlow time dimension (the project time spine is day).
+      - name: arrive_transithub_day
+        description: >
+          UTC calendar day of the 'Arrive transit hub' journey milestone
+          (`arrive_transithub_ts`, UTC epoch seconds).
+        granularity: day
+        dimension:
+          type: time
+          label: Arrive transit hub date
+      - name: depart_transithub_ts
+        description: depart transithub ts.
+      - name: depart_transithub_at
+        description: >
+          `depart_transithub_ts` projected to a timestamp (UTC epoch seconds).
+          Kept for joins and sub-day TTD arithmetic; not registered as a
+          MetricFlow time dimension (the project time spine is day).
+      - name: depart_transithub_day
+        description: >
+          UTC calendar day of the 'Depart transit hub' journey milestone
+          (`depart_transithub_ts`, UTC epoch seconds).
+        granularity: day
+        dimension:
+          type: time
+          label: Depart transit hub date
+      - name: out_for_delivery_ts
+        description: out for delivery ts.
+      - name: out_for_delivery_at
+        description: >
+          `out_for_delivery_ts` projected to a timestamp (UTC epoch seconds).
+          Kept for joins and sub-day TTD arithmetic; not registered as a
+          MetricFlow time dimension (the project time spine is day).
+      - name: out_for_delivery_day
+        description: >
+          UTC calendar day of the 'Out for delivery' journey milestone
+          (`out_for_delivery_ts`, UTC epoch seconds).
+        granularity: day
+        dimension:
+          type: time
+          label: Out for delivery date
+      - name: attempt_delivery_ts
+        description: attempt delivery ts.
+      - name: attempt_delivery_at
+        description: >
+          `attempt_delivery_ts` projected to a timestamp (UTC epoch seconds).
+          Kept for joins and sub-day TTD arithmetic; not registered as a
+          MetricFlow time dimension (the project time spine is day).
+      - name: attempt_delivery_day
+        description: >
+          UTC calendar day of the 'Delivery attempt' journey milestone
+          (`attempt_delivery_ts`, UTC epoch seconds).
+        granularity: day
+        dimension:
+          type: time
+          label: Delivery attempt date
+      - name: delivered_ts
+        description: delivered ts.
+      - name: delivered_at
+        description: >
+          `delivered_ts` projected to a timestamp (UTC epoch seconds). Kept for
+          joins and sub-day TTD arithmetic; not registered as a MetricFlow time
+          dimension (the project time spine is day).
+      - name: delivered_day
+        description: >
+          UTC calendar day of the 'Delivered' journey milestone (`delivered_ts`,
+          UTC epoch seconds).
+        granularity: day
+        dimension:
+          type: time
+          label: Delivered date
+      - name: wait_customer_pickup_ts
+        description: wait customer pickup ts.
+      - name: wait_customer_pickup_at
+        description: >
+          `wait_customer_pickup_ts` projected to a timestamp (UTC epoch
+          seconds). Kept for joins and sub-day TTD arithmetic; not registered as
+          a MetricFlow time dimension (the project time spine is day).
+      - name: wait_customer_pickup_day
+        description: >
+          UTC calendar day of the 'Waiting for customer pickup' journey
+          milestone (`wait_customer_pickup_ts`, UTC epoch seconds).
+        granularity: day
+        dimension:
+          type: time
+          label: Waiting for customer pickup date
+      - name: delivery_failed_ts
+        description: delivery failed ts.
+      - name: delivery_failed_at
+        description: >
+          `delivery_failed_ts` projected to a timestamp (UTC epoch seconds).
+          Kept for joins and sub-day TTD arithmetic; not registered as a
+          MetricFlow time dimension (the project time spine is day).
+      - name: delivery_failed_day
+        description: >
+          UTC calendar day of the 'Delivery failed' journey milestone
+          (`delivery_failed_ts`, UTC epoch seconds).
+        granularity: day
+        dimension:
+          type: time
+          label: Delivery failed date
+      - name: arrive_carrier_adj_ts_post
+        description: arrive carrier adj ts post.
+      - name: arrive_carrier_adj_post_at
+        description: >
+          `arrive_carrier_adj_ts_post` projected to a timestamp (UTC epoch
+          seconds). Kept for joins and sub-day TTD arithmetic; not registered as
+          a MetricFlow time dimension (the project time spine is day).
+      - name: arrive_carrier_adj_post_day
+        description: >
+          UTC calendar day of the 'Arrive carrier adjustment (combined
+          shipment)' journey milestone (`arrive_carrier_adj_ts_post`, UTC epoch
+          seconds).
+        granularity: day
+        dimension:
+          type: time
+          label: Arrive carrier adjustment (combined shipment) date
+      - name: released_to_merchant_time
+        description: >
+          Sweeper-side MIN(released_to_merchant_time) per tracking_id: when the
+          buy-side transaction was released to the merchant. The storage unit is
+          not confirmed to be epoch seconds, so it is not converted and not
+          registered as a time dimension.
+      - name: state
+        description: >
+          WishPost `OrderStateCode` (raw numeric code): 0=ERROR, 1=CREATED,
+          2=INVALID, 3=REJECTED, 4=CANCELLED, 5=REVIEWING, 6=ACCEPTED,
+          7=SHIPPING, 8=COMPLETED, 9=APPLYING_FOR_CANCEL, 10=PRE_PROCESSING,
+          11=DECLARING_CANCEL, 12=COLLECTION_OPTION_PENDING. Source of truth:
+          `documentation/repos/wishpost/wishpost/shared/wishpost_shared.py`
+          (`OrderStateCode`). Do not confuse with the Sweeper `order_state`
+          domain.
+        dimension:
+          type: categorical
+          label: Order state code
+      - name: state_name
+        description: Human-readable `OrderStateCode` label for `state`.
+        dimension:
+          type: categorical
+          label: Order state
+      - name: state_post
+        description: >
+          `OrderStateCode` (raw numeric code) of the combined (post) order.
+        dimension:
+          type: categorical
+          label: Order state code
+      - name: state_post_name
+        description: Human-readable `OrderStateCode` label for `state_post`.
+        dimension:
+          type: categorical
+          label: Order state
+      - name: order_channel
+        description: >
+          Logistics channel id of the first-mile order (dynamic channel id
+          space). Join key to `wishpost.dim_order_channel_cn_mongo` for the full
+          channel taxonomy - that join belongs in a Tableau model, not here.
+        entity:
+          type: foreign
+          name: wp_order_channel
+          description: >
+            One WishPost logistics channel.
+      - name: order_channel_name
+        description: >
+          Human-readable channel label for the documented channel ids (China
+          Post, DLP, DLE, EUB, ... Yanwen Pickup, FBW Warehouse, Special
+          Channel). Ids outside the documented set map to 'Other'.
+        dimension:
+          type: categorical
+          label: Order channel
+      - name: order_channel_post
+        description: Order channel.
+        entity:
+          type: foreign
+          name: wp_order_channel
+          description: >
+            One WishPost logistics channel (combined shipment).
+      - name: order_channel_post_name
+        description: Order channel.
+        dimension:
+          type: categorical
+          label: Order channel
+      - name: parent_channel
+        description: >
+          Parent logistics channel id (same integer id space as
+          `order_channel`).
+        dimension:
+          type: categorical
+          label: Parent channel
+      - name: parent_channel_name
+        description: >
+          Human-readable parent channel label: 6000=Chinapost Base URG,
+          6500=Chinapost Base REG.
+        dimension:
+          type: categorical
+          label: Parent channel
+      - name: parent_channel_post
+        description: Parent channel.
+        dimension:
+          type: categorical
+          label: Parent channel
+      - name: parent_channel_post_name
+        description: Parent channel.
+        dimension:
+          type: categorical
+          label: Parent channel
+      - name: pricing_channel
+        description: >
+          Pricing channel id. Joins
+          `wishpost.dim_wishpost_program_by_pricing_channel` to obtain the
+          delivery program name and rolled-up program type.
+        entity:
+          type: foreign
+          name: wishpost_pricing_channel
+          description: >
+            One WishPost pricing channel. Join key to
+            `wishpost.dim_wishpost_program_by_pricing_channel`.
+      - name: pricing_channel_name
+        description: >
+          Human-readable pricing channel label for the documented pricing
+          channel ids.
+        dimension:
+          type: categorical
+          label: Pricing channel
+      - name: pricing_channel_post
+        description: Pricing channel.
+        entity:
+          type: foreign
+          name: wishpost_pricing_channel
+          description: >
+            One WishPost pricing channel (combined shipment).
+      - name: pricing_channel_post_name
+        description: Pricing channel.
+        dimension:
+          type: categorical
+          label: Pricing channel
+      - name: pay_currency
+        description: Payment currency code of the first-mile order.
+        dimension:
+          type: categorical
+          label: Payment currency
+      - name: pay_currency_name
+        description: >
+          Human-readable payment currency label (USD, EUR, GBP, CAD, AUD, JPY,
+          CNY, ZAR, BRL, INR).
+        dimension:
+          type: categorical
+          label: Payment currency
+      - name: pay_currency_post
+        description: Payment currency.
+        dimension:
+          type: categorical
+          label: Payment currency
+      - name: pay_currency_post_name
+        description: Payment currency.
+        dimension:
+          type: categorical
+          label: Payment currency
+      - name: carrier_pickup_state
+        description: >
+          `Tracking.CarrierPickupState` (raw code): 0=CARRIER_NOT_INFORMED,
+          1=FIRST_MILE_PICKUP_FAILED, 2=LINE_HAUL_PICKUP_FAILED,
+          3=LAST_MILE_PICKUP_FAILED, 10=FIRST_MILE_INFORMED,
+          11=FIRST_MILE_PICKUP_SUCCESS, 20=LINE_HAUL_INFORMED,
+          21=LINE_HAUL_PICKUP_SUCCESS, 30=LAST_MILE_INFORMED,
+          31=LAST_MILE_PICKUP_SUCCESS.
+        dimension:
+          type: categorical
+          label: Carrier pickup state code
+      - name: carrier_pickup_state_name
+        description: Human-readable `Tracking.CarrierPickupState` label.
+        dimension:
+          type: categorical
+          label: Carrier pickup state
+      - name: carrier_pickup_state_post
+        description: Carrier pickup state code.
+        dimension:
+          type: categorical
+          label: Carrier pickup state code
+      - name: carrier_pickup_state_post_name
+        description: Carrier pickup state.
+        dimension:
+          type: categorical
+          label: Carrier pickup state
+      - name: cancel_source
+        description: >
+          `Tracking.CancelSource` (raw code): 1=MERCHANT, 2=CARRIER, 3=OTHER.
+        dimension:
+          type: categorical
+          label: Cancel source code
+      - name: cancel_source_name
+        description: Human-readable `Tracking.CancelSource` label.
+        dimension:
+          type: categorical
+          label: Cancel source
+      - name: cancel_source_post
+        description: Cancel source code.
+        dimension:
+          type: categorical
+          label: Cancel source code
+      - name: cancel_source_post_name
+        description: Cancel source.
+        dimension:
+          type: categorical
+          label: Cancel source
+      - name: cancel_reason
+        description: >
+          OrderCancelReason raw numeric taxonomy (user-facing 401xx-404xx,
+          49999, carrier 5xxxx and other bands).
+        dimension:
+          type: categorical
+          label: Cancel reason code
+      - name: cancel_reason_name
+        description: >
+          Cancel reason group derived from the raw code band: 40000-49999=USER,
+          50000-59999=CARRIER, 60000-69999=ADMIN.
+        dimension:
+          type: categorical
+          label: Cancel reason group
+      - name: cancel_reason_post
+        description: Cancel reason code.
+        dimension:
+          type: categorical
+          label: Cancel reason code
+      - name: cancel_reason_post_name
+        description: Cancel reason group.
+        dimension:
+          type: categorical
+          label: Cancel reason group
+      - name: sensitivity_types
+        description: >
+          JSON-like list of SensitivityType indices applied to the order, e.g.
+          '[0]', '[0,1]', '[0,1,2]'.
+        dimension:
+          type: categorical
+          label: Sensitivity types
+      - name: sensitivity_types_name
+        description: >
+          Sensitivity class: '[0]'=Normal goods, '[0,1]'=Battery goods,
+          '[0,1,2]'=Sensitive goods.
+        dimension:
+          type: categorical
+          label: Sensitivity class
+      - name: warehouse
+        description: >
+          WishPost `WarehouseCode` id (1=WISE_SH, 2=WISE_NJ, 3=SF_DG,
+          4=WISH_SH_TEST, 5=WISE_SZ, ...). Join key to the warehouse dimension
+          in a Tableau model.
+        dimension:
+          type: categorical
+          label: Warehouse
+      - name: warehouse_name
+        description: >
+          Human-readable `WarehouseCode` label for the documented warehouse ids.
+        dimension:
+          type: categorical
+          label: Warehouse
+      - name: actual_weight
+        description: actual weight.
+      - name: actual_weight_post
+        description: actual weight post.
+      - name: weight
+        description: weight.
+      - name: weight_post
+        description: weight post.
+      - name: volumetric_weight
+        description: volumetric weight.
+      - name: volumetric_weight_post
+        description: volumetric weight post.
+      - name: lm_total_weight
+        description: >
+          Total actual weight of the combined shipment the parcel was merged
+          into (`pre.actual_weight` for a standalone parcel).
+      - name: weight_proportion
+        description: >
+          Share of the parcel's actual weight within its combined shipment:
+          `actual_weight / SUM(actual_weight) OVER (PARTITION BY
+          post.tracking_id)`. 1.0 for a parcel that was not combined.
+      - name: gmv
+        description: >
+          Gross merchandise value rolled up per tracking_id from Sweeper
+          `wish.fact_trans_detail`.
+      - name: paid_amount
+        description: >
+          Amount paid by the customer, rolled up per tracking_id from
+          `wish.fact_trans_detail`.
+      - name: refund_amount
+        description: Total refund amount, rolled up per tracking_id.
+      - name: logistics_refund_amount
+        description: Logistics-specific refund amount.
+      - name: discount_amount
+        description: Total discount applied.
+      - name: order_value
+        description: >
+          Net order value: `paid_price - discount_amount`.
+      - name: total_merchant_value
+        description: >
+          Total merchant value: `SUM((merchant_shipping + merchant_price) *
+          quantity)`.
+      - name: max_merchant_value
+        description: >
+          Maximum merchant value (`merchant_shipping + merchant_price`) per
+          order.
+      - name: avg_merchant_value
+        description: >
+          Average merchant value (`merchant_shipping + merchant_price`) per
+          order.
+      - name: wish_transaction_value
+        description: wish transaction value.
+      - name: wish_transaction_value_post
+        description: wish transaction value post.
+      - name: quantity
+        description: Total quantity of items, from `wish.fact_trans_detail`.
+      - name: product_count
+        description: Number of products on the order.
+      - name: product_count_post
+        description: product count post.
+      - name: declared_value
+        description: declared value.
+      - name: declared_value_post
+        description: declared value post.
+      - name: purchase_logistics_fee
+        description: purchase logistics fee.
+      - name: purchase_warehouse_fee
+        description: purchase warehouse fee.
+      - name: purchase_vat_fee
+        description: purchase vat fee.
+      - name: purchase_volumetric_fee
+        description: purchase volumetric fee.
+      - name: purchase_other_fee
+        description: purchase other fee.
+      - name: purchase_large_cargo_fee_post
+        description: >
+          Large-cargo logistics fee allocated to the combined (post) shipment.
+      - name: purchase_logistics_fee_post
+        description: purchase logistics fee post.
+      - name: purchase_warehouse_fee_post
+        description: purchase warehouse fee post.
+      - name: purchase_vat_fee_post
+        description: purchase vat fee post.
+      - name: purchase_volumetric_fee_post
+        description: purchase volumetric fee post.
+      - name: purchase_other_fee_post
+        description: purchase other fee post.
+      - name: sale_logistics_fee
+        description: sale logistics fee.
+      - name: sale_overtime_fine
+        description: sale overtime fine.
+      - name: sale_other_fee
+        description: sale other fee.
+      - name: is_online_payment
+        description: Online payment.
+        dimension:
+          type: categorical
+          label: Online payment
+      - name: is_online_payment_post
+        description: Online payment.
+        dimension:
+          type: categorical
+          label: Online payment
+      - name: is_124_order
+        description: Is 124 order.
+        dimension:
+          type: categorical
+          label: Is 124 order
+      - name: is_fashion
+        description: Is fashion.
+        dimension:
+          type: categorical
+          label: Is fashion
+      - name: is_uni_inv_directship
+        description: Is universal inventory direct ship.
+        dimension:
+          type: categorical
+          label: Is universal inventory direct ship
+      - name: is_ten_day_delivery
+        description: Is ten day delivery.
+        dimension:
+          type: categorical
+          label: Is ten day delivery
+      - name: is_flat_rate_shipping
+        description: Is flat rate shipping.
+        dimension:
+          type: categorical
+          label: Is flat rate shipping
+      - name: flat_rate_applied_order
+        description: Flat rate applied order.
+        dimension:
+          type: categorical
+          label: Flat rate applied order
+      - name: flat_rate_coefficient_numerator
+        description: Numerator of the flat-rate shipping coefficient.
+      - name: flat_rate_coefficient_denominator
+        description: Denominator of the flat-rate shipping
+          coefficient.
+      - name: insured
+        description: Insured.
+        dimension:
+          type: categorical
+          label: Insured
+      - name: insured_post
+        description: Insured.
+        dimension:
+          type: categorical
+          label: Insured
+      - name: registered
+        description: Registered.
+        dimension:
+          type: categorical
+          label: Registered
+      - name: registered_post
+        description: Registered.
+        dimension:
+          type: categorical
+          label: Registered
+      - name: pay_pr
+        description: Payment provider.
+        dimension:
+          type: categorical
+          label: Payment provider
+      - name: pay_pr_post
+        description: Payment provider.
+        dimension:
+          type: categorical
+          label: Payment provider
+      - name: delivery_program
+        description: >
+          Delivery program label for the pricing channel (EPC, A+, Fusion,
+          Smart, Nile, Dropship, FBW, '* Combined' variants, 124, Other) from
+          `wishpost.dim_wishpost_program_by_pricing_channel`.
+        dimension:
+          type: categorical
+          label: Delivery program
+      - name: wishpost_order_source
+        description: >
+          Order source classification: 'non-wish' (non-Wish order or a non-2801
+          channel), '1p' (self-inventory / FBW merchant), '3p' (third-party
+          merchant).
+        dimension:
+          type: categorical
+          label: Order source
+      - name: stage
+        description: >
+          Deprecated constant column - always contains 'Deprecated Column' on
+          Tahoe. It is not a journey phase and must not be read as one.
+        dimension:
+          type: categorical
+          label: Order stage
+      - name: order_recipient_country_short_en
+        description: Recipient country of the order (short English
+          code).
+        entity:
+          type: foreign
+          name: country
+          description: >
+            One destination country (recipient country, short English
+            code).
+      - name: shipping_country
+        description: >
+          Country the parcel is shipped to, from `wish.fact_trans_detail`.
+        entity:
+          type: foreign
+          name: country
+          description: >
+            One destination shipping country.
+      - name: lm_zone
+        description: Last mile zone.
+        dimension:
+          type: categorical
+          label: Last mile zone
+      - name: lm_gateway
+        description: Last mile gateway.
+        dimension:
+          type: categorical
+          label: Last mile gateway
+      - name: cancel_description
+        description: Cancel description.
+        dimension:
+          type: categorical
+          label: Cancel description
+      - name: cancel_description_post
+        description: Cancel description.
+        dimension:
+          type: categorical
+          label: Cancel description
+      - name: has_unity_order
+        description: Has unity order.
+        dimension:
+          type: categorical
+          label: Has unity order
+      - name: cnt_m_transaction_id
+        description: cnt m transaction id.
+      - name: cnt_wish_user_id
+        description: cnt wish user id.
+      - name: cnt_merchant_id
+        description: cnt merchant id.
+      - name: sensitivity_type_merchant
+        description: Merchant sensitivity type.
+        dimension:
+          type: categorical
+          label: Merchant sensitivity type
+      - name: is_last_mile_tracking_expected
+        description: Whether last-mile tracking is expected for this
+          order.
+      - name: product_name
+        description: Product name carried on the order.
+        dimension:
+          type: categorical
+          label: Product name
+      - name: product_name_chinese
+        description: Product name (Chinese).
+        dimension:
+          type: categorical
+          label: Product name (Chinese)
+      - name: pickup_address
+        description: Pickup address.
+        dimension:
+          type: categorical
+          label: Pickup address
+      - name: pickup_address_post
+        description: Pickup address.
+        dimension:
+          type: categorical
+          label: Pickup address
+      - name: receiver_address
+        description: Receiver address.
+        dimension:
+          type: categorical
+          label: Receiver address
+      - name: receiver_address_post
+        description: Receiver address.
+        dimension:
+          type: categorical
+          label: Receiver address
+      - name: receiver_city
+        description: Receiver city.
+        dimension:
+          type: categorical
+          label: Receiver city
+      - name: receiver_city_post
+        description: Receiver city.
+        dimension:
+          type: categorical
+          label: Receiver city
+      - name: receiver_zipcode
+        description: Receiver zipcode.
+        dimension:
+          type: categorical
+          label: Receiver zipcode
+      - name: sender_address
+        description: Sender address.
+        dimension:
+          type: categorical
+          label: Sender address
+      - name: sender_address_post
+        description: Sender address.
+        dimension:
+          type: categorical
+          label: Sender address
+      - name: sender_city
+        description: Sender city.
+        dimension:
+          type: categorical
+          label: Sender city
+      - name: sender_city_post
+        description: Sender city.
+        dimension:
+          type: categorical
+          label: Sender city
+      - name: pickup_location
+        description: Pickup location.
+        dimension:
+          type: categorical
+          label: Pickup location
+      - name: lh_pickup_city
+        description: Line haul pickup city.
+        dimension:
+          type: categorical
+          label: Line haul pickup city
+      - name: lh_pickup_province
+        description: Line haul pickup province.
+        dimension:
+          type: categorical
+          label: Line haul pickup province
+
+    derived_semantics:
+      dimensions:
+        - name: is_delivered
+          type: categorical
+          label: Is delivered
+          description: >
+            'true' when the parcel reached the delivered last-mile
+            checkpoint (`delivered_ts` is not null), otherwise 'false'.
+          expr: "case when delivered_ts is not null then 'true' else 'false' end"
+    metrics:
+
+      # ---- commerce money ---------------------------------------------
+      - name: gmv
+        type: simple
+        label: GMV
+        description: >
+          Gross merchandise value summed over the parcels in scope. Swept per
+          `tracking_id` from `wish.fact_trans_detail`; excludes cancelled
+          order states upstream.
+        agg: sum
+        expr: gmv
+        fill_nulls_with: 0
+      - name: paid_amount
+        type: simple
+        label: Paid amount
+        description: >
+          Amount paid by the customer, summed over the parcels in scope.
+        agg: sum
+        expr: paid_amount
+        fill_nulls_with: 0
+      - name: refund_amount
+        type: simple
+        label: Refund amount
+        description: >
+          Total refund amount summed over the parcels in scope.
+        agg: sum
+        expr: refund_amount
+        fill_nulls_with: 0
+      - name: logistics_refund_amount
+        type: simple
+        label: Logistics refund amount
+        description: >
+          Logistics-specific refund amount summed over the parcels in scope.
+        agg: sum
+        expr: logistics_refund_amount
+        fill_nulls_with: 0
+      - name: discount_amount
+        type: simple
+        label: Discount amount
+        description: >
+          Total discount applied, summed over the parcels in scope.
+        agg: sum
+        expr: discount_amount
+        fill_nulls_with: 0
+      - name: order_value
+        type: simple
+        label: Order value
+        description: >
+          Net order value (`paid_price - discount_amount`) summed over the
+          parcels in scope.
+        agg: sum
+        expr: order_value
+        fill_nulls_with: 0
+      - name: total_merchant_value
+        type: simple
+        label: Total merchant value
+        description: >
+          Total merchant value `SUM((merchant_shipping + merchant_price) *
+          quantity)` summed over the parcels in scope.
+        agg: sum
+        expr: total_merchant_value
+        fill_nulls_with: 0
+      - name: max_merchant_value
+        type: simple
+        label: Max merchant value
+        description: >
+          Maximum merchant value per order. `max` because the sweep already
+          reduced the merchant value to one row per `tracking_id`.
+        agg: max
+        expr: max_merchant_value
+        fill_nulls_with: 0
+      - name: avg_merchant_value
+        type: simple
+        label: Average merchant value
+        description: >
+          Average merchant value per order, as reduced by the Sweeper join.
+        agg: average
+        expr: avg_merchant_value
+        fill_nulls_with: 0
+      - name: wish_transaction_value
+        type: simple
+        label: Wish transaction value
+        description: >
+          Value of the order on the Wish platform, summed over the parcels in
+          scope.
+        agg: sum
+        expr: wish_transaction_value
+        fill_nulls_with: 0
+      - name: quantity
+        type: simple
+        label: Quantity
+        description: >
+          Total quantity of items, summed over the parcels in scope.
+        agg: sum
+        expr: quantity
+        fill_nulls_with: 0
+      - name: product_count
+        type: simple
+        label: Product count
+        description: >
+          Number of products on the order, summed over the parcels in scope.
+        agg: sum
+        expr: product_count
+        fill_nulls_with: 0
+      - name: declared_value
+        type: simple
+        label: Declared value
+        description: >
+          Declared value for customs / insurance, summed over the parcels in
+          scope.
+        agg: sum
+        expr: declared_value
+        fill_nulls_with: 0
+      - name: weight
+        type: simple
+        label: Weight
+        description: >
+          Declared weight (kg), summed over the parcels in scope.
+        agg: sum
+        expr: weight
+        fill_nulls_with: 0
+      - name: actual_weight
+        type: simple
+        label: Actual weight
+        description: >
+          Actual weight before sending (kg), summed over the parcels in scope.
+        agg: sum
+        expr: actual_weight
+        fill_nulls_with: 0
+      - name: volumetric_weight
+        type: simple
+        label: Volumetric weight
+        description: >
+          Volumetric weight computed from the parcel dimensions, summed over the
+          parcels in scope.
+        agg: sum
+        expr: volumetric_weight
+        fill_nulls_with: 0
+      - name: lm_total_weight
+        type: simple
+        label: Combined shipment total weight
+        description: >
+          Total actual weight of the combined shipment the parcel was merged
+          into. Because the same combined shipment is repeated on every
+          parcel it absorbed, this measure double counts within a
+          combined group - prefer `actual_weight` for parcel-level
+          weight analysis.
+        agg: sum
+        expr: lm_total_weight
+        fill_nulls_with: 0
+      - name: avg_weight_proportion
+        type: simple
+        label: Average weight proportion
+        description: >
+          Average share of the combined shipment's weight carried by the parcel
+          (`actual_weight / SUM(actual_weight) OVER (PARTITION BY
+          post.tracking_id)`). 1.0 for a parcel that was not combined.
+        agg: average
+        expr: weight_proportion
+        fill_nulls_with: 0
+      - name: cnt_m_transaction_id
+        type: simple
+        label: Merchant transaction count
+        description: >
+          Count of merchant transaction ids on the parcel, summed over the
+          parcels in scope.
+        agg: sum
+        expr: cnt_m_transaction_id
+        fill_nulls_with: 0
+      - name: cnt_wish_user_id
+        type: simple
+        label: Buyer count
+        description: >
+          Count of Wish buyer ids on the parcel, summed over the parcels in
+          scope.
+        agg: sum
+        expr: cnt_wish_user_id
+        fill_nulls_with: 0
+      - name: cnt_merchant_id
+        type: simple
+        label: Merchant count
+        description: >
+          Count of merchant ids on the parcel, summed over the parcels in scope.
+        agg: sum
+        expr: cnt_merchant_id
+        fill_nulls_with: 0
+      - name: has_unity_order
+        type: simple
+        label: Unity order count
+        description: >
+          Number of parcels that include Unity products (`wish.fact_trans_detail.is_unity_order`), summed over the parcels in scope.
+        agg: sum
+        expr: has_unity_order
+        fill_nulls_with: 0
+
+      # ---- finance fees (sales + purchase) ---------------------------
+      - name: purchase_logistics_fee
+        type: simple
+        label: Purchase logistics fee
+        description: >
+          Logistics fee paid by WishPost (fee type 102) for the first-mile leg,
+          from `wishpost.wishpost_payment_purchase_dump_cn_mongo`.
+        agg: sum
+        expr: purchase_logistics_fee
+        fill_nulls_with: 0
+      - name: purchase_warehouse_fee
+        type: simple
+        label: Purchase warehouse fee
+        description: >
+          Warehouse handling fee paid by WishPost (material ids 108, 135).
+        agg: sum
+        expr: purchase_warehouse_fee
+        fill_nulls_with: 0
+      - name: purchase_vat_fee
+        type: simple
+        label: Purchase VAT fee
+        description: >
+          VAT fee paid by WishPost (material id 126).
+        agg: sum
+        expr: purchase_vat_fee
+        fill_nulls_with: 0
+      - name: purchase_volumetric_fee
+        type: simple
+        label: Purchase volumetric fee
+        description: >
+          Volumetric weight fee paid by WishPost (material id 307, from the
+          offline payment dump).
+        agg: sum
+        expr: purchase_volumetric_fee
+        fill_nulls_with: 0
+      - name: purchase_other_fee
+        type: simple
+        label: Purchase other fee
+        description: >
+          Other purchase fees paid by WishPost.
+        agg: sum
+        expr: purchase_other_fee
+        fill_nulls_with: 0
+      - name: purchase_large_cargo_fee_post
+        type: simple
+        label: Purchase large cargo fee (last mile)
+        description: >
+          Large-cargo logistics fee allocated to the combined (post) shipment,
+          from `wishpost.wishpost_payment_allocation_cn_mongo`.
+        agg: sum
+        expr: purchase_large_cargo_fee_post
+        fill_nulls_with: 0
+      - name: purchase_logistics_fee_post
+        type: simple
+        label: Purchase logistics fee (last mile)
+        description: >
+          Logistics fee allocated to the combined (post) shipment.
+        agg: sum
+        expr: purchase_logistics_fee_post
+        fill_nulls_with: 0
+      - name: purchase_warehouse_fee_post
+        type: simple
+        label: Purchase warehouse fee (last mile)
+        description: >
+          Warehouse fee allocated to the combined (post) shipment.
+        agg: sum
+        expr: purchase_warehouse_fee_post
+        fill_nulls_with: 0
+      - name: purchase_vat_fee_post
+        type: simple
+        label: Purchase VAT fee (last mile)
+        description: >
+          VAT fee allocated to the combined (post) shipment.
+        agg: sum
+        expr: purchase_vat_fee_post
+        fill_nulls_with: 0
+      - name: purchase_volumetric_fee_post
+        type: simple
+        label: Purchase volumetric fee (last mile)
+        description: >
+          Volumetric fee allocated to the combined (post) shipment.
+        agg: sum
+        expr: purchase_volumetric_fee_post
+        fill_nulls_with: 0
+      - name: purchase_other_fee_post
+        type: simple
+        label: Purchase other fee (last mile)
+        description: >
+          Other fees allocated to the combined (post) shipment.
+        agg: sum
+        expr: purchase_other_fee_post
+        fill_nulls_with: 0
+      - name: sale_logistics_fee
+        type: simple
+        label: Sale logistics fee
+        description: >
+          Logistics fee charged to the customer (fee type 102), from
+          `wishpost.wishpost_payment_sales_dump_cn_mongo`.
+        agg: sum
+        expr: sale_logistics_fee
+        fill_nulls_with: 0
+      - name: sale_overtime_fine
+        type: simple
+        label: Sale overtime fine
+        description: >
+          Overtime penalty charged to the customer (fee type 108).
+        agg: sum
+        expr: sale_overtime_fine
+        fill_nulls_with: 0
+      - name: sale_other_fee
+        type: simple
+        label: Sale other fee
+        description: >
+          Other fees charged to the customer (fee type 118).
+        agg: sum
+        expr: sale_other_fee
+        fill_nulls_with: 0
+
+      # ---- flat rate coefficients ------------------------------------
+      - name: flat_rate_coefficient_numerator
+        type: simple
+        label: Flat rate coefficient numerator
+        description: >
+          Numerator of the flat-rate shipping coefficient, summed over the
+          parcels in scope.
+        agg: sum
+        expr: flat_rate_coefficient_numerator
+        fill_nulls_with: 0
+      - name: flat_rate_coefficient_denominator
+        type: simple
+        label: Flat rate coefficient denominator
+        description: >
+          Denominator of the flat-rate shipping coefficient, summed over the
+          parcels in scope.
+        agg: sum
+        expr: flat_rate_coefficient_denominator
+        fill_nulls_with: 0
+
+      # ---- counts -----------------------------------------------------
+      - name: order_rows
+        type: simple
+        label: Parcel rows
+        description: >
+          Number of rows (parcels) in scope. Use this for row-level counts such
+          as the documented `COUNT(*)`; use `parcels` for the distinct
+          `tracking_id` count.
+        agg: count
+        expr: 1
+        fill_nulls_with: 0
+      - name: parcels
+        type: simple
+        label: Parcels
+        description: >
+          Distinct first-mile WishPost parcels (`tracking_id`) in scope.
+        agg: count_distinct
+        expr: tracking_id
+        fill_nulls_with: 0
+      - name: orders
+        type: simple
+        label: Orders
+        description: >
+          Distinct WishPost logistics orders (`id`) in scope.
+        agg: count_distinct
+        expr: id
+        fill_nulls_with: 0
+      - name: buyers
+        type: simple
+        label: Buyers
+        description: >
+          Distinct Wish buyers (`wish_user_id`) in scope.
+        agg: count_distinct
+        expr: wish_user_id
+        fill_nulls_with: 0
+      - name: merchants
+        type: simple
+        label: Merchants
+        description: >
+          Distinct Wish merchants (`merchant_id`) in scope.
+        agg: count_distinct
+        expr: merchant_id
+        fill_nulls_with: 0
+      - name: last_mile_parcels
+        type: simple
+        label: Last mile shipments
+        description: >
+          Distinct combined (post) shipments (`tracking_id_post`) in scope. NULL
+          for standalone parcels, which were never combined.
+        agg: count_distinct
+        expr: tracking_id_post
+        fill_nulls_with: 0
+      - name: delivered_parcels
+        type: simple
+        label: Delivered parcels
+        description: >
+          Number of parcels that reached the delivered last-mile checkpoint
+          (`delivered_ts` is not null). Matches the documented
+          `SUM(CASE WHEN delivered_ts IS NOT NULL THEN 1 ELSE 0 END)`.
+        agg: count
+        expr: 1
+        fill_nulls_with: 0
+        filter: "{{ Dimension('wp_order_full_cycle_day__is_delivered') }} = 'true'"
+
+      # ---- derived ----------------------------------------------------
+      - name: logistics_profit
+        type: derived
+        label: Logistics profit
+        description: >
+          The documented logistics profit formula: `sale_logistics_fee -
+          purchase_logistics_fee`. Covers the first-mile leg only; the
+          last-mile allocated purchase cost is reported separately as
+          `total_purchase_fee_post`. Can be negative (losses).
+        expr: sale_logistics_fee - purchase_logistics_fee
+        input_metrics:
+          - name: sale_logistics_fee
+          - name: purchase_logistics_fee
+      - name: total_sale_fee
+        type: derived
+        label: Total sale fee
+        description: >
+          Everything charged to the customer: logistics fee + overtime fine +
+          other sale fees. Can be negative where fees are refunded.
+        expr: sale_logistics_fee + sale_overtime_fine + sale_other_fee
+        input_metrics:
+          - name: sale_logistics_fee
+          - name: sale_overtime_fine
+          - name: sale_other_fee
+      - name: total_purchase_fee
+        type: derived
+        label: Total purchase fee
+        description: >
+          First-mile cost paid by WishPost: logistics + warehouse + VAT +
+          volumetric + other purchase fees. Can be negative where
+          purchase amounts are credited back.
+        expr: purchase_logistics_fee + purchase_warehouse_fee + purchase_vat_fee + purchase_volumetric_fee + purchase_other_fee
+        input_metrics:
+          - name: purchase_logistics_fee
+          - name: purchase_warehouse_fee
+          - name: purchase_vat_fee
+          - name: purchase_volumetric_fee
+          - name: purchase_other_fee
+      - name: total_purchase_fee_post
+        type: derived
+        label: Total purchase fee (last mile)
+        description: >
+          Last-mile cost allocated to the combined shipment: large cargo +
+          logistics + warehouse + VAT + volumetric + other allocated
+          purchase fees.
+        expr: purchase_large_cargo_fee_post + purchase_logistics_fee_post + purchase_warehouse_fee_post + purchase_vat_fee_post + purchase_volumetric_fee_post + purchase_other_fee_post
+        input_metrics:
+          - name: purchase_large_cargo_fee_post
+          - name: purchase_logistics_fee_post
+          - name: purchase_warehouse_fee_post
+          - name: purchase_vat_fee_post
+          - name: purchase_volumetric_fee_post
+          - name: purchase_other_fee_post
+      - name: total_profit
+        type: derived
+        label: Total profit
+        description: >
+          First-mile P&L: total sale fees minus total purchase fees. Flattened
+          from the simple fee metrics so no derived metric depends on
+          another derived metric. Excludes the last-mile allocated
+          purchase cost (`total_purchase_fee_post`). Can be negative
+          (losses).
+        expr: sale_logistics_fee + sale_overtime_fine + sale_other_fee - purchase_logistics_fee - purchase_warehouse_fee - purchase_vat_fee - purchase_volumetric_fee - purchase_other_fee
+        input_metrics:
+          - name: sale_logistics_fee
+          - name: sale_overtime_fine
+          - name: sale_other_fee
+          - name: purchase_logistics_fee
+          - name: purchase_warehouse_fee
+          - name: purchase_vat_fee
+          - name: purchase_volumetric_fee
+          - name: purchase_other_fee
+      - name: gmv_per_parcel
+        type: derived
+        label: GMV per parcel
+        description: >
+          GMV divided by the number of distinct parcels in scope. NULL when
+          there are no parcels in the selection.
+        expr: gmv / nullif(parcels, 0)
+        input_metrics:
+          - name: gmv
+          - name: parcels
+      - name: flat_rate_coefficient
+        type: derived
+        label: Flat rate coefficient
+        description: >
+          Flat-rate shipping coefficient: numerator divided by denominator.
+          NULL when the denominator is zero.
+        expr: flat_rate_coefficient_numerator / nullif(flat_rate_coefficient_denominator, 0)
+        input_metrics:
+          - name: flat_rate_coefficient_numerator
+          - name: flat_rate_coefficient_denominator
+
+      # ---- ratio ------------------------------------------------------
+      - name: profit_margin
+        type: ratio
+        label: Profit margin
+        description: >
+          First-mile profit divided by total sale fees (0.2 = 20% margin).
+          Derived from the simple fee metrics of the same model; inherits
+          the snapshot caveat of its inputs - filter to a single `dt`
+          partition for a point-in-time number.
+        numerator: total_profit
+        denominator: total_sale_fee
+      - name: delivery_rate
+        type: ratio
+        label: Delivery rate
+        description: >
+          Share of parcels in scope that reached the delivered last-mile
+          checkpoint. Matches the documented
+          `SUM(CASE WHEN delivered_ts IS NOT NULL THEN 1 ELSE 0 END) *
+          100.0 / COUNT(*)` (as a fraction, not a percentage).
+        numerator: delivered_parcels
+        denominator: parcels

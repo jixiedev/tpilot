@@ -75,6 +75,46 @@ def test_layer1_never_reoffloads_what_the_reader_recovered(tmp_path: Path) -> No
     assert compressor.layer1_offload_tool_results(messages) == []
 
 
+def test_layer1_skips_tools_registered_with_offload_false(tmp_path: Path) -> None:
+    """``register_tool(offload=False)`` keeps a tool's result in context at any size."""
+    from langchain_core.tools import tool
+
+    from tools.registry import never_offload_tool_names, register_tool
+
+    @register_tool(offload=False)
+    @tool
+    def _keep_me_schema_probe() -> str:
+        """Test-only tool."""
+        return ""
+
+    assert "_keep_me_schema_probe" in never_offload_tool_names()
+    cfg = _config(tmp_path)
+    compressor = ContextCompressor(config=cfg, store=OffloadStore(cfg.offload_dir))
+    big = "column description " * 80
+    messages = [
+        ToolMessage(content=big, tool_call_id="c1", name="_keep_me_schema_probe", id="tm-1"),
+    ]
+    assert compressor.layer1_offload_tool_results(messages) == []
+
+
+def test_schema_and_catalog_tools_are_never_offloaded() -> None:
+    import memory.tools  # noqa: F401
+    import tools.data.hive  # noqa: F401
+    import tools.data.metrics  # noqa: F401
+    import tools.data.trino  # noqa: F401
+    import tools.rag.dbt_models  # noqa: F401
+    from tools.registry import never_offload_tool_names
+
+    assert {
+        "trino_desc_table",
+        "hive_desc_table",
+        "search_metric_catalog",
+        "fetch_related_models",
+        "read_offloaded_file",
+    } <= never_offload_tool_names()
+    assert "trino_run_query" not in never_offload_tool_names()
+
+
 def test_layer2_evicts_write_tool_args(tmp_path: Path) -> None:
     cfg = _config(tmp_path)
     compressor = ContextCompressor(config=cfg, store=OffloadStore(cfg.offload_dir))

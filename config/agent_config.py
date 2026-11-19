@@ -697,7 +697,44 @@ class WarehouseAgentConfig(ReactAgentConfig):
         return out  # type: ignore[return-value]
 
 
+@dataclass(frozen=True, init=False)
+class ModelSelectionAgentConfig(ReactAgentConfig):
+    """Eval-only model selection agent: ReAct settings plus the retrieval arm.
+
+    ``retrieval`` picks which retrieval tools a run gets (see
+    :data:`RETRIEVAL_ARMS`); the eval passes it as a run override per arm.
+    ``rag_collection`` pins ``fetch_related_models`` to one Qdrant collection.
+    """
+
+    #: Retrieval arm -> tool names the agent may use.
+    RETRIEVAL_ARMS: ClassVar[dict[str, tuple[str, ...]]] = {
+        "rag": ("fetch_related_models",),
+        "catalog": ("search_metric_catalog", "find_models_metrics"),
+        "hybrid": ("search_metric_catalog", "find_models_metrics", "fetch_related_models"),
+    }
+    DEFAULT_RETRIEVAL: ClassVar[str] = "hybrid"
+
+    @classmethod
+    def resolve_run_context(
+        cls,
+        raw: Mapping[str, Any],
+        overrides: Mapping[str, Any] | None = None,
+    ) -> ReactRunContext:
+        out = dict(super().resolve_run_context(raw, overrides))
+        merged = {**cls._without_nested_react(raw)}
+        merged.update(cls._overlay(overrides, frozenset({"retrieval", "rag_collection"})))
+        retrieval = str(merged.get("retrieval") or cls.DEFAULT_RETRIEVAL).strip().lower()
+        if retrieval not in cls.RETRIEVAL_ARMS:
+            known = ", ".join(cls.RETRIEVAL_ARMS)
+            raise ValueError(f"unknown retrieval arm {retrieval!r}; choose one of: {known}")
+        out["retrieval"] = retrieval
+        # Qdrant collection for `fetch_related_models`; "" keeps the tool's own layers.
+        out["rag_collection"] = str(merged.get("rag_collection") or "").strip()
+        return out  # type: ignore[return-value]
+
+
 AGENT_CONFIG_TYPES: dict[str, type[AgentConfig]] = {
+    "model_selection": ModelSelectionAgentConfig,
     "databot": DatabotAgentConfig,
     "lead": LeadAgentConfig,
     "knowledge": ReactAgentConfig,

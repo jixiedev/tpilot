@@ -305,7 +305,7 @@ def dict_to_table_card(card: dict[str, Any]) -> TableCard:
     )
 
 
-@register_tool
+@register_tool(offload=False)
 @tool(description=_tool_description())
 def fetch_related_models(
     query: str,
@@ -331,6 +331,29 @@ def fetch_related_models(
     if profile is None:
         known = ", ".join(sorted(_LAYER_BY_NAME))
         raise ValueError(f"Unknown semantic layer {layer!r}; choose one of: {known}")
+    return search_and_stage_models(
+        cleaned,
+        profile["collection"],
+        limit=limit,
+        chunk_type=chunk_type,
+        runtime=runtime,
+    )
+
+
+def search_and_stage_models(
+    query: str,
+    collection: str,
+    *,
+    limit: int = 5,
+    chunk_type: str = "any",
+    runtime: ToolRuntime = None,  # type: ignore[assignment]
+) -> Command:
+    """Body of ``fetch_related_models`` for an explicit Qdrant collection.
+
+    Evals use it to point the search at another collection (for example
+    ``metric_catalog_models``) without adding a layer the production agents see.
+    """
+    cleaned = (query or "").strip()
     chunk_filter = _normalize_chunk_type(chunk_type)
     limit = max(1, min(int(limit), 20))
 
@@ -339,7 +362,7 @@ def fetch_related_models(
     fetch_limit = max(limit * 6, 20)
     query_filter = _payload_filter(chunk_filter)
     hits = qdrant_search(
-        profile["collection"],
+        collection,
         cleaned,
         limit=fetch_limit,
         query_filter=query_filter,

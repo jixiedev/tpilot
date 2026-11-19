@@ -31,7 +31,7 @@ def hive_list_tables(database: str) -> list[str]:
     return get_client().get_all_tables(database)
 
 
-@register_tool
+@register_tool(offload=False)
 @tool
 @alternative_tool("trino_desc_table")
 def hive_desc_table(database: str, table: str):

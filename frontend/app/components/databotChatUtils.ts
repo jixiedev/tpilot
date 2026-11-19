@@ -70,6 +70,8 @@ export function isHiddenAssistantNarration(content: string): boolean {
   if (
     lower.includes("invoke_knowledge") ||
     lower.includes("fetch_related_models") ||
+    lower.includes("find_models_metrics") ||
+    lower.includes("search_metric_catalog") ||
     lower.includes("commit_cards") ||
     lower.includes("add_card_to_state") ||
     lower.includes("mark_cards_selected") ||

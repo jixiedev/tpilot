@@ -40,6 +40,7 @@ Related docs:
 | `evals/case_base.py` | `BaseCase`, case-file loading, `score_sequence`, `run_case_aggregates`, group aliases |
 | `evals/tool_case.py` | `ToolCallCase`, `CaseResult`, `CaseAggregate`, `run_cases`, output formatting |
 | `evals/routing_case.py` | `LeadRoutingCase`, `RoutingStub`, `extract_lead_outcome`, `run_routing_cases` |
+| `evals/selection_case.py` | `ModelSelectionCase`, `run_selection_cases`, per-arm comparison report and `--out` JSON |
 | `evals/answer_match.py` | `score_answer`, `extract_json_object`, `values_equal` |
 | `evals/listeners.py` | `EvalReactListener` (records tool calls and reason steps), `CaseScore` |
 | `evals/cases/*.json` | Case groups: `databot`, `general`, `knowledge`, `routing`, `tahoe` |
@@ -210,6 +211,7 @@ Specialist names are the registered agents that are not front agents (`warehouse
 | `databot` (default) | `ToolCallCase` | `databot` |
 | `knowledge` | `ToolCallCase` | `knowledge` `general` `tahoe` |
 | `lead` | `LeadRoutingCase` | `routing` |
+| `model_selection` | `ModelSelectionCase` | `model_selection` |
 
 Current groups:
 
@@ -253,7 +255,9 @@ Without `uv`, use the project interpreter: `.venv/bin/python -m evals ...`.
 
 | Flag | Meaning |
 |------|---------|
-| `-a` / `--agent` | `databot` \| `knowledge` \| `lead` (default `databot`) |
+| `-a` / `--agent` | `databot` \| `knowledge` \| `lead` \| `model_selection` (default `databot`) |
+| `--arms` | `model_selection` only: retrieval arms to compare (default `rag catalog hybrid`) |
+| `--out` | `model_selection` only: write every run and the per-arm summary to a JSON file |
 | `-g` / `--groups` | One or more group keys (`cases/<group>.json`); default depends on the agent |
 | `--cases-dir` | Directory of case files (default `evals/cases`) |
 | `--fail-under` | Exit `1` when the suite average is below this value |
@@ -287,6 +291,69 @@ Other exceptions (for example an LLM or backend error during a turn) propagate a
 uv run python -m evals --agent lead --fail-under 0.9
 uv run python -m evals --agent knowledge --fail-under 0.7
 ```
+
+## Model selection: comparing retrieval tools
+
+`--agent model_selection` measures how well each retrieval setup leads an LLM to
+the right dbt model. The `model_selection` agent
+([`agent/specialists/model_selection`](../agent/specialists/model_selection/model_selection_agent.py),
+`config/agents/model_selection.toml`) only chooses a model: it has no SQL,
+schema or query tools, and ends with a JSON choice
+(`model`, `alternatives`, `root_id`, `member_id`, `reason`). It is a front agent,
+so the lead never delegates to it.
+
+Every case runs once per **arm** (and per LLM), each with only that arm's tools
+and workflow prompt:
+
+| Arm | Tools | Workflow |
+|-----|-------|----------|
+| `rag` | `fetch_related_models` | vector search over the Qdrant dbt index |
+| `catalog` | `search_metric_catalog`, `find_models_metrics` | metric root -> member -> assigned models; `null` when the catalog has nothing |
+| `hybrid` | all three | catalog first, `fetch_related_models` as fallback (the databot order; warehouse uses the catalog only) |
+
+Case fields (`evals/cases/model_selection.json`):
+
+| Field | Required | Meaning |
+|-------|----------|---------|
+| `name`, `query`, `models` | as above | |
+| `expected_models` | yes | dbt model names a reviewer accepts (string or list; `db.` prefix and case ignored); `[]` means the right answer is `"model": null` |
+| `kind` | no | `metric` (default), `lookalike` (a similar-sounding model is wrong), `entity` (columns or entities, not a metric) or `out_of_corpus` (no model answers; `expected_models: []`); the report breaks selection down by kind |
+| `max_tool_calls` | no | economy budget, default 4 |
+| `notes` | no | why the gold models were picked |
+
+Scores per run, each `0`-`1`, total is their mean:
+
+| Dimension | Rule |
+|-----------|------|
+| `selection` | the chosen model is in `expected_models` |
+| `recall` | an expected model was among the staged candidates, so a miss is a retrieval miss (recall 0) or a choice miss (recall 1) |
+| `economy` | tool calls within `max_tool_calls`, `1 - over / budget` above it |
+
+After the per-run lines the CLI prints a case x arm matrix of chosen models
+(`*` = accepted) and a per-arm table: selection, recall, economy, mean tool
+calls, mean staged candidates, mean seconds and average total.
+
+```bash
+uv run python -m evals -a model_selection
+uv run python -m evals -a model_selection --arms rag hybrid --out /tmp/selection.json
+```
+
+`expected_models: []` marks a question no model answers: the run is correct
+only when the agent replies `"model": null`. Each finished run is appended to
+`<out>.partial.jsonl`, and a crashed run is recorded as a miss with its error.
+
+Report and re-score (stored replies against the current cases and parser, no
+new LLM calls):
+
+```bash
+uv run python -m evals.selection_report --rescore evals/results/model_selection_69_*.json
+```
+
+Results and analysis of the 69-case run: [`MODEL_SELECTION_EVAL.md`](MODEL_SELECTION_EVAL.md).
+
+The `rag` and `hybrid` arms need Qdrant and the embedding models; the
+`catalog` arm only reads `tools/data/lib`. A gold model missing from the Qdrant
+index can never be found by `rag`: check `recall` before blaming the choice.
 
 ## Adding cases
 

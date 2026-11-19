@@ -1,0 +1,520 @@
+version: 2
+
+models:
+  - name: finance_monthly_profits_by_combine_ratio_1y
+    description: >
+      WishPost logistics profit-and-loss (P&L) rollup for the
+      warehouse-combination programs only — EPC, A+, Fusion and Smart
+      (Dropship and FBW are filtered out upstream; for overall P&L
+      across all programs use the sibling table
+      wishpost.finance_monthly_profits_1y). Daily snapshot grain at
+      (dt, date_type, date_value, delivery_program, country, region,
+      is_124, combined_orphaned_reason, combine_ratio). Produced by the
+      WishpostOverallFinancePNL Airflow DAG (task
+      FinanceMonthlyProfitsByCombineTask).
+
+      Each dt partition is a full rolling ~1-year rebuild of the
+      combine-ratio P&L, so dt is the "as of" snapshot date and
+      date_value is the business date inside that window. date_type is
+      hard-coded to 'purchase_date' in this table — date_value is the
+      Asia/Shanghai calendar day of the post-combination purchase /
+      payment, and there is no sales_date slice (unlike
+      finance_monthly_profits_1y).
+
+      sales_amount is the aggregated merchant / Wishpost sales revenue
+      (logistics_fee + overtime_fine + sensitive_fee + other_fees) for
+      the matching pre-tracking IDs. purchase_amount is the aggregated
+      carrier cost (SUM of pre-combination purchase amount + MAX of
+      post-combination purchase amount per post tracking, so post costs
+      are not double-counted across combined pre parcels).
+      pre_tracking_id_cnt counts parcels before combination and
+      post_tracking_id_cnt counts parcels after combination;
+      combine_ratio buckets the number of pre trackings per
+      post_tracking_id ('1'..'5', '6+', 'Other'), and
+      combined_orphaned_reason splits multi-parcel combines ('>1') from
+      orphaned single parcels ('Sensitive', 'Overtime', 'Other').
+
+      Amounts are in the upstream fee currency (typically CNY); the
+      CNY -> USD FX conversion is applied in Tableau, not in this table.
+      Used for combine-ratio profitability, orphan-reason analysis,
+      geographic P&L by country/region for the EPC family, and
+      124-vs-non-124 channel cost comparison. Tableau models under
+      semantic_layer/models/tableau/ own any dimension joins; this
+      wrapper performs no joins. Source:
+      wishpost.finance_monthly_profits_by_combine_ratio_1y.
+    config:
+      meta:
+        owner: jixie
+        hive_table: wishpost.finance_monthly_profits_by_combine_ratio_1y
+        dag: WishpostOverallFinancePNL
+        task: FinanceMonthlyProfitsByCombineTask
+    semantic_model:
+      enabled: true
+      name: finance_monthly_profits_by_combine_ratio_1y
+      config:
+        meta:
+          usage: >
+            dt is a Hive partition AND a rolling snapshot: every dt
+            partition holds a full ~1-year recompute of the combine-ratio
+            P&L, so always filter dt for partition pruning and use the
+            latest partition for "current" numbers. The table stores a
+            single recognition perspective — date_type is always
+            'purchase_date' — so an unfiltered sum of sales_amount or
+            purchase_amount is not double counted the way it is on the
+            sibling finance_monthly_profits_1y. For business-date cohort
+            analysis use business_date (the date_value business date
+            inside the window) — but each business date repeats in every
+            later dt partition, so restrict dt to one partition before
+            aggregating on business_date. `time` is the ETL insert clock
+            (unix seconds, constant per partition load), never a P&L
+            filter; use it only for load-freshness / lag checks.
+    agg_time_dimension: dt
+
+    columns:
+      - name: combine_profit_cell_id
+        description: >
+          Surrogate primary key — concat(dt, '|', date_type, '|',
+          date_value, '|', delivery_program, '|', country, '|', region,
+          '|', is_124, '|', combined_orphaned_reason, '|',
+          combine_ratio). Proxies the natural (dt, date_type,
+          date_value, delivery_program, country, region, is_124,
+          combined_orphaned_reason, combine_ratio) composite grain for
+          MetricFlow primary entity purposes.
+        data_tests:
+          - not_null
+          - unique
+        entity:
+          type: primary
+          name: wp_finance_combine_profit
+          description: >
+            One WishPost combine-ratio P&L cell (snapshot date x
+            recognition perspective x business date x delivery program x
+            country x region x 124 channel x orphan reason x combine
+            ratio).
+
+      - name: dt
+        description: >
+          Hive partition / daily snapshot date (varchar YYYY-MM-DD,
+          Asia/Shanghai business date = execution_date - 1 day). Cast to
+          date here and used as the default metric time dimension. Every
+          partition holds a full rolling ~1-year rebuild of the
+          combine-ratio P&L, so dt is the "as of" date, not a business
+          date. Always filter dt for partition pruning.
+        is_partition: true
+        granularity: day
+        dimension:
+          type: time
+          label: Snapshot date
+
+      - name: business_date
+        description: >
+          Cast of date_value to date. The business date inside the
+          rolling window — the Asia/Shanghai calendar day of the
+          post-combination purchase / payment. Secondary time dimension;
+          each business date repeats in every later dt partition, so
+          restrict dt to one partition before aggregating on it.
+        granularity: day
+        dimension:
+          type: time
+          label: Business date
+
+      - name: date_value
+        description: >
+          Business date in YYYY-MM-DD format (raw varchar). Equals
+          purchase_date = max(post_min_payment_date) per pre/post
+          tracking group. Meaning is always 'purchase_date' in this
+          table — the sibling finance_monthly_profits_1y also emits
+          'sales_date' rows, this one does not.
+        dimension:
+          type: categorical
+          label: Business date (raw)
+
+      - name: date_type
+        description: >
+          Business-date role label for date_value. Possible values:
+          'purchase_date' only (hard-coded in the ETL) — date_value is
+          the post-combination payment date, never a sale date.
+        dimension:
+          type: categorical
+          label: Recognition date type
+
+      - name: delivery_program
+        description: >
+          Pre-combination Wishpost delivery program, taken from
+          pre_business_type / sales business_type via
+          dim_wishpost_program_by_pricing_channel. Possible values in
+          this table: 'EPC', 'A+', 'Fusion', 'Smart'. Dropship and FBW
+          are filtered out upstream.
+        dimension:
+          type: categorical
+          label: Delivery program
+
+      - name: delivery_program_name
+        description: >
+          Human-readable label derived from delivery_program ('EPC' ->
+          'EPC (Express Parcel China)', 'A+' -> 'A+ service', 'Fusion' ->
+          'Fusion service', 'Smart' -> 'Smart delivery').
+        dimension:
+          type: categorical
+          label: Delivery program label
+
+      - name: country
+        description: >
+          Destination country after standardization —
+          COALESCE(country_code_mapping.country_code_short, raw_country).
+          Open set of ISO 3166-1 alpha-2-style codes (e.g. 'US', 'DE',
+          'GB', 'FR', 'BR', 'MX', 'AU', 'JP', 'CN'). Join key to
+          wishpost.dim_region on the same short code, which is also the
+          upstream path that produced region.
+        entity:
+          type: foreign
+          name: country
+          description: >
+            Join key to the country entity of wishpost.dim_region (and
+            to any other country dimension keyed on the same short code).
+
+      - name: region
+        description: >
+          Destination region from wishpost.dim_region.region, joined on
+          country. Closed stored set ('European States', 'Americas',
+          'ROW', 'Other'), with 'Other' as the coalesce sentinel when
+          the country is not mapped. This is the WishPost finance
+          taxonomy — NOT the EU/AM/AP taxonomy of
+          core_data.dim_region_country and not the XPR remap.
+        dimension:
+          type: categorical
+          label: Region (stored)
+
+      - name: region_name
+        description: >
+          Human-friendly remap of region ('European States' -> 'Europe',
+          'Americas' -> 'Americas', 'ROW' -> 'Rest of World', 'Other' ->
+          'Other'), matching the region_name convention on
+          wishpost.dim_region. Note that XPR further collapses 'ROW' and
+          'Other' into a single analytical ROW; use the XPR formula
+          directly when that behavior is required.
+        dimension:
+          type: categorical
+          label: Region
+
+      - name: is_124
+        description: >
+          124 (large cargo) channel indicator. Possible values: '124'
+          (the post order_channel is on wishpost_124_channel_list) and
+          'non-124' (no match on that list). 124 rows additionally
+          require post_large_cargo_fee > 0 and post_logistics_fee > 0.
+        dimension:
+          type: categorical
+          label: 124 channel flag
+
+      - name: is_124_name
+        description: >
+          Human-readable label derived from is_124 ('124' -> '124
+          channel', 'non-124' -> 'Non-124 channel').
+        dimension:
+          type: categorical
+          label: 124 channel label
+
+      - name: combine_ratio
+        description: >
+          Bucket of pre-combination tracking IDs per post_tracking_id
+          (post_pid_cnt). Possible values: '1', '2', '3', '4', '5' when
+          1 <= post_pid_cnt <= 5; '6+' when post_pid_cnt >= 6; 'Other'
+          when post_pid_cnt < 1 (unexpected edge case).
+        dimension:
+          type: categorical
+          label: Combine ratio
+
+      - name: combine_ratio_name
+        description: >
+          Human-readable label derived from combine_ratio ('1' -> '1
+          parcel per shipment' ... '5' -> '5 parcels per shipment', '6+'
+          -> '6+ parcels per shipment', 'Other' -> 'Other / unknown').
+        dimension:
+          type: categorical
+          label: Combine ratio label
+
+      - name: combined_orphaned_reason
+        description: >
+          Combined vs orphaned-single classification. Possible values:
+          '>1' = multi-parcel combine (post_pid_cnt > 1; sensitive and
+          overtime are not split further for combines), 'Sensitive' =
+          single parcel with sensitivity_types LIKE '%2%',
+          'Overtime' = single parcel, not sensitive, warehouse arrival
+          more than 7 days after mid release, 'Other' = single parcel
+          neither sensitive nor overtime.
+        dimension:
+          type: categorical
+          label: Combined / orphaned reason
+
+      - name: combined_orphaned_reason_name
+        description: >
+          Human-readable label derived from combined_orphaned_reason
+          ('>1' -> 'Multi-parcel combine', 'Sensitive' -> 'Sensitive
+          goods (single parcel)', 'Overtime' -> 'Warehouse arrival
+          overtime (single parcel)', 'Other' -> 'Other single parcel').
+        dimension:
+          type: categorical
+          label: Combined / orphaned reason label
+
+      - name: time
+        description: >
+          Unix epoch seconds (bigint) when the row was inserted —
+          `unix_timestamp()` on the final INSERT, so constant per
+          partition load. NOT a business event time: never filter P&L by
+          it. Useful only for load freshness / ETL lag analysis
+          (FROM_UNIXTIME(time)).
+        dimension:
+          type: categorical
+          label: Record create unix time
+
+      - name: record_ts
+        description: >
+          Timestamp converted from `time`. Not a MetricFlow time
+          dimension — the project time spine is day.
+        dimension:
+          type: categorical
+          label: Record create timestamp
+
+      - name: record_dt
+        description: >
+          Calendar day the record was created (cast from `time`). Time
+          dimension for ETL lag / load freshness audits only — it is not
+          a P&L business date.
+        granularity: day
+        dimension:
+          type: time
+          label: Record create day
+
+      - name: sales_amount
+        description: >
+          Aggregated merchant / Wishpost sales revenue for the matching
+          pre-tracking IDs — logistics_fee + overtime_fine +
+          sensitive_fee + other_fees at tracking grain from
+          overall_finance_mid_mapping_sales_1y, summed through the
+          combine-ratio aggregation. In the upstream fee currency
+          (typically CNY; Tableau applies the FX conversion). Measure
+          column: it is referenced by metrics only.
+
+      - name: purchase_amount
+        description: >
+          Aggregated purchase / carrier cost — SUM(pre_purchase_amount) +
+          SUM(post_purchase_amount) at the post-tracking group, where
+          the post amount is taken with MAX(post_purchase_amount) so
+          post costs are not double-counted across combined pre parcels.
+          In the upstream fee currency (typically CNY). Measure column:
+          it is referenced by metrics only.
+
+      - name: pre_tracking_id_cnt
+        description: >
+          Count of pre-combination tracking IDs (parcels) represented in
+          the aggregate — MAX(post_pid_cnt) per post-tracking group,
+          then summed across post trackings. A count, not an ID list.
+          Measure column: it is referenced by metrics only.
+
+      - name: post_tracking_id_cnt
+        description: >
+          Count of distinct post-combination tracking IDs (combined
+          parcels) in the aggregate. A count, not an ID list. Measure
+          column: it is referenced by metrics only.
+
+    metrics:
+      - name: total_sales
+        type: simple
+        label: Total sales (source fee currency)
+        description: >
+          Sum of sales_amount over the selected combine-ratio P&L cells.
+          Source: finance_monthly_profits_by_combine_ratio_1y.sales_amount
+          (logistics_fee + overtime_fine + sensitive_fee +
+          other_fees). Time grain: dt (daily snapshot). Amounts are in
+          the upstream fee currency (typically CNY), not USD — do not
+          compare directly with the USD amounts on the sibling table
+          finance_monthly_profits_1y without applying the same FX
+          conversion.
+        agg: sum
+        expr: sales_amount
+        fill_nulls_with: 0
+
+      - name: total_purchase
+        type: simple
+        label: Total purchase (source fee currency)
+        description: >
+          Sum of purchase_amount (pre + post combination carrier cost)
+          over the selected combine-ratio P&L cells. Time grain: dt
+          (daily snapshot). Source fee currency (typically CNY), not
+          USD.
+        agg: sum
+        expr: purchase_amount
+        fill_nulls_with: 0
+
+      - name: total_pre_tracking
+        type: simple
+        label: Pre-combination parcels
+        description: >
+          Sum of pre_tracking_id_cnt — parcels before logistics
+          combination — over the selected combine-ratio P&L cells.
+        agg: sum
+        expr: pre_tracking_id_cnt
+        fill_nulls_with: 0
+
+      - name: total_post_tracking
+        type: simple
+        label: Post-combination parcels
+        description: >
+          Sum of post_tracking_id_cnt — combined parcels after logistics
+          processing — over the selected combine-ratio P&L cells.
+        agg: sum
+        expr: post_tracking_id_cnt
+        fill_nulls_with: 0
+
+      - name: avg_sales
+        type: simple
+        label: Average sales amount (source fee currency)
+        description: >
+          Average sales_amount per combine-ratio P&L cell.
+        agg: average
+        expr: sales_amount
+
+      - name: avg_purchase
+        type: simple
+        label: Average purchase amount (source fee currency)
+        description: >
+          Average purchase_amount per combine-ratio P&L cell.
+        agg: average
+        expr: purchase_amount
+
+      - name: avg_profit
+        type: simple
+        label: Average profit per cell (source fee currency)
+        description: >
+          Average of (sales_amount - purchase_amount) per combine-ratio
+          P&L cell. Can be negative (losses). Source fee currency
+          (typically CNY).
+        agg: average
+        expr: sales_amount - purchase_amount
+
+      - name: record_count
+        type: simple
+        label: Combine-ratio P&L cell rows
+        description: >
+          Row count at the (dt, date_type, date_value,
+          delivery_program, country, region, is_124,
+          combined_orphaned_reason, combine_ratio) grain. Use as a
+          denominator for share-of-cells reporting.
+        agg: count
+        expr: 1
+
+      - name: total_countries
+        type: simple
+        label: Distinct countries (combine-ratio P&L)
+        description: >
+          Distinct destination country codes that appear on a
+          combine-ratio P&L cell.
+        agg: count_distinct
+        expr: country
+
+      - name: total_regions
+        type: simple
+        label: Distinct regions (combine-ratio P&L)
+        description: >
+          Distinct stored region values (European States / Americas /
+          ROW / Other) that appear on a combine-ratio P&L cell.
+        agg: count_distinct
+        expr: region
+
+      - name: total_delivery_programs
+        type: simple
+        label: Distinct delivery programs (combine-ratio P&L)
+        description: >
+          Distinct delivery programs (EPC / A+ / Fusion / Smart) that
+          appear on a combine-ratio P&L cell.
+        agg: count_distinct
+        expr: delivery_program
+
+      - name: total_sales_combined
+        type: simple
+        label: Total sales, multi-parcel combine
+        description: >
+          Sum of sales_amount restricted to combined_orphaned_reason =
+          '>1', i.e. shipments where more than one pre parcel was merged
+          into one post tracking.
+        agg: sum
+        expr: sales_amount
+        fill_nulls_with: 0
+        filter: "{{ Dimension('wp_finance_combine_profit__combined_orphaned_reason') }} = '>1'"
+
+      - name: total_sales_orphaned
+        type: simple
+        label: Total sales, single-parcel orphaned
+        description: >
+          Sum of sales_amount restricted to single-parcel rows
+          (combined_orphaned_reason != '>1'), i.e. the Sensitive /
+          Overtime / Other orphan buckets.
+        agg: sum
+        expr: sales_amount
+        fill_nulls_with: 0
+        filter: "{{ Dimension('wp_finance_combine_profit__combined_orphaned_reason') }} != '>1'"
+
+      - name: profits_combined
+        type: simple
+        label: Profits, multi-parcel combine
+        description: >
+          Sum of (sales_amount - purchase_amount) restricted to
+          combined_orphaned_reason = '>1' — the profit contribution of
+          true multi-parcel combines. Can be negative.
+        agg: sum
+        expr: sales_amount - purchase_amount
+        fill_nulls_with: 0
+        filter: "{{ Dimension('wp_finance_combine_profit__combined_orphaned_reason') }} = '>1'"
+
+      - name: profits_orphaned
+        type: simple
+        label: Profits, single-parcel orphaned
+        description: >
+          Sum of (sales_amount - purchase_amount) restricted to
+          single-parcel rows (combined_orphaned_reason != '>1') — the
+          profit contribution of orphaned singles (Sensitive / Overtime
+          / Other). Can be negative.
+        agg: sum
+        expr: sales_amount - purchase_amount
+        fill_nulls_with: 0
+        filter: "{{ Dimension('wp_finance_combine_profit__combined_orphaned_reason') }} != '>1'"
+
+      - name: profits
+        type: derived
+        label: Profits (source fee currency)
+        description: >
+          total_sales minus total_purchase — the profit of the selected
+          combine-ratio P&L cells. Matches the documented "Profits =
+          SUM(sales_amount - purchase_amount)". Can be negative
+          (losses). Source fee currency (typically CNY).
+        expr: total_sales - total_purchase
+        input_metrics:
+          - total_sales
+          - total_purchase
+
+      - name: pnl_per_pre_parcel
+        type: ratio
+        label: P&L per pre-combined parcel
+        description: >
+          profits divided by total_pre_tracking — the documented
+          "PnL / Pre-combined Parcel" metric, rounded to 2 decimals in
+          the source Tableau logic. Profit per parcel before logistics
+          combination. Can be negative.
+        numerator: profits
+        denominator: total_pre_tracking
+
+      - name: avg_combine_ratio
+        type: ratio
+        label: Average parcels combined per shipment
+        description: >
+          total_pre_tracking divided by total_post_tracking — the average
+          number of pre-combination parcels merged into one
+          post-combination shipment. This is the continuous counterpart
+          of the combine_ratio dimension (which buckets the same ratio
+          as '1'..'5', '6+', 'Other'). Not to be confused with
+          avg_combination_ratio on the sibling table
+          finance_monthly_profits_1y, which is a per-cell average rather
+          than a ratio of sums.
+        numerator: total_pre_tracking
+        denominator: total_post_tracking

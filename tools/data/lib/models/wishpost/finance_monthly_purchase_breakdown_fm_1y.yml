@@ -1,0 +1,491 @@
+version: 2
+
+models:
+  - name: finance_monthly_purchase_breakdown_fm_1y
+    description: >
+      WishPost logistics finance **first-mile (FM) purchase-cost breakdown**
+      for the combined delivery programs (EPC, A+, Fusion, Smart) at the
+      **pre-leg** (before last-mile combine). Grain is one row per (dt,
+      sales_date, country, region, is_124, pre_business_type,
+      purchase_pre_pricing_channel, purchase_pre_channel,
+      purchase_pre_logistics_supplier, purchase_pre_warehouse_supplier)
+      cell. Produced daily by Airflow DAG `WishpostOverallFinancePNL`
+      (task `FinancePurchaseBreakdownTask_FM`, schedule `0 10 * * *`) by
+      joining `wishpost.overall_finance_mid_mapping_sales_1y` to
+      `wishpost.overall_finance_mid_mapping_purchase_1y` on `mid`,
+      filtering to pre-leg combined programs that also carry a post
+      combined leg, applying the 124-channel quality gate, deduplicating
+      to one row per `pre_tracking_id` and aggregating volume plus five
+      pre-leg fee buckets over ~1 year of mid-mapping history.
+
+      Each `dt` partition is a **full rebuild** of the FM breakdown from
+      the current `*_1y` mid-mapping, so `dt` is the daily snapshot date
+      and `sales_date` is the business (sales-payment) date inside the
+      ~1-year window — summing across several `dt` partitions
+      double-counts every sales day. Fee columns are **CNY-normalized**
+      upstream via `cnfinance.boc_exchange_rate_di`; the Tableau workbook
+      converts to USD in BI. `purchase_pre_other_fees` is the residual
+      bucket (other + insurance + volumetric + VAT) and does **not**
+      include the logistics, warehouse, outbound or hub fees.
+
+      Last-mile combined and Dropship / FBW purchase costs live in the
+      sibling table `wishpost.finance_monthly_purchase_breakdown_lm_ds_1y`
+      and must not be summed with this one without a clear fee taxonomy.
+      Used for first-mile purchase fee mix by fee type, volume and
+      supplier / channel performance, and 124 vs non-124 channel cost
+      comparison in the Tableau workbook **Logistics Finance Dashboard
+      New**. Tableau models under semantic_layer/models/tableau/ own any
+      dimension joins; this wrapper performs no joins. Source:
+      wishpost.finance_monthly_purchase_breakdown_fm_1y.
+    config:
+      meta:
+        owner: jixie
+        hive_table: wishpost.finance_monthly_purchase_breakdown_fm_1y
+        dag: WishpostOverallFinancePNL
+        upstream:
+          - wishpost.overall_finance_mid_mapping_sales_1y
+          - wishpost.overall_finance_mid_mapping_purchase_1y
+    semantic_model:
+      enabled: true
+      name: finance_monthly_purchase_breakdown_fm_1y
+      config:
+        meta:
+          usage: >
+            dt is a Hive partition AND a rolling snapshot: every dt
+            partition holds a full ~1-year recompute of the FM
+            breakdown, so always filter dt for partition pruning and use
+            the latest partition for "current" numbers. The default metric
+            time dimension is dt (the snapshot date) because summing
+            across many dt partitions double-counts: every sales day of
+            the window reappears in each later dt partition. To trend by
+            the business sales day, restrict dt to a single partition and
+            group by sales_day (the cast of sales_date). The three
+            time-ish columns are distinct on purpose: dt = partition /
+            snapshot date, sales_date / sales_day = business date of the
+            sales payment, time / record_ts = ETL write marker (never a
+            business date). All fee metrics are CNY-normalized; convert
+            to USD in BI, as the Tableau workbook does. Do not mix the FM
+            fee taxonomy with the last-mile / Dropship-FBW (`lm_ds_1y`)
+            sibling table. On the 124 channel the upstream gate drops FM
+            rows without a positive post large-cargo and post logistics
+            fee, so absence there is a filter effect, not a zero cost.
+    agg_time_dimension: dt
+
+    columns:
+      - name: purchase_breakdown_fm_id
+        description: >
+          Surrogate primary key — concat of (dt, sales_date, country,
+          region, is_124, pre_business_type, purchase_pre_pricing_channel,
+          purchase_pre_channel, purchase_pre_logistics_supplier,
+          purchase_pre_warehouse_supplier). Proxies the documented logical
+          grain of the table for MetricFlow primary entity purposes.
+        data_tests:
+          - not_null
+          - unique
+        entity:
+          type: primary
+          name: wp_finance_purchase_breakdown_fm
+          description: >
+            One WishPost first-mile purchase-cost breakdown cell (snapshot
+            date × business sales date × geography × 124 flag ×
+            first-mile program × channel × suppliers).
+
+      - name: dt
+        description: >
+          Hive partition / daily snapshot date (varchar YYYY-MM-DD in the
+          source, Asia/Shanghai, run date − 1 day), cast to date here.
+          Every partition holds a full ~1-year recompute of the FM
+          breakdown, so `dt` is the "as of" date, not a business date.
+          Filter on it for partition pruning and snapshot selection.
+          Default metric time dimension.
+        granularity: day
+        dimension:
+          type: time
+          label: Snapshot date
+          is_partition: true
+
+      - name: sales_day
+        description: >
+          Cast of sales_date to date. The business sales-payment calendar
+          day inside the rolling window — the Asia/Shanghai day of the
+          latest sales payment on the joined sales mid-mapping row. It is
+          NOT the purchase payment date, not the partition `dt`, and not
+          the ETL `time`. Within one latest-`dt` snapshot it spans ~1
+          year of sales history. Secondary time dimension — to trend by
+          it, restrict dt to a single partition first, because every
+          sales day reappears in each later dt partition. This is the
+          axis the Tableau dashboard rolls up (day / week / month /
+          quarter / year).
+        granularity: day
+        dimension:
+          type: time
+          label: Sales day
+
+      - name: sales_date
+        description: >
+          Primary business date in YYYY-MM-DD format (raw varchar) — the
+          Asia/Shanghai calendar day of the latest **sales** payment on
+          the joined sales mid-mapping row. Exposed as the day-granularity
+          time dimension `sales_day`; the raw string is kept for exact
+          string filters and joins. It is not the purchase payment date,
+          not the partition `dt`, and not the ETL `time`.
+        dimension:
+          type: categorical
+          label: Sales date (raw)
+
+      - name: country
+        description: >
+          Destination country short code, upstream
+          `COALESCE(country_code_mapping.country_code_short,
+          raw_country)`. Open set of ISO 3166-1 alpha-2-style codes (e.g.
+          US, CA, GB, DE, FR, JP, KR, AU, BR, MX, CN); not a closed enum
+          in the DAG code. Countries with no `wishpost.dim_region` match
+          land in `region = 'Other'`.
+        dimension:
+          type: categorical
+          label: Country
+
+      - name: region
+        description: >
+          Geographic region of the destination country, passed through
+          unchanged from `wishpost.dim_region.region` (NOT the EU / AM / AP
+          taxonomy). Closed stored set: `European States`, `Americas`,
+          `ROW`, `Other` (sentinel for countries with no dim_region match).
+        dimension:
+          type: categorical
+          label: Region (stored)
+
+      - name: region_name
+        description: >
+          Human-friendly remap of `region` mirroring
+          `wishpost.dim_region.region_name` — `European States` → `Europe`,
+          `Americas` → `Americas`, `ROW` → `Rest of World`, `Other` →
+          `Other`.
+        dimension:
+          type: categorical
+          label: Region
+
+      - name: pre_business_type
+        description: >
+          First-mile delivery / purchase program label on the **pre-leg**
+          pricing channel. Closed set enforced by the DAG filter
+          `pre_business_type IN ('EPC', 'A+', 'Fusion', 'Smart')` plus
+          `post_business_type IS NOT NULL` (the parcel must have a
+          combined post leg). Labels originate from
+          `wishpost.dim_wishpost_program_by_pricing_channel.type` on the
+          pre-leg channel. Related dim types (EPC Combined, A+ Combined,
+          Fusion Combined, Smart Combined, Dropship, FBW, Nile,
+          Uni-freight, …) are out of scope for this table and live in the
+          last-mile / Dropship-FBW sibling table.
+        dimension:
+          type: categorical
+          label: First-mile program
+
+      - name: pre_business_type_name
+        description: >
+          Human-readable label derived from pre_business_type — `EPC` →
+          `EPC (Express Parcel China)`, `A+` → `A+ Service`, `Fusion` →
+          `Fusion Service`, `Smart` → `Smart Delivery`.
+        dimension:
+          type: categorical
+          label: First-mile program label
+
+      - name: is_124
+        description: >
+          124-channel flag for the combined-program purchase path, derived
+          from the **post** order channel. Closed set: `124` (the post
+          order channel is on `wishpost.wishpost_124_channel_list`) and
+          `non-124`. On the 124 channel the FM task keeps a row only when
+          the post large-cargo fee and the post logistics fee are
+          positive, so a missing 124 row is an upstream filter effect and
+          not a zero-cost row.
+        dimension:
+          type: categorical
+          label: 124 channel flag
+
+      - name: is_124_name
+        description: >
+          Human-readable label derived from is_124 — `124` → `124 channel`,
+          `non-124` → `Non-124 channel`.
+        dimension:
+          type: categorical
+          label: 124 channel label
+
+      - name: purchase_pre_pricing_channel
+        description: >
+          Pre-leg pricing-channel display dimension, format `"<official_name>
+          (<pricing_channel_code>)"`. Name from
+          `wishpost.dim_wishpost_program_by_pricing_channel.name` (sourced
+          from `dim_pricing_channel_cn_mongo.official_name`), code is the
+          numeric `pricing_channel` id. Open set restricted to pricing
+          channels whose program type is EPC, A+, Fusion or Smart, e.g.
+          `"EPC Standard (5001)"`.
+        dimension:
+          type: categorical
+          label: Pre-leg pricing channel
+
+      - name: purchase_pre_channel
+        description: >
+          Pre-leg order / logistics channel display dimension, format
+          `"<official_name> (<channel_code>)"`. Name from
+          `wishpost.dim_order_channel_cn_mongo.official_name` joined on
+          `order_channel = pre_channel_code`. Open set spanning WishPost
+          first-mile channels; includes both 124-capable and non-124 pre
+          channels (the 124 flag is derived from the **post** channel, not
+          from this field). May show incomplete names when the upstream
+          lookup fails.
+        dimension:
+          type: categorical
+          label: Pre-leg channel
+
+      - name: purchase_pre_logistics_supplier
+        description: >
+          Pre-leg logistics carrier / supplier display dimension, format
+          `"<entity_name> (<entity_code>)"`. Code from the payment dump
+          `carrier_code` where the logistics `material_id = 102`; name from
+          `wishpost.wishpost_provider_entity_cn_mongo.entity_name`. Open
+          set of carrier entity strings; the upstream may emit sentinel
+          forms such as `None (NULL)` when the entity lookup fails.
+        dimension:
+          type: categorical
+          label: Pre-leg logistics supplier
+
+      - name: purchase_pre_warehouse_supplier
+        description: >
+          Pre-leg warehouse supplier display dimension, format
+          `"<entity_name> (<entity_code>)"`. Code from the payment dump
+          `carrier_code` where the warehouse `material_id = 108`; name from
+          `wishpost.wishpost_provider_entity_cn_mongo.entity_name`. Open
+          set of warehouse entity strings; may show incomplete names when
+          the upstream lookup fails.
+        dimension:
+          type: categorical
+          label: Pre-leg warehouse supplier
+
+      - name: volume
+        description: >
+          Parcel volume at the aggregation grain —
+          `COUNT(pre_tracking_id)` after the dedupe to one row per
+          `pre_tracking_id`. Non-negative integer. Measure column: it is
+          referenced by metrics only.
+
+      - name: purchase_pre_logistics_fee
+        description: >
+          Sum of pre-leg purchase logistics fees (CNY) — upstream
+          `material_id = 102`, aggregated as `SUM(MAX(pre_logistics_fee))`
+          per deduped `pre_tracking_id` and then summed at the report
+          grain. May be 0 when no logistics material was posted. Tableau
+          fee filter label: **Logistics Fee**. Measure column: it is
+          referenced by metrics only.
+
+      - name: purchase_pre_warehouse_fee
+        description: >
+          Sum of pre-leg warehouse operation purchase fees (CNY) —
+          upstream `material_id = 108`. Tableau fee filter label:
+          **Warehouse Operation Fee**. Measure column: it is referenced by
+          metrics only.
+
+      - name: purchase_pre_outbound_fee
+        description: >
+          Sum of pre-leg outbound operation purchase fees (CNY) —
+          upstream `material_id = 125`. Tableau fee filter label:
+          **Outbound Fee**. Measure column: it is referenced by metrics
+          only.
+
+      - name: purchase_pre_hub_fee
+        description: >
+          Sum of pre-leg HUB operation purchase fees (CNY) — upstream
+          `material_id = 128`. Tableau fee filter label: **HUB Operation
+          Fee**. Measure column: it is referenced by metrics only.
+
+      - name: purchase_pre_other_fees
+        description: >
+          Sum of the **residual** pre-leg purchase fees (CNY) rolled into
+          the dashboard "Others" bucket:
+          `NVL(pre_other_fees,0) + NVL(pre_insurance_fee,0) +
+          NVL(pre_volumetric_fee,0) + NVL(pre_vat_fee,0)` per deduped
+          `pre_tracking_id`. It does NOT include the logistics, warehouse,
+          outbound or hub fees. Tableau fee filter label: **Others**.
+          Measure column: it is referenced by metrics only.
+
+      - name: time
+        description: >
+          Unix epoch seconds (bigint) evaluated by `unix_timestamp()` when
+          the partition was materialized — an ETL load marker, constant for
+          essentially all rows of one run. NOT a business event time: never
+          use it for sales trends or date filters. Use `sales_day` for the
+          business axis and `dt` for the snapshot.
+        dimension:
+          type: categorical
+          label: Record create unix time
+
+      - name: record_ts
+        description: >
+          Timestamp converted from `time`. Kept for ETL freshness and lag
+          audits only — it is not a MetricFlow time dimension (the project
+          time spine is day, and this column carries no business meaning).
+        dimension:
+          type: categorical
+          label: Record create timestamp
+
+    metrics:
+      - name: total_first_mile_purchase_cost
+        type: simple
+        label: Total first-mile purchase cost (CNY)
+        description: >
+          Total first-mile purchase cost of the FM breakdown,
+          CNY-normalized — purchase_pre_logistics_fee +
+          purchase_pre_warehouse_fee + purchase_pre_outbound_fee +
+          purchase_pre_hub_fee + purchase_pre_other_fees. This is the
+          dashboard's "Purchase FM" measure with the fee filter set to
+          All. Filter `dt` to the latest partition before aggregating.
+          Not to be confused with the last-mile / Dropship-FBW
+          `total_purchase_cost` on
+          `finance_monthly_purchase_breakdown_lm_ds_1y`, which uses a
+          different fee taxonomy. Time grain: dt.
+        agg: sum
+        expr: >
+          purchase_pre_logistics_fee + purchase_pre_warehouse_fee
+          + purchase_pre_outbound_fee + purchase_pre_hub_fee
+          + purchase_pre_other_fees
+        fill_nulls_with: 0
+
+      - name: total_first_mile_logistics_fee
+        type: simple
+        label: Total first-mile logistics fee (CNY)
+        description: >
+          Sum of purchase_pre_logistics_fee (CNY-normalized) over the
+          selected FM breakdown cells. Tableau fee filter label:
+          **Logistics Fee**. Time grain: dt.
+        agg: sum
+        expr: purchase_pre_logistics_fee
+        fill_nulls_with: 0
+
+      - name: total_first_mile_warehouse_fee
+        type: simple
+        label: Total first-mile warehouse fee (CNY)
+        description: >
+          Sum of purchase_pre_warehouse_fee (CNY-normalized) over the
+          selected FM breakdown cells. Tableau fee filter label:
+          **Warehouse Operation Fee**. Time grain: dt.
+        agg: sum
+        expr: purchase_pre_warehouse_fee
+        fill_nulls_with: 0
+
+      - name: total_first_mile_outbound_fee
+        type: simple
+        label: Total first-mile outbound fee (CNY)
+        description: >
+          Sum of purchase_pre_outbound_fee (CNY-normalized) over the
+          selected FM breakdown cells. Tableau fee filter label:
+          **Outbound Fee**. Time grain: dt.
+        agg: sum
+        expr: purchase_pre_outbound_fee
+        fill_nulls_with: 0
+
+      - name: total_first_mile_hub_fee
+        type: simple
+        label: Total first-mile HUB fee (CNY)
+        description: >
+          Sum of purchase_pre_hub_fee (CNY-normalized) over the selected FM
+          breakdown cells. Tableau fee filter label: **HUB Operation Fee**.
+          Time grain: dt.
+        agg: sum
+        expr: purchase_pre_hub_fee
+        fill_nulls_with: 0
+
+      - name: total_first_mile_other_fees
+        type: simple
+        label: Total first-mile other fees (CNY)
+        description: >
+          Sum of purchase_pre_other_fees (CNY-normalized) over the selected
+          FM breakdown cells. This is the residual bucket: other + insurance
+          + volumetric + VAT. It excludes the logistics, warehouse, outbound
+          and hub fees. Tableau fee filter label: **Others**. Time grain:
+          dt.
+        agg: sum
+        expr: purchase_pre_other_fees
+        fill_nulls_with: 0
+
+      - name: total_first_mile_volume
+        type: simple
+        label: Total first-mile parcel volume
+        description: >
+          Sum of volume (deduped `pre_tracking_id` count) over the selected
+          FM breakdown cells. Tableau measure: **Volume**. Time grain: dt.
+        agg: sum
+        expr: volume
+        fill_nulls_with: 0
+
+      - name: first_mile_record_count
+        type: simple
+        label: First-mile breakdown cell rows
+        description: >
+          Row count at the (dt, sales_date, country, region, is_124,
+          pre_business_type, purchase_pre_pricing_channel,
+          purchase_pre_channel, purchase_pre_logistics_supplier,
+          purchase_pre_warehouse_supplier) grain. Equivalent to the
+          dashboard's "Number of Records". Time grain: dt.
+        agg: count
+        expr: 1
+
+      - name: first_mile_distinct_countries
+        type: simple
+        label: First-mile distinct countries
+        description: >
+          Distinct destination country codes represented in the selected FM
+          breakdown cells. Time grain: dt.
+        agg: count_distinct
+        expr: country
+
+      - name: first_mile_distinct_regions
+        type: simple
+        label: First-mile distinct regions
+        description: >
+          Distinct region values (European States / Americas / ROW / Other)
+          represented in the selected FM breakdown cells. Time grain: dt.
+        agg: count_distinct
+        expr: region
+
+      - name: first_mile_distinct_programs
+        type: simple
+        label: First-mile distinct programs
+        description: >
+          Distinct first-mile program labels (EPC / A+ / Fusion / Smart)
+          represented in the selected FM breakdown cells. Time grain: dt.
+        agg: count_distinct
+        expr: pre_business_type
+
+      - name: first_mile_distinct_logistics_suppliers
+        type: simple
+        label: First-mile distinct logistics suppliers
+        description: >
+          Distinct purchase_pre_logistics_supplier display strings
+          represented in the selected FM breakdown cells. Because the value
+          is a "name (code)" display string it changes over time, so treat
+          the count as indicative rather than as a stable supplier roster.
+          Time grain: dt.
+        agg: count_distinct
+        expr: purchase_pre_logistics_supplier
+
+      - name: first_mile_purchase_cost_per_parcel
+        type: ratio
+        label: First-mile purchase cost per parcel (CNY)
+        description: >
+          total_first_mile_purchase_cost divided by
+          total_first_mile_volume — average first-mile purchase cost per
+          parcel in CNY for the selected FM breakdown cells. Derived from
+          two simple metrics of the same model. Time grain: dt.
+        numerator: total_first_mile_purchase_cost
+        denominator: total_first_mile_volume
+
+      - name: first_mile_logistics_fee_share
+        type: ratio
+        label: First-mile logistics fee share of purchase cost
+        description: >
+          total_first_mile_logistics_fee divided by
+          total_first_mile_purchase_cost — the logistics component of the
+          first-mile purchase cost mix (0.4 = 40%). Derived from two
+          simple metrics of the same model. Time grain: dt.
+        numerator: total_first_mile_logistics_fee
+        denominator: total_first_mile_purchase_cost

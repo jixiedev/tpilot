@@ -87,9 +87,12 @@ only if the cheaper layers did not bring fill below `fill_trigger`.
 #### Layer 1: tool-result offload
 
 For each `ToolMessage` whose content exceeds `tool_result_offload_threshold`
-tokens (default 2,000):
+tokens (default 8,000):
 
-- skipped if the tool name is in `never_offload_tools` or is
+- skipped if the tool name is in `never_offload_tools`, was registered with
+  `@register_tool(offload=False)` (`tools.registry.never_offload_tool_names()`:
+  `trino_desc_table`, `hive_desc_table`, `search_metric_catalog`,
+  `fetch_related_models`, `read_offloaded_file`), or is
   `read_offloaded_file` (`ALWAYS_KEEP_TOOL_RESULTS`, whatever the config:
   re-offloading a recovered file would hand the model a new path and it
   loops), the content contains
@@ -100,13 +103,13 @@ tokens (default 2,000):
 
 ```
 [OFFLOADED — 12,345 tokens → /…/offload_store/tool_trino_run_query_1a2b3c4d.txt]
-Preview (first 10 lines, at most 2,000 chars):
+Preview (first 30 lines, at most 6,000 chars):
 …
 Use read_offloaded_file('/…/tool_trino_run_query_1a2b3c4d.txt') to retrieve full content.
 ```
 
-The preview keeps the first `preview_lines` lines (default 10) and is then cut
-to at most `min(2000, 2 × tool_result_offload_threshold)` characters (about half
+The preview keeps the first `preview_lines` lines (default 30) and is then cut
+to at most `min(6000, 2 × tool_result_offload_threshold)` characters (about half
 the threshold in tokens), so a huge single-line payload is shortened too. A
 truncated preview ends with `…`.
 
@@ -227,15 +230,15 @@ set in an agent file's `[compression]` table:
 | --- | --- | --- |
 | `enabled` | `true` | `false` makes `run` a no-op (no offload, fold or summary) |
 | `context_window` | 128000 | Fill denominator, tail budget |
-| `tool_result_offload_threshold` | 2000 tokens | Layer 1 |
+| `tool_result_offload_threshold` | 8000 tokens | Layer 1 |
 | `tool_input_offload_threshold` | 500 tokens | Layer 2 |
 | `fill_trigger` | 0.85 | Layers 2 and 3 |
 | `recent_messages_keep` | 0.10 | Layer 3 tail budget (fraction of `context_window`) |
-| `preview_lines` | 10 | Layer 1 preview (also capped by characters, see layer 1) |
+| `preview_lines` | 30 | Layer 1 preview (also capped by characters, see layer 1) |
 | `offload_max_age_days` | 30 | Prune offload files older than this when the store is created; `0` disables |
-| `prior_turns_qa_only` | `true` | Layer 1b on/off |
+| `prior_turns_qa_only` | `true` | Layer 1b on/off (`false` in `warehouse` and `databot`) |
 | `write_tools` | see layer 2 | Layer 2 |
-| `never_offload_tools` | `[]` | Layer 1 exclusions |
+| `never_offload_tools` | `[]` | Layer 1 exclusions, added to the tools registered with `offload=False` |
 | `offload_dir` | `LocalPaths.offload_dir` | Code only |
 | `turn_boundary_marker` | `--- Session turn boundary ---` | Code only (layer 1b) |
 

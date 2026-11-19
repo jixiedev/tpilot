@@ -1,0 +1,1261 @@
+version: 2
+
+models:
+  - name: merchant_user
+    description: >
+      Current-state master record of every merchant user account on the Wish
+      marketplace. One row per account: the Mongo `ObjectId` hex string in
+      `id` is the primary key, and the producing dump de-duplicates on it
+      (`ROW_NUMBER() OVER (PARTITION BY id ORDER BY id)`) before it writes
+      `wish.merchant_user`.
+
+      The physical object is a Hive table over the MongoDB `sweeper-merchant`
+      `MerchantUser` collection, refreshed every day at 00:00 UTC by the
+      Airflow DAG `MerchantUserDump`. It is NOT partitioned and carries no
+      snapshot-date column, so there is no partition time dimension. The
+      default `agg_time_dimension` is `onboarding_completed_calendar_date` --
+      the merchant onboarding-completion day -- which is a COHORT anchor, not
+      a snapshot day: grouping by it answers "merchant users that finished
+      onboarding that day". Accounts that never finished onboarding have a
+      NULL date and are therefore dropped from a time-bucketed query; use
+      `last_active_calendar_date` when the intent is recency instead.
+
+      This is an account dimension, not an event log: every row carries the
+      account state as of the last successful daily dump. The account-level
+      counters (`num_noti_attention`, `emails_sent`, `phone_calls_made`,
+      `sms_codes_sent`, `sms_validation_attempts`, `tfa_attempts`) and the
+      monetary snapshots (`annual_gmv`, `preorder_gmv`) are as-of-dump values
+      and are NOT additive over time -- summing them across dates double
+      counts the same account. `rev_share` and `erp_promo_rev_share` are
+      rates (percent, 0-100) and must be averaged, not summed.
+
+      The enum code columns are kept as categorical dimensions next to a
+      human-readable `<enum>_name` column. The 'True' / 'False' string flags
+      are kept as raw categorical dimensions next to a boolean `*_flag`
+      column, so filters read
+      `{% raw %}{{ Dimension }}{% endraw %} = true`.
+
+      Credential columns (password, api_key, OAuth and two-factor tokens,
+      one-time validation codes) are not part of this model at all: the
+      physical view exposes them but the wrapper does not select them, so
+      they are never materialised into the `semantic_dw` schema. PII columns
+      (`email`, `username`, name, phone, address, identity documents) are
+      exposed by the view and are intentionally NOT exposed as MetricFlow
+      dimensions.
+
+      Source: documentation/llm_generated/hive/wish/merchant_user.md
+    config:
+      meta:
+        owner: jixie
+        hive_table: wish.merchant_user
+        upstream_collection: 'MongoDB sweeper-merchant.MerchantUser'
+        dag_id: MerchantUserDump
+        grain: one row per merchant user account (id)
+        primary_key: id
+        partition_column: none (the table is not partitioned)
+    semantic_model:
+      enabled: true
+      name: merchant_user
+      config:
+        meta:
+          usage: >
+            Current-state merchant user account master (one row per account),
+            not an event log: every row carries the account state as of the last
+            successful daily dump and the table is fully replaced each run. There
+            is no snapshot date, so the default agg_time_dimension
+            (onboarding_completed_calendar_date) is a cohort anchor -- accounts
+            that never finished onboarding have a NULL date and are therefore
+            dropped from a time-bucketed query. Count accounts with
+            `merchant_users` (count_distinct id) rather than `merchant_user_rows`
+            (row count) when the grain matters. The account counters and the
+            monetary snapshots are not additive over time; `rev_share` and
+            `erp_promo_rev_share` are rates and must be averaged. MetricFlow time
+            dimensions are day grain only (project time spine); the `*_ts` and
+            `*_epoch` columns are plain columns for joins. The
+            `merchant_user` entity is shared with the tagging models
+            (`sweeper.ipv_audit_results`, `sweeper.true_brand_tagging`), which
+            carry it as a foreign key.
+    primary_entity: merchant_user
+    agg_time_dimension: onboarding_completed_calendar_date
+
+    columns:
+      # ------------------------------------------------------------------
+      # entities
+      # ------------------------------------------------------------------
+      - name: id
+        description: 'Unique user ID (MongoDB ObjectId)'
+        entity:
+          type: primary
+          name: merchant_user
+          description: 'A merchant user account on the Wish marketplace (one MongoDB `MerchantUser` document).'
+      - name: merchant_id
+        description: 'Merchant ID (MongoDB ObjectId)'
+        entity:
+          type: foreign
+          name: merchant
+          description: >
+            The commerce merchant this user account belongs to. Join key to the `merchant` entity of
+            `wish.commerce_merchant`.
+      - name: username
+        description: 'PII. Username (unique, 3-25 characters)'
+        entity:
+          type: unique
+          name: merchant_user_username
+          description: 'Unique login name of the merchant user account.'
+      - name: email
+        description: 'User''s email address (PII)'
+        entity:
+          type: unique
+          name: merchant_user_email
+          description: 'Unique e-mail address of the merchant user account.'
+
+      # ------------------------------------------------------------------
+      # time dimensions (day grain only -- the project time spine is day)
+      # ------------------------------------------------------------------
+      - name: onboarding_completed_calendar_date
+        description: >
+          UTC calendar day on which the merchant user completed onboarding. Derived from
+          `onboarding_completed_time`, which the producer writes as unix seconds in a digit
+          string. Raw column: Timestamp when onboarding was completed
+        granularity: day
+        dimension:
+          type: time
+          label: 'Onboarding completed date'
+      - name: last_active_calendar_date
+        description: >
+          UTC calendar day of the merchant user's last recorded activity. Derived from the integer
+          epoch column `date_last_active` (unix seconds). Raw column: Timestamp of last activity
+        granularity: day
+        dimension:
+          type: time
+          label: 'Last active date'
+      - name: claimed_by_calendar_date
+        description: >
+          UTC calendar day on which the merchant account was claimed by a business-development
+          rep. Derived from `claimed_by_time`, which the producer writes as unix seconds in a
+          digit string. Raw column: Timestamp when merchant was claimed
+        granularity: day
+        dimension:
+          type: time
+          label: 'Claimed date'
+      - name: vacation_start_calendar_date
+        description: >
+          UTC calendar day on which the merchant's vacation mode starts. Derived from
+          `vacation_start_date`, which the producer writes as unix seconds in a digit string. Raw
+          column: Vacation start date
+        granularity: day
+        dimension:
+          type: time
+          label: 'Vacation start date'
+      - name: vacation_end_calendar_date
+        description: >
+          UTC calendar day on which the merchant's vacation mode ends. Derived from
+          `vacation_end_date`, which the producer writes as unix seconds in a digit string. Raw
+          column: Vacation end date
+        granularity: day
+        dimension:
+          type: time
+          label: 'Vacation end date'
+      - name: payment_error_calendar_date
+        description: >
+          UTC calendar day of the merchant's last recorded payment error. Derived from
+          `payment_error_date`, which the producer writes as unix seconds in a digit string. Raw
+          column: Payment error date
+        granularity: day
+        dimension:
+          type: time
+          label: 'Payment error date'
+      - name: sms_blocked_expiry_calendar_date
+        description: >
+          UTC calendar day on which the SMS block on the account expires. Derived from
+          `sms_blocked_expiry_date`, which the producer writes as unix seconds in a digit string.
+          Raw column: SMS blocked expiry date
+        granularity: day
+        dimension:
+          type: time
+          label: 'SMS blocked expiry date'
+
+      # ------------------------------------------------------------------
+      # enum dimensions -- raw code plus the human-readable label
+      # ------------------------------------------------------------------
+      - name: merchant_state
+        description: >
+          Merchant state code (1=PENDING, 2=APPROVED, 3=DISABLED, 4=REQUEST_INFO, 5=PENDING_PHONE,
+          6=VACATION, 7=PENDING_EMAIL, 8=WISH_EXPRESS_ONLY).
+        dimension:
+          type: categorical
+          label: 'Merchant state'
+      - name: merchant_state_name
+        description: >
+          Human-readable label for `merchant_state`. The raw code column stays a categorical
+          dimension of its own.
+        dimension:
+          type: categorical
+          label: 'Merchant state (name)'
+      - name: auto_payment_status
+        description: 'Auto payment processing code (1=MANUAL, 2=NET_N).'
+        dimension:
+          type: categorical
+          label: 'Auto payment status'
+      - name: auto_payment_status_name
+        description: >
+          Human-readable label for `auto_payment_status`. The raw code column stays a categorical
+          dimension of its own.
+        dimension:
+          type: categorical
+          label: 'Auto payment status (name)'
+      - name: store_id_source
+        description: >
+          Store id source code (1=MANUAL, 2=ERP, 3=PSP, 4=PAYPAL). The documentation only lists
+          1=Manual.
+        dimension:
+          type: categorical
+          label: 'Store id source'
+      - name: store_id_source_name
+        description: >
+          Human-readable label for `store_id_source`. The raw code column stays a categorical
+          dimension of its own.
+        dimension:
+          type: categorical
+          label: 'Store id source (name)'
+      - name: payment_provider
+        description: >
+          Payment provider code (0=PAYPAL, 1=BILL, 2=CARDINFOLINK, 3=PAYONEER, 4=PINGPONG,
+          5=UMPAY, 6=PAYPAL_MERCH, 7=UMPAY_ENTERPRISE, 8=ALLPAY, 9=WISHPAY, 10=PAYECO2, 11=UMPAY2,
+          12=LIANLIAN, 13=PAYPAL_EEA).
+        dimension:
+          type: categorical
+          label: 'Payment provider'
+      - name: payment_provider_name
+        description: >
+          Human-readable label for `payment_provider`. The raw code column stays a categorical
+          dimension of its own.
+        dimension:
+          type: categorical
+          label: 'Payment provider (name)'
+      - name: entity_type
+        description: >
+          Entity type code ('1'=INDIVIDUAL, '2'=COMPANY). The column is a string and may carry the
+          '1.0' / '2.0' float spelling.
+        dimension:
+          type: categorical
+          label: 'Entity type'
+      - name: entity_type_name
+        description: >
+          Human-readable label for `entity_type`. The raw code column stays a categorical
+          dimension of its own.
+        dimension:
+          type: categorical
+          label: 'Entity type (name)'
+      - name: force_reset
+        description: 'Forced account reset code (0=NONE, 1=PASSWORD, 2=NEW_ACCOUNT, 3=SECURITY).'
+        dimension:
+          type: categorical
+          label: 'Force reset'
+      - name: force_reset_name
+        description: >
+          Human-readable label for `force_reset`. The raw code column stays a categorical
+          dimension of its own.
+        dimension:
+          type: categorical
+          label: 'Force reset (name)'
+      - name: take_weekly_test
+        description: 'Weekly test state code (0=OFF).'
+        dimension:
+          type: categorical
+          label: 'Take weekly test'
+      - name: take_weekly_test_name
+        description: >
+          Human-readable label for `take_weekly_test`. The raw code column stays a categorical
+          dimension of its own.
+        dimension:
+          type: categorical
+          label: 'Take weekly test (name)'
+      - name: tfa_type
+        description: 'Two-factor authentication type code (1=DEFAULT).'
+        dimension:
+          type: categorical
+          label: 'Two-factor authentication type'
+      - name: tfa_type_name
+        description: >
+          Human-readable label for `tfa_type`. The raw code column stays a categorical dimension
+          of its own.
+        dimension:
+          type: categorical
+          label: 'Two-factor authentication type (name)'
+
+      # ------------------------------------------------------------------
+      # flags -- raw 'True'/'False' string column plus the boolean version
+      # ------------------------------------------------------------------
+      - name: is_active
+        description: >
+          Account activity flag ('True' / 'False' string). Raw flag column; use `is_active_flag`
+          for filtering.
+        dimension:
+          type: categorical
+          label: 'Is active'
+      - name: is_active_flag
+        description: >
+          Boolean version of `is_active`. Source values that are not 'true' (case insensitive) map
+          to false.
+        dimension:
+          type: categorical
+          label: 'Is active (flag)'
+      - name: is_banned
+        description: >
+          Banned-account flag ('True' / 'False' string). Raw flag column; use `is_banned_flag` for
+          filtering.
+        dimension:
+          type: categorical
+          label: 'Is banned'
+      - name: is_banned_flag
+        description: >
+          Boolean version of `is_banned`. Source values that are not 'true' (case insensitive) map
+          to false.
+        dimension:
+          type: categorical
+          label: 'Is banned (flag)'
+      - name: is_cn_merchant
+        description: >
+          China-merchant flag, derived by the producer from the phone number country, the
+          business-address country and the BD-rep country ('True' / 'False' string). Raw flag
+          column; use `is_cn_merchant_flag` for filtering.
+        dimension:
+          type: categorical
+          label: 'Is China merchant'
+      - name: is_cn_merchant_flag
+        description: >
+          Boolean version of `is_cn_merchant`. Source values that are not 'true' (case
+          insensitive) map to false.
+        dimension:
+          type: categorical
+          label: 'Is China merchant (flag)'
+      - name: enabled
+        description: >
+          Account enabled flag ('True' / 'False' string). Raw flag column; use `enabled_flag` for
+          filtering.
+        dimension:
+          type: categorical
+          label: 'Enabled'
+      - name: enabled_flag
+        description: >
+          Boolean version of `enabled`. Source values that are not 'true' (case insensitive) map
+          to false.
+        dimension:
+          type: categorical
+          label: 'Enabled (flag)'
+      - name: authorized
+        description: >
+          Authorization flag ('True' / 'False' string). Raw flag column; use `authorized_flag` for
+          filtering.
+        dimension:
+          type: categorical
+          label: 'Authorized'
+      - name: authorized_flag
+        description: >
+          Boolean version of `authorized`. Source values that are not 'true' (case insensitive)
+          map to false.
+        dimension:
+          type: categorical
+          label: 'Authorized (flag)'
+      - name: onboarding_completed
+        description: >
+          Onboarding completed flag ('True' / 'False' string). Raw flag column; use
+          `onboarding_completed_flag` for filtering.
+        dimension:
+          type: categorical
+          label: 'Onboarding completed'
+      - name: onboarding_completed_flag
+        description: >
+          Boolean version of `onboarding_completed`. Source values that are not 'true' (case
+          insensitive) map to false.
+        dimension:
+          type: categorical
+          label: 'Onboarding completed (flag)'
+      - name: dummy_account
+        description: >
+          Dummy / test-account flag ('True' / 'False' string). Raw flag column; use
+          `dummy_account_flag` for filtering.
+        dimension:
+          type: categorical
+          label: 'Dummy account'
+      - name: dummy_account_flag
+        description: >
+          Boolean version of `dummy_account`. Source values that are not 'true' (case insensitive)
+          map to false.
+        dimension:
+          type: categorical
+          label: 'Dummy account (flag)'
+      - name: refunded_for_fraud
+        description: >
+          Refunded-for-fraud flag ('True' / 'False' string). Raw flag column; use
+          `refunded_for_fraud_flag` for filtering.
+        dimension:
+          type: categorical
+          label: 'Refunded for fraud'
+      - name: refunded_for_fraud_flag
+        description: >
+          Boolean version of `refunded_for_fraud`. Source values that are not 'true' (case
+          insensitive) map to false.
+        dimension:
+          type: categorical
+          label: 'Refunded for fraud (flag)'
+      - name: dispute_activated
+        description: >
+          Dispute-resolution activated flag ('True' / 'False' string). Raw flag column; use
+          `dispute_activated_flag` for filtering.
+        dimension:
+          type: categorical
+          label: 'Dispute activated'
+      - name: dispute_activated_flag
+        description: >
+          Boolean version of `dispute_activated`. Source values that are not 'true' (case
+          insensitive) map to false.
+        dimension:
+          type: categorical
+          label: 'Dispute activated (flag)'
+      - name: _fbw_activated
+        description: >
+          Fulfillment-by-Wish activated flag ('True' / 'False' string). Raw flag column; use
+          `fbw_activated_flag` for filtering.
+        dimension:
+          type: categorical
+          label: 'FBW activated'
+      - name: fbw_activated_flag
+        description: >
+          Boolean version of `_fbw_activated`. Source values that are not 'true' (case
+          insensitive) map to false.
+        dimension:
+          type: categorical
+          label: 'FBW Activated (flag)'
+
+      # ------------------------------------------------------------------
+      # geography
+      # ------------------------------------------------------------------
+      - name: country
+        description: >
+          Country of the business development representative, derived by the producer from the BD
+          rep id. Country information (derived from BD rep)
+        dimension:
+          type: categorical
+          label: 'BD rep country'
+      - name: merchant_country
+        description: 'Merchant''s country (derived from phone/business address)'
+        dimension:
+          type: categorical
+          label: 'Merchant country'
+      - name: ba_country
+        description: 'Business address country'
+        dimension:
+          type: categorical
+          label: 'Business address country'
+      - name: ba_country_code
+        description: 'Business address country code'
+        dimension:
+          type: categorical
+          label: 'Business address country code'
+      - name: ba_city
+        description: 'Business address city'
+        dimension:
+          type: categorical
+          label: 'Business address city'
+      - name: ba_state
+        description: 'Business address state'
+        dimension:
+          type: categorical
+          label: 'Business address state'
+      - name: merchant_country_when_onboarding_completed
+        description: 'Merchant country when onboarding was completed'
+        dimension:
+          type: categorical
+          label: 'Merchant Country When Onboarding Completed'
+      - name: ip_country_when_created
+        description: 'IP country when account was created'
+        dimension:
+          type: categorical
+          label: 'Ip Country When Created'
+      - name: _detected_domicile_country
+        description: 'Country detected based on user''s domicile information'
+        dimension:
+          type: categorical
+          label: 'Detected Domicile Country'
+      - name: bd_merchant_country
+        description: 'Business development merchant country'
+        dimension:
+          type: categorical
+          label: 'BD Merchant Country'
+
+      # ------------------------------------------------------------------
+      # account attributes
+      # ------------------------------------------------------------------
+      - name: locale
+        description: 'User''s locale (default: en)'
+        dimension:
+          type: categorical
+          label: 'Locale'
+      - name: roles
+        description: 'User roles list'
+        dimension:
+          type: categorical
+          label: 'Roles'
+      - name: permissions
+        description: 'User permissions list'
+        dimension:
+          type: categorical
+          label: 'Permissions'
+      - name: new_merchant_source
+        description: 'New merchant source'
+        dimension:
+          type: categorical
+          label: 'New Merchant Source'
+      - name: brand_partner_state
+        description: 'Brand partner state'
+        dimension:
+          type: categorical
+          label: 'Brand Partner State'
+      - name: erp_partner_state
+        description: 'ERP partner state'
+        dimension:
+          type: categorical
+          label: 'ERP Partner State'
+      - name: review_priority
+        description: 'Review priority'
+        dimension:
+          type: categorical
+          label: 'Review Priority'
+      - name: net_payment_period
+        description: 'Net payment period'
+        dimension:
+          type: categorical
+          label: 'Net Payment Period'
+      - name: status_to_set
+        description: 'Status to be set'
+        dimension:
+          type: categorical
+          label: 'Status To Set'
+      - name: missing_info_state
+        description: 'Missing information state'
+        dimension:
+          type: categorical
+          label: 'Missing Info State'
+      - name: skip_registration_fee_reason
+        description: 'Reason for skipping registration fee'
+        dimension:
+          type: categorical
+          label: 'Skip Registration Fee Reason'
+      - name: special_rev_share_reason
+        description: 'Special revenue share reason'
+        dimension:
+          type: categorical
+          label: 'Special Rev Share Reason'
+      - name: back_to_onboarding_reason
+        description: 'Reason for returning to onboarding process'
+        dimension:
+          type: categorical
+          label: 'Back To Onboarding Reason'
+      - name: payment_error
+        description: 'Payment error information'
+        dimension:
+          type: categorical
+          label: 'Payment Error'
+      - name: new_onboarding_steps_completed
+        description: 'New onboarding steps completed'
+        dimension:
+          type: categorical
+          label: 'New Onboarding Steps Completed'
+      - name: utm_source
+        description: 'UTM source for tracking'
+        dimension:
+          type: categorical
+          label: 'Utm Source'
+      - name: referred_by_code
+        description: 'Referral code'
+        dimension:
+          type: categorical
+          label: 'Referred By Code'
+      - name: bd_invitation_code
+        description: 'Business development invitation code'
+        dimension:
+          type: categorical
+          label: 'BD Invitation Code'
+      - name: loan_provider
+        description: 'Loan provider information'
+        dimension:
+          type: categorical
+          label: 'Loan Provider'
+
+      # ------------------------------------------------------------------
+      # measure columns -- referenced by metrics only, never a dimension
+      # ------------------------------------------------------------------
+      - name: annual_gmv_value
+        description: 'Annual GMV of the merchant, cast to a double.'
+      - name: assumed_hours_worked_weekday
+        description: 'Assumed working hours per weekday (default: 8)'
+      - name: assumed_hours_worked_weekend
+        description: 'Assumed working hours per weekend day (default: 0)'
+      - name: blue_ambassador_time_limit
+        description: 'Blue ambassador time limit in days (default: 180)'
+      - name: cur_test_num
+        description: 'Current test number (default: 0)'
+      - name: emails_sent
+        description: 'Number of emails sent to the user'
+      - name: erp_promo_rev_share_value
+        description: 'ERP promotional revenue share, cast to a double.'
+      - name: num_noti_attention
+        description: 'Number of notifications requiring attention'
+      - name: payment_error_amount_value
+        description: 'Amount of the last payment error, cast to a double.'
+      - name: phone_calls_made
+        description: 'Number of phone calls made'
+      - name: preorder_gmv_value
+        description: 'Preorder GMV of the merchant, cast to a double.'
+      - name: rev_share_value
+        description: 'Revenue share of the merchant in percent (0-100), cast to a double.'
+      - name: sms_codes_sent
+        description: 'Number of SMS codes sent'
+      - name: sms_validation_attempts
+        description: 'Number of SMS validation attempts'
+      - name: tfa_attempts
+        description: 'Two-factor authentication attempts'
+      - name: total_skus_value
+        description: 'Number of SKUs associated with the merchant, cast to a bigint.'
+
+      # ------------------------------------------------------------------
+      # raw timestamp source columns -- the day-grain time dimensions
+      # above are derived from these
+      # ------------------------------------------------------------------
+      - name: date_last_active
+        description: >
+          Timestamp of last activity The producer writes this one as an integer epoch rather than
+          a digit string. Use `last_active_calendar_date` for the day-grain time dimension.
+      - name: onboarding_completed_time
+        description: >
+          Timestamp when onboarding was completed The producer writes this one as unix seconds in
+          a digit string. Use `onboarding_completed_calendar_date` for the day-grain time
+          dimension.
+      - name: claimed_by_time
+        description: >
+          Timestamp when merchant was claimed The producer writes this one as unix seconds in a
+          digit string. Use `claimed_by_calendar_date` for the day-grain time dimension.
+      - name: vacation_start_date
+        description: >
+          Vacation start date The producer writes this one as unix seconds in a digit string. Use
+          `vacation_start_calendar_date` for the day-grain time dimension.
+      - name: vacation_end_date
+        description: >
+          Vacation end date The producer writes this one as unix seconds in a digit string. Use
+          `vacation_end_calendar_date` for the day-grain time dimension.
+      - name: payment_error_date
+        description: >
+          Payment error date The producer writes this one as unix seconds in a digit string. Use
+          `payment_error_calendar_date` for the day-grain time dimension.
+      - name: sms_blocked_expiry_date
+        description: >
+          SMS blocked expiry date The producer writes this one as unix seconds in a digit string.
+          Use `sms_blocked_expiry_calendar_date` for the day-grain time dimension.
+
+      # ------------------------------------------------------------------
+      # unix-second join columns -- not MetricFlow time dimensions
+      # (the project time spine is day)
+      # ------------------------------------------------------------------
+      - name: last_active_epoch
+        description: >
+          Unix seconds of the last active date, as a bigint. Plain join column -- use
+          `last_active_calendar_date` for the day-grain time dimension.
+      - name: last_active_ts
+        description: >
+          Unix seconds of the last active date, as a timestamp. Plain join column -- use
+          `last_active_calendar_date` for the day-grain time dimension.
+      - name: onboarding_completed_epoch
+        description: >
+          Unix seconds of the onboarding completed date, as a bigint. Plain join column -- use
+          `onboarding_completed_calendar_date` for the day-grain time dimension.
+      - name: onboarding_completed_ts
+        description: >
+          Unix seconds of the onboarding completed date, as a timestamp. Plain join column -- use
+          `onboarding_completed_calendar_date` for the day-grain time dimension.
+      - name: claimed_by_epoch
+        description: >
+          Unix seconds of the claimed date, as a bigint. Plain join column -- use
+          `claimed_by_calendar_date` for the day-grain time dimension.
+      - name: claimed_by_ts
+        description: >
+          Unix seconds of the claimed date, as a timestamp. Plain join column -- use
+          `claimed_by_calendar_date` for the day-grain time dimension.
+      - name: vacation_start_epoch
+        description: >
+          Unix seconds of the vacation start date, as a bigint. Plain join column -- use
+          `vacation_start_calendar_date` for the day-grain time dimension.
+      - name: vacation_start_ts
+        description: >
+          Unix seconds of the vacation start date, as a timestamp. Plain join column -- use
+          `vacation_start_calendar_date` for the day-grain time dimension.
+      - name: vacation_end_epoch
+        description: >
+          Unix seconds of the vacation end date, as a bigint. Plain join column -- use
+          `vacation_end_calendar_date` for the day-grain time dimension.
+      - name: vacation_end_ts
+        description: >
+          Unix seconds of the vacation end date, as a timestamp. Plain join column -- use
+          `vacation_end_calendar_date` for the day-grain time dimension.
+      - name: payment_error_epoch
+        description: >
+          Unix seconds of the payment error date, as a bigint. Plain join column -- use
+          `payment_error_calendar_date` for the day-grain time dimension.
+      - name: payment_error_ts
+        description: >
+          Unix seconds of the payment error date, as a timestamp. Plain join column -- use
+          `payment_error_calendar_date` for the day-grain time dimension.
+      - name: sms_blocked_expiry_epoch
+        description: >
+          Unix seconds of the sms blocked expiry date, as a bigint. Plain join column -- use
+          `sms_blocked_expiry_calendar_date` for the day-grain time dimension.
+      - name: sms_blocked_expiry_ts
+        description: >
+          Unix seconds of the sms blocked expiry date, as a timestamp. Plain join column -- use
+          `sms_blocked_expiry_calendar_date` for the day-grain time dimension.
+
+      # ------------------------------------------------------------------
+      # remaining physical columns
+      # ------------------------------------------------------------------
+      - name: _legacy_v1_user
+        description: 'Flag indicating if this is a legacy v1 user account'
+      - name: _organization_certificate
+        description: 'Organization certificate information'
+      - name: _total_skus
+        description: 'Total number of SKUs associated with the merchant'
+      - name: admin_permissions
+        description: 'Administrative permissions granted to the user'
+      - name: administer_new_tests
+        description: 'Flag indicating if user can administer new tests'
+      - name: annual_gmv
+        description: 'Annual Gross Merchandise Value for the merchant'
+      - name: api_token_block_expiry_time
+        description: 'Expiry time for blocked API tokens'
+      - name: assign_to_cn_bd
+        description: 'Flag indicating if merchant should be assigned to China BD'
+      - name: auth_doc_list
+        description: 'List of authentication documents'
+      - name: authorized_apps
+        description: 'List of authorized applications'
+      - name: ba_detected_language
+        description: 'Language detected from business address'
+      - name: ba_en_city
+        description: 'Business address city in English'
+      - name: ba_en_country
+        description: 'Business address country in English'
+      - name: ba_en_state
+        description: 'Business address state in English'
+      - name: ba_en_street_address1
+        description: 'PII. Business address street address 1 in English Not exposed as a MetricFlow dimension.'
+      - name: ba_en_street_address2
+        description: 'PII. Business address street address 2 in English Not exposed as a MetricFlow dimension.'
+      - name: ba_identity_number
+        description: 'PII. Business address identity number Not exposed as a MetricFlow dimension.'
+      - name: ba_name
+        description: 'PII. Business address name Not exposed as a MetricFlow dimension.'
+      - name: ba_neighborhood
+        description: 'Business address neighborhood'
+      - name: ba_phone_number
+        description: 'PII. Business address phone number Not exposed as a MetricFlow dimension.'
+      - name: ba_street_address1
+        description: 'PII. Business address street address 1 Not exposed as a MetricFlow dimension.'
+      - name: ba_street_address2
+        description: 'PII. Business address street address 2 Not exposed as a MetricFlow dimension.'
+      - name: ba_street_name
+        description: 'PII. Business address street name Not exposed as a MetricFlow dimension.'
+      - name: ba_street_number
+        description: 'PII. Business address street number Not exposed as a MetricFlow dimension.'
+      - name: ba_zh_city
+        description: 'Business address city in Chinese'
+      - name: ba_zh_country
+        description: 'Business address country in Chinese'
+      - name: ba_zh_state
+        description: 'Business address state in Chinese'
+      - name: ba_zh_street_address1
+        description: 'PII. Business address street address 1 in Chinese Not exposed as a MetricFlow dimension.'
+      - name: ba_zh_street_address2
+        description: 'PII. Business address street address 2 in Chinese Not exposed as a MetricFlow dimension.'
+      - name: ba_zipcode
+        description: 'PII. Business address zipcode Not exposed as a MetricFlow dimension.'
+      - name: bd_permissions
+        description: 'Business development permissions'
+      - name: bd_rep
+        description: 'Business development representative ID'
+      - name: blue_ambassador_currency
+        description: 'Blue ambassador program currency (default: USD)'
+      - name: blue_ambassador_referral_code
+        description: 'Blue ambassador referral code'
+      - name: bp_last_updated
+        description: 'Brand partner last updated timestamp'
+      - name: brand_name
+        description: 'Brand name for brand partners'
+      - name: business_license
+        description: 'PII. Business license information Not exposed as a MetricFlow dimension.'
+      - name: business_license_id
+        description: 'PII. Business license ID Not exposed as a MetricFlow dimension.'
+      - name: carrier_code
+        description: 'PII. Carrier code for shipping Not exposed as a MetricFlow dimension.'
+      - name: checked_branded_goods_terms
+        description: 'Flag indicating if branded goods terms were checked'
+      - name: claimed_by_id
+        description: 'ID of user who claimed this merchant'
+      - name: company_name
+        description: 'PII. Company name Not exposed as a MetricFlow dimension.'
+      - name: company_website
+        description: 'PII. Company website URL Not exposed as a MetricFlow dimension.'
+      - name: dhl_account_number
+        description: 'PII. DHL account number Not exposed as a MetricFlow dimension.'
+      - name: display_name
+        description: 'PII. Display name for the user Not exposed as a MetricFlow dimension.'
+      - name: erp_promo_client_id
+        description: 'ERP promotional client ID'
+      - name: erp_promo_end_time
+        description: 'ERP promotional end time'
+      - name: erp_promo_referral_id
+        description: 'ERP promotional referral ID'
+      - name: erp_promo_rev_share
+        description: 'ERP promotional revenue share'
+      - name: erp_promo_start_time
+        description: 'ERP promotional start time'
+      - name: fbw_partner_id
+        description: 'Fulfillment by Wish partner ID'
+      - name: fbw_provider_id
+        description: 'Fulfillment by Wish provider ID'
+      - name: fbw_warehouse_id
+        description: 'Fulfillment by Wish warehouse ID'
+      - name: first_name
+        description: 'PII. User''s first name (PII) Not exposed as a MetricFlow dimension.'
+      - name: got_1st_ticket_noti
+        description: 'Flag indicating if user got first ticket notification'
+      - name: got_1st_trans_noti
+        description: 'Flag indicating if user got first transaction notification'
+      - name: got_1st_upload_noti
+        description: 'Flag indicating if user got first upload notification'
+      - name: has_request_info_response
+        description: 'Flag indicating if user has responded to info requests'
+      - name: hotkeys_enabled
+        description: 'Flag indicating if hotkeys are enabled'
+      - name: in_merchant_lead_exp
+        description: 'Flag indicating if user is in merchant lead experiment'
+      - name: increase_sales
+        description: 'Flag indicating if user wants to increase sales'
+      - name: individual_name
+        description: 'PII. Individual name for individual entities Not exposed as a MetricFlow dimension.'
+      - name: ip_proof_doc
+        description: 'PII. IP proof document Not exposed as a MetricFlow dimension.'
+      - name: is_commerce_hub
+        description: 'Flag indicating if merchant is commerce hub'
+      - name: last_assigned_pending
+        description: 'Last time assigned to pending status'
+      - name: last_name
+        description: 'PII. User''s last name (PII) Not exposed as a MetricFlow dimension.'
+      - name: last_time_add_budget_from_modal
+        description: 'Last time budget was added from modal'
+      - name: last_time_show_add_budget_noti
+        description: 'Last time add budget notification was shown'
+      - name: last_time_show_cb_free_credit_noti
+        description: 'Last time chargeback free credit notification was shown'
+      - name: last_time_show_pb_free_credit_noti
+        description: 'Last time product boost free credit notification was shown'
+      - name: last_time_show_we_new_policy_banner
+        description: 'Last time Wish Express new policy banner was shown'
+      - name: latest_tos_signed
+        description: 'Latest terms of service signed version'
+      - name: logistic_preferences
+        description: 'Logistic preferences'
+      - name: manager
+        description: 'Manager ID'
+      - name: manager_name
+        description: 'Manager name'
+      - name: merchant_flags
+        description: 'Merchant flags'
+      - name: merchant_name
+        description: 'PII. Merchant name Not exposed as a MetricFlow dimension.'
+      - name: missing_extra_info
+        description: 'Flag indicating if extra information is missing'
+      - name: no_tel_instruction
+        description: 'No telephone instruction flag'
+      - name: nonce_set_time
+        description: 'Time when nonce was set'
+      - name: notifications_unsubscribed
+        description: 'Notifications unsubscribed list'
+      - name: odesk_id
+        description: 'ODesk ID'
+      - name: old_photo_id_code
+        description: 'PII. Old photo ID code Not exposed as a MetricFlow dimension.'
+      - name: onboarding_emails_received
+        description: 'Onboarding emails received list'
+      - name: onboarding_steps_completed
+        description: 'Onboarding steps completed list'
+      - name: parent_account
+        description: 'Parent account ID'
+      - name: partner_permissions
+        description: 'Partner permissions'
+      - name: payment_error_amount
+        description: 'Payment error amount'
+      - name: pending_phone_number
+        description: 'PII. Pending phone number Not exposed as a MetricFlow dimension.'
+      - name: permission_gates_opened
+        description: 'Permission gates opened list'
+      - name: permission_groups
+        description: 'Permission groups list'
+      - name: permissions_allowed
+        description: 'Permissions allowed list'
+      - name: permissions_denied
+        description: 'Permissions denied list'
+      - name: phone_number
+        description: 'PII. User''s phone number (PII) Not exposed as a MetricFlow dimension.'
+      - name: photo_id
+        description: 'PII. Photo ID information Not exposed as a MetricFlow dimension.'
+      - name: photo_id_code
+        description: 'PII. Photo ID code Not exposed as a MetricFlow dimension.'
+      - name: photo_id_code_create_time
+        description: 'Photo ID code creation time'
+      - name: photo_id_number
+        description: 'PII. Photo ID number (PII) Not exposed as a MetricFlow dimension.'
+      - name: plan_to_sell_brand_names
+        description: 'Plan to sell brand names'
+      - name: plan_to_sell_branded_goods
+        description: 'Plan to sell branded goods'
+      - name: preorder_gmv
+        description: 'Preorder GMV'
+      - name: prev_bd_rep
+        description: 'Previous business development representative ID'
+      - name: product_categories
+        description: 'Product categories list'
+      - name: product_restriction_bypass
+        description: 'Product restriction bypass list'
+      - name: proof_of_id
+        description: 'PII. Proof of ID document Not exposed as a MetricFlow dimension.'
+      - name: qq_group_number
+        description: 'PII. QQ group number Not exposed as a MetricFlow dimension.'
+      - name: recent_su
+        description: 'Recent super user list'
+      - name: report_to
+        description: 'Report to list'
+      - name: requires_we_onboarding_step
+        description: 'Flag indicating if Wish Express onboarding step is required'
+      - name: rev_share
+        description: 'Revenue share percentage'
+      - name: sales_rep_id
+        description: 'Sales representative ID'
+      - name: salesforce_lead_id
+        description: 'Salesforce lead ID'
+      - name: seen_fbs_intro
+        description: 'Flag indicating if user has seen FBS introduction'
+      - name: seen_fbw_tos
+        description: 'Flag indicating if user has seen FBW terms of service'
+      - name: seen_noti_migration_banner
+        description: 'Flag indicating if user has seen notification migration banner'
+      - name: service_types
+        description: 'Service types list'
+      - name: should_reinstate_products
+        description: 'Flag indicating if products should be reinstated'
+      - name: show_epc_apply_promo
+        description: 'Flag indicating if EPC apply promo should be shown'
+      - name: show_epc_enroll_promo
+        description: 'Flag indicating if EPC enroll promo should be shown'
+      - name: show_wish_express_promo
+        description: 'Flag indicating if Wish Express promo should be shown'
+      - name: store_qualifications
+        description: 'Store qualifications'
+      - name: store_url
+        description: 'PII. Store URL Not exposed as a MetricFlow dimension.'
+      - name: tagging_permissions
+        description: 'Tagging permissions'
+      - name: tax_certificate
+        description: 'PII. Tax certificate information Not exposed as a MetricFlow dimension.'
+      - name: tfa_admin_token_expiry
+        description: 'Two-factor authentication admin token expiry'
+      - name: tfa_admin_verification_token_generation_time
+        description: 'Two-factor authentication admin verification token generation time'
+      - name: tfa_prefer_qr
+        description: 'Flag indicating if user prefers QR code for 2FA'
+      - name: tfa_token_expiry
+        description: 'Two-factor authentication token expiry'
+      - name: tfa_token_sent_time
+        description: 'Two-factor authentication token sent time'
+      - name: use_user_locale
+        description: 'Flag indicating if user locale should be used'
+      - name: uservoice_id
+        description: 'UserVoice ID'
+      - name: viewed_listing_fee
+        description: 'Flag indicating if user has viewed listing fee'
+      - name: warehouse_locations
+        description: 'PII. Warehouse locations Not exposed as a MetricFlow dimension.'
+      - name: zendesk_id
+        description: 'Zendesk ID'
+
+    metrics:
+      # --------------------------------------------------------------
+      # account counts
+      # --------------------------------------------------------------
+      - name: merchant_users
+        type: simple
+        label: 'Merchant users'
+        description: >
+          Distinct merchant user accounts in the selected scope. The grain is one row per MongoDB
+          `MerchantUser` document, so this equals the row count of a well-formed table.
+        agg: count_distinct
+        expr: id
+      - name: merchant_user_rows
+        type: simple
+        label: 'Merchant user rows'
+        description: >
+          Row count at merchant-user grain. The producing dump de-duplicates on `id`, so this
+          normally equals `merchant_users`.
+        agg: count
+        expr: 1
+      - name: pending_merchant_users
+        type: simple
+        label: 'Pending merchant users'
+        description: >
+          Distinct merchant users whose merchant state is 1 (PENDING), i.e. the merchant
+          application is still awaiting approval.
+        agg: count_distinct
+        expr: id
+        filter: '{{ Dimension(''merchant_user__merchant_state'') }} = 1'
+      - name: approved_merchant_users
+        type: simple
+        label: 'Approved merchant users'
+        description: >
+          Distinct merchant users whose merchant state is 2 (APPROVED), i.e. the merchant account
+          is approved and active.
+        agg: count_distinct
+        expr: id
+        filter: '{{ Dimension(''merchant_user__merchant_state'') }} = 2'
+      - name: disabled_merchant_users
+        type: simple
+        label: 'Disabled merchant users'
+        description: 'Distinct merchant users whose merchant state is 3 (DISABLED).'
+        agg: count_distinct
+        expr: id
+        filter: '{{ Dimension(''merchant_user__merchant_state'') }} = 3'
+      - name: vacation_merchant_users
+        type: simple
+        label: 'Vacation merchant users'
+        description: >
+          Distinct merchant users whose merchant state is 6 (VACATION), i.e. the merchant is on
+          holiday.
+        agg: count_distinct
+        expr: id
+        filter: '{{ Dimension(''merchant_user__merchant_state'') }} = 6'
+      - name: wish_express_only_merchant_users
+        type: simple
+        label: 'Wish Express only merchant users'
+        description: 'Distinct merchant users whose merchant state is 8 (WISH_EXPRESS_ONLY).'
+        agg: count_distinct
+        expr: id
+        filter: '{{ Dimension(''merchant_user__merchant_state'') }} = 8'
+      - name: onboarded_merchant_users
+        type: simple
+        label: 'Onboarded merchant users'
+        description: 'Distinct merchant users who finished onboarding.'
+        agg: count_distinct
+        expr: id
+        filter: '{{ Dimension(''merchant_user__onboarding_completed_flag'') }} = true'
+      - name: active_merchant_users
+        type: simple
+        label: 'Active merchant users'
+        description: 'Distinct merchant users flagged as active.'
+        agg: count_distinct
+        expr: id
+        filter: '{{ Dimension(''merchant_user__is_active_flag'') }} = true'
+      - name: banned_merchant_users
+        type: simple
+        label: 'Banned merchant users'
+        description: 'Distinct merchant users flagged as banned.'
+        agg: count_distinct
+        expr: id
+        filter: '{{ Dimension(''merchant_user__is_banned_flag'') }} = true'
+      - name: enabled_merchant_users
+        type: simple
+        label: 'Enabled merchant users'
+        description: 'Distinct merchant users whose account is enabled.'
+        agg: count_distinct
+        expr: id
+        filter: '{{ Dimension(''merchant_user__enabled_flag'') }} = true'
+      - name: authorized_merchant_users
+        type: simple
+        label: 'Authorized merchant users'
+        description: 'Distinct merchant users who are authorized.'
+        agg: count_distinct
+        expr: id
+        filter: '{{ Dimension(''merchant_user__authorized_flag'') }} = true'
+      - name: cn_merchant_users
+        type: simple
+        label: 'China merchant users'
+        description: >
+          Distinct merchant users the producer classified as China merchants (phone country,
+          business-address country or China BD rep).
+        agg: count_distinct
+        expr: id
+        filter: '{{ Dimension(''merchant_user__is_cn_merchant_flag'') }} = true'
+      - name: individual_merchant_users
+        type: simple
+        label: 'Individual merchant users'
+        description: 'Distinct merchant users registered as an individual entity (`entity_type` = 1).'
+        agg: count_distinct
+        expr: id
+        filter: '{{ Dimension(''merchant_user__entity_type_name'') }} = ''INDIVIDUAL'''
+      - name: company_merchant_users
+        type: simple
+        label: 'Company merchant users'
+        description: 'Distinct merchant users registered as a company entity (`entity_type` = 2).'
+        agg: count_distinct
+        expr: id
+        filter: '{{ Dimension(''merchant_user__entity_type_name'') }} = ''COMPANY'''
+      - name: dummy_merchant_users
+        type: simple
+        label: 'Dummy merchant users'
+        description: >
+          Distinct merchant users flagged as dummy / test accounts. Exclude them from production
+          reporting.
+        agg: count_distinct
+        expr: id
+        filter: '{{ Dimension(''merchant_user__dummy_account_flag'') }} = true'
+      - name: fbw_activated_merchant_users
+        type: simple
+        label: 'FBW activated merchant users'
+        description: 'Distinct merchant users with Fulfillment by Wish activated.'
+        agg: count_distinct
+        expr: id
+        filter: '{{ Dimension(''merchant_user__fbw_activated_flag'') }} = true'
+      - name: refunded_for_fraud_merchant_users
+        type: simple
+        label: 'Refunded for fraud merchant users'
+        description: 'Distinct merchant users flagged as refunded for fraud.'
+        agg: count_distinct
+        expr: id
+        filter: '{{ Dimension(''merchant_user__refunded_for_fraud_flag'') }} = true'
+      - name: dispute_activated_merchant_users
+        type: simple
+        label: 'Dispute activated merchant users'
+        description: 'Distinct merchant users with dispute resolution activated.'
+        agg: count_distinct
+        expr: id
+        filter: '{{ Dimension(''merchant_user__dispute_activated_flag'') }} = true'
+      - name: net_n_payment_merchant_users
+        type: simple
+        label: 'Net N payment merchant users'
+        description: >
+          Distinct merchant users on Net N (automatic) payment processing (`auto_payment_status` =
+          2).
+        agg: count_distinct
+        expr: id
+        filter: '{{ Dimension(''merchant_user__auto_payment_status'') }} = 2'
+      - name: annual_gmv
+        type: simple
+        label: 'Annual GMV'
+        description: >
+          Sum of the annual GMV recorded on the merchant user account. A merchant-grain snapshot
+          value -- not additive over time.
+        agg: sum
+        expr: annual_gmv_value
+      - name: preorder_gmv
+        type: simple
+        label: 'Preorder GMV'
+        description: >
+          Sum of the preorder GMV recorded on the merchant user account. A merchant-grain snapshot
+          value -- not additive over time.
+        agg: sum
+        expr: preorder_gmv_value
+      - name: rev_share
+        type: simple
+        label: 'Rev share'
+        description: >
+          Average revenue share of the merchant users in scope. The source stores it as a
+          percentage (0-100) -- a rate, so average it, do not sum it.
+        agg: average
+        expr: rev_share_value
+      - name: erp_promo_rev_share
+        type: simple
+        label: 'ERP promo rev share'
+        description: >
+          Average ERP promotional revenue share of the merchant users in scope. A rate -- average
+          it, do not sum it.
+        agg: average
+        expr: erp_promo_rev_share_value
+      - name: payment_error_amount
+        type: simple
+        label: 'Payment error amount'
+        description: 'Sum of the amount of the last recorded payment error.'
+        agg: sum
+        expr: payment_error_amount_value
+      - name: total_skus
+        type: simple
+        label: 'Total SKUs'
+        description: 'Sum of the number of SKUs associated with the merchant users in scope.'
+        agg: sum
+        expr: total_skus_value
+      - name: num_noti_attention
+        type: simple
+        label: 'Notifications requiring attention'
+        description: 'Sum of the notifications-attention counters of the merchant users in scope.'
+        agg: sum
+        expr: num_noti_attention
+      - name: emails_sent
+        type: simple
+        label: 'Emails sent'
+        description: 'Sum of the e-mails-sent counters of the merchant users in scope.'
+        agg: sum
+        expr: emails_sent
+      - name: phone_calls_made
+        type: simple
+        label: 'Phone calls made'
+        description: 'Sum of the phone-calls-made counters of the merchant users in scope.'
+        agg: sum
+        expr: phone_calls_made
+      - name: sms_codes_sent
+        type: simple
+        label: 'SMS codes sent'
+        description: 'Sum of the SMS-codes-sent counters of the merchant users in scope.'
+        agg: sum
+        expr: sms_codes_sent
+      - name: sms_validation_attempts
+        type: simple
+        label: 'SMS validation attempts'
+        description: 'Sum of the SMS-validation-attempt counters of the merchant users in scope.'
+        agg: sum
+        expr: sms_validation_attempts
+      - name: tfa_attempts
+        type: simple
+        label: 'Two-factor authentication attempts'
+        description: 'Sum of the two-factor-authentication-attempt counters of the merchant users in scope.'
+        agg: sum
+        expr: tfa_attempts
+
+      # --------------------------------------------------------------
+      # ratios (same model)
+      # --------------------------------------------------------------
+      - name: onboarding_completion_rate
+        type: ratio
+        label: 'Onboarding completion rate'
+        description: 'Share of merchant users in scope that finished onboarding.'
+        numerator: onboarded_merchant_users
+        denominator: merchant_users
+      - name: approved_merchant_user_rate
+        type: ratio
+        label: 'Approved merchant user rate'
+        description: 'Share of merchant users in scope whose merchant state is APPROVED.'
+        numerator: approved_merchant_users
+        denominator: merchant_users
+      - name: active_merchant_user_rate
+        type: ratio
+        label: 'Active merchant user rate'
+        description: 'Share of merchant users in scope that are flagged as active.'
+        numerator: active_merchant_users
+        denominator: merchant_users
+
+      # --------------------------------------------------------------
+      # cumulative
+      # --------------------------------------------------------------
+      - name: cumulative_onboarded_merchant_users
+        type: cumulative
+        label: 'Cumulative onboarded merchant users'
+        description: >
+          Rolling 30-day count of merchant users who finished onboarding, accumulated over the
+          `onboarding_completed_calendar_date` time dimension.
+        input_metric: onboarded_merchant_users
+        window: '30 days'

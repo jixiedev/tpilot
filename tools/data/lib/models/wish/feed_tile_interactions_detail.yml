@@ -1,0 +1,696 @@
+version: 2
+
+models:
+  - name: feed_tile_interactions_detail
+    description: >
+      Cleaned, normalized feed-tile interaction detail for Wish consumer
+      surfaces (home, express, wishlist, search, categories, collections
+      and other discovery surfaces). Grain is one row per product tile
+      interaction: the upstream hourly DAG explodes a single logged event
+      from `sweeper.feed_tile_interactions` into one detail row per product
+      tile, so one logged event can produce many detail rows.
+
+      Carries the interaction itself (`action` — impression, clicked,
+      add_to_wishlist, remove_from_wishlist, add_to_cart), the user and
+      session context, the feed / page / module attribution, the Product
+      Boost revenue fields and the quality flags (`likely_bot`,
+      `is_temporary_user`).
+
+      Written hourly by the `FeedTileInteractionsCleanHourly_v0` DAG (full
+      `INSERT OVERWRITE` of the hourly partition) and replayed by the
+      `BackfillFeedTileInteractionsDetail_v2` backfill DAG. Partitioned by
+      `dt` (varchar YYYY-MM-DD) and `hr` (integer 0-23), both in US/Pacific
+      — the partition is a Pacific ingest day, while every timestamp column
+      is a UTC epoch value.
+
+      The upstream table enforces no key: the ETL dedups the source on
+      `uuid`, which is not carried into the detail table, and the data
+      explosion multiplies each source record. The wrapper therefore
+      exposes the surrogate key `feed_tile_interaction_id`, built from every
+      identifying column that survives the ETL. It is null-free and unique
+      for all practical purposes, but it is not a stable event UUID.
+    config:
+      meta:
+        owner: jixie
+        hive_table: wish.feed_tile_interactions_detail
+        dag_id: FeedTileInteractionsCleanHourly_v0
+        task: clean_feed_tile_interactions
+        timezone: US/Pacific
+    semantic_model:
+      enabled: true
+      name: feed_tile_interactions_detail
+      config:
+        meta:
+          usage: >
+            Always filter `dt` (and `hr` for hourly scans) for partition
+            pruning. `dt` is the Pacific-time ETL partition and is the
+            default metric time; `event_day` and `request_day` are the UTC
+            calendar days of the interaction and of the request, and are
+            available as alternative day dimensions. `time` is the
+            server-side insert clock, not the event clock — use `event_time`
+            / `event_day` for event-time analysis.
+
+            Bot traffic must be filtered out for user-behaviour analysis:
+            filter `likely_bot` (or use `feed_tile_non_bot_events` as the
+            quality-filtered denominator). The engagement metrics in this
+            model are unfiltered, so bot traffic is included in them.
+
+            `page_type` / `module_type` come from
+            `sweeper_dev.feed_tile_page_module_mapping` and are null when no
+            mapping row exists; `page_name` / `module_name` fall back to the
+            legacy logging columns.
+
+            Dimension joins (products, merchants, collections) belong in a
+            Tableau datasource model, not in this Hive wrapper.
+    agg_time_dimension: dt
+
+    columns:
+      # --- Surrogate key -------------------------------------------------
+      - name: feed_tile_interaction_id
+        description: >
+          Surrogate primary key. `concat_ws('||', ...)` over the columns the
+          ETL retains that identify a detail row: the partition (`dt`,
+          `hr`), the log-record and event clocks (`time`, `event_time`),
+          the request (`request_id`), the interaction (`action`), the user /
+          session / visitor ids, the feed and page / module context, and
+          the exploded tile attributes (product, tile position, price, boost
+          flags and revenue). Null-safe by construction (every part is
+          coalesced to an empty string).
+        data_tests:
+          - not_null
+        entity:
+          type: primary
+          name: feed_tile_interactions_detail
+          description: One product-tile interaction detail record.
+
+      # --- Join keys -----------------------------------------------------
+      - name: user_id
+        description: >
+          Identifier of the user who performed the interaction. Null for
+          anonymous / guest sessions; use `req_visitor_id` for those.
+        entity:
+          type: foreign
+          name: user
+          description: User who performed the interaction.
+
+      - name: session_id
+        description: >
+          User session identifier. Groups the interactions of one browsing
+          session.
+        entity:
+          type: foreign
+          name: session
+          description: User session the interaction belongs to.
+
+      - name: req_visitor_id
+        description: >
+          Visitor tracking identifier carried on the request. Available for
+          anonymous sessions where `user_id` is null.
+        entity:
+          type: foreign
+          name: visitor
+          description: Visitor behind the request.
+
+      - name: product_id
+        description: >
+          Product identifier of the tile that was shown or interacted with.
+          One product per detail row — the upstream explosion splits the
+          comma-separated product list of a logged event into one row per
+          product.
+        entity:
+          type: foreign
+          name: product
+          description: Product shown on the tile.
+
+      - name: collection_id
+        description: >
+          Collection identifier when the interaction happened inside a
+          collection context. Null otherwise.
+        entity:
+          type: foreign
+          name: collection
+          description: Merchandising collection the tile belonged to.
+
+      - name: root_impression_id
+        description: >
+          Root impression identifier. Used to attribute a click back to the
+          impression that produced it; null when the event carries no
+          impression context.
+        entity:
+          type: foreign
+          name: impression
+          description: Originating impression event.
+
+      # --- Time ----------------------------------------------------------
+      - name: dt
+        description: >
+          Hive partition date in US/Pacific, YYYY-MM-DD. Cast from the
+          varchar partition to `date` for MetricFlow time semantics.
+          Assigned by the hourly ETL from the Airflow execution date. This
+          is the default metric time dimension.
+        granularity: day
+        dimension:
+          type: time
+          label: Feed tile partition date
+          is_partition: true
+
+      - name: event_day
+        description: >
+          Calendar day (UTC) of the user interaction, derived from the
+          `event_time` epoch value. Alternative day time dimension for
+          event-time analysis; `dt` remains the default. Because `dt` is a
+          Pacific ingest day and `event_time` is UTC, the two can differ by
+          one day.
+        granularity: day
+        dimension:
+          type: time
+          label: Feed tile event day (UTC)
+          is_partition: false
+
+      - name: request_day
+        description: >
+          Calendar day (UTC) of the API request, derived from the
+          `request_time` epoch value. Alternative day time dimension for
+          request-time analysis.
+        granularity: day
+        dimension:
+          type: time
+          label: Feed tile request day (UTC)
+          is_partition: false
+
+      - name: hr
+        description: >
+          Hive partition hour in US/Pacific (0-23), paired with `dt`.
+          Exposed as a categorical dimension because the project time spine
+          is day-grained.
+        dimension:
+          type: categorical
+          label: Partition hour (Pacific)
+
+      - name: time
+        description: >
+          Server-side insert timestamp as carried through from the source
+          logging table (unix epoch seconds, UTC). This is NOT the event
+          time — use `event_time` / `event_day` for event analysis. Kept
+          for joins and audit; not a MetricFlow time dimension.
+        is_partition: false
+
+      - name: event_time
+        description: >
+          Unix epoch seconds (UTC) of the actual user interaction event.
+          The primary event clock of the table. Kept for joins; use
+          `event_ts` / `event_day` for wall-clock reads.
+        is_partition: false
+
+      - name: event_ts
+        description: >
+          Timestamp version of `event_time` (UTC). Kept for display and for
+          joins; not a MetricFlow time dimension.
+        is_partition: false
+
+      - name: request_time
+        description: >
+          Unix epoch seconds (UTC) of the API request that produced the
+          event. Kept for joins; use `request_ts` / `request_day` for
+          wall-clock reads.
+        is_partition: false
+
+      - name: request_ts
+        description: >
+          Timestamp version of `request_time` (UTC). Kept for display and
+          for joins; not a MetricFlow time dimension.
+        is_partition: false
+
+      # --- Interaction ---------------------------------------------------
+      - name: action
+        description: >
+          Type of interaction performed by the user. Documented values —
+          `clicked`, `impression`, `remove_from_wishlist`,
+          `add_to_wishlist`, `add_to_cart`.
+        dimension:
+          type: categorical
+          label: Action
+
+      - name: feed_id
+        description: >
+          Identifier of the specific feed or content source the tile was
+          rendered in. Mapped from `feed_identifier` in the source table.
+        dimension:
+          type: categorical
+          label: Feed id
+
+      - name: feed_type
+        description: >
+          Type of feed or content category the tile was rendered in —
+          `searchResults`, `filteredFeed`, `related_products` and similar.
+        dimension:
+          type: categorical
+          label: Feed type
+
+      - name: tile_position
+        description: >
+          Position index of the tile within the rendered feed.
+        dimension:
+          type: categorical
+          label: Tile position
+
+      - name: feed_tile_text
+        description: >
+          Text content displayed on the tile. Free text, kept for
+          drill-down only; not exposed as a dimension.
+        is_partition: false
+
+      - name: request_id
+        description: >
+          Unique identifier of the API request that produced the event.
+          Kept for debugging and audit; not exposed as a dimension.
+        is_partition: false
+
+      # --- Channel / user context ----------------------------------------
+      - name: client
+        description: >
+          Raw client application code as logged. Documented values —
+          `iosapp`, `androidapp`, `web`, `mobileweb`, `ipadapp`,
+          `windowsapp`, `windowsphoneapp`.
+        dimension:
+          type: categorical
+          label: Client (raw)
+
+      - name: client_name
+        description: >
+          Human-readable label for the `client` code. Unmapped values pass
+          through unchanged.
+        dimension:
+          type: categorical
+          label: Client
+
+      - name: client_version
+        description: >
+          Version of the client application. High-cardinality; kept for
+          drill-down and joins, not exposed as a dimension.
+        is_partition: false
+
+      - name: country_code
+        description: >
+          Two-letter country code of the user (ISO 3166-1 alpha-2).
+        dimension:
+          type: categorical
+          label: Country code
+
+      # --- Quality flags -------------------------------------------------
+      - name: likely_bot
+        description: >
+          Bot detection flag. Documented values — `true`, `false`, `null`.
+          Always filter `likely_bot` for user-behaviour analysis; the
+          engagement metrics in this model are unfiltered and therefore
+          include bot traffic.
+        dimension:
+          type: categorical
+          label: Likely bot
+
+      - name: is_temporary_user
+        description: >
+          Flag for temporary / logged-out users. Documented values —
+          `true`, `false`, `null`.
+        dimension:
+          type: categorical
+          label: Temporary user
+
+      - name: is_browsy
+        description: >
+          Flag for interactions originating from the Browsy feature.
+          Documented values — `true`, `false`, `null`.
+        dimension:
+          type: categorical
+          label: Is browsy
+
+      # --- Product Boost -------------------------------------------------
+      - name: is_pb
+        description: >
+          Product Boost flag as logged. Documented values — `1` (boosted),
+          `0` (not boosted).
+        dimension:
+          type: categorical
+          label: Is PB (raw)
+
+      - name: is_pb_name
+        description: >
+          Human-readable label for `is_pb`. Unmapped values pass through
+          unchanged.
+        dimension:
+          type: categorical
+          label: Is PB
+
+      - name: boost_content_type
+        description: >
+          Raw Product Boost content type code. Documented enum —
+          -1=NONE, 0=DFF, 1=TRUE_TAG, 2=NEWA, 3=RELATED_PRODUCTS,
+          4=SEARCH, 5=EXPLORATION, 6=CAMPAIGN, 10=OUTLET,
+          11=EXPRESS_SEARCH, 12=LATEST, 13=PRODUCT_DETAIL_RELATED,
+          14=EXPRESS_FEED, 15=FB_CLICK_MAXBOOST, 16=IMPRESSION_MAXBOOST,
+          17=DEAL_DASH, 18=TAPSENSE_MAXBOOST, 19=SHOPPING_NEW_MAXBOOST,
+          20=SHOPPING_ENGAGE_MAXBOOST, 21=TAPSENSE_FEED_IMP_MAXBOOST,
+          22=SEARCH_PB_STRIP, 23=RELATED_WE_STRIP, 24=FB_NEW_MAXBOOST,
+          25=BRANDBOOST, 26=CATEGORY, 27=COLLECTION_FEED,
+          28=PRODUCT_TRAY, 29=QOO10.
+        dimension:
+          type: categorical
+          label: Boost content type (raw)
+
+      - name: boost_content_type_name
+        description: >
+          Human-readable label for `boost_content_type`. Unmapped values
+          pass through unchanged.
+        dimension:
+          type: categorical
+          label: Boost content type
+
+      - name: pb_revenue
+        description: >
+          Product Boost revenue amount logged for the tile. The source
+          column is a (double-encoded) string and is parsed with
+          `try_cast`; a malformed value becomes null.
+        is_partition: false
+
+      - name: pb_click_revenue
+        description: >
+          Product Boost revenue attributed to clicks on the tile. The source
+          column is a (double-encoded) string and is parsed with
+          `try_cast`; a malformed value becomes null.
+        is_partition: false
+
+      - name: pb_scaling_factor
+        description: >
+          Scaling factor used for Product Boost revenue calculations. The
+          source column is a (double-encoded) string and is parsed with
+          `try_cast`. No aggregation is defined for it in the table
+          documentation, so it is not exposed as a metric.
+        is_partition: false
+
+      - name: product_price
+        description: >
+          Price of the product shown on the tile, parsed with `try_cast`
+          from the source string. The table documentation defines no
+          aggregation for it, so it is not exposed as a metric.
+        is_partition: false
+
+      # --- Page / module attribution -------------------------------------
+      - name: page_id
+        description: >
+          Page identifier after normalization — a single page id split out
+          of the comma-separated list of the source record. Documented
+          taxonomy — 1=Home, 2=Express, 3=Wishlist, 4=Blitz Buy,
+          5=Recently Viewed, 6=Deals, 7=Categories, 8=Clips, 9=Search,
+          10=Collection, 11=Product Details Page (PDP), 12=Brands,
+          13=Merchant, 14=Cart, 15=Order Confirmation, 16=Fashion,
+          17=Ads Landing Page, 18=Keep Shopping, 19=Collection - Wish
+          After Dark (WAD), 20=Micro Collection.
+        dimension:
+          type: categorical
+          label: Page id
+
+      - name: page_type
+        description: >
+          Page type mapped from `page_id` by the ETL through
+          `sweeper_dev.feed_tile_page_module_mapping`. Null when no
+          mapping row exists.
+        dimension:
+          type: categorical
+          label: Page type
+
+      - name: page_old_logging
+        description: >
+          Legacy page attribution carried over from the source table. Used
+          as the fallback for records that predate the new
+          `page_id` / `page_type` attribution.
+        dimension:
+          type: categorical
+          label: Legacy page
+
+      - name: page_name
+        description: >
+          Unified page attribution: the new `page_type` when available,
+          otherwise the legacy `page_old_logging`. Matches the page
+          dimension used in the documented page-and-module performance
+          query.
+        dimension:
+          type: categorical
+          label: Page
+
+      - name: page_field
+        description: >
+          Page-specific fields as a JSON payload. Kept for drill-down
+          only; not exposed as a dimension.
+        is_partition: false
+
+      - name: module_id
+        description: >
+          Module identifier after normalization — a single module id split
+          out of the comma-separated list of the source record. Documented
+          taxonomy — 1=Feed Tile, 2=Product Row, 3=Tabbed Module,
+          4=Collection Tile, 5=Mini PDP, 6=Collection Tray,
+          7=Video Collection.
+        dimension:
+          type: categorical
+          label: Module id
+
+      - name: module_type
+        description: >
+          Module type mapped from `module_id` by the ETL through
+          `sweeper_dev.feed_tile_page_module_mapping` (a global mapping,
+          the same module type across all page types). Null when no
+          mapping row exists.
+        dimension:
+          type: categorical
+          label: Module type
+
+      - name: module_old_logging
+        description: >
+          Legacy module attribution carried over from the source table. Used
+          as the fallback for records that predate the new
+          `module_id` / `module_type` attribution.
+        dimension:
+          type: categorical
+          label: Legacy module
+
+      - name: module_name
+        description: >
+          Unified module attribution: the new `module_type` when available,
+          otherwise the legacy `module_old_logging`. Matches the module
+          dimension used in the documented page-and-module performance
+          query.
+        dimension:
+          type: categorical
+          label: Module
+
+      - name: module_field
+        description: >
+          Module-specific fields as a JSON payload. Kept for drill-down
+          only; not exposed as a dimension.
+        is_partition: false
+
+      # --- Browsy --------------------------------------------------------
+      - name: browsy_interaction_module
+        description: Module identifier for Browsy interactions.
+        dimension:
+          type: categorical
+          label: Browsy interaction module
+
+      - name: browsy_interaction_index
+        description: >
+          Position index of the Browsy interaction. Kept for drill-down and
+          joins, not exposed as a dimension.
+        is_partition: false
+
+      - name: browsy_hero_product
+        description: >
+          Hero product identifier in a Browsy interaction. Kept for
+          drill-down and joins, not exposed as a dimension.
+        is_partition: false
+
+      - name: extra
+        description: >
+          Additional governance metadata as a JSON payload. Kept for
+          drill-down only; not exposed as a dimension.
+        is_partition: false
+
+    metrics:
+      - name: feed_tile_interactions
+        type: simple
+        label: Feed tile interactions
+        description: >
+          Row count of feed tile interaction detail records. The grain is
+          one row per product tile, so this counts tile-level interactions
+          rather than logged events — a logged event that contains several
+          products contributes one row per product. Includes bot traffic.
+        agg: count
+        expr: 1
+        fill_nulls_with: 0
+
+      - name: feed_tile_impressions
+        type: simple
+        label: Feed tile impressions
+        description: >
+          Row count of detail records with `action` = 'impression'. Tile
+          grain, so one logged impression of a multi-product feed counts
+          once per product. Includes bot traffic.
+        agg: count
+        expr: 1
+        fill_nulls_with: 0
+        filter: >
+          {{ Dimension('feed_tile_interactions_detail__action') }} = 'impression'
+
+      - name: feed_tile_clicks
+        type: simple
+        label: Feed tile clicks
+        description: >
+          Row count of detail records with `action` = 'clicked'. Tile grain,
+          so one logged click of a multi-product feed counts once per
+          product. Includes bot traffic.
+        agg: count
+        expr: 1
+        fill_nulls_with: 0
+        filter: >
+          {{ Dimension('feed_tile_interactions_detail__action') }} = 'clicked'
+
+      - name: feed_tile_add_to_wishlist
+        type: simple
+        label: Feed tile add to wishlist
+        description: >
+          Row count of detail records with `action` = 'add_to_wishlist'.
+          Includes bot traffic.
+        agg: count
+        expr: 1
+        fill_nulls_with: 0
+        filter: >
+          {{ Dimension('feed_tile_interactions_detail__action') }} = 'add_to_wishlist'
+
+      - name: feed_tile_remove_from_wishlist
+        type: simple
+        label: Feed tile remove from wishlist
+        description: >
+          Row count of detail records with `action` = 'remove_from_wishlist'.
+          Includes bot traffic.
+        agg: count
+        expr: 1
+        fill_nulls_with: 0
+        filter: >
+          {{ Dimension('feed_tile_interactions_detail__action') }} = 'remove_from_wishlist'
+
+      - name: feed_tile_add_to_cart
+        type: simple
+        label: Feed tile add to cart
+        description: >
+          Row count of detail records with `action` = 'add_to_cart'.
+          Includes bot traffic.
+        agg: count
+        expr: 1
+        fill_nulls_with: 0
+        filter: >
+          {{ Dimension('feed_tile_interactions_detail__action') }} = 'add_to_cart'
+
+      - name: feed_tile_users
+        type: simple
+        label: Feed tile users
+        description: >
+          Distinct users with a feed tile interaction. Null `user_id`
+          (anonymous sessions) is not counted.
+        agg: count_distinct
+        expr: user_id
+        fill_nulls_with: 0
+
+      - name: feed_tile_sessions
+        type: simple
+        label: Feed tile sessions
+        description: Distinct user sessions with a feed tile interaction.
+        agg: count_distinct
+        expr: session_id
+        fill_nulls_with: 0
+
+      - name: feed_tile_products
+        type: simple
+        label: Feed tile products
+        description: Distinct products shown on a feed tile interaction.
+        agg: count_distinct
+        expr: product_id
+        fill_nulls_with: 0
+
+      - name: feed_tile_viewed_products
+        type: simple
+        label: Feed tile viewed products
+        description: >
+          Distinct products the user was shown (`action` = 'impression').
+          Matches the `unique_products_viewed` measure of the documented
+          user-journey query.
+        agg: count_distinct
+        expr: product_id
+        fill_nulls_with: 0
+        filter: >
+          {{ Dimension('feed_tile_interactions_detail__action') }} = 'impression'
+
+      - name: feed_tile_root_impressions
+        type: simple
+        label: Feed tile root impressions
+        description: >
+          Distinct root impression ids appearing in the feed detail rows.
+          `root_impression_id` is the attribution key that links a click
+          back to the impression that produced it, so this measures the
+          impression reach of the feed.
+        agg: count_distinct
+        expr: root_impression_id
+        fill_nulls_with: 0
+
+      - name: feed_tile_product_boost_revenue
+        type: simple
+        label: Feed tile product boost revenue
+        description: >
+          Sum of the logged Product Boost revenue (`pb_revenue`) over the
+          detail rows. This is tile-grain logged revenue, not realized
+          order revenue, and it repeats the same boosted tile once per
+          interaction.
+        agg: sum
+        expr: pb_revenue
+        fill_nulls_with: 0
+
+      - name: feed_tile_product_boost_click_revenue
+        type: simple
+        label: Feed tile product boost click revenue
+        description: >
+          Sum of the logged Product Boost click revenue
+          (`pb_click_revenue`) over the detail rows. Matches the
+          `total_revenue` measure of the documented Product Boost
+          performance query.
+        agg: sum
+        expr: pb_click_revenue
+        fill_nulls_with: 0
+
+      - name: feed_tile_non_bot_events
+        type: simple
+        label: Feed tile non-bot interactions
+        description: >
+          Row count of detail records excluding likely bots
+          (`likely_bot` = 'true'); rows with a null `likely_bot` are kept.
+          This is the quality-filtered denominator for user-behaviour
+          analysis and matches the `likely_bot = false OR likely_bot IS
+          NULL` filter of the documented user-journey query. Use it to size
+          the bot share of `feed_tile_interactions`.
+        agg: count
+        expr: 1
+        fill_nulls_with: 0
+        filter: >
+          ({{ Dimension('feed_tile_interactions_detail__likely_bot') }} IS NULL
+           OR {{ Dimension('feed_tile_interactions_detail__likely_bot') }} = 'false')
+
+      - name: feed_tile_interaction_ctr
+        type: ratio
+        label: Feed tile interaction CTR
+        description: >
+          Click-through rate at product-tile grain: clicks divided by
+          impressions. Matches the `ctr` measure of the documented CTR
+          query. Bot traffic is included — filter on `likely_bot` for a
+          bot-free rate, and use `feed_tile_non_bot_events` to size the bot
+          share. Not to be confused with `feed_tile_ctr` on
+          `daily_user_page_module_activity`, which is built on a daily
+          page-module activity grain.
+        numerator: feed_tile_clicks
+        denominator: feed_tile_impressions

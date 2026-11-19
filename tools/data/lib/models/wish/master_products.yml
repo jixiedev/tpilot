@@ -1,0 +1,989 @@
+version: 2
+
+models:
+  - name: master_products
+    description: >
+      Wish product catalogue view. Grain is one row per product
+      (`product_id`, the documented primary key) inside a `dt`
+      daily-snapshot partition. Built by the Airflow DAG
+      `incremental_product_tahoe_p1` from the MongoDB collection
+      `sweeper.commerceproduct` and related true-tag / prediction
+      collections, refreshed daily with a 1-day lag. Partitioned by `dt`
+      (varchar YYYY-MM-DD) and sorted by `start_date`. Carries catalogue
+      text, moderation and compliance signals, true-tag and brand
+      signals, commerce state and product-level counters. Boolean-like
+      flags are stored as varchar (`'true'`, `'false'`, null) and are
+      exposed as-is so they stay usable as filters. Closed enums
+      (`state`, `gender`, `true_tag_gender`, `fp_review_status`) keep
+      the raw code and gain a human-readable `*_name` companion.
+    config:
+      meta:
+        owner: data-governance
+        hive_table: wish.master_products
+        dag_id: incremental_product_tahoe_p1
+    semantic_model:
+      enabled: true
+      name: master_products
+      config:
+        meta:
+          owner: data-governance
+          usage: >
+            Treat as a current-snapshot product catalogue (not SCD).
+            `dt` (the Hive partition) is the default metric time;
+            use `product_creation_date` for product-creation cohorts.
+            For merchant rollups join on `merchant_id` (entity
+            `merchant`); the product entity `product` is shared with
+            `wish.dim_all_products`. Many text columns (`tags`,
+            `labels`, `true_tag_ids`, `true_tag_color_ids`,
+            `auth_brand_ids`, `chemical_names`, `attribute_name_to_value`,
+            `ordered_images`, `blocked_countries`,
+            `warehouse_exclusion_countries`) are sparse and meant for
+            filtering / inspection, not aggregation.
+    primary_entity: product
+    agg_time_dimension: dt
+
+    columns:
+      # ------------------------------------------------------------------
+      # Keys / entities
+      # ------------------------------------------------------------------
+      - name: product_id
+        description: >
+          Product identifier — the logical primary key. MongoDB
+          `commerceproduct` ObjectId (varchar). Documented as unique
+          across partitions, with rare duplicates across partitions.
+        data_tests:
+          - not_null
+        entity:
+          type: primary
+          name: product
+          description: One Wish product listing.
+
+      - name: merchant_id
+        description: >
+          CommerceMerchant ObjectId (varchar) of the merchant owning the
+          product. Foreign key for merchant rollups.
+        entity:
+          type: foreign
+          name: merchant
+          description: CommerceMerchant that owns the listing.
+
+      - name: user_creator
+        description: User id of the product creator, when known.
+        entity:
+          type: foreign
+          name: user
+          description: Wish user that created the listing.
+
+      - name: parent_product_id
+        description: >
+          Parent product id when the product belongs to a variation
+          family.
+        entity:
+          type: foreign
+          name: parent_product
+          description: Parent product of the listing.
+
+      - name: true_brand_id
+        description: >
+          True-brand ObjectId string, when the product has been tagged
+          with a true brand.
+        entity:
+          type: foreign
+          name: true_brand
+          description: True brand from the true-tag pipeline.
+
+      # ------------------------------------------------------------------
+      # Time dimensions
+      # ------------------------------------------------------------------
+      - name: dt
+        description: >
+          Hive partition date of the record (UTC), varchar YYYY-MM-DD in
+          the physical table and cast to `date` in the wrapper. The
+          daily snapshot partition and the default metric time
+          dimension of this model.
+        granularity: day
+        dimension:
+          type: time
+          label: Partition date
+        is_partition: true
+
+      - name: product_creation_date
+        description: >
+          Calendar day (UTC) of the product creation timestamp, derived
+          from the Unix-epoch `start_date` column. Use it as the metric
+          time when analysing product-creation cohorts; the default
+          metric time of this model is the partition `dt`.
+        granularity: day
+        dimension:
+          type: time
+          label: Product creation day
+
+      # ------------------------------------------------------------------
+      # Enum companions (raw code kept in the sibling column)
+      # ------------------------------------------------------------------
+      - name: state
+        description: >
+          Product / listing state code (varchar). Closed domain:
+          0 = active, 1 = inactive, 2 = inactive or removed by
+          merchant, 3 = removed by Wish, 4 = removed by merchant — see
+          `state_name` for the decoded label. The table documentation
+          also records an alternative `CommerceProduct.ProductStatus`
+          reading of the same column (0 = ENABLED, 1 = DISABLED,
+          2 = REMOVED_BY_MERCHANT).
+        dimension:
+          type: categorical
+          label: Product state code
+
+      - name: state_name
+        description: >
+          Human-readable listing state decoded from `state`:
+          0 = ACTIVE, 1 = WISH_INACTIVE, 2 = MERCHANT_INACTIVE,
+          3 = REMOVED_BY_WISH, 4 = REMOVED_BY_MERCHANT. Unmapped codes
+          are passed through unchanged.
+        dimension:
+          type: categorical
+          label: Product state name
+
+      - name: gender
+        description: >
+          Product gender targeting code (varchar). Closed domain:
+          0 = UNKNOWN, 1 = MALE, 2 = FEMALE — see `gender_name`.
+        dimension:
+          type: categorical
+          label: Product gender code
+
+      - name: gender_name
+        description: >
+          Human-readable gender decoded from `gender`:
+          0 = UNKNOWN, 1 = MALE, 2 = FEMALE. Unmapped codes are passed
+          through unchanged.
+        dimension:
+          type: categorical
+          label: Product gender name
+
+      - name: true_tag_gender
+        description: >
+          True-tag (ML) gender classification (integer). Closed domain:
+          0 = UNKNOWN, 1 = MALE, 2 = FEMALE, 3 = NEUTRAL — see
+          `true_tag_gender_name`.
+        dimension:
+          type: categorical
+          label: True tag gender code
+
+      - name: true_tag_gender_name
+        description: >
+          Human-readable true-tag gender decoded from
+          `true_tag_gender`: 0 = UNKNOWN, 1 = MALE, 2 = FEMALE,
+          3 = NEUTRAL. Unmapped codes are passed through unchanged.
+        dimension:
+          type: categorical
+          label: True tag gender name
+
+      - name: fp_review_status
+        description: >
+          Feed-Processing review status (integer). Closed domain:
+          1 = UNDER_REVIEW, 2 = APPROVED, 3 = BLOCKED — see
+          `fp_review_status_name`.
+        dimension:
+          type: categorical
+          label: FP review status code
+
+      - name: fp_review_status_name
+        description: >
+          Human-readable Feed-Processing review status decoded from
+          `fp_review_status`: 1 = UNDER_REVIEW, 2 = APPROVED,
+          3 = BLOCKED. Unmapped codes are passed through unchanged.
+        dimension:
+          type: categorical
+          label: FP review status name
+
+      - name: true_brand_trust_level
+        description: >
+          True-brand trust level (integer). Raw code — the closed
+          domain is not documented for this table, so no `*_name`
+          companion is derived.
+        dimension:
+          type: categorical
+          label: True brand trust level code
+
+      - name: warning_type
+        description: >
+          Product warning type, e.g. Prop 65 (integer). Raw code — the
+          closed domain is not documented for this table, so no
+          `*_name` companion is derived.
+        dimension:
+          type: categorical
+          label: Warning type code
+
+      # ------------------------------------------------------------------
+      # Catalogue attributes
+      # ------------------------------------------------------------------
+      - name: name
+        description: Product title / name.
+        dimension:
+          type: categorical
+          label: Product name
+
+      - name: brand
+        description: Product brand text.
+        dimension:
+          type: categorical
+          label: Product brand
+
+      - name: product_description
+        description: Long-form product description text.
+        dimension:
+          type: categorical
+          label: Product description
+
+      - name: purchase_url
+        description: External purchase / source URL.
+        dimension:
+          type: categorical
+          label: Purchase url
+
+      - name: product_identifier
+        description: >
+          External product identifier (SKU, UPC, ASIN, …), when the
+          source provides one.
+        dimension:
+          type: categorical
+          label: Product identifier
+
+      - name: product_identifier_type
+        description: >
+          Type of `product_identifier` (e.g. `asin`).
+        dimension:
+          type: categorical
+          label: Product identifier type
+
+      - name: parent_sku
+        description: Parent SKU for products that belong to a variation family.
+        dimension:
+          type: categorical
+          label: Parent sku
+
+      - name: upc
+        description: Universal Product Code.
+        dimension:
+          type: categorical
+          label: UPC
+
+      - name: value
+        description: Product value / price-like text field (string).
+        dimension:
+          type: categorical
+          label: Product value
+
+      - name: source_country
+        description: Country the product was sourced from.
+        dimension:
+          type: categorical
+          label: Source country
+
+      - name: expiry_date
+        description: >
+          Product expiry date as stored (varchar); the source format is
+          not documented, so it is kept as a raw text dimension.
+        dimension:
+          type: categorical
+          label: Product expiry date
+
+      - name: category_experience_eligibility
+        description: >
+          Category experience eligibility (string form of a boolean;
+          commonly `True` / `False` / null).
+        dimension:
+          type: categorical
+          label: Category experience eligibility
+
+      - name: chemical_names
+        description: Comma-separated chemical names.
+        dimension:
+          type: categorical
+          label: Chemical names
+
+      - name: attribute_name_to_value
+        description: >
+          Product attributes as a JSON string (name / value map).
+        dimension:
+          type: categorical
+          label: Product attributes
+
+      - name: ordered_images
+        description: Ordered image URLs.
+        dimension:
+          type: categorical
+          label: Ordered images
+
+      - name: image_hash
+        description: Main image hash.
+        dimension:
+          type: categorical
+          label: Main image hash
+
+      - name: image_phash
+        description: Image perceptual hash.
+        dimension:
+          type: categorical
+          label: Image perceptual hash
+
+      - name: main_image_nudity_pred
+        description: Nudity prediction on the main image.
+        dimension:
+          type: categorical
+          label: Main image nudity prediction
+
+      - name: nudity_pred_from_images
+        description: Nudity prediction derived from the product images.
+        dimension:
+          type: categorical
+          label: Nudity prediction from images
+
+      - name: nudity_has_unreviewed_images
+        description: >
+          Flag indicating the product still has unreviewed images.
+        dimension:
+          type: categorical
+          label: Nudity has unreviewed images
+
+      - name: nudity_pred_from_text
+        description: Nudity prediction derived from the product text.
+        dimension:
+          type: categorical
+          label: Nudity prediction from text
+
+      - name: active_extra_photos
+        description: Active extra photos of the product.
+        dimension:
+          type: categorical
+          label: Active extra photos
+
+      - name: deleted_extra_photos
+        description: Deleted extra photos of the product.
+        dimension:
+          type: categorical
+          label: Deleted extra photos
+
+      - name: entered_users_count_unique
+        description: >
+          Unique users who entered the product page. Stored as varchar
+          upstream, so it is kept as a text dimension and is not
+          aggregated.
+        dimension:
+          type: categorical
+          label: Entered users count unique
+
+      - name: tags
+        description: Comma-separated raw tag ids of the product.
+        dimension:
+          type: categorical
+          label: Product tags
+
+      - name: labels
+        description: Comma-separated product labels.
+        dimension:
+          type: categorical
+          label: Product labels
+
+      # ------------------------------------------------------------------
+      # True tags / brands
+      # ------------------------------------------------------------------
+      - name: true_tag_ids
+        description: Comma-separated true-tag ids.
+        dimension:
+          type: categorical
+          label: True tag ids
+
+      - name: true_tag_color_ids
+        description: Comma-separated true-tag colour ids.
+        dimension:
+          type: categorical
+          label: True tag color ids
+
+      - name: auth_brand_ids
+        description: Comma-separated authorized brand ids.
+        dimension:
+          type: categorical
+          label: Authorized brand ids
+
+      - name: tro_is_predicted
+        description: >
+          Flag indicating a predicted Trademark Rights Owner violation.
+        dimension:
+          type: categorical
+          label: TRO predicted
+
+      - name: tro_violated_brand
+        description: Brand flagged by the TRO prediction.
+        dimension:
+          type: categorical
+          label: TRO violated brand
+
+      # ------------------------------------------------------------------
+      # Moderation / compliance
+      # ------------------------------------------------------------------
+      - name: inappropriate_reasons
+        description: Inappropriate content reasons.
+        dimension:
+          type: categorical
+          label: Inappropriate reasons
+
+      - name: inappropriate_reason
+        description: Primary inappropriate content reason.
+        dimension:
+          type: categorical
+          label: Inappropriate reason
+
+      - name: inappropriate_subcategory
+        description: Inappropriate content subcategory.
+        dimension:
+          type: categorical
+          label: Inappropriate subcategory
+
+      - name: counterfeit_reason
+        description: Counterfeit detection reason.
+        dimension:
+          type: categorical
+          label: Counterfeit reason
+
+      - name: counterfeit_subcategory
+        description: Counterfeit detection subcategory.
+        dimension:
+          type: categorical
+          label: Counterfeit subcategory
+
+      - name: counterfeit_brand_id
+        description: Counterfeit brand id.
+        dimension:
+          type: categorical
+          label: Counterfeit brand id
+
+      - name: blocked_countries
+        description: Countries where the product is blocked.
+        dimension:
+          type: categorical
+          label: Blocked countries
+
+      - name: warehouse_exclusion_countries
+        description: Countries excluded from warehouse fulfilment.
+        dimension:
+          type: categorical
+          label: Warehouse exclusion countries
+
+      - name: consignment_original_pid
+        description: Original product id for consignment listings.
+        dimension:
+          type: categorical
+          label: Consignment original product id
+
+      # ------------------------------------------------------------------
+      # Categorisation
+      # ------------------------------------------------------------------
+      - name: subcategory_id
+        description: Subcategory id of the product.
+        dimension:
+          type: categorical
+          label: Subcategory id
+
+      - name: subcategory_tree_id
+        description: Subcategory tree id of the product.
+        dimension:
+          type: categorical
+          label: Subcategory tree id
+
+      - name: subcategory_tree_version
+        description: Version of the subcategory tree.
+        dimension:
+          type: categorical
+          label: Subcategory tree version
+
+      - name: newa_cls
+        description: NEWA classification of the product.
+        dimension:
+          type: categorical
+          label: NEWA classification
+
+      # ------------------------------------------------------------------
+      # Boolean-like flags (varchar 'true' / 'false' / null upstream)
+      # ------------------------------------------------------------------
+      - name: is_c2c
+        description: Consumer-to-consumer flag.
+        dimension:
+          type: categorical
+          label: Consumer to consumer
+
+      - name: product_removed_by_merchant
+        description: Flag set when the merchant removed the product.
+        dimension:
+          type: categorical
+          label: Removed by merchant
+
+      - name: use_temp_image
+        description: Flag indicating the temporary image is used.
+        dimension:
+          type: categorical
+          label: Use temporary image
+
+      - name: is_clean
+        description: Content moderation clean flag.
+        dimension:
+          type: categorical
+          label: Content clean
+
+      - name: has_true_tag
+        description: Flag indicating the product has true tags.
+        dimension:
+          type: categorical
+          label: Has true tag
+
+      - name: can_promo
+        description: Flag indicating the product can be promoted.
+        dimension:
+          type: categorical
+          label: Promotion eligible
+
+      - name: is_verified
+        description: Product verification flag.
+        dimension:
+          type: categorical
+          label: Verified
+
+      - name: is_verified_2
+        description: Secondary product verification flag.
+        dimension:
+          type: categorical
+          label: Verified (secondary)
+
+      - name: is_verified_3
+        description: Tertiary product verification flag.
+        dimension:
+          type: categorical
+          label: Verified (tertiary)
+
+      - name: is_from_top_rated_store
+        description: Flag for products of a top-rated store.
+        dimension:
+          type: categorical
+          label: From top rated store
+
+      - name: is_top_seller
+        description: Top seller flag.
+        dimension:
+          type: categorical
+          label: Top seller
+
+      - name: is_trending_product
+        description: Trending product flag.
+        dimension:
+          type: categorical
+          label: Trending product
+
+      - name: gender_is_predicted
+        description: Flag indicating the gender is predicted, not set.
+        dimension:
+          type: categorical
+          label: Gender predicted
+
+      - name: true_tags_are_predicted
+        description: Flag indicating the true tags are predicted.
+        dimension:
+          type: categorical
+          label: True tags predicted
+
+      - name: is_adult
+        description: Adult content flag.
+        dimension:
+          type: categorical
+          label: Adult content
+
+      - name: is_counterfeit
+        description: Counterfeit detection flag.
+        dimension:
+          type: categorical
+          label: Counterfeit
+
+      - name: is_adult_for_mobile
+        description: Mobile adult content flag.
+        dimension:
+          type: categorical
+          label: Adult for mobile
+
+      - name: is_sex_doll
+        description: Sex doll product flag.
+        dimension:
+          type: categorical
+          label: Sex doll
+
+      - name: is_cannabis
+        description: Cannabis product flag.
+        dimension:
+          type: categorical
+          label: Cannabis
+
+      - name: is_censored
+        description: Censored content flag.
+        dimension:
+          type: categorical
+          label: Censored content
+
+      - name: is_deleted
+        description: Product deletion flag.
+        dimension:
+          type: categorical
+          label: Deleted
+
+      - name: contains_luxury_brand
+        description: Luxury brand presence flag.
+        dimension:
+          type: categorical
+          label: Contains luxury brand
+
+      - name: contains_censored_word
+        description: Censored word presence flag.
+        dimension:
+          type: categorical
+          label: Contains censored word
+
+      - name: is_safe_for_android
+        description: Android safety flag.
+        dimension:
+          type: categorical
+          label: Safe for android
+
+      - name: is_safe_for_cannabis_check
+        description: Cannabis safety check flag.
+        dimension:
+          type: categorical
+          label: Safe for cannabis check
+
+      - name: is_safe_for_censored_words_check
+        description: Censored words safety check flag.
+        dimension:
+          type: categorical
+          label: Safe for censored words check
+
+      - name: is_ltl
+        description: Less-than-truckload flag.
+        dimension:
+          type: categorical
+          label: Less than truckload
+
+      - name: is_csp_enabled
+        description: Customer Service Platform enabled flag.
+        dimension:
+          type: categorical
+          label: CSP enabled
+
+      - name: is_helios_product
+        description: Helios product flag.
+        dimension:
+          type: categorical
+          label: Helios product
+
+      - name: is_consignment_eligible
+        description: Consignment eligibility flag.
+        dimension:
+          type: categorical
+          label: Consignment eligible
+
+      # ------------------------------------------------------------------
+      # Numeric attributes used by metrics (no dimension / no entity)
+      # ------------------------------------------------------------------
+      - name: purchase_count
+        description: >
+          Total number of purchases of the product (integer).
+        data_type: integer
+
+      - name: inventory
+        description: Product inventory count (integer).
+        data_type: integer
+
+      - name: average_rating
+        description: >
+          Weighted average of the product ratings (real, 0.0 - 5.0).
+          The upstream formula is `SUM(rating * weight) / SUM(weight)`
+          with recency weighting and fraud detection.
+        data_type: real
+
+      - name: rating_count
+        description: >
+          Total number of valid (verified, non-fraudulent) ratings
+          (real).
+        data_type: real
+
+      - name: num_extra_photos
+        description: Number of additional product photos (integer).
+        data_type: integer
+
+      - name: commerce_active
+        description: >
+          Flag (1 / 0) that is 1 when the product is active, its
+          merchant is active and the product was not removed.
+        dimension:
+          type: categorical
+          label: Commerce active
+
+      - name: has_commerce_product
+        description: >
+          Flag (1 / 0) indicating the product exists in the commerce
+          system with valid data.
+        dimension:
+          type: categorical
+          label: Has commerce product
+
+      # ------------------------------------------------------------------
+      # Technical timestamp columns (not MetricFlow time dimensions —
+      # the project time spine is day)
+      # ------------------------------------------------------------------
+      - name: time
+        description: >
+          Product creation timestamp as Unix epoch seconds (integer),
+          derived from the MongoDB ObjectId generation time.
+        data_type: bigint
+
+      - name: creation_ts
+        description: >
+          Timestamp version of `time` (UTC). Kept for display and
+          joins; not a MetricFlow time dimension.
+        data_type: timestamp
+
+      - name: start_date
+        description: >
+          Product start date timestamp as Unix epoch seconds
+          (integer). Sort key of the physical table.
+        data_type: bigint
+
+      - name: true_brand_last_tagged
+        description: >
+          Last true-brand tagging timestamp as Unix epoch seconds
+          (integer); null when the product has no true-brand tagging
+          event.
+        data_type: bigint
+
+      - name: true_brand_last_tagged_ts
+        description: >
+          Timestamp version of `true_brand_last_tagged` (UTC). Kept for
+          display and joins; not a MetricFlow time dimension.
+        data_type: timestamp
+
+    metrics:
+      - name: total_products
+        type: simple
+        label: Total products
+        description: >
+          Row count of the selected scope. Grain is one row per
+          `product_id` inside a `dt` partition, so within a single
+          partition this equals the number of products.
+        agg: count
+        expr: 1
+        fill_nulls_with: 0
+
+      - name: distinct_products
+        type: simple
+        label: Distinct products in catalog
+        description: >
+          Distinct `product_id` count in the selected scope. Use this
+          instead of `total_products` when the scope spans several `dt`
+          partitions and a product may appear in more than one of them.
+        agg: count_distinct
+        expr: product_id
+        fill_nulls_with: 0
+
+      - name: active_products
+        type: simple
+        label: Products in active state
+        description: >
+          Distinct products whose listing state is active
+          (`state_name = 'ACTIVE'`, raw code `state = '0'`).
+          Not to be confused with the global `active_products` metric
+          on other models.
+        agg: count_distinct
+        expr: product_id
+        filter: "{{ Dimension('master_products__state_name') }} = 'ACTIVE'"
+        fill_nulls_with: 0
+
+      - name: total_purchases
+        type: simple
+        label: Total purchases
+        description: >
+          Sum of `purchase_count` over the products in scope.
+        agg: sum
+        expr: purchase_count
+        fill_nulls_with: 0
+
+      - name: avg_rating
+        type: simple
+        label: Mean product rating
+        description: >
+          Average of `average_rating` over the products in scope. The
+          upstream field is itself a weighted average of the product
+          ratings, so this is an unweighted mean across products.
+        agg: average
+        expr: average_rating
+
+      - name: total_rating_count
+        type: simple
+        label: Total product rating count
+        description: >
+          Sum of `rating_count` (valid ratings) over the products in
+          scope.
+        agg: sum
+        expr: rating_count
+        fill_nulls_with: 0
+
+      - name: total_inventory
+        type: simple
+        label: Total product inventory
+        description: >
+          Sum of `inventory` over the products in scope.
+        agg: sum
+        expr: inventory
+        fill_nulls_with: 0
+
+      - name: total_extra_photos
+        type: simple
+        label: Total extra product photos
+        description: >
+          Sum of `num_extra_photos` over the products in scope.
+        agg: sum
+        expr: num_extra_photos
+        fill_nulls_with: 0
+
+      - name: commerce_active_products
+        type: simple
+        label: Commerce active products
+        description: >
+          Distinct products flagged as commerce active
+          (`commerce_active = 1`): the product is active, its merchant
+          is active and the product was not removed.
+        agg: count_distinct
+        expr: product_id
+        filter: "{{ Dimension('master_products__commerce_active') }} = 1"
+        fill_nulls_with: 0
+
+      - name: products_with_commerce_data
+        type: simple
+        label: Products with commerce data
+        description: >
+          Distinct products that exist in the commerce system with valid
+          data (`has_commerce_product = 1`).
+        agg: count_distinct
+        expr: product_id
+        filter: "{{ Dimension('master_products__has_commerce_product') }} = 1"
+        fill_nulls_with: 0
+
+      - name: clean_products
+        type: simple
+        label: Clean content products
+        description: >
+          Distinct products flagged as content-clean
+          (`is_clean = 'true'`).
+        agg: count_distinct
+        expr: product_id
+        filter: "{{ Dimension('master_products__is_clean') }} = 'true'"
+        fill_nulls_with: 0
+
+      - name: adult_products
+        type: simple
+        label: Adult flagged products
+        description: >
+          Distinct products flagged as adult content
+          (`is_adult = 'true'`). Not to be confused with the global
+          `adult_products` metric on other models.
+        agg: count_distinct
+        expr: product_id
+        filter: "{{ Dimension('master_products__is_adult') }} = 'true'"
+        fill_nulls_with: 0
+
+      - name: counterfeit_products
+        type: simple
+        label: Counterfeit flagged products
+        description: >
+          Distinct products flagged as counterfeit
+          (`is_counterfeit = 'true'`). Not to be confused with the
+          global `counterfeit_products` metric on other models.
+        agg: count_distinct
+        expr: product_id
+        filter: "{{ Dimension('master_products__is_counterfeit') }} = 'true'"
+        fill_nulls_with: 0
+
+      - name: deleted_products
+        type: simple
+        label: Deleted flagged products
+        description: >
+          Distinct products flagged as deleted
+          (`is_deleted = 'true'`). Not to be confused with the global
+          `deleted_products` metric on other models.
+        agg: count_distinct
+        expr: product_id
+        filter: "{{ Dimension('master_products__is_deleted') }} = 'true'"
+        fill_nulls_with: 0
+
+      - name: top_seller_products
+        type: simple
+        label: Top seller flagged products
+        description: >
+          Distinct products flagged as top seller
+          (`is_top_seller = 'true'`). Not to be confused with the
+          global `top_seller_products` metric on other models.
+        agg: count_distinct
+        expr: product_id
+        filter: "{{ Dimension('master_products__is_top_seller') }} = 'true'"
+        fill_nulls_with: 0
+
+      - name: trending_products
+        type: simple
+        label: Trending flagged products
+        description: >
+          Distinct products flagged as trending
+          (`is_trending_product = 'true'`). Not to be confused with the
+          global `trending_products` metric on other models.
+        agg: count_distinct
+        expr: product_id
+        filter: "{{ Dimension('master_products__is_trending_product') }} = 'true'"
+        fill_nulls_with: 0
+
+      - name: verified_products
+        type: simple
+        label: Verified products
+        description: >
+          Distinct products flagged as verified
+          (`is_verified = 'true'`).
+        agg: count_distinct
+        expr: product_id
+        filter: "{{ Dimension('master_products__is_verified') }} = 'true'"
+        fill_nulls_with: 0
+
+      - name: c2c_products
+        type: simple
+        label: Consumer to consumer products
+        description: >
+          Distinct products flagged as consumer-to-consumer
+          (`is_c2c = 'true'`).
+        agg: count_distinct
+        expr: product_id
+        filter: "{{ Dimension('master_products__is_c2c') }} = 'true'"
+        fill_nulls_with: 0
+
+      - name: blocked_products
+        type: simple
+        label: Blocked review products
+        description: >
+          Distinct products blocked by Feed Processing
+          (`fp_review_status = 3`, `fp_review_status_name = 'BLOCKED'`).
+        agg: count_distinct
+        expr: product_id
+        filter: "{{ Dimension('master_products__fp_review_status_name') }} = 'BLOCKED'"
+        fill_nulls_with: 0
+
+      - name: merchant_removed_products
+        type: simple
+        label: Merchant removed products
+        description: >
+          Distinct products removed by the merchant
+          (`product_removed_by_merchant = 'true'`).
+        agg: count_distinct
+        expr: product_id
+        filter: "{{ Dimension('master_products__product_removed_by_merchant') }} = 'true'"
+        fill_nulls_with: 0

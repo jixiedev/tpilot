@@ -125,6 +125,9 @@ def test_compression_inherits_base_and_keeps_code_paths() -> None:
 
     # The lead keeps specialist results in full (never offloads `delegate`).
     assert _config("lead").compression == replace(base, never_offload_tools=frozenset({"delegate"}))
+    # Data agents keep prior-turn tool results for follow-up questions.
+    for name in ("warehouse", "databot"):
+        assert _config(name).compression == replace(base, prior_turns_qa_only=False)
 
 
 def test_compression_extends_overrides_named_fields(tmp_path: Path) -> None:

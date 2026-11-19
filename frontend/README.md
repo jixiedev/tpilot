@@ -230,6 +230,7 @@ With no databot run on the thread the endpoint returns 409 `no databot run on th
 - **Why `ag_ui_langgraph.LangGraphAgent`, not `copilotkit.LangGraphAGUIAgent`.** In the pinned versions the latter's `__init__` breaks `agent.clone()`.
 - **Why a hand-rolled endpoint.** `ag_ui_langgraph.add_langgraph_fastapi_endpoint` has no hook for the deferred graph build and its signature changes between versions. `agui_endpoint` (`POST /agui/{agent_name}`) mirrors its body: build, clone, `EventEncoder(accept=...)`, `StreamingResponse`.
 - **Terminal-event guarantee (`_stream_events`).** Client disconnect (`CancelledError`) is logged and re-raised with no further output. Any other exception, including `BaseException` from the agent's background tasks, becomes `RUN_ERROR` with code `AGENT_RUNTIME_ERROR`. A stream that ends without a terminal event gets `RUN_ERROR` with code `INCOMPLETE_STREAM`.
+- **Follow-up tool-call arguments (`agui_history.py`).** A later turn resends the chat, and the adapter parses each assistant tool call's `arguments` with `json.loads`. Streamed calls are sometimes stored as two JSON values in that one string (`null{"agent":"warehouse",...}` or `{"a":"b"}{"sql":"select 1"}`), which raises `JSONDecodeError: Extra data` and ends the run before the graph starts. `AguiHistoryRepair` runs first and keeps one object: the first JSON object in the string, skipping a leading non-object such as `null`. Text that is not JSON at all becomes `{}`. A warning in the backend log names the tool.
 - **`langgraph.json` graphs.** `databot`, `knowledge`, `lead` and `warehouse` point at `langgraph_graphs.py` factories, which build the agent through `AgentCatalog` with a `MemorySaver`. They are served by `langgraph dev`'s own API and Studio. The AG-UI endpoints do not use them: they build their own graphs with the SQLite checkpointer. `"env": ".env"` makes `langgraph dev` load the repo `.env`.
 
 ## Usage
@@ -293,7 +294,7 @@ Open http://localhost:3000 and pick a page (or go straight to http://localhost:3
 | `./scripts/dev.sh status` | Probes :8000, :3000 and `POST /agui/lead` / `POST /agui/databot`; each reports `ALIVE (HTTP 422)` when mounted (an empty body is rejected). |
 | Debug toggle on the databot page | `AgentDebugPanel` shows thread id, tool count and pending interrupts. |
 
-Backend tests for this layer: `.venv/bin/python -m pytest tests/test_agui_server.py tests/test_databot_ui_actions.py`.
+Backend tests for this layer: `.venv/bin/python -m pytest tests/test_agui_server.py tests/test_agui_history.py tests/test_databot_ui_actions.py`.
 
 ### Troubleshooting
 
@@ -303,6 +304,7 @@ Backend tests for this layer: `.venv/bin/python -m pytest tests/test_agui_server
 | `/agui/lead` or `/agui/databot` returns 404 | `http.app` in `langgraph.json` not loaded, `AGUI_AGENT_PATH` differs from `AGUI_BACKEND_URL`, or the agent name is not in `FRONT_AGENTS`. |
 | Chat shows `INCOMPLETE_STREAM` | The agent stream ended without `RUN_FINISHED` / `RUN_ERROR`; look for the run in the backend log. |
 | Chat shows `AGENT_RUNTIME_ERROR: <ExceptionType>: ...` | Exception inside the run (often an LLM provider error); full traceback is logged as `agui_endpoint: unhandled exception`. |
+| Follow-up shows `JSONDecodeError: Extra data` | The resent tool-call `arguments` held two JSON values. `AguiHistoryRepair` rewrites that to one object before the run starts; restart the backend if the log line `Repaired tool-call arguments` is absent (the process is still on the old code). |
 | Next.js returns 500 / fetch failed on `/api/copilotkit` or `/api/databot/actions` | Backend not running or `AGUI_BACKEND_URL` wrong. |
 | CORS errors in the browser | Something calls `:8000` directly. The FastAPI app has no CORS middleware; go through the Next.js routes. |
 | Artifact panel shows `agent not ready` / `no active thread` | `useDatabotActions` was called before CopilotKit synced the agent or before a thread exists; send a message first. |

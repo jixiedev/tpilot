@@ -151,7 +151,7 @@ def trino_list_tables(catalog: str = "", schema_name: str = "") -> list[dict[str
     return _execute_query(f"SHOW TABLES FROM {cat}.{schema}")["rows"]
 
 
-@register_tool
+@register_tool(offload=False)
 @tool
 @alternative_tool("hive_desc_table")
 def trino_desc_table(

@@ -31,13 +31,13 @@ An AI Agent platform for data teams: chatbot, intelligent data retrieval, team k
 | F6 | Human-in-the-Loop | Interrupt at key nodes; wait for user confirmation or input | P1 | Done — Intent low-confidence clarification interrupt + CLI resume; Databot v2 cards/SQL human gates (AG-UI v2 interrupt + CopilotKit Gate / Artifact panel, card selection and SQL editing) |
 | F7 | Reflective Reasoning | Self-review and correction before delivery (consistency checks, retry) | P1 | Not started |
 | F8 | Parallel Tool Use | Parallel tool invocation and result aggregation | P1 | Not started |
-| F9 | Eval Loop | Eval set regression; continuous iteration on prompts and agent behavior | P2 | Done (v1) — `evals` case JSON + Observer scoring (tool order / rounds / answer) + `python -m evals` |
+| F9 | Eval Loop | Eval set regression; continuous iteration on prompts and agent behavior | P2 | Done (v1) — `evals` case JSON + Observer scoring (tool order / rounds / answer) + `python -m evals`; `model_selection` agent compares retrieval arms (paired sign test, `evals.selection_report`) |
 | F10 | Monitoring | Token usage, cache hit rate, tool call latency and error rate | P2 | Not started |
 | F11 | Semantic Cache | Semantically similar requests hit cache; avoid redundant reasoning | P2 | Not started |
 | F12 | Model Routing | Dynamic model selection by task complexity and cost | P2 | Not started |
 | F13 | Procedural Memory | Distill reusable tool-call sequences and workflows from successful interactions | P3 | Not started |
 | F14 | Error Handling | Classify, retry, and degrade on LLM/tool failures; friendly errors and recoverable interrupts | P1 | Done — TOOL ERROR, transient retries, Hive↔Trino anti-oscillation, CLI-friendly errors |
-| F15 | RAG | Local Qdrant vector store; ingest and semantic search over Jira / Google Drive (and later Wiki) for Knowledge Agent | P1 | Done (Jira + dbt main path) — Docker Qdrant, ingest CLI (Jira CSV / Drive zip / dbt semantic model), `fetch_related_jira_tickets` and `fetch_related_models` (Databot card candidates). Drive/Wiki search tools and eval still open |
+| F15 | RAG | Local Qdrant vector store; ingest and semantic search over Jira / Google Drive (and later Wiki) for Knowledge Agent | P1 | Done (Jira + dbt main path) — Docker Qdrant, ingest CLI (Jira CSV / Drive zip / dbt semantic model), `fetch_related_jira_tickets` and `fetch_related_models` (Databot card candidates; now the fallback after the metric catalog). dbt retrieval eval done: `model_selection` agent, 69 cases, see [evals/MODEL_SELECTION_EVAL.md](../evals/MODEL_SELECTION_EVAL.md). Drive/Wiki search tools still open |
 | F16 | A2A Multi-Agent Composition | Compose multiple specialist agents via the [Agent-to-Agent (A2A)](https://google.github.io/A2A/) protocol to solve complex cross-domain problems; standardized task delegation, artifact handoff, status streaming, and Agent Card discovery | P1 | Not started — M4 today is in-process `AgentChain`; target is A2A endpoints for Databot / Knowledge / future diagnostic agents, orchestrated via A2A tasks |
 | F17 | Databot runtime | Make Databot an embeddable specialist: layered graph, in-process responsibility objects, nodes that advance by operating on the Agent; leveled HITL defaulting to off; a retrieval turn ends with a summary and a cleared working state | P1 | Not started — see **F17 Databot runtime** below |
 
@@ -96,7 +96,7 @@ Items marked **Done** mean the main path works. The list below is optional deepe
 | F16 | Agent Card registration and discovery; map A2A tasks / artifacts to existing handoff structures; align with M6 service deploy (auth, observability, multi-tenant) |
 | F17 | See **F17 Databot runtime** below |
 | F14 | Failure metrics; broader integration-test coverage |
-| F15 | Google Drive / Wiki search tools; incremental refresh and dedupe; retrieval quality eval; multi-collection routing |
+| F15 | Google Drive / Wiki search tools; incremental refresh and dedupe; re-ingest the catalog models missing from `aug_dbt_models`; multi-collection routing |
 
 ### F9 Eval Loop (v1 → next)
 

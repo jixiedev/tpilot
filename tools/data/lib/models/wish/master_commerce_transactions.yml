@@ -1,0 +1,1124 @@
+version: 2
+
+models:
+  - name: master_commerce_transactions
+    description: >
+      Master commerce transaction fact — one row per commerce line item for
+      every Wish transaction, enriched with payment, shipping, tax and refund
+      state. Physical source is the Hive table `wish.master_commerce_transactions`,
+      produced daily by the Airflow / Spark ETL that lands MongoDB
+      `commerce_transaction` / `commerce_transaction_item` documents. This model
+      is a read-only view over that table (materialized in schema
+      `semantic_dw`); the ETL is not reimplemented here.
+
+
+      **Grain** — one row per (transaction_id, variation_id) line item. The
+      documented composite key is (transaction_id, variation_id), so the
+      surrogate primary key `transaction_variation_id` is
+      `concat(transaction_id, '-', variation_id)`.
+
+
+      **Order vs line grain** — one commerce transaction spans many line rows,
+      so the transaction-level columns (`order_total`, `order_subtotal`,
+      `order_shipping`, `tax_amount`, `tax_cost`, `tax_fee`, `processor_fee`,
+      `cash_applied`, `discount_amount`, `discounts_applied`,
+      `total_credits_applied`, `credits_applied`, `installments`) are
+      *repeated on every line row* of the same transaction. Summing them over
+      line rows over-counts by the number of lines per transaction; aggregate at
+      `transaction_id` first when a per-transaction number is needed. The
+      line-level columns (`paid_price`, `paid_shipping`, `item_price`,
+      `item_total`, `cost`, `quantity`, `gmv`, `actual_gmv`) are safe to sum
+      over line rows.
+
+
+      **Time** — `dt` is the Hive partition (varchar YYYY-MM-DD) and the
+      default metric time dimension; it is the pipeline refresh date, *not* the
+      checkout date. `transaction_create_date`, `transaction_date` and
+      `payment_received_date` are extra day-grain time dimensions derived from
+      the unix-second columns; the project time spine is day, so no
+      hour/second-grain time dimension is registered. The raw unix columns are
+      kept alongside `*_ts` timestamp columns for joins. Data is typically
+      available with a 24-hour delay.
+
+
+      **Enums** — `state`, `payment_type`, `client` and
+      `refund_reason_category` keep their raw integer code and gain a
+      human-readable `*_name` column built from the documented code list.
+      `app_type_name` already exists in the source and is passed through.
+
+
+      **Caveats** — monetary columns are in the currency named by `currency`
+      (multi-currency rows exist, so cross-currency sums need an exchange-rate
+      aware metric); `is_testing` rows are QA data and should be excluded from
+      production reporting; `ip_address`, `shipping_recipient`, `device_id`,
+      `req_visitor_id` and `seed_visitor_id` are PII.
+    config:
+      meta:
+        owner: jixie
+        hive_table: wish.master_commerce_transactions
+        grain: one row per (transaction_id, variation_id) commerce line item
+        primary_key: transaction_variation_id
+        partition_column: dt
+    semantic_model:
+      enabled: true
+      name: master_commerce_transactions
+    primary_entity: transaction_variation
+    agg_time_dimension: dt
+
+    columns:
+      # ------------------------------------------------------------------
+      # entities
+      # ------------------------------------------------------------------
+      - name: transaction_variation_id
+        description: >
+          Surrogate primary key for the line grain, built as
+          `concat(transaction_id, '-', variation_id)`.
+        entity:
+          type: primary
+          name: transaction_variation
+
+      - name: transaction_id
+        description: Unique identifier for the commerce transaction (Mongo ObjectId).
+        entity:
+          type: foreign
+          name: transaction
+
+      - name: variation_id
+        description: Unique identifier for the product variation (line item).
+        entity:
+          type: foreign
+          name: variation
+
+      - name: user_id
+        description: Buyer user id. Null for guest checkout.
+        entity:
+          type: foreign
+          name: user
+
+      - name: merchant_id
+        description: Merchant id of the selling merchant.
+        entity:
+          type: foreign
+          name: merchant
+
+      - name: product_id
+        description: Product id the line item belongs to.
+        entity:
+          type: foreign
+          name: product
+
+      - name: payment_id
+        description: Payment processor transaction id.
+        entity:
+          type: foreign
+          name: payment
+
+      # ------------------------------------------------------------------
+      # time dimensions
+      # ------------------------------------------------------------------
+      - name: dt
+        description: >
+          Hive partition date (YYYY-MM-DD) — the pipeline refresh date, not the
+          checkout date. Always filter on it first. Default metric time
+          dimension.
+        granularity: day
+        dimension:
+          type: time
+          label: Partition date
+          is_partition: true
+
+      - name: transaction_create_date
+        description: >
+          Calendar date (UTC) the transaction was created, derived from the
+          unix-second `time` column.
+        granularity: day
+        dimension:
+          type: time
+          label: Transaction create date
+
+      - name: transaction_date
+        description: >
+          Calendar date (UTC) the transaction was completed, derived from the
+          unix-second `transaction_time` column.
+        granularity: day
+        dimension:
+          type: time
+          label: Transaction date
+
+      - name: payment_received_date
+        description: >
+          Calendar date (UTC) the payment was received, derived from the
+          unix-second `payment_received_time` column. Use this for
+          revenue-recognition (cash-in) cuts; `dt` is the default metric time.
+        granularity: day
+        dimension:
+          type: time
+          label: Payment received date
+
+      # ------------------------------------------------------------------
+      # enum dimensions (raw code + human-readable label)
+      # ------------------------------------------------------------------
+      - name: state
+        description: >
+          Transaction state code. 0=PENDING, 1=APPROVED, 2=ACKNOWLEDGED,
+          3=SHIPPED, 4=DECLINED, 5=REFUNDED, 6=C2C_ON_DELIVERY,
+          7=C2C_DELIVERED, 8=C2C_ACCEPTED, 10=EXCEPTION,
+          11=GIFT_WAITING_FOR_ACCEPT, 12=REQUIRE_REVIEW, 13=DELAYING,
+          14=LABEL_GENERATED, 15=LABEL_DOWNLOADED.
+        dimension:
+          type: categorical
+          label: Transaction state
+
+      - name: state_name
+        description: Human-readable label for `state`.
+        dimension:
+          type: categorical
+          label: Transaction state (name)
+
+      - name: payment_type
+        description: >
+          Payment method code. See `payment_type_name` for the full list
+          (-1=NONE, 0=PAYPAL, 1=BRAINTREE, 2=BRAINTREE_FB, 3=STRIPE, ...).
+        dimension:
+          type: categorical
+          label: Payment type
+
+      - name: payment_type_name
+        description: >
+          Human-readable payment method label, from the documented PaymentType
+          enum (PAYPAL, BRAINTREE, STRIPE, ADYEN, KLARNA, AFTERPAY, ...).
+        dimension:
+          type: categorical
+          label: Payment type (name)
+
+      - name: client
+        description: >
+          Client platform code. 0=Web, 1=iPhone, 2=iPad, 3=Android,
+          4=Mobile Web, 5=Windows Desktop, 6=Windows Phone.
+        dimension:
+          type: categorical
+          label: Client platform
+
+      - name: client_name
+        description: Human-readable label for `client`.
+        dimension:
+          type: categorical
+          label: Client platform (name)
+
+      - name: refund_reason_category
+        description: >
+          Refund reason category code. The table documentation names only a
+          subset of the codes (4=SUSPECTED_FRAUD, 20-27=quality related,
+          40/54/65=fraud related); the full enum is not documented for this
+          table.
+        dimension:
+          type: categorical
+          label: Refund reason category
+
+      - name: refund_reason_category_name
+        description: >
+          Human-readable label for the refund reason codes that the table
+          documentation enumerates. Codes 20-23 collapse to 'QUALITY' and
+          40/54/65 to 'FRAUD' because the documentation does not name them
+          individually.
+        dimension:
+          type: categorical
+          label: Refund reason category (name)
+
+      - name: app_type
+        description: Application type code.
+        dimension:
+          type: categorical
+          label: App type
+
+      - name: app_type_name
+        description: Human-readable application type name, taken from the source table.
+        dimension:
+          type: categorical
+          label: App type (name)
+
+      - name: item_state
+        description: State of the individual line item.
+        dimension:
+          type: categorical
+          label: Item state
+
+      - name: item_prev_state
+        description: Previous state of the line item.
+        dimension:
+          type: categorical
+          label: Item previous state
+
+      - name: ltd_product_state
+        description: State of the limited-time-deal product.
+        dimension:
+          type: categorical
+          label: LTD product state
+
+      - name: reroute_source
+        description: Source of the order rerouting.
+        dimension:
+          type: categorical
+          label: Reroute source
+
+      # ------------------------------------------------------------------
+      # flags ('true' / 'false' string booleans)
+      # ------------------------------------------------------------------
+      - name: is_ltd_product
+        description: >
+          'true' when the line item is a limited-time-deal product. Raw flag
+          column; use `is_ltd_product_flag` for filtering.
+        dimension:
+          type: categorical
+          label: Is LTD product
+
+      - name: is_ltd_product_flag
+        description: >
+          Boolean version of `is_ltd_product`. Null source values are mapped
+          to false so that "exclude LTD" filters keep non-LTD lines.
+        dimension:
+          type: categorical
+          label: Is LTD product (flag)
+
+      - name: is_testing
+        description: >
+          'true' for QA/test transactions. Exclude these from production
+          reporting.
+        dimension:
+          type: categorical
+          label: Is testing
+
+      - name: is_c2c
+        description: 'true when the transaction is customer-to-customer.'
+        dimension:
+          type: categorical
+          label: Is C2C
+
+      - name: is_wish_express
+        description: 'true when the transaction uses Wish Express shipping.'
+        dimension:
+          type: categorical
+          label: Is Wish Express
+
+      - name: is_gifting
+        description: 'true when the transaction is a gift.'
+        dimension:
+          type: categorical
+          label: Is gifting
+
+      - name: is_free_gift
+        description: 'true when the line item is a free gift.'
+        dimension:
+          type: categorical
+          label: Is free gift
+
+      - name: is_free_sample
+        description: 'true when the line item is a free sample.'
+        dimension:
+          type: categorical
+          label: Is free sample
+
+      - name: is_daily_giveaway
+        description: 'true when the line item comes from a daily giveaway.'
+        dimension:
+          type: categorical
+          label: Is daily giveaway
+
+      - name: is_commerce_loan
+        description: 'true when the transaction uses a commerce loan (Buy Now, Pay Later).'
+        dimension:
+          type: categorical
+          label: Is commerce loan
+
+      - name: is_pts_redemption
+        description: 'true when the transaction uses points redemption.'
+        dimension:
+          type: categorical
+          label: Is PTS redemption
+
+      - name: is_strategic_merchant
+        description: 'true when the merchant is a strategic merchant.'
+        dimension:
+          type: categorical
+          label: Is strategic merchant
+
+      - name: is_wish_x_merchant
+        description: 'true when the merchant is a Wish X merchant.'
+        dimension:
+          type: categorical
+          label: Is Wish X merchant
+
+      - name: item_is_fbw
+        description: 'true when the line item is Fulfilled by Wish.'
+        dimension:
+          type: categorical
+          label: Item is FBW
+
+      - name: contains_fbw_item
+        description: 'true when the transaction contains at least one FBW item.'
+        dimension:
+          type: categorical
+          label: Contains FBW item
+
+      - name: contains_self_serve_fbw_item
+        description: 'true when the transaction contains a self-serve FBW item.'
+        dimension:
+          type: categorical
+          label: Contains self-serve FBW item
+
+      - name: chargeback
+        description: 'true when the transaction has a chargeback.'
+        dimension:
+          type: categorical
+          label: Chargeback
+
+      # ------------------------------------------------------------------
+      # geography / payment attributes
+      # ------------------------------------------------------------------
+      - name: shipping_country
+        description: ISO country code of the shipping destination.
+        dimension:
+          type: categorical
+          label: Shipping country
+
+      - name: country_code
+        description: Country code of the transaction.
+        dimension:
+          type: categorical
+          label: Country code
+
+      - name: ip_country
+        description: Country derived from the buyer IP address.
+        dimension:
+          type: categorical
+          label: IP country
+
+      - name: shipping_state
+        description: State / province of the shipping destination.
+        dimension:
+          type: categorical
+          label: Shipping state
+
+      - name: shipping_city
+        description: City of the shipping destination.
+        dimension:
+          type: categorical
+          label: Shipping city
+
+      - name: postal_code
+        description: Postal / ZIP code of the shipping destination.
+        dimension:
+          type: categorical
+          label: Postal code
+
+      - name: currency
+        description: >
+          Currency code the monetary columns of this row are expressed in.
+          Rows are not currency-normalised, so cross-currency sums need an
+          exchange-rate aware metric.
+        dimension:
+          type: categorical
+          label: Currency
+
+      - name: payment_method
+        description: Raw payment method detail string.
+        dimension:
+          type: categorical
+          label: Payment method
+
+      - name: card_type
+        description: >
+          Credit card type identifier. The table documentation lists no enum
+          mapping for this table, so the raw value is exposed as-is.
+        dimension:
+          type: categorical
+          label: Card type
+
+      - name: funding_type
+        description: >
+          Funding type of the payment method. The table documentation lists no
+          enum mapping for this table, so the raw value is exposed as-is.
+        dimension:
+          type: categorical
+          label: Funding type
+
+      - name: bin_number
+        description: Bank Identification Number of the card.
+        dimension:
+          type: categorical
+          label: BIN number
+
+      - name: cvv_check_response
+        description: CVV verification response.
+        dimension:
+          type: categorical
+          label: CVV check response
+
+      - name: avs_error_response
+        description: Address verification error response.
+        dimension:
+          type: categorical
+          label: AVS error response
+
+      - name: avs_postal_check_response
+        description: Postal code verification response.
+        dimension:
+          type: categorical
+          label: AVS postal check response
+
+      - name: avs_street_check_response
+        description: Street address verification response.
+        dimension:
+          type: categorical
+          label: AVS street check response
+
+      # ------------------------------------------------------------------
+      # other categorical attributes
+      # ------------------------------------------------------------------
+      - name: orig_product_id
+        description: Original product id before the product was changed.
+        dimension:
+          type: categorical
+          label: Original product id
+
+      - name: orig_variation_id
+        description: Original variation id before the variation was changed.
+        dimension:
+          type: categorical
+          label: Original variation id
+
+      - name: orig_merchant_id
+        description: Original merchant id before the merchant was changed.
+        dimension:
+          type: categorical
+          label: Original merchant id
+
+      - name: conversion_table_id
+        description: Conversion table identifier.
+        dimension:
+          type: categorical
+          label: Conversion table id
+
+      - name: refund_transaction_id
+        description: Id of the refund transaction, when the line was refunded.
+        dimension:
+          type: categorical
+          label: Refund transaction id
+
+      - name: tracking_id
+        description: Shipping tracking identifier.
+        dimension:
+          type: categorical
+          label: Tracking id
+
+      - name: fbw_warehouse_id
+        description: Warehouse id serving the FBW items of this line.
+        dimension:
+          type: categorical
+          label: FBW warehouse id
+
+      - name: pending_reason
+        description: Reason the transaction is in a pending state.
+        dimension:
+          type: categorical
+          label: Pending reason
+
+      - name: credit_ids
+        description: Comma-separated list of credit ids applied to the transaction.
+        dimension:
+          type: categorical
+          label: Credit ids
+
+      - name: credit_applied
+        description: Detail of the credits applied to the transaction.
+        dimension:
+          type: categorical
+          label: Credit applied
+
+      - name: cart_coupon_codes_applied
+        description: Coupon codes applied to the cart.
+        dimension:
+          type: categorical
+          label: Cart coupon codes applied
+
+      - name: wishcash_in
+        description: Wish Cash input details.
+        dimension:
+          type: categorical
+          label: Wish Cash in
+
+      - name: pppi_personal_price_types
+        description: Personal price types applied to the item price.
+        dimension:
+          type: categorical
+          label: Personal price types (item)
+
+      - name: sppi_personal_price_types
+        description: Personal price types applied to the shipping price.
+        dimension:
+          type: categorical
+          label: Personal price types (shipping)
+
+      - name: ttd_tags_before_override
+        description: Tags before the time-to-delivery override was applied.
+        dimension:
+          type: categorical
+          label: TTD tags before override
+
+      # ------------------------------------------------------------------
+      # measure columns (referenced by metrics only)
+      # ------------------------------------------------------------------
+      - name: gmv
+        description: >
+          Documented GMV formula: `paid_price + paid_shipping`, at the line
+          grain. Null amounts are treated as zero.
+        label: GMV
+
+      - name: actual_gmv
+        description: >
+          Documented "actual GMV" formula: GMV minus the proportional share of
+          `discount_amount`, i.e.
+          `gmv - (gmv / (total + cash + discount_amount)) * discount_amount`
+          with a zero guard on the divisor.
+        label: Actual GMV
+
+      - name: paid_price
+        description: >
+          Actual price paid by the customer for this line, excluding shipping.
+          Line grain.
+        label: Paid price
+
+      - name: paid_shipping
+        description: Actual shipping amount paid by the customer. Line grain.
+        label: Paid shipping
+
+      - name: item_price
+        description: Price per item, before the line total is applied.
+        label: Item price
+
+      - name: item_total
+        description: Total item cost (`item_price * quantity`). Line grain.
+        label: Item total
+
+      - name: cost
+        description: Cost of goods sold. Line grain.
+        label: Cost of goods sold
+
+      - name: quantity
+        description: Quantity of items in the line. Line grain.
+        label: Quantity
+
+      - name: local_amount
+        description: Amount in the local currency of the transaction.
+        label: Local amount
+
+      - name: wish_cash_paid
+        description: Amount paid using Wish Cash.
+        label: Wish Cash paid
+
+      - name: wish_cash_credit
+        description: Wish Cash credit amount.
+        label: Wish Cash credit
+
+      - name: refund_amount
+        description: Total refund amount.
+        label: Refund amount
+
+      - name: refundable_cash_amount
+        description: Amount of cash that can be refunded.
+        label: Refundable cash amount
+
+      - name: displayed_price
+        description: Price displayed to the customer, as a formatted string.
+        label: Displayed price
+
+      - name: displayed_shipping
+        description: Shipping cost displayed to the customer, as a formatted string.
+        label: Displayed shipping
+
+      - name: order_total
+        description: >
+          Total transaction amount before discounts. Transaction level —
+          repeated on every line row of the transaction.
+        label: Order total
+
+      - name: order_subtotal
+        description: >
+          Subtotal before shipping and taxes. Transaction level — repeated on
+          every line row of the transaction.
+        label: Order subtotal
+
+      - name: order_shipping
+        description: >
+          Total shipping cost including all components, as stored by the ETL.
+          Transaction level — repeated on every line row. The documentation
+          also gives the formula
+          `flat_rate_shipping + local_delivery_fees + other_shipping_components`,
+          but the two latter components are not columns of this table, so the
+          stored value is used as-is.
+        label: Order shipping
+
+      - name: tax_amount
+        description: >
+          Tax amount applied to the transaction. Transaction level — repeated on
+          every line row.
+        label: Tax amount
+
+      - name: tax_cost
+        description: >
+          Tax cost component. Transaction level — repeated on every line row.
+        label: Tax cost
+
+      - name: tax_fee
+        description: >
+          Tax fee component. Transaction level — repeated on every line row.
+        label: Tax fee
+
+      - name: processor_fee
+        description: >
+          Payment processor fee. Transaction level — repeated on every line row.
+        label: Processor fee
+
+      - name: cash_applied
+        description: >
+          Cash amount in the transaction. Transaction level — repeated on every
+          line row.
+        label: Cash applied
+
+      - name: discount_amount
+        description: >
+          Total discount amount applied. Transaction level — repeated on every
+          line row. Used by the `actual_gmv` formula.
+        label: Discount amount
+
+      - name: discounts_applied
+        description: >
+          Total discounts applied. Transaction level — repeated on every line
+          row. The table documentation lists both `discount_amount` and
+          `discounts_applied` without distinguishing them.
+        label: Discounts applied
+
+      - name: total_credits_applied
+        description: >
+          Total credits applied to the transaction. Transaction level —
+          repeated on every line row.
+        label: Total credits applied
+
+      - name: credits_applied
+        description: >
+          Amount of credits applied. Transaction level — repeated on every line
+          row.
+        label: Credits applied
+
+      - name: installments
+        description: Number of payment installments.
+        label: Installments
+
+      - name: shipping_cost
+        description: Base shipping cost for the transaction.
+        label: Shipping cost
+
+      - name: flat_rate_shipping
+        description: Flat rate shipping component of the total shipping cost.
+        label: Flat rate shipping
+
+      - name: pppi_price_before_personal_price
+        description: Item price before personal pricing was applied.
+        label: Item price before personal price
+
+      - name: pppi_price_after_personal_price
+        description: Item price after personal pricing was applied.
+        label: Item price after personal price
+
+      - name: sppi_price_before_personal_price
+        description: Shipping price before personal pricing was applied.
+        label: Shipping price before personal price
+
+      - name: sppi_price_after_personal_price
+        description: Shipping price after personal pricing was applied.
+        label: Shipping price after personal price
+
+      - name: retail_delivery_fee_amount
+        description: Retail delivery fee amount.
+        label: Retail delivery fee amount
+
+      - name: merchant_currency_spot_exchange_rate
+        description: Spot exchange rate for the merchant currency.
+        label: Merchant currency spot rate
+
+      - name: merchant_currency_hedged_exchange_rate
+        description: Hedged exchange rate for the merchant currency.
+        label: Merchant currency hedged rate
+
+      - name: merchant_currency_daily_exchange_rate
+        description: Daily exchange rate for the merchant currency.
+        label: Merchant currency daily rate
+
+      - name: user_currency_spot_exchange_rate
+        description: Spot exchange rate for the user currency.
+        label: User currency spot rate
+
+      - name: user_currency_hedged_exchange_rate
+        description: Hedged exchange rate for the user currency.
+        label: User currency hedged rate
+
+      - name: user_currency_daily_exchange_rate
+        description: Daily exchange rate for the user currency.
+        label: User currency daily rate
+
+      - name: transaction_created_at
+        description: Raw unix seconds of the transaction creation instant.
+        label: Transaction created at (unix)
+
+      - name: transaction_created_ts
+        description: Timestamp of the transaction creation instant.
+        label: Transaction created at
+
+      - name: transaction_time
+        description: Raw unix seconds of the transaction completion instant.
+        label: Transaction time (unix)
+
+      - name: transaction_time_ts
+        description: Timestamp of the transaction completion instant.
+        label: Transaction time
+
+      - name: payment_received_time
+        description: Raw unix seconds of the payment receipt instant.
+        label: Payment received time (unix)
+
+      - name: payment_received_ts
+        description: Timestamp of the payment receipt instant.
+        label: Payment received time
+
+      - name: refunded_time
+        description: Raw unix seconds of the refund instant.
+        label: Refunded time (unix)
+
+      - name: refunded_ts
+        description: Timestamp of the refund instant.
+        label: Refunded time
+
+      - name: limbo_start_time
+        description: Raw unix seconds of the moment the order entered limbo.
+        label: Limbo start time (unix)
+
+      - name: limbo_start_ts
+        description: Timestamp of the moment the order entered limbo.
+        label: Limbo start time
+
+      - name: refunded_by
+        description: User id of the operator who processed the refund.
+        label: Refunded by
+
+      - name: min_shipping_time_shown
+        description: Minimum shipping time shown to the customer, in days.
+        label: Min shipping time shown
+
+      - name: max_shipping_time_shown
+        description: Maximum shipping time shown to the customer, in days.
+        label: Max shipping time shown
+
+      - name: min_delivery_time_before_grouping
+        description: Minimum delivery time before grouping, in days.
+        label: Min delivery time before grouping
+
+      - name: max_delivery_time_before_grouping
+        description: Maximum delivery time before grouping, in days.
+        label: Max delivery time before grouping
+
+      - name: ttd_tags_override_case_num
+        description: Case number of the time-to-delivery tag override.
+        label: TTD tags override case number
+
+      # ------------------------------------------------------------------
+      # PII / device identifiers
+      # ------------------------------------------------------------------
+      - name: ip_address
+        description: IP address of the customer. PII.
+        dimension:
+          type: categorical
+          label: IP address
+
+      - name: shipping_recipient
+        description: Name of the shipping recipient. PII.
+        dimension:
+          type: categorical
+          label: Shipping recipient
+
+      - name: device_id
+        description: Device identifier of the buyer session.
+        dimension:
+          type: categorical
+          label: Device id
+
+      - name: req_visitor_id
+        description: Request visitor identifier.
+        dimension:
+          type: categorical
+          label: Request visitor id
+
+      - name: seed_visitor_id
+        description: Seed visitor identifier.
+        dimension:
+          type: categorical
+          label: Seed visitor id
+
+    metrics:
+      - name: gmv
+        type: simple
+        label: GMV
+        description: >
+          Gross Merchandise Value: sum of the documented line-grain formula
+          `paid_price + paid_shipping`. Limited-time-deal line items are
+          excluded, matching the house convention that standard commerce
+          reporting drops LTD lines; use `gmv_w_ltd` for the unfiltered total.
+        agg: sum
+        expr: gmv
+        fill_nulls_with: 0
+        filter: "{{ Dimension('transaction_variation__is_ltd_product_flag') }} = false"
+
+      - name: gmv_w_ltd
+        type: simple
+        label: GMV (incl. LTD)
+        description: >
+          Gross Merchandise Value including limited-time-deal line items.
+        agg: sum
+        expr: gmv
+        fill_nulls_with: 0
+
+      - name: actual_gmv
+        type: simple
+        label: Actual GMV (after discounts)
+        description: >
+          GMV after the proportional share of `discount_amount` is removed,
+          per the documented "actual GMV" formula. Limited-time-deal line items
+          are excluded; see `actual_gmv_w_ltd` for the unfiltered total.
+        agg: sum
+        expr: actual_gmv
+        fill_nulls_with: 0
+        filter: "{{ Dimension('transaction_variation__is_ltd_product_flag') }} = false"
+
+      - name: actual_gmv_w_ltd
+        type: simple
+        label: Actual GMV (incl. LTD)
+        description: Actual GMV including limited-time-deal line items.
+        agg: sum
+        expr: actual_gmv
+        fill_nulls_with: 0
+
+      - name: revenue
+        type: simple
+        label: Revenue (paid price)
+        description: >
+          Merchandise revenue: sum of `paid_price`, i.e. the paid_price term of
+          the documented GMV formula (GMV minus shipping). The table
+          documentation does not define a separate "revenue" formula, so this
+          metric is the merchandise amount actually paid by the customer.
+        agg: sum
+        expr: paid_price
+        fill_nulls_with: 0
+        filter: "{{ Dimension('transaction_variation__is_ltd_product_flag') }} = false"
+
+      - name: revenue_w_ltd
+        type: simple
+        label: Revenue (incl. LTD)
+        description: Merchandise revenue including limited-time-deal line items.
+        agg: sum
+        expr: paid_price
+        fill_nulls_with: 0
+
+      - name: avg_gmv
+        type: simple
+        label: Average GMV per line item
+        description: >
+          Average of the line-grain GMV formula, i.e. the
+          `AVG(paid_price + paid_shipping)` of the documented Daily GMV
+          Analysis example.
+        agg: average
+        expr: gmv
+        filter: "{{ Dimension('transaction_variation__is_ltd_product_flag') }} = false"
+
+      - name: paid_shipping
+        type: simple
+        label: Paid shipping
+        description: Shipping revenue collected from the customer.
+        agg: sum
+        expr: paid_shipping
+        fill_nulls_with: 0
+
+      - name: refunded_gmv
+        type: simple
+        label: Refunded GMV
+        description: >
+          GMV of the line items whose transaction state is REFUNDED (state 5),
+          per the documented Merchant Performance Analysis example.
+        agg: sum
+        expr: gmv
+        fill_nulls_with: 0
+        filter: "{{ Dimension('transaction_variation__state_name') }} = 'REFUNDED'"
+
+      - name: refunded_orders
+        type: simple
+        label: Refunded orders
+        description: >
+          Distinct commerce transactions in REFUNDED state (state 5), per the
+          documented Merchant Performance Analysis example.
+        agg: count_distinct
+        expr: transaction_id
+        filter: "{{ Dimension('transaction_variation__state_name') }} = 'REFUNDED'"
+
+      - name: order_total
+        type: simple
+        label: Order total
+        description: >
+          Sum of the pre-discount transaction total. Transaction-level value
+          repeated on every line row — summing it over line rows over-counts
+          by the number of lines per transaction.
+        agg: sum
+        expr: order_total
+        fill_nulls_with: 0
+
+      - name: order_subtotal
+        type: simple
+        label: Order subtotal
+        description: >
+          Sum of the subtotal before shipping and taxes. Transaction-level
+          value repeated on every line row — summing it over line rows
+          over-counts.
+        agg: sum
+        expr: order_subtotal
+        fill_nulls_with: 0
+
+      - name: order_shipping
+        type: simple
+        label: Order shipping
+        description: >
+          Sum of the total shipping cost. Transaction-level value repeated on
+          every line row — summing it over line rows over-counts.
+        agg: sum
+        expr: order_shipping
+        fill_nulls_with: 0
+
+      - name: tax_amount
+        type: simple
+        label: Tax amount
+        description: >
+          Sum of the tax applied to the transaction. Transaction-level value
+          repeated on every line row — summing it over line rows over-counts.
+        agg: sum
+        expr: tax_amount
+        fill_nulls_with: 0
+
+      - name: tax_cost
+        type: simple
+        label: Tax cost
+        description: >
+          Sum of the tax cost component. Transaction-level value repeated on
+          every line row — summing it over line rows over-counts.
+        agg: sum
+        expr: tax_cost
+        fill_nulls_with: 0
+
+      - name: tax_fee
+        type: simple
+        label: Tax fee
+        description: >
+          Sum of the tax fee component. Transaction-level value repeated on
+          every line row — summing it over line rows over-counts.
+        agg: sum
+        expr: tax_fee
+        fill_nulls_with: 0
+
+      - name: cost
+        type: simple
+        label: Cost of goods sold
+        description: Sum of the line-grain cost of goods sold.
+        agg: sum
+        expr: cost
+        fill_nulls_with: 0
+
+      - name: discount_amount
+        type: simple
+        label: Discount amount
+        description: >
+          Sum of the total discount amount applied. Transaction-level value
+          repeated on every line row — summing it over line rows over-counts.
+        agg: sum
+        expr: discount_amount
+        fill_nulls_with: 0
+
+      - name: processor_fee
+        type: simple
+        label: Processor fee
+        description: >
+          Sum of the payment processor fee. Transaction-level value repeated on
+          every line row — summing it over line rows over-counts.
+        agg: sum
+        expr: processor_fee
+        fill_nulls_with: 0
+
+      - name: refund_amount
+        type: simple
+        label: Refund amount
+        description: Sum of the refund amount.
+        agg: sum
+        expr: refund_amount
+        fill_nulls_with: 0
+
+      - name: wish_cash_paid
+        type: simple
+        label: Wish Cash paid
+        description: Sum of the amount paid using Wish Cash.
+        agg: sum
+        expr: wish_cash_paid
+        fill_nulls_with: 0
+
+      - name: quantity
+        type: simple
+        label: Quantity
+        description: Sum of the item quantity.
+        agg: sum
+        expr: quantity
+        fill_nulls_with: 0
+
+      - name: transaction_lines
+        type: simple
+        label: Transaction lines
+        description: Count of commerce line items.
+        agg: count
+        expr: 1
+
+      - name: transactions
+        type: simple
+        label: Transactions
+        description: Count of distinct commerce transactions.
+        agg: count_distinct
+        expr: transaction_id
+
+      - name: buyers
+        type: simple
+        label: Buyers
+        description: Count of distinct buyers (user ids). Guest checkout rows have a null user id.
+        agg: count_distinct
+        expr: user_id
+
+      - name: merchants
+        type: simple
+        label: Merchants
+        description: Count of distinct merchants.
+        agg: count_distinct
+        expr: merchant_id
+
+      - name: products
+        type: simple
+        label: Products
+        description: Count of distinct products.
+        agg: count_distinct
+        expr: product_id
+
+      - name: variations
+        type: simple
+        label: Variations
+        description: Count of distinct product variations.
+        agg: count_distinct
+        expr: variation_id

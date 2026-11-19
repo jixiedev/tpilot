@@ -19,6 +19,7 @@ Related docs: [agent framework and ReAct loop](../../README.md) · [tools](../..
 | `history.py` | `DataRetrievalRecord`, `DataRetrievalStore` (per-user retrieval history) |
 | `databot_agent.py` | `DatabotAgent` (including the subagent hooks `subagent_input`, `result_from_state`, `ui_view`, `aget_active_snapshot`), `DatabotTurnMessagePolicy` (per-turn reset and persistence) |
 | `tools/rag/dbt_models.py` | `TableCard`, `fetch_related_models`, `commit_cards` |
+| `tools/data/metrics.py` | Metric catalog: `search_metric_catalog`, `find_models_metrics` (stage cards from a `root_id` + `member_id`) |
 | `config/agents/databot.toml` | Prompts, gate toggles, tool scopes, budgets |
 
 ## Basic concepts
@@ -29,7 +30,7 @@ A **table card** is a dict shaped like `TableCard` (`tools/rag/dbt_models.py`): 
 
 | Field | Holds | Written by |
 |-------|-------|-----------|
-| `staging_cards` | Every hit from `fetch_related_models`, each with a unique `staging_id` (`<model>_<8 hex>`) | `fetch_related_models` |
+| `staging_cards` | Every candidate model found this turn, each with a unique `staging_id` (`<model>_<8 hex>`). Merged by `staging_cards_reducer` (union by `staging_id`), so two retrieval calls in one step both land | `find_models_metrics`, `fetch_related_models` |
 | `committed_cards` | The subset the LLM proposes, each with `selected_metrics`, `selected_dimensions`, `selection_notes` | `commit_cards` |
 | `review_cards` | The cards shown at the cards gate; starts as a copy of `committed_cards` | `prepare_cards_for_gate`; UI `update_card_selection` |
 | `approved_cards` | The cards the reviewer accepted; the SQL stage may only use these | cards gate (approve / dry-run) |
@@ -276,7 +277,7 @@ See [config/README.md](../../../config/README.md) for `extends`, prompt layout a
 | `[run_context.react.fetch]` / `[run_context.react.sql]` | Per-layer ReAct settings; both `extends = "tahoe"`, so `max_tool_calls = 10`, `max_idle_reason_rounds = 1` unless overridden |
 | `fetch_instruction`, `sql_instruction` | Opening system message for each layer |
 | `next_step`, `tool_budget_exhausted_prompt`, `idle_nudge_prompt` | Per-layer ReAct prompts |
-| `[tools] fetch` | `commit_cards`, `datahub_graphql_query`, `datahub_list_glossary_terms`, `fetch_related_models`, `record_metric_conflict` |
+| `[tools] fetch` | `commit_cards`, `datahub_graphql_query`, `datahub_list_glossary_terms`, `fetch_related_models`, `find_models_metrics`, `record_metric_conflict`, `search_metric_catalog`. `fetch_instruction` has the agent try the metric catalog first and use `fetch_related_models` only when the catalog has no fitting root or member |
 | `[tools] sql` | `propose_sql`, `trino_desc_table` (accepts `table`, `schema.table` or `catalog.schema.table`; Trino only, no local metastore connection), `trino_explain` (plan only: SELECT/WITH), `write_gate_reasons` |
 | `[tools] execute` | `trino_run_query` |
 | `[tools] default`, `rag` | Scopes not used by the staged graph's layers |

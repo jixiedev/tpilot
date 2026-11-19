@@ -1,0 +1,1200 @@
+version: 2
+
+models:
+  - name: commerce_merchant
+    description: >
+      Current-state master record of every CommerceMerchant on the Wish
+      marketplace. One row per merchant: the Mongo `ObjectId` hex string in
+      `id` is the primary key and the view applies `ROW_NUMBER()`
+      de-duplication, so `id` is unique here. The underlying physical object
+      `wish.commerce_merchant` is a Hive VIEW over the MongoDB `sweeper`
+      collection `CommerceMerchant`, refreshed daily at 00:00 UTC by the
+      Airflow DAG `CommerceMerchantDump`.
+
+      The table is NOT partitioned and carries no snapshot-date column
+      (no `updated_at` in the schema), so this model has no partition time
+      dimension. The default `agg_time_dimension` is `approved_calendar_date`
+      -- the merchant approval day -- which is a COHORT anchor, not a
+      snapshot day: grouping by it answers "merchants approved that day".
+      Merchants that are not approved yet have a NULL approval date and are
+      therefore dropped from a time-bucketed query. Use
+      `first_transaction_calendar_date` (merchant activation cohort),
+      `last_payment_calendar_date` (disbursement cohort) or
+      `disable_calendar_date` when that is the intent.
+
+      This is a merchant dimension, not an event log: every row carries the
+      merchant's state as of the last successful daily dump. Merchant
+      counters (`rating_count`, `num_active_products`,
+      `num_last_90_day_transactions`, `num_disputes_attention`,
+      `num_noti_attention`, `actions_received`) are as-of-dump snapshots and
+      are NOT additive over time -- summing them across dates double counts
+      the same merchant.
+
+      Rating metrics (`average_rating`, `rating_count`) are merchant-quality
+      attributes; `rev_share` is a rate (0.0-1.0) and must be averaged, not
+      summed.
+
+      Data quality: `is_cost_based` is overwritten by the extract with
+      'False' for every row and does not reflect the Mongo value;
+      `payment_withhold_until` may hold the application sentinel 3000-01-01
+      (a far-future / permanent-style hold).
+
+      PII columns (`display_name`, `display_name_en`, `name`, `phone_number`,
+      `sales_rep_name`, `close_account_email_code`) are exposed by the
+      underlying view but are deliberately not exposed as MetricFlow
+      dimensions in this semantic model.
+
+      Source: documentation/llm_generated/hive/wish/commerce_merchant.md
+    config:
+      meta:
+        hive_table: wish.commerce_merchant
+        dag: CommerceMerchantDump
+        timezone: UTC
+    semantic_model:
+      enabled: true
+      name: commerce_merchant
+      config:
+        meta:
+          usage: >
+            Current-state merchant master (one row per merchant), not an
+            event log: every row carries the merchant's state as of the last
+            successful daily dump, and the view is fully replaced each run.
+            There is no snapshot date, so the default agg_time_dimension
+            (approved_calendar_date) is a cohort anchor -- merchants with no
+            approval yet have a NULL approval date and are therefore dropped
+            from a time-bucketed query. Count merchants with `merchants`
+            (count_distinct id) rather than `merchant_rows` (row count) when
+            the grain matters; the production view de-duplicates `id`, so the
+            two agree on well-formed data, but `merchant_rows` still counts
+            whatever the view emits. The staging table
+            `tmp.commerce_merchant_temp` holds the same Mongo records
+            without de-duplication and can be used for the same metric
+            definitions. MetricFlow time dimensions are day grain only
+            (project time spine); the `*_ts` and `*_epoch` columns are plain
+            columns for joins.
+    agg_time_dimension: approved_calendar_date
+
+    columns:
+      # ---------------------------------------------------------------- entities
+      - name: id
+        description: >
+          Mongo `ObjectId` hex string (24 chars) of the CommerceMerchant
+          document. Logical primary key of the table and the join key to
+          `wish.products.merchant_id`, `wish.fact_trans_detail.merchant_id`
+          and every other fact table carrying `merchant_id`. The view
+          de-duplicates on this column, so it is unique.
+        data_tests:
+          - not_null
+          - unique
+        entity:
+          type: primary
+          name: merchant
+          description: One commerce merchant on the Wish marketplace.
+
+      - name: group_id
+        description: >
+          Merchant group id. Hierarchy join key to `wish.merchant_groups.id`.
+        entity:
+          type: foreign
+          name: merchant_group
+          description: Merchant group.
+
+      - name: super_group_id
+        description: Merchant super-group id. Hierarchy join key.
+        entity:
+          type: foreign
+          name: merchant_super_group
+          description: Merchant super-group.
+
+      - name: new_group_id
+        description: >
+          New group id, reserved by the application for future regrouping.
+          Null for most merchants.
+        entity:
+          type: foreign
+          name: merchant_new_group
+          description: Merchant new (reserved) group.
+
+      - name: review_group_id
+        description: Review group id used to group merchants for review.
+        entity:
+          type: foreign
+          name: merchant_review_group
+          description: Merchant review group.
+
+      - name: default_merchant_warehouse_id
+        description: >
+          Id of the merchant's default warehouse. Join key to the warehouse
+          dimension.
+        entity:
+          type: foreign
+          name: merchant_warehouse
+          description: Merchant default warehouse.
+
+      - name: onesource_company_id
+        description: OneSource company id assigned to the merchant.
+        entity:
+          type: foreign
+          name: company
+          description: OneSource company.
+
+      # ------------------------------------------------------------ time (day)
+      - name: approved_calendar_date
+        description: >
+          Calendar date (UTC) of the merchant approval instant, cast from the
+          `approved_date` unix-second column. NULL for merchants that are
+          not approved yet. Default metric time dimension of this model
+          (cohort anchor -- the table has no snapshot date).
+        granularity: day
+        dimension:
+          type: time
+          label: Approved date
+
+      - name: disable_calendar_date
+        description: >
+          Calendar date (UTC) of the merchant disable instant, cast from the
+          `disable_date` unix-second column. NULL while the merchant is
+          active.
+        granularity: day
+        dimension:
+          type: time
+          label: Disable date
+
+      - name: first_transaction_calendar_date
+        description: >
+          Calendar date (UTC) of the merchant's first transaction, cast from
+          the `first_transaction_time` unix-second column. NULL for
+          merchants that never transacted.
+        granularity: day
+        dimension:
+          type: time
+          label: First transaction date
+
+      - name: last_payment_calendar_date
+        description: >
+          Calendar date (UTC) of the last disbursement to the merchant, cast
+          from the `last_payment_time` unix-second integer column. NULL for
+          merchants that never received a disbursement.
+        granularity: day
+        dimension:
+          type: time
+          label: Last payment date
+
+      - name: close_account_request_calendar_date
+        description: >
+          Calendar date (UTC) on which the merchant requested account
+          closure, cast from the `close_account_request_time` unix-second
+          column. NULL for merchants that never requested closure.
+        granularity: day
+        dimension:
+          type: time
+          label: Account closure request date
+
+      # ------------------------------------------------------------- enums
+      - name: state
+        description: >
+          CommerceMerchant state code (1=Pending, 2=Approved, 3=Disabled,
+          4=Request Info, 5=Pending Phone, 6=Vacation, 7=Pending Email,
+          8=Wish Express Only).
+        dimension:
+          type: categorical
+          label: Merchant state code
+
+      - name: state_name
+        description: >
+          Human-readable merchant state label derived from `state`
+          (PENDING, APPROVED, DISABLED, REQUEST_INFO, PENDING_PHONE,
+          VACATION, PENDING_EMAIL, WISH_EXPRESS_ONLY).
+        dimension:
+          type: categorical
+          label: Merchant state
+
+      - name: state_before_disable
+        description: >
+          Merchant state code as it was immediately before the merchant was
+          disabled, stored as a string ('1'..'8').
+        dimension:
+          type: categorical
+          label: State before disable code
+
+      - name: state_before_disable_name
+        description: >
+          Human-readable label derived from `state_before_disable`.
+        dimension:
+          type: categorical
+          label: State before disable
+
+      - name: epc_state
+        description: >
+          Early Payment Center state code (1=None, 2=Pending, 3=Rejected,
+          4=Approved, 5=Suspended, 6=Exited, 7=Pre-approved).
+        dimension:
+          type: categorical
+          label: EPC state code
+
+      - name: epc_state_name
+        description: >
+          Human-readable EPC label derived from `epc_state` (NONE, PENDING,
+          REJECTED, APPROVED, SUSPENDED, EXITED, PRE_APPROVED).
+        dimension:
+          type: categorical
+          label: EPC state
+
+      - name: auto_payment_status
+        description: >
+          Auto payment status code (0=Disabled, 1=Enabled).
+        dimension:
+          type: categorical
+          label: Auto payment status code
+
+      - name: auto_payment_status_name
+        description: >
+          Human-readable auto payment label derived from
+          `auto_payment_status` (DISABLED, ENABLED).
+        dimension:
+          type: categorical
+          label: Auto payment status
+
+      - name: merchant_payment_policy
+        description: >
+          Merchant payment policy code (1=Normal, 100=Expedited MKL22133,
+          101=Expedited TRO Resolved, 199=Expedited Other,
+          1000=Not Expedited).
+        dimension:
+          type: categorical
+          label: Payment policy code
+
+      - name: merchant_payment_policy_name
+        description: >
+          Human-readable payment policy label derived from
+          `merchant_payment_policy` (NORMAL, EXPEDITED_MKL22133,
+          EXPEDITED_TRO_RESOLVED, EXPEDITED_OTHER, NOT_EXPEDITED).
+        dimension:
+          type: categorical
+          label: Payment policy
+
+      - name: payment_cycle
+        description: >
+          Payment cycle code (1=Normal, 2=Weekly, 3=Bi-weekly).
+        dimension:
+          type: categorical
+          label: Payment cycle code
+
+      - name: payment_cycle_name
+        description: >
+          Human-readable payment cycle label derived from `payment_cycle`
+          (NORMAL, WEEKLY, BI_WEEKLY).
+        dimension:
+          type: categorical
+          label: Payment cycle
+
+      - name: review_state
+        description: >
+          Review state code (1=Pending, 2=Approved, 3=Rejected).
+        dimension:
+          type: categorical
+          label: Review state code
+
+      - name: review_state_name
+        description: >
+          Human-readable review label derived from `review_state` (PENDING,
+          APPROVED, REJECTED).
+        dimension:
+          type: categorical
+          label: Review state
+
+      - name: ticket_handling_state
+        description: >
+          Customer support ticket handling state code. The code -> label
+          mapping is not documented in the table documentation, so the raw
+          code is exposed as-is.
+        dimension:
+          type: categorical
+          label: Ticket handling state
+
+      - name: wish_express_state
+        description: >
+          Wish Express state code. The code -> label mapping is not
+          documented in the table documentation, so the raw code is exposed
+          as-is.
+        dimension:
+          type: categorical
+          label: Wish Express state
+
+      - name: close_account_state
+        description: >
+          Current state of the account-closure process. The code -> label
+          mapping is not documented in the table documentation, so the raw
+          code is exposed as-is.
+        dimension:
+          type: categorical
+          label: Close account state
+
+      - name: disable_reason_category
+        description: >
+          Category code of the reason a merchant was disabled. The code ->
+          label mapping is not documented in the table documentation, so the
+          raw code is exposed as-is.
+        dimension:
+          type: categorical
+          label: Disable reason category
+
+      # -------------------------------------------------------------- profile
+      - name: bd_rep
+        description: >
+          Business-development rep assigned to the merchant.
+        dimension:
+          type: categorical
+          label: BD rep
+
+      - name: approved_by
+        description: Username of the admin who approved the merchant.
+        dimension:
+          type: categorical
+          label: Approved by
+
+      - name: disabled_by
+        description: Username of the admin who disabled the merchant.
+        dimension:
+          type: categorical
+          label: Disabled by
+
+      - name: country_of_domicile
+        description: Merchant's country of domicile.
+        dimension:
+          type: categorical
+          label: Country of domicile
+
+      - name: country_of_domicile_verified
+        description: Verification status of the domicile country.
+        dimension:
+          type: categorical
+          label: Country of domicile verified
+
+      - name: origin_country
+        description: Merchant's country of origin.
+        dimension:
+          type: categorical
+          label: Origin country
+
+      - name: ship_from_country
+        description: Country the merchant ships from.
+        dimension:
+          type: categorical
+          label: Ship from country
+
+      - name: suspected_country
+        description: Suspected country of the merchant.
+        dimension:
+          type: categorical
+          label: Suspected country
+
+      - name: merchant_source_currency
+        description: Merchant's source currency.
+        dimension:
+          type: categorical
+          label: Merchant source currency
+
+      - name: payment_receive_currency
+        description: Currency the merchant receives payments in.
+        dimension:
+          type: categorical
+          label: Payment receive currency
+
+      - name: source
+        description: >
+          Merchant acquisition source. The table documentation describes it
+          as a free-form string, so no code -> label mapping is applied.
+        dimension:
+          type: categorical
+          label: Acquisition source
+
+      # ---------------------------------------------------------------- flags
+      - name: is_cost_based
+        description: >
+          Cost-based flag. The pipeline extract overwrites this column with
+          'False' for every row, so it never reflects the Mongo value.
+        dimension:
+          type: categorical
+          label: Is cost based
+
+      - name: is_merchant_plus
+        description: Merchant Plus flag ('True' / 'False').
+        dimension:
+          type: categorical
+          label: Is merchant plus
+
+      - name: is_mms_merchant
+        description: >
+          Merchant Management System (MMS) merchant flag ('True' / 'False').
+        dimension:
+          type: categorical
+          label: Is MMS merchant
+
+      - name: is_preorder_merchant
+        description: Merchant supports preorders flag ('True' / 'False').
+        dimension:
+          type: categorical
+          label: Is preorder merchant
+
+      - name: is_store_merchant
+        description: Is a store merchant flag ('True' / 'False').
+        dimension:
+          type: categorical
+          label: Is store merchant
+
+      - name: is_test_account
+        description: Test account flag ('True' / 'False').
+        dimension:
+          type: categorical
+          label: Is test account
+
+      - name: is_trusted_for_verified_products
+        description: >
+          Trusted for verified products flag ('True' / 'False').
+        dimension:
+          type: categorical
+          label: Is trusted for verified products
+
+      - name: is_unity_enabled
+        description: Unity feature enabled flag ('True' / 'False').
+        dimension:
+          type: categorical
+          label: Is unity enabled
+
+      - name: is_consignment_mode
+        description: Consignment mode flag ('True' / 'False').
+        dimension:
+          type: categorical
+          label: Is consignment mode
+
+      - name: is_in_bt_marketplace
+        description: BT marketplace flag ('True' / 'False').
+        dimension:
+          type: categorical
+          label: Is in BT marketplace
+
+      - name: is_being_migrated_to_warehouse
+        description: >
+          Migration to the warehouse system in progress flag ('True' /
+          'False').
+        dimension:
+          type: categorical
+          label: Is being migrated to warehouse
+
+      - name: collection_boost_enabled
+        description: Collection boost enabled flag ('True' / 'False').
+        dimension:
+          type: categorical
+          label: Collection boost enabled
+
+      - name: exempt_from_ads
+        description: Advertising-exempt flag ('True' / 'False').
+        dimension:
+          type: categorical
+          label: Exempt from ads
+
+      - name: from_signup_v4
+        description: Registered through signup v4 flag ('True' / 'False').
+        dimension:
+          type: categorical
+          label: From signup v4
+
+      - name: has_categories
+        description: Categories configured flag ('True' / 'False').
+        dimension:
+          type: categorical
+          label: Has categories
+
+      - name: has_products_promoted
+        description: Has promoted products flag ('True' / 'False').
+        dimension:
+          type: categorical
+          label: Has products promoted
+
+      - name: has_used_logistic
+        description: Has used logistics services flag ('True' / 'False').
+        dimension:
+          type: categorical
+          label: Has used logistic
+
+      - name: impression_paused_for_seller_profile_verification
+        description: >
+          Impressions paused pending seller profile verification flag
+          ('True' / 'False').
+        dimension:
+          type: categorical
+          label: Impressions paused for verification
+
+      - name: msrp_updated_after_new_policy
+        description: >
+          MSRP updated after the new policy flag ('True' / 'False').
+        dimension:
+          type: categorical
+          label: MSRP updated after new policy
+
+      - name: paylock
+        description: Payment lock status.
+        dimension:
+          type: categorical
+          label: Paylock
+
+      - name: price_drop_enabled
+        description: Price drop feature enabled flag ('True' / 'False').
+        dimension:
+          type: categorical
+          label: Price drop enabled
+
+      - name: request_payment_approved
+        description: Payment request approved flag ('True' / 'False').
+        dimension:
+          type: categorical
+          label: Request payment approved
+
+      - name: seen_unity_welcome_modal
+        description: Has seen the Unity welcome modal flag ('True' / 'False').
+        dimension:
+          type: categorical
+          label: Seen unity welcome modal
+
+      - name: stop_scan_old_refund
+        description: Stop scanning old refunds flag ('True' / 'False').
+        dimension:
+          type: categorical
+          label: Stop scan old refund
+
+      - name: use_shopify_shipping_rate
+        description: Uses Shopify shipping rate flag ('True' / 'False').
+        dimension:
+          type: categorical
+          label: Use shopify shipping rate
+
+      - name: variable_shipping
+        description: Variable shipping configuration flag ('True' / 'False').
+        dimension:
+          type: categorical
+          label: Variable shipping
+
+      - name: waive_auto_disable_status
+        description: Auto-disable waived flag ('True' / 'False').
+        dimension:
+          type: categorical
+          label: Waive auto disable status
+
+      - name: withhold_funds_permanently
+        description: Funds withheld permanently flag ('True' / 'False').
+        dimension:
+          type: categorical
+          label: Withhold funds permanently
+
+      # -------------------------------------------------------------- measures
+      # Measure columns carry neither an entity nor a dimension: they are
+      # only referenced by `metrics.expr`.
+      - name: average_rating
+        description: >
+          Merchant's overall average rating (0.0-5.0), calculated from
+          customer ratings and reviews. A rate -- average it, do not sum it.
+        data_type: double
+
+      - name: average_rating_14_days
+        description: Merchant's average rating over the last 14 days.
+        data_type: double
+
+      - name: average_rating_display
+        description: Display version of the merchant's average rating.
+        data_type: double
+
+      - name: rating_count
+        description: Total number of ratings the merchant received.
+        data_type: integer
+
+      - name: rating_count_14_days
+        description: Number of ratings the merchant received in the last 14 days.
+        data_type: integer
+
+      - name: num_active_products
+        description: Number of the merchant's active products.
+        data_type: integer
+
+      - name: num_last_90_day_transactions
+        description: Number of the merchant's transactions in the last 90 days.
+        data_type: integer
+
+      - name: num_disputes_attention
+        description: Number of disputes requiring the merchant's attention.
+        data_type: integer
+
+      - name: num_noti_attention
+        description: Number of notifications requiring the merchant's attention.
+        data_type: integer
+
+      - name: actions_received
+        description: >
+          Number of actions taken against the merchant for unfulfilled orders.
+        data_type: integer
+
+      - name: rev_share
+        description: >
+          Merchant revenue share, stored as a decimal (0.0-1.0). A rate, not
+          an amount -- average it, do not sum it.
+        data_type: double
+
+      - name: net_payment_period
+        description: >
+          Net payment period in days between order completion and the
+          merchant being paid. Application default is 15 days.
+        data_type: integer
+
+      - name: available_subsidy_count
+        description: Number of subsidies available to the merchant.
+        data_type: integer
+
+      - name: return_id_counter
+        description: Counter of return ids issued to the merchant.
+        data_type: integer
+
+      - name: avg_fulfillment_time_days
+        description: >
+          Merchant's average fulfillment time, in days (numeric cast of the
+          `avg_fulfillment_time` string).
+        data_type: double
+
+      - name: avg_shipping_time_days
+        description: >
+          Merchant's average shipping time, in days (numeric cast of the
+          `avg_shipping_time` string).
+        data_type: double
+
+      - name: avg_ticket_response_time_seconds
+        description: >
+          Merchant's average customer-support ticket response time, in
+          seconds (numeric cast of the `avg_ticket_response_time` string).
+        data_type: double
+
+      - name: us_30_day_avg_delivery_time_days
+        description: >
+          Merchant's US average delivery time in days, over a 30-day metric
+          window (numeric cast of the `us_30_day_avg_delivery_time` string).
+        data_type: double
+
+      - name: us_30_day_avg_fulfillment_time_days
+        description: >
+          Merchant's US average fulfillment time in days, over a 30-day
+          metric window (numeric cast of the `us_30_day_avg_fulfillment_time`
+          string).
+        data_type: double
+
+      # --------------------------------------------------- plain / join columns
+      # Raw source values and the derived join helpers. Not MetricFlow
+      # dimensions -- use the `*_calendar_date` columns for time dimensions
+      # and the `*_name` columns for human-readable enums.
+      - name: approved_date
+        description: >
+          Merchant approval instant as stored by the dump (varchar unix
+          seconds). Plain column -- use `approved_calendar_date` for time
+          dimensions.
+      - name: approved_epoch
+        description: Approval instant as unix seconds (bigint). Join column.
+      - name: approved_ts
+        description: Approval instant as a timestamp. Join column.
+      - name: disable_date
+        description: >
+          Merchant disable instant as stored by the dump (varchar unix
+          seconds). Plain column -- use `disable_calendar_date` for time
+          dimensions.
+      - name: disable_epoch
+        description: Disable instant as unix seconds (bigint). Join column.
+      - name: disable_ts
+        description: Disable instant as a timestamp. Join column.
+      - name: first_transaction_time
+        description: >
+          Merchant's first transaction instant as stored by the dump (varchar
+          unix seconds). Plain column -- use
+          `first_transaction_calendar_date` for time dimensions.
+      - name: first_transaction_epoch
+        description: First transaction instant as unix seconds (bigint). Join column.
+      - name: first_transaction_ts
+        description: First transaction instant as a timestamp. Join column.
+      - name: close_account_request_time
+        description: >
+          Account-closure request instant as stored by the dump (varchar unix
+          seconds). Plain column -- use
+          `close_account_request_calendar_date` for time dimensions.
+      - name: close_account_request_epoch
+        description: Account-closure request instant as unix seconds (bigint). Join column.
+      - name: close_account_request_ts
+        description: Account-closure request instant as a timestamp. Join column.
+      - name: close_account_update_time
+        description: >
+          Last update of the account-closure workflow (varchar unix seconds).
+      - name: close_account_update_epoch
+        description: Account-closure update instant as unix seconds (bigint). Join column.
+      - name: close_account_update_ts
+        description: Account-closure update instant as a timestamp. Join column.
+      - name: close_account_email_send_time
+        description: >
+          Instant the closure verification email was sent (varchar unix
+          seconds).
+      - name: close_account_email_send_epoch
+        description: Closure email send instant as unix seconds (bigint). Join column.
+      - name: close_account_email_send_ts
+        description: Closure email send instant as a timestamp. Join column.
+      - name: close_account_email_code
+        description: >
+          Account-closure email verification code. PII -- not exposed as a
+          MetricFlow dimension.
+      - name: close_account_reject_reason
+        description: Reason the account-closure request was rejected.
+      - name: payment_withhold_until
+        description: >
+          Instant until which payments are withheld (varchar unix seconds).
+          May hold the application sentinel 3000-01-01 for a permanent-style
+          hold.
+      - name: payment_withhold_until_epoch
+        description: Payment-withhold instant as unix seconds (bigint). Join column.
+      - name: payment_withhold_until_ts
+        description: Payment-withhold instant as a timestamp. Join column.
+      - name: payment_withhold_until_calendar_date
+        description: Payment-withhold instant as a date. Join column.
+      - name: last_payment_time
+        description: >
+          Instant of the last disbursement to the merchant (integer unix
+          seconds). Plain column -- use `last_payment_calendar_date` for time
+          dimensions.
+      - name: last_payment_ts
+        description: Last disbursement instant as a timestamp. Join column.
+      - name: merchant_warehouse_feature_migration_date
+        description: >
+          Instant the merchant's warehouse features were migrated (integer
+          unix seconds).
+      - name: merchant_warehouse_feature_migration_ts
+        description: Warehouse-feature migration instant as a timestamp. Join column.
+      - name: merchant_warehouse_feature_migration_calendar_date
+        description: Warehouse-feature migration instant as a date. Join column.
+      - name: wish_express_trial_start
+        description: Wish Express trial start instant (varchar unix seconds).
+      - name: wish_express_trial_start_epoch
+        description: Wish Express trial start as unix seconds (bigint). Join column.
+      - name: wish_express_trial_start_ts
+        description: Wish Express trial start as a timestamp. Join column.
+      - name: wish_express_trial_start_calendar_date
+        description: Wish Express trial start as a date. Join column.
+      - name: wish_express_trial_end
+        description: Wish Express trial end instant (varchar unix seconds).
+      - name: wish_express_trial_end_epoch
+        description: Wish Express trial end as unix seconds (bigint). Join column.
+      - name: wish_express_trial_end_ts
+        description: Wish Express trial end as a timestamp. Join column.
+      - name: wish_express_trial_end_calendar_date
+        description: Wish Express trial end as a date. Join column.
+      - name: wish_express_block_date
+        description: Wish Express block instant (varchar unix seconds).
+      - name: wish_express_block_epoch
+        description: Wish Express block instant as unix seconds (bigint). Join column.
+      - name: wish_express_block_ts
+        description: Wish Express block instant as a timestamp. Join column.
+      - name: wish_express_block_calendar_date
+        description: Wish Express block instant as a date. Join column.
+      - name: wish_express_unblock_date
+        description: Wish Express unblock instant (varchar unix seconds).
+      - name: wish_express_unblock_epoch
+        description: Wish Express unblock instant as unix seconds (bigint). Join column.
+      - name: wish_express_unblock_ts
+        description: Wish Express unblock instant as a timestamp. Join column.
+      - name: wish_express_unblock_calendar_date
+        description: Wish Express unblock instant as a date. Join column.
+      - name: wish_express_blocked_countries
+        description: Countries where Wish Express is blocked for the merchant.
+      - name: block_impressions_since
+        description: >
+          Start of the merchant's product-impression block window (varchar
+          unix seconds).
+      - name: block_impressions_since_epoch
+        description: Impression-block window start as unix seconds (bigint). Join column.
+      - name: block_impressions_since_ts
+        description: Impression-block window start as a timestamp. Join column.
+      - name: block_impressions_since_calendar_date
+        description: Impression-block window start as a date. Join column.
+      - name: block_impressions_until
+        description: >
+          End of the merchant's product-impression block window (varchar unix
+          seconds).
+      - name: block_impressions_until_epoch
+        description: Impression-block window end as unix seconds (bigint). Join column.
+      - name: block_impressions_until_ts
+        description: Impression-block window end as a timestamp. Join column.
+      - name: block_impressions_until_calendar_date
+        description: Impression-block window end as a date. Join column.
+      - name: block_impressions_infractions
+        description: >
+          Per-infraction details of the impression block. The embedded
+          `block_until` values are strings, not epoch seconds.
+      - name: outsourced_support_start_date
+        description: >
+          Instant outsourced customer support started for the merchant
+          (varchar unix seconds).
+      - name: outsourced_support_start_epoch
+        description: Outsourced support start as unix seconds (bigint). Join column.
+      - name: outsourced_support_start_ts
+        description: Outsourced support start as a timestamp. Join column.
+      - name: outsourced_support_start_calendar_date
+        description: Outsourced support start as a date. Join column.
+      - name: insurance_start_period
+        description: >
+          Start of the merchant's insurance coverage period. Not epoch
+          encoded -- a free-form period string.
+      - name: insurance_end_period
+        description: >
+          End of the merchant's insurance coverage period. Not epoch encoded
+          -- a free-form period string.
+      - name: display_name
+        description: >
+          Merchant display name. PII -- not exposed as a MetricFlow dimension.
+      - name: display_name_en
+        description: >
+          English merchant display name. PII -- not exposed as a MetricFlow
+          dimension.
+      - name: name
+        description: >
+          Merchant business name. PII -- not exposed as a MetricFlow dimension.
+      - name: phone_number
+        description: >
+          Merchant phone number. PII -- not exposed as a MetricFlow dimension.
+      - name: sales_rep_name
+        description: >
+          Name of the sales representative. PII -- not exposed as a MetricFlow
+          dimension.
+      - name: display_picture_source
+        description: Source of the merchant's display picture.
+      - name: connected_merchants
+        description: List of connected merchant ids.
+      - name: pickup_info
+        description: Pickup location information.
+      - name: top_tags
+        description: Top tags associated with the merchant.
+      - name: verticals
+        description: Business verticals the merchant operates in.
+      - name: countries
+        description: Countries the merchant can ship to.
+      - name: score
+        description: Merchant score.
+      - name: ranking
+        description: Current ranking score.
+      - name: prev_ranking
+        description: Previous ranking score.
+      - name: disable_reason_text
+        description: Free-text explanation of the disable reason.
+      - name: disable_warning_id
+        description: Warning id associated with the disable action.
+      - name: fine_warning_id
+        description: Warning id associated with a fine.
+      - name: eat_cost_warning_id
+        description: Warning id associated with EAT cost issues.
+      - name: paylock_payment_id
+        description: Payment id associated with the paylock.
+      - name: paylock_payment_ids
+        description: Multiple payment ids associated with the paylock.
+      - name: payment_limit
+        description: Payment limit amount.
+      - name: merchant_payout_currencies
+        description: Currencies the merchant can receive payouts in.
+      - name: adjusted_average_ratings
+        description: Adjusted average rating calculations.
+      - name: _localized_shipping_costs
+        description: Localized shipping cost information per region.
+      - name: _shipping_costs_currency
+        description: Currency code for the shipping costs.
+      - name: shipping_costs
+        description: Shipping cost information.
+      - name: standard_shipping_warehouses
+        description: Warehouses supporting standard shipping.
+      - name: express_shipping_warehouses
+        description: Warehouses supporting express shipping.
+      - name: warehouse_locations
+        description: Warehouse locations available to the merchant.
+      - name: return_addresses
+        description: Merchant return addresses.
+      - name: avg_fulfillment_time
+        description: >
+          Average fulfillment time as stored by the dump (varchar). Plain
+          column -- use `avg_fulfillment_time_days` for the numeric value.
+      - name: avg_shipping_time
+        description: >
+          Average shipping time as stored by the dump (varchar). Plain
+          column -- use `avg_shipping_time_days` for the numeric value.
+      - name: avg_ticket_response_time
+        description: >
+          Average customer-support ticket response time as stored by the dump
+          (varchar). Plain column -- use `avg_ticket_response_time_seconds`
+          for the numeric value.
+      - name: us_30_day_avg_delivery_time
+        description: >
+          US average delivery time as stored by the dump (varchar). Plain
+          column -- use `us_30_day_avg_delivery_time_days` for the numeric
+          value.
+      - name: us_30_day_avg_fulfillment_time
+        description: >
+          US average fulfillment time as stored by the dump (varchar). Plain
+          column -- use `us_30_day_avg_fulfillment_time_days` for the
+          numeric value.
+
+    metrics:
+      # ------------------------------------------------------- merchant counts
+      - name: merchants
+        type: simple
+        label: Merchants
+        description: >
+          Distinct merchant count (id) in the selected scope.
+        agg: count_distinct
+        expr: id
+
+      - name: merchant_rows
+        type: simple
+        label: Merchant rows
+        description: >
+          Row count at merchant grain (one row per merchant). The production
+          view de-duplicates `id`, so this normally equals `merchants`.
+        agg: count
+        expr: 1
+
+      - name: approved_merchants
+        type: simple
+        label: Approved merchants
+        description: >
+          Distinct merchants with state = 2 (APPROVED), i.e. approved and
+          active.
+        agg: count_distinct
+        expr: id
+        filter: "{{ Dimension('merchant__state') }} = 2"
+
+      - name: pending_merchants
+        type: simple
+        label: Pending merchants
+        description: >
+          Distinct merchants with state = 1 (PENDING), i.e. application
+          awaiting approval.
+        agg: count_distinct
+        expr: id
+        filter: "{{ Dimension('merchant__state') }} = 1"
+
+      - name: disabled_merchants
+        type: simple
+        label: Disabled merchants
+        description: >
+          Distinct merchants with state = 3 (DISABLED).
+        agg: count_distinct
+        expr: id
+        filter: "{{ Dimension('merchant__state') }} = 3"
+
+      - name: request_info_merchants
+        type: simple
+        label: Request info merchants
+        description: >
+          Distinct merchants with state = 4 (REQUEST_INFO), i.e. the
+          application asked the merchant for more information.
+        agg: count_distinct
+        expr: id
+        filter: "{{ Dimension('merchant__state') }} = 4"
+
+      - name: vacation_merchants
+        type: simple
+        label: Vacation merchants
+        description: >
+          Distinct merchants with state = 6 (VACATION).
+        agg: count_distinct
+        expr: id
+        filter: "{{ Dimension('merchant__state') }} = 6"
+
+      - name: epc_merchants
+        type: simple
+        label: EPC merchants
+        description: >
+          Distinct merchants with an Early Payment Center application in
+          flight or granted: epc_state in (2=PENDING, 4=APPROVED,
+          7=PRE_APPROVED).
+        agg: count_distinct
+        expr: id
+        filter: "{{ Dimension('merchant__epc_state') }} IN (2, 4, 7)"
+
+      - name: auto_payment_merchants
+        type: simple
+        label: Auto payment merchants
+        description: >
+          Distinct merchants with auto_payment_status = 1 (Enabled).
+        agg: count_distinct
+        expr: id
+        filter: "{{ Dimension('merchant__auto_payment_status') }} = 1"
+
+      # ------------------------------------------------------ quality measures
+      - name: average_rating
+        type: simple
+        label: Average rating
+        description: >
+          Average of the merchants' overall average rating (0.0-5.0). A rate
+          -- average it, do not sum it.
+        agg: average
+        expr: average_rating
+
+      - name: average_rating_14_days
+        type: simple
+        label: Average rating (14 days)
+        description: >
+          Average of the merchants' average rating over the last 14 days.
+        agg: average
+        expr: average_rating_14_days
+
+      - name: average_rating_display
+        type: simple
+        label: Average rating (display)
+        description: >
+          Average of the merchants' display-version average rating.
+        agg: average
+        expr: average_rating_display
+
+      - name: rating_count
+        type: simple
+        label: Rating count
+        description: >
+          Sum of the total number of ratings received by the merchants in
+          scope. Merchant-grain snapshot -- not additive over time.
+        agg: sum
+        expr: rating_count
+
+      - name: rating_count_14_days
+        type: simple
+        label: Rating count (14 days)
+        description: >
+          Sum of the number of ratings received in the last 14 days.
+        agg: sum
+        expr: rating_count_14_days
+
+      # ----------------------------------------------------- activity measures
+      - name: num_active_products
+        type: simple
+        label: Active products
+        description: >
+          Sum of the number of active products across the merchants in scope.
+        agg: sum
+        expr: num_active_products
+
+      - name: num_last_90_day_transactions
+        type: simple
+        label: Transactions (last 90 days)
+        description: >
+          Sum of the number of transactions in the last 90 days across the
+          merchants in scope.
+        agg: sum
+        expr: num_last_90_day_transactions
+
+      - name: num_disputes_attention
+        type: simple
+        label: Disputes requiring attention
+        description: >
+          Sum of the number of disputes requiring attention across the
+          merchants in scope.
+        agg: sum
+        expr: num_disputes_attention
+
+      - name: num_noti_attention
+        type: simple
+        label: Notifications requiring attention
+        description: >
+          Sum of the number of notifications requiring attention across the
+          merchants in scope.
+        agg: sum
+        expr: num_noti_attention
+
+      - name: actions_received
+        type: simple
+        label: Actions received
+        description: >
+          Sum of the number of actions taken against the merchants for
+          unfulfilled orders.
+        agg: sum
+        expr: actions_received
+
+      - name: available_subsidy_count
+        type: simple
+        label: Available subsidies
+        description: >
+          Sum of the number of subsidies available to the merchants in scope.
+        agg: sum
+        expr: available_subsidy_count
+
+      - name: return_id_counter
+        type: simple
+        label: Return ids
+        description: >
+          Sum of the counters of return ids issued to the merchants in scope.
+        agg: sum
+        expr: return_id_counter
+
+      # ------------------------------------------------------ payment measures
+      - name: rev_share
+        type: simple
+        label: Revenue share
+        description: >
+          Average of the merchants' revenue share (decimal 0.0-1.0). A rate
+          -- average it, do not sum it.
+        agg: average
+        expr: rev_share
+
+      - name: net_payment_period
+        type: simple
+        label: Net payment period
+        description: >
+          Average of the merchants' net payment period in days between order
+          completion and disbursement. Application default is 15 days.
+        agg: average
+        expr: net_payment_period
+
+      # -------------------------------------------------- fulfilment measures
+      - name: avg_fulfillment_time
+        type: simple
+        label: Average fulfillment time
+        description: >
+          Average of the merchants' average fulfillment time in days.
+        agg: average
+        expr: avg_fulfillment_time_days
+
+      - name: avg_shipping_time
+        type: simple
+        label: Average shipping time
+        description: >
+          Average of the merchants' average shipping time in days.
+        agg: average
+        expr: avg_shipping_time_days
+
+      - name: avg_ticket_response_time
+        type: simple
+        label: Average ticket response time
+        description: >
+          Average of the merchants' average customer-support ticket response
+          time in seconds.
+        agg: average
+        expr: avg_ticket_response_time_seconds
+
+      - name: us_30_day_avg_delivery_time
+        type: simple
+        label: US average delivery time
+        description: >
+          Average of the merchants' US average delivery time in days.
+        agg: average
+        expr: us_30_day_avg_delivery_time_days
+
+      - name: us_30_day_avg_fulfillment_time
+        type: simple
+        label: US average fulfillment time
+        description: >
+          Average of the merchants' US average fulfillment time in days.
+        agg: average
+        expr: us_30_day_avg_fulfillment_time_days
+
+      # --------------------------------------------------------- ratio metrics
+      - name: disputes_per_merchant
+        type: ratio
+        label: Disputes per merchant
+        description: >
+          Disputes requiring attention per merchant in scope.
+        numerator: num_disputes_attention
+        denominator: merchants

@@ -1,0 +1,212 @@
+version: 2
+
+models:
+  - name: fct_experiments_metrics
+    description: >
+      Subject-level experiment metrics fact for A/B testing and statistical
+      analysis. Grain is one row per subject_id, experiment_name, assigned_bucket,
+      partition dt, metric_source, and subject type. Daily metric values live in
+      metric_sum_map; cumulative lifetime values in metric_sum_ltv_map (metric
+      keys vary by experiment). Partitioned by dt, metric_source, and subject;
+      always filter all three for partition pruning. Source:
+      core_data.fct_experiments_metrics (Airflow experiment stats DAGs).
+    config:
+      meta:
+        owner: ejia@contextlogic.com
+        hive_table: core_data.fct_experiments_metrics
+        timezone: America/Chicago
+    semantic_model:
+      enabled: true
+      name: fct_experiments_metrics
+      config:
+        meta:
+          usage: >
+            Filter dt, metric_source, and subject first for partition pruning.
+            Use experiment_name and assigned_bucket for bucket comparisons.
+            metric_sum_map holds daily KPIs; metric_sum_ltv_map holds cumulative
+            LTV KPIs from experiment start. Extracted scalar columns (metric_gmv_*,
+            metric_orders_ltv, metric_session_duration_daily) cover common map keys
+            from documentation examples; other keys require map access in Tableau
+            models or agg_experiments_metrics for pivoted metric_name analysis.
+    agg_time_dimension: dt
+
+    columns:
+      - name: experiment_subject_metric_id
+        description: >
+          Surrogate primary key concatenating subject_id, experiment_name,
+          assigned_bucket, dt, metric_source, and subject.
+        data_tests:
+          - not_null
+        entity:
+          type: primary
+          name: experiment_subject_metric
+          description: One subject's experiment metrics for a calendar day and source.
+
+      - name: subject_id
+        description: >
+          Experiment subject identifier (user, merchant, visitor, or store id).
+        entity:
+          type: foreign
+          name: subject
+          description: User or entity assigned to an experiment bucket.
+
+      - name: experiment_name
+        description: Experiment identifier. Join key to core_data.dim_experiments.
+        entity:
+          type: foreign
+          name: experiment
+          description: A/B test or feature experiment.
+
+      - name: dt
+        description: >
+          Physical partition date (YYYY-MM-DD). Daily snapshot of subject metrics.
+          Always filter this field first.
+        granularity: day
+        dimension:
+          type: time
+          label: Partition date
+          is_partition: true
+
+      - name: assigned_bucket
+        description: >
+          Experiment treatment group code (control, test, show, hide, or
+          experiment-specific bucket names).
+        dimension:
+          type: categorical
+          label: Assigned bucket code
+
+      - name: assigned_bucket_name
+        description: Human-readable experiment bucket label.
+        dimension:
+          type: categorical
+          label: Assigned bucket
+
+      - name: subject
+        description: >
+          Subject type partition key (USER_ID, MERCHANT_ID, VISITOR_ID, STORE_ID).
+        dimension:
+          type: categorical
+          label: Subject type code
+
+      - name: subject_name
+        description: Human-readable subject type label.
+        dimension:
+          type: categorical
+          label: Subject type
+
+      - name: metric_source
+        description: >
+          Partition key identifying the upstream metric data source (e.g. commerce).
+          Always filter with dt and subject for partition pruning.
+        dimension:
+          type: categorical
+          label: Metric source
+
+      - name: relative_exposed_date
+        description: Days since first exposure to the experiment (0 = first day).
+        dimension:
+          type: categorical
+          label: Relative exposed day
+
+      - name: user_country
+        description: Country code of the subject.
+        dimension:
+          type: categorical
+          label: User country
+
+      - name: user_age_bucket
+        description: >
+          User age segment (unknown, 18-24, 25-34, 35-44, 45-54, 55+).
+        dimension:
+          type: categorical
+          label: User age bucket
+
+      - name: user_country_bucket
+        description: >
+          User country segment (unknown, US, EU, APAC, LATAM, OTHER).
+        dimension:
+          type: categorical
+          label: User country bucket
+
+      - name: user_age
+        description: Specific age of the subject when available.
+        dimension:
+          type: categorical
+          label: User age
+
+      - name: user_gender
+        description: Subject gender code.
+        dimension:
+          type: categorical
+          label: User gender code
+
+      - name: user_gender_name
+        description: Human-readable gender label.
+        dimension:
+          type: categorical
+          label: User gender
+
+      - name: metric_sum_map
+        description: >
+          Map of metric names to daily sum values for the partition dt.
+          Keys are experiment-specific.
+      - name: metric_sum_ltv_map
+        description: >
+          Map of metric names to cumulative lifetime sum values from experiment
+          start through dt. Keys are experiment-specific.
+      - name: metric_gmv_daily
+        description: Daily GMV from metric_sum_map['gmv'] (0 when absent).
+      - name: metric_gmv_ltv
+        description: Lifetime GMV from metric_sum_ltv_map['gmv'] (0 when absent).
+      - name: metric_orders_ltv
+        description: Lifetime orders from metric_sum_ltv_map['orders'] (0 when absent).
+      - name: metric_session_duration_daily
+        description: Daily session duration from metric_sum_map['session_duration'].
+
+    metrics:
+      - name: subjects
+        type: simple
+        label: Experiment subjects
+        description: Distinct subjects with experiment metric rows.
+        agg: count_distinct
+        expr: subject_id
+
+      - name: experiment_subject_metric_rows
+        type: simple
+        label: Experiment subject metric rows
+        description: Row count at subject-level experiment metric grain.
+        agg: count
+        expr: 1
+        fill_nulls_with: 0
+
+      - name: gmv
+        type: simple
+        label: GMV (daily)
+        description: Sum of daily GMV from metric_sum_map['gmv'].
+        agg: sum
+        expr: metric_gmv_daily
+        fill_nulls_with: 0
+
+      - name: gmv_ltv
+        type: simple
+        label: GMV (LTV)
+        description: Sum of lifetime GMV from metric_sum_ltv_map['gmv'].
+        agg: sum
+        expr: metric_gmv_ltv
+        fill_nulls_with: 0
+
+      - name: orders_ltv
+        type: simple
+        label: Orders (LTV)
+        description: Sum of lifetime orders from metric_sum_ltv_map['orders'].
+        agg: sum
+        expr: metric_orders_ltv
+        fill_nulls_with: 0
+
+      - name: session_duration
+        type: simple
+        label: Session duration (daily)
+        description: Sum of daily session duration from metric_sum_map['session_duration'].
+        agg: sum
+        expr: metric_session_duration_daily
+        fill_nulls_with: 0

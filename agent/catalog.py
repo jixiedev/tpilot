@@ -432,6 +432,12 @@ class AgentCatalog:
         return cls._new_agent(WarehouseAgent, **kwargs)
 
     @classmethod
+    async def _create_model_selection(cls, **kwargs: Any) -> BaseAgent:
+        from agent.specialists.model_selection import ModelSelectionAgent
+
+        return cls._new_agent(ModelSelectionAgent, **kwargs)
+
+    @classmethod
     async def _create_lead(cls, **kwargs: Any) -> BaseAgent:
         from agent.lead.lead_agent import LeadAgent
 
@@ -445,6 +451,7 @@ class AgentCatalog:
         cls.register("data_analysis", cls._create_data_analysis)
         cls.register("swe", cls._create_swe)
         cls.register("warehouse", cls._create_warehouse)
+        cls.register("model_selection", cls._create_model_selection)
         cls.register("lead", cls._create_lead)
 
 
