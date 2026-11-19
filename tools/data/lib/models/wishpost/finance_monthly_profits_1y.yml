@@ -1,0 +1,398 @@
+version: 2
+
+models:
+  - name: finance_monthly_profits_1y
+    description: >
+      WishPost logistics profit-and-loss (P&L) rollup. Daily snapshot
+      grain at (dt, date_type, date_value, delivery_program, country,
+      region, is_124). Produced by the WishpostOverallFinancePNL
+      Airflow DAG (dag_wishpost_overall_finance_pnl.py) as a UNION ALL
+      of three aggregated branches: the sales-side branch
+      (date_type = 'sales_date', date_value = sale date) and two
+      purchase-side branches (date_type = 'purchase_date', date_value =
+      purchase date) covering Dropship/FBW and the EPC-family programs
+      (EPC, A+, Fusion, Smart) respectively. Each dt partition is a full
+      rolling ~366-day recompute, so dt is the daily snapshot date and
+      date_value is the business date inside that window. All amounts
+      are USD. sales_amount is logistics_fee + overtime_fine +
+      sensitive_fee + other_fees; purchase_amount includes the
+      pre/post combination split. pre_tracking_id_cnt counts parcels
+      before logistics combination and post_tracking_id_cnt counts
+      parcels after combination, so their ratio is the EPC combination
+      ratio used to allocate purchase cost. Used for monthly P&L
+      reporting, delivery-program and country profitability analysis,
+      and 124-channel performance monitoring. Tableau models under
+      semantic_layer/models/tableau/ own any dimension joins; this
+      wrapper performs no joins. Source:
+      wishpost.finance_monthly_profits_1y.
+    config:
+      meta:
+        owner: jixie
+        hive_table: wishpost.finance_monthly_profits_1y
+        dag: WishpostOverallFinancePNL
+    semantic_model:
+      enabled: true
+      name: finance_monthly_profits_1y
+      config:
+        meta:
+          usage: >
+            dt is a Hive partition AND a rolling snapshot: every dt
+            partition holds a full ~1-year recompute, so always filter
+            dt for partition pruning and use the latest partition for
+            "current" numbers. The table stores two recognition
+            perspectives in the same rows — date_type = 'sales_date'
+            (revenue and cost recognized on the sale date) and
+            date_type = 'purchase_date' (recognized on the purchase
+            date) — so an unfiltered sum of sales_amount or
+            purchase_amount counts every order twice. Group by or
+            filter date_type, or use the *_on_sales_date metrics, for
+            any single-perspective number. For business-date cohort
+            analysis use business_date (the date_value business date
+            inside the window) — but each business date repeats in
+            every later dt partition, so restrict dt to one partition
+            before aggregating on business_date.
+    agg_time_dimension: dt
+
+    columns:
+      - name: profit_cell_id
+        description: >
+          Surrogate primary key — concat(dt, '|', date_type, '|',
+          date_value, '|', delivery_program, '|', country, '|', region,
+          '|', is_124). Proxies the natural (dt, date_type, date_value,
+          delivery_program, country, region, is_124) composite grain for
+          MetricFlow primary entity purposes.
+        data_tests:
+          - not_null
+          - unique
+        entity:
+          type: primary
+          name: wp_finance_monthly_profit
+          description: >
+            One WishPost monthly P&L cell (snapshot date × recognition
+            perspective × business date × delivery program × country ×
+            region × 124 channel).
+
+      - name: dt
+        description: >
+          Hive partition / daily snapshot date (varchar YYYY-MM-DD,
+          Beijing timezone, run date - 1 day). Cast to date here and
+          used as the default metric time dimension. Every partition
+          holds a full rolling ~1-year recompute of the business
+          window, so dt is the "as of" date, not a business date.
+        is_partition: true
+        granularity: day
+        dimension:
+          type: time
+          label: Snapshot date
+
+      - name: business_date
+        description: >
+          Cast of date_value to date. The business date inside the
+          rolling window — the sale date for date_type = 'sales_date'
+          rows and the purchase date for date_type = 'purchase_date'
+          rows. Secondary time dimension; each business date repeats
+          in every later dt partition.
+        granularity: day
+        dimension:
+          type: time
+          label: Business date
+
+      - name: date_value
+        description: >
+          Business date in YYYY-MM-DD format (raw varchar). Meaning is
+          driven by date_type — sale date for 'sales_date' rows,
+          purchase date for 'purchase_date' rows.
+        dimension:
+          type: categorical
+          label: Business date (raw)
+
+      - name: date_type
+        description: >
+          Recognition perspective of the row. Possible values:
+          'sales_date' (revenue and cost recognized on the sale date)
+          and 'purchase_date' (recognized on the purchase date). The
+          two perspectives cover the same orders, so an unfiltered
+          sum over both counts each order twice.
+        dimension:
+          type: categorical
+          label: Recognition date type
+
+      - name: delivery_program
+        description: >
+          Delivery program used for order fulfillment. Possible values:
+          'Dropship', 'FBW', 'EPC', 'A+', 'Fusion', 'Smart'.
+        dimension:
+          type: categorical
+          label: Delivery program
+
+      - name: delivery_program_name
+        description: >
+          Human-readable label derived from delivery_program
+          ('Dropship' → 'Dropship', 'FBW' → 'Fulfilled by Wish',
+          'EPC' → 'EPC (Express Parcel China)', 'A+' → 'A+ service',
+          'Fusion' → 'Fusion service', 'Smart' → 'Smart delivery').
+        dimension:
+          type: categorical
+          label: Delivery program label
+
+      - name: country
+        description: >
+          ISO 3166-1 alpha-2 destination country code (e.g. 'US',
+          'DE', 'CN', 'GB', 'FR'). Mapped upstream through
+          country_code_mapping.
+        dimension:
+          type: categorical
+          label: Country
+
+      - name: region
+        description: >
+          Geographic region of the destination country, mapped through
+          the dim_region table. Possible values: 'EU' (European Union
+          countries), 'AM' (Americas), 'AP' (Asia-Pacific), 'Other'
+          (default for unmapped countries).
+        dimension:
+          type: categorical
+          label: Region
+
+      - name: region_name
+        description: >
+          Human-readable label derived from region ('EU' → 'Europe',
+          'AM' → 'Americas', 'AP' → 'Asia-Pacific', 'Other' → 'Other').
+        dimension:
+          type: categorical
+          label: Region label
+
+      - name: is_124
+        description: >
+          124-channel indicator. Possible values: '124' (order uses a
+          channel from the wishpost_124_channel_list) and 'non-124'.
+        dimension:
+          type: categorical
+          label: 124 channel flag
+
+      - name: is_124_name
+        description: >
+          Human-readable label derived from is_124 ('124' → '124
+          channel', 'non-124' → 'Non-124 channel').
+        dimension:
+          type: categorical
+          label: 124 channel label
+
+      - name: time
+        description: >
+          Unix epoch seconds (bigint) when the record was created —
+          `unix_timestamp()` on the final INSERT, so constant per
+          partition load. Not a business time dimension; useful for
+          audit / lag analysis.
+        dimension:
+          type: categorical
+          label: Record create unix time
+
+      - name: record_ts
+        description: >
+          Timestamp converted from `time`. Not a MetricFlow time
+          dimension — project spine is day.
+        dimension:
+          type: categorical
+          label: Record create timestamp
+
+      - name: record_dt
+        description: >
+          Calendar day the record was created (cast from `time`).
+          Secondary time dimension for ETL lag audits.
+        granularity: day
+        dimension:
+          type: time
+          label: Record create day
+
+      - name: sales_amount
+        description: >
+          Total sales revenue in USD for the cell — logistics_fee +
+          overtime_fine + sensitive_fee + other_fees. Can be zero on
+          rows where the sale side does not apply. Measure column: it
+          is referenced by metrics only.
+
+      - name: purchase_amount
+        description: >
+          Total purchase cost in USD for the cell. Includes the
+          pre-combination and post-combination logistics fees; EPC-family
+          programs are allocated proportionally by the combination
+          ratio. Measure column: it is referenced by metrics only.
+
+      - name: pre_tracking_id_cnt
+        description: >
+          Count of individual parcels (tracking IDs) before logistics
+          combination. Measure column: it is referenced by metrics only.
+
+      - name: post_tracking_id_cnt
+        description: >
+          Count of combined parcels after logistics processing.
+          Measure column: it is referenced by metrics only.
+
+    metrics:
+      - name: total_sales
+        type: simple
+        label: Total sales (USD)
+        description: >
+          Sum of sales_amount (USD) over the selected P&L cells. The
+          table stores two recognition perspectives in the same rows, so
+          an unfiltered total counts each order twice — group by or
+          filter date_type, or use total_sales_on_sales_date, for a
+          single-perspective number. Time grain: dt (daily snapshot).
+        agg: sum
+        expr: sales_amount
+        fill_nulls_with: 0
+
+      - name: total_purchase
+        type: simple
+        label: Total purchase (USD)
+        description: >
+          Sum of purchase_amount (USD) over the selected P&L cells. Same
+          two-perspective caveat as total_sales — filter date_type for
+          a single-perspective number. Time grain: dt (daily snapshot).
+        agg: sum
+        expr: purchase_amount
+        fill_nulls_with: 0
+
+      - name: total_pre_tracking
+        type: simple
+        label: Pre-combination tracking IDs
+        description: >
+          Sum of pre_tracking_id_cnt — number of individual parcels
+          before logistics combination, over the selected P&L cells.
+        agg: sum
+        expr: pre_tracking_id_cnt
+        fill_nulls_with: 0
+
+      - name: total_post_tracking
+        type: simple
+        label: Post-combination tracking IDs
+        description: >
+          Sum of post_tracking_id_cnt — number of combined parcels
+          after logistics processing, over the selected P&L cells.
+        agg: sum
+        expr: post_tracking_id_cnt
+        fill_nulls_with: 0
+
+      - name: record_count
+        type: simple
+        label: P&L cell rows
+        description: >
+          Row count at the (dt, date_type, date_value,
+          delivery_program, country, region, is_124) grain. Use as a
+          denominator for share-of-cells reporting.
+        agg: count
+        expr: 1
+
+      - name: avg_sales
+        type: simple
+        label: Average sales amount (USD)
+        description: >
+          Average sales_amount (USD) per P&L cell.
+        agg: average
+        expr: sales_amount
+
+      - name: avg_purchase
+        type: simple
+        label: Average purchase amount (USD)
+        description: >
+          Average purchase_amount (USD) per P&L cell.
+        agg: average
+        expr: purchase_amount
+
+      - name: avg_profit
+        type: simple
+        label: Average profit per cell (USD)
+        description: >
+          Average of (sales_amount - purchase_amount) in USD per P&L
+          cell. Can be negative (losses).
+        agg: average
+        expr: sales_amount - purchase_amount
+
+      - name: avg_combination_ratio
+        type: simple
+        label: Average combination ratio
+        description: >
+          Average of pre_tracking_id_cnt / post_tracking_id_cnt per P&L
+          cell. The EPC combination ratio used to allocate purchase
+          cost across combined parcels. Cells with a zero
+          post_tracking_id_cnt are excluded via nullif.
+        agg: average
+        expr: pre_tracking_id_cnt / nullif(post_tracking_id_cnt, 0)
+
+      - name: total_countries
+        type: simple
+        label: Distinct countries with P&L cells
+        description: >
+          Distinct ISO country codes that appear on a P&L cell in the
+          current rolling 1-year window.
+        agg: count_distinct
+        expr: country
+
+      - name: total_regions
+        type: simple
+        label: Distinct regions with P&L cells
+        description: >
+          Distinct region values (EU / AM / AP / Other) that appear on
+          a P&L cell in the current rolling 1-year window.
+        agg: count_distinct
+        expr: region
+
+      - name: total_sales_on_sales_date
+        type: simple
+        label: Total sales on sales date (USD)
+        description: >
+          Sum of sales_amount (USD) restricted to date_type =
+          'sales_date' — revenue recognized on the sale date. This is
+          the canonical single-perspective sales total for this table.
+        agg: sum
+        expr: sales_amount
+        fill_nulls_with: 0
+        filter: "{{ Dimension('wp_finance_monthly_profit__date_type') }} = 'sales_date'"
+
+      - name: total_purchase_on_sales_date
+        type: simple
+        label: Total purchase on sales date (USD)
+        description: >
+          Sum of purchase_amount (USD) restricted to date_type =
+          'sales_date' — the cost of the same orders whose revenue is
+          recognized on the sale date. Use together with
+          total_sales_on_sales_date for a sale-date P&L.
+        agg: sum
+        expr: purchase_amount
+        fill_nulls_with: 0
+        filter: "{{ Dimension('wp_finance_monthly_profit__date_type') }} = 'sales_date'"
+
+      - name: profit
+        type: derived
+        label: Profit (USD)
+        description: >
+          total_sales minus total_purchase, in USD. Derived from the
+          two simple metrics of the same model. Can be negative
+          (losses). Inherits the two-perspective caveat of its
+          inputs — filter date_type for a single-perspective number.
+        expr: total_sales - total_purchase
+        input_metrics:
+          - total_sales
+          - total_purchase
+
+      - name: profit_on_sales_date
+        type: derived
+        label: Profit on sales date (USD)
+        description: >
+          Sale-date P&L in USD: total_sales_on_sales_date minus
+          total_purchase_on_sales_date. Can be negative (losses).
+        expr: total_sales_on_sales_date - total_purchase_on_sales_date
+        input_metrics:
+          - total_sales_on_sales_date
+          - total_purchase_on_sales_date
+
+      - name: profit_margin
+        type: ratio
+        label: Profit margin
+        description: >
+          profit divided by total_sales, in USD terms (0.2 = 20%
+          margin). Derived from the simple metrics of the same model;
+          inherits the two-perspective caveat of its inputs.
+        numerator: profit
+        denominator: total_sales

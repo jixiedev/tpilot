@@ -1651,6 +1651,176 @@ Implementation notes (behavior only): detect emits intentions + plan steps; publ
 | Links | Doc links to source files were rewritten to GitHub blob URLs | Every link points at another page of the site |
 | Enforcement | Review by hand | `tests/test_docs_site.py` builds the site and fails on module names, snippets, code-shaped identifiers, GitHub file links and unreadable diagram labels; the Pages workflow runs it before the build |
 
+## 2026-11-16 — One lead agent replaces intent routing and the Plan pipeline
+
+**Goal:** Make the front agent behave like mainstream agents: one lead agent owns the conversation, answers or asks when it can, plans only when a request needs several steps, and calls specialists as subagents with a written brief. Databot's human gates must keep working in the CLI and the web UI.
+
+### Why (design discussion)
+
+The discussion started from "is a user-request rewrite useful for Databot?" and traced the problem to how requests reach specialists:
+
+- **Two front doors, two behaviors.** Intent handed the raw question to `{session}:route:{agent}` and got nothing back; Plan wrote a task, sent it to `{session}:{agent}`, and collected `step_results`. The same specialist had two separate histories in one session.
+- **Lost context.** Intent kept `user_question` as the first wording, so clarification answers never reached the specialist ("show revenue" → "EU, Q3" arrived as "show revenue"). Intent never saw specialist answers, so follow-ups ("same, but by country") could not be resolved.
+- **Rigid Plan.** Every Plan turn ran create → execute → adjust → summary with a mandatory `create_plan`: at least four LLM calls for a one-step request.
+- **Gates only in the CLI.** Plan passed a blocking `on_interrupt` callback through a contextvar, which AG-UI cannot use.
+
+Mainstream agents (Claude Code, Codex, Anthropic's research agent, OpenAI "agents as tools", LangGraph supervisor) settle on one lead agent that keeps the full conversation, calls specialists as tools with a written brief, and gets a condensed result back. Planning is a capability of that lead (a todo list it keeps), not a separate mandatory stage. Full-history handoff (swarm style) was rejected: it fills specialists' context with other agents' tool noise and spreads raw data rows.
+
+Decisions taken with the user:
+
+1. **Merge intent and Plan into one lead agent** (`lead`), including the web UI.
+2. **When the lead plans:** answer directly only from the conversation or work record; ask one clarifying question when ambiguity would change the result; delegate once (no plan) when one specialist covers the request; write a plan when two or more specialists are needed or one step's output feeds the next.
+3. **Plans update after every result,** not after a round. Step status is set by code (`delegate(step=N)`); rewriting the remaining steps is the LLM's job, nudged after each result.
+4. **No plan at the start is fine.** The lead may add one mid-turn; the work record keeps the turn coherent either way. After two delegations without a plan, the step prompt suggests one (a nudge, not a rule).
+5. **No "update before create" errors.** One `write_plan(steps)` tool replaces the whole list each time (like Claude Code's todo list), so there is no create/update split; bad input returns a message the LLM can fix.
+6. **Write back results, not process.** Specialists return a short summary plus structured artifacts; their tool calls stay in their own run. No shared message list, no vector memory between agents.
+
+### What changed
+
+| Area | Before | After |
+|------|--------|-------|
+| Front agent | `intent` (classifier) → one specialist, or → `plan` | `lead`: one conversational ReAct loop (`agent/lead/`) |
+| Specialist call | Raw question (intent) or written task (Plan), text scraped from the last AI message | `delegate(agent, task, context, step)` → `SubagentTask` brief → `SubagentResult` (`status`, `summary`, `artifacts`, `ui_state`) — `agent/subagent.py` |
+| Where a specialist runs | Its own thread (`:route:` or `:{agent}`), separate run | Nested inside the lead's `delegate` tool call, under the lead's thread (`step_action:<task id>` namespace); fresh state per delegation |
+| Human gates | Blocking contextvar callback; CLI only for delegated runs | Native LangGraph interrupt: the specialist's `interrupt(...)` pauses the lead's run; `Command(resume=...)` on the lead's thread resumes the gate without re-running earlier nodes |
+| Plan | Mandatory `create_plan` + `planning(command=...)`; in-process store; fixed create/execute/adjust/summary stages | Optional `write_plan` (full replace) in checkpointed state; `delegate` marks steps; turn end marks leftover steps `skipped` |
+| Context between specialists | None (intent) / `step_results` per turn (Plan) | `work_record` in the lead state, kept across turns (last 20 rows, artifacts on the newest 5); shown in the lead's per-step prompt; the lead copies what a task needs into `context` |
+| Question rewrite | None | The lead writes a standalone `task`; the specialist sees both the user's words and the task (databot's gate brief and retrieval history get a self-contained question) |
+| Profile refinement | Ran on delegated turns using the orchestrator's wording | Skipped for delegated runs (`commit_subagent_state`); domain records (databot retrieval history) still saved |
+| Web UI | Frontend wired to the `databot` graph | AG-UI serves `lead`; databot fields arrive under `active_subagent` (overlaid live while paused at a gate); UI edits patch the paused layer inside the lead's thread |
+| Evals | Intent label/route cases | Lead routing cases (`evals/cases/routing.json`): decision (answer/clarify/delegate/plan), specialists in order, delegation count; specialists are stubbed |
+| Removed | — | `agent/intent/`, `agent/plan/`, `agent/chain.py`, `SpecialistSession`, `intention`/`intention_description` (now `delegate_when`), `intent.toml`, `plan.toml` |
+
+### Guardrails
+
+- **No facts from the lead itself.** It has no data tools (only `delegate`, `write_plan`, `@memory`), and its rules forbid stating numbers or definitions no specialist returned.
+- **Brief rules.** `task` must be standalone (resolve "that", relative dates, clarification answers) and must not add metrics or filters the user did not ask for.
+- **Budgets.** `max_tool_calls = 12` tool batches and `max_delegations = 6` specialist runs per turn (`config/agents/lead.toml`).
+- **One delegation per step.** Specialists share the tool step's checkpoint namespace, so a second `delegate` call in the same AI message is rejected with a message to call it next.
+- **Halted ≠ failed.** `halted` (the user stopped a gate) is never retried; `failed` may be retried once.
+- **Plan bookkeeping by code.** Status comes from `delegate`, not from the LLM remembering to mark steps; an unmatched delegation is appended as an extra finished step.
+- **Pending-step nudge before the answer.** While steps are pending, the step prompt says not to answer until they are done or explicitly dropped; leftovers are marked `skipped` at turn end. (An after-the-fact retry was rejected: the first reply would already be in history and show twice.)
+
+### Technical notes found on the way
+
+- **LangGraph swallowed interrupts in tools.** With `wrap_tool_call`/`awrap_tool_call` set, ToolNode (langgraph 1.2) converts every `Exception` raised through the wrapper into an error ToolMessage — `GraphInterrupt` included. The retrying wrappers now re-raise it inside `BubbleUpCarrier` (a `BaseException`), and `StepActionNode` unwraps it.
+- **Node type hints filter state.** A `state: ReactAgentState` annotation on `step_reason` made LangGraph pass only that schema's keys, hiding the lead's `plan` and `work_record` from its step prompt. The node is unannotated now.
+- **Nested specialist state is outside the declared subgraphs.** `aget_state(config with checkpoint_ns)` looks the namespace up among declared subgraphs and fails for a graph invoked from a tool. `agent/lead/paused.py` passes the checkpointer explicitly (`CONFIG_KEY_CHECKPOINTER`) to read and patch the specialist's namespace, and resolves databot's layer subgraph for UI patches.
+- **AG-UI adapter.** `ag_ui_langgraph` 0.0.44 recognises subagents inside tool calls but its `attributed` mode emits `SUBAGENT_*` events that `@ag-ui/client` 0.0.57 rejects. The server uses `inline` (default; `AGUI_SUBAGENT_VISIBILITY` overrides): databot's tool calls stream live, and the end-of-run messages snapshot keeps only the lead's messages, so databot's work stays visible through the artifact panel (`active_subagent`).
+- **Web turns lacked the persona.** AG-UI sends only chat messages; the lead's turn-start node inserts the persona + specialist roster on the first web turn and a turn boundary on later ones (no-op in the CLI, which adds both on accept).
+
+### Verified
+
+- `tests/test_lead_agent.py`: gate interrupt through the lead and resume (the specialist's earlier node runs once), plan marking and `skipped`, budgets and unknown agents, parallel-delegate guard, work record across turns, paused-state view and patch inside a layer subgraph.
+- `tests/test_agui_server.py`: the real AG-UI adapter over the lead — persona on a web turn, interrupt outcome with databot's payload, `active_subagent` overlay, resume; `/agui/actions` patching a real databot pipeline paused at its SQL gate inside the lead.
+- Full suite: 556 passed.
+
+### Live routing evals (MiniMax-M3, 13 cases)
+
+| Run | Average | What it showed |
+|-----|---------|----------------|
+| 1 | crash | The model sent `write_plan` and `delegate` in one batch; both wrote `plan` in one step (`InvalidUpdateError`). Fix: `delegate` refuses to run in a batch that contains `write_plan`, and only the first `write_plan` of a batch is applied. |
+| 2 | 0.538 | The stub specialist answered "completed: <task>" with no result. The lead rightly refused to invent a number, retried the same specialist four times, then routed the task to unrelated specialists (`swe` to query the warehouse). Fix: lead rule — re-delegate a non-answer at most once to the same specialist, then report what came back; never route around a bad result to a specialist outside its area. Scoring now uses the lead's first move. |
+| 3 | 0.795 | Every single-specialist request went to the right specialist; both multi-step requests got a plan. One retry per case remained, because the stub's placeholder still read as a non-answer. |
+| 4 | 0.821 | Stub returns a result that reads as complete. Remaining misses: the trend-chart request was planned (databot then data_analysis) instead of delegated once; the stub's fixed "42" does not answer schema-style tasks, so some cases still retry and stray; two clarifying replies were scored `answer` because the heuristic only looks for a trailing "?". |
+
+Follow-ups from the evals: make the stub answer match the task type, count only delegations that ran in `economy`, and classify clarifying replies more robustly than a trailing "?".
+
+### Incident: a web data query hung a 16 GB Mac
+
+The first real web query (databot through the lead) froze the machine during databot's SQL step and needed a hard restart. The system log for that window did not survive the reset. The checkpoint DB showed the run stopped right after a successful `trino_explain`, with nothing unusual in the graph itself (one lead thread, ~10 MB of checkpoints, ~700 KB of databot state per checkpoint).
+
+Measured with a stand-in specialist of the same shape (12 tool rounds, 700 KB state) through the real AG-UI adapter:
+
+| Setting | Bytes streamed to the browser |
+|---------|-------------------------------|
+| `emit_raw_events=True` (adapter default) | ~95 MB (76 MB RAW events, 19 MB state snapshots each carrying a raw copy) |
+| `emit_raw_events=False` | ~0.3 MB |
+
+The adapter attaches each underlying LangGraph event — full prompts, full specialist state — to every AG-UI event, and the browser tab keeps all of it. A real databot run has many more steps, so the stream reached a size that exhausted memory. Nothing in the frontend reads RAW events.
+
+Fixes:
+
+- `agui_server.py` turns raw events off (`AGUI_EMIT_RAW_EVENTS=1` re-enables them for debugging). Regression test: a heavy nested specialist over the real adapter config streams under 2 MB and no RAW events.
+- Found during the measurement: nothing set a recursion limit, so every graph used LangGraph's default of 25 steps — about eight ReAct rounds — and a nested specialist inherited the lead's. `GRAPH_RECURSION_LIMIT = 200` (`agent/session.py`) now applies to CLI runs, nested specialists and AG-UI runs; tool and delegation budgets remain the real bounds. Regression test: a 15-round nested specialist completes.
+
+Open questions: whether the old direct-databot web path had the same exposure (raw events were on there too, with the same databot state) is not measured.
+
+### Incident: "what is gmv of wish in last month" escalated into bypassing the SQL gate
+
+Trace of the thread (checkpoint DB):
+
+1. Databot's fetch step found **no table cards** (the Hive metastore refused connections and lookups failed), but the cards gate still asked for approval of an empty list; the SQL step drafted **no SQL**, and the SQL gate still asked. The user approved both, and `execute_sql` failed with `no approved SQL in state`. Same again on the lead's allowed retry.
+2. The lead then planned a `diagnostic` step to debug TahoePilot itself. Diagnostic (which has unguarded `trino_run_query` for troubleshooting) reported that direct queries work, so the lead told databot to use "the direct Trino execution path" instead of the approval layer.
+3. Databot's SQL step followed that brief: it looked for `trino_run_query`, then used `trino_explain` with `ANALYZE ...` / `EXPLAIN ANALYZE ...` — which **executes** the query — and a cast-error trick to read data, all before any human approval.
+
+Fixes:
+
+| Problem | Fix |
+|---------|-----|
+| `trino_explain` could execute queries: `ANALYZE SELECT ...` became `EXPLAIN ANALYZE SELECT ...`, which the read-only guard allowed | `validate_plan_only_sql`: the explain tool accepts only a SELECT/WITH query and always sends plain `EXPLAIN`; any EXPLAIN/ANALYZE/SHOW prefix is refused |
+| Gates asked for approval with nothing to review | Cards gate with no cards / SQL gate with no draft ends the turn with a "nothing to review" reason, without a prompt and without a (fake) audit entry; the cards layer now checks a stop before a stale deny-comments entry (that ordering bug looped until the recursion limit) |
+| A nothing-to-review stop looked like a human halt | Databot reports `halted` only when the last gate decision is a reviewer's `deny-halt`; otherwise `failed`, with the reason in `artifacts.halt_reason` |
+| The lead escalated an infrastructure failure | Lead rules: describe what to find out, never tools or bypassing gates; warehouse numbers only from databot; on a TahoePilot/service error, report the error to the user and stop unless asked to investigate |
+| No eval for this | Routing cases can script a stub's result (`stub_results`); new case `specialist_infra_error_is_reported_not_debugged` expects databot only, at most 2 delegations |
+
+Not fixed here: databot's SQL step sees the fetch step's tool calls in its history and tries tools it does not have (provider shows them as "Compat…" names); diagnostic's direct `trino_run_query` remains a gate-free path to data that only the lead's rules keep it from being used for data questions.
+
+**Correction (root cause of the empty cards).** The first write-up blamed the Hive metastore. The fetch step's own messages show otherwise: all 10 `fetch_related_models` calls failed with `[Errno 61] Connection refused` because the model index (Qdrant, run by Docker) was down after a reboot. DataHub answered normally. Hive only appeared in the SQL step, where `trino_desc_table` mangled a schema-qualified name and the model fell back to `hive_desc_table`, which needs a direct metastore connection. The design intent — Trino as the only warehouse path, reading the metastore server-side — was right; the tools did not enforce it.
+
+| Problem | Fix |
+|---------|-----|
+| Qdrant's client wraps the refused connection in `ResponseHandlingException`, so it was classed `unknown` with the hint "adjust the tool arguments": the model rephrased 10 times against a down service | `resolve_exception` follows the cause chain when the outer type is unmapped (→ `connection`, auto-retried once); the connection hint now says other arguments fail the same way and to report the service as down |
+| Fetch step kept looking up after an outage | The fetch stage also completes on a model-index connection failure (`model_lookup_outage`); the cards gate's stop reason names the outage and how to start the index. Test: 20 lookups before, 2 after |
+| `trino_desc_table("core_data.fct_x")` became `DESCRIBE hive.<default>.core_data.fct_x` | Accepts `table`, `schema.table` or `catalog.schema.table`; name parts win over the arguments |
+| Databot's SQL step offered `hive_desc_table` | Removed from databot's `sql` scope; Trino is the only describe path there |
+
+Open design question: when the model index is down but DataHub works, should DataHub dataset/glossary results become cards? Today cards come only from the index.
+
+### Business context: "Wish" is the company, not a brand
+
+With the index back, "what's wish's gmv last month" still ran several semantic searches: the lead's brief asked databot to "identify how the 'Wish' brand/tenant entity is represented", and databot searched for brand and tenant dimensions (`dim_all_products.brand`, …). No prompt said that Wish is the company and the warehouse is Wish's own data.
+
+Fix: a shared `business_context` section ("Business context") in `tahoe.toml` (and databot's own layout), so every agent reads it: TahoePilot works for the Tahoe team at Wish; in a data question "Wish" means the whole marketplace (total GMV, no brand/merchant/store/tenant filter); a name is a merchant or brand only when the user says so; "wish" in table names usually describes the platform. Test: every registered agent's prompt contains it. Live check (MiniMax-M3, two runs): the lead's brief now reads "Wish's total marketplace GMV … no brand, merchant, store, or tenant filters".
+
+### Live web debugging: "tell me wish's gmv in last month"
+
+Driven end to end in the web UI (built-in browser), reading the checkpoint DB and backend log at each step. What it found, in order:
+
+| Found | Evidence | Fix |
+|-------|----------|-----|
+| Stale table card | The `daily_rev_tahoe` card ("Primary") lists `gmv`, `net_gmv`, `order_approved_day`…; the physical `analytics.daily_rev_tahoe` has none of them (`bi.order_level` has `gmv`, `gross_gmv`, `net_gmv`, `order_approved_dt`) | Not fixed in code: the RAG index describes a newer dbt model than the warehouse table. Re-index, or flag card/table mismatches at fetch time (open) |
+| Reviewer's card choice invisible to SQL drafting | After deselecting `daily_rev_tahoe` at the gate (`review_cards = ['order_level']`), the SQL step still described and probed it: `approved_cards` was never rendered into its prompt, and the fetch history's `commit_cards` still listed both | The SQL stage's opening message now lists the approved cards (tables, selected metrics/dimensions, notes, description), names removed cards as "do not use", says card columns must be confirmed and `trino_explain` returns no values, and gives today's date (America/Los_Angeles) |
+| SQL step called fetch-only tools | `datahub_get_dataset_queries`, `datahub_list_schema_fields`, glossary lookups — "not a valid tool" | The SQL stage's view drops tool calls/results for tools it does not have (its own history kept for redrafts); state keeps the full history |
+| Correct result, "truncated" summary, full re-run | The query returned all 37 rows (`truncated: False`); the summary model saw a fixed 5-row preview — daily rows sorted before the monthly totals — and wrote "only Oct 1–5 visible"; the lead re-delegated the whole retrieval | Preview keeps rows up to 200 / ~12k chars and always states rows shown of total |
+| Lead read the specialist's answer as a file preview | The 2,231-token `delegate` result exceeded the 2,000-token offload threshold | `lead.toml` `[compression] never_offload_tools = ["delegate"]` |
+| Unreachable services cost minutes per call, repeatedly | DataHub GMS stopped answering (`connection failed: timed out`, classed `timeout` → "narrow the query" → rephrased retries, ~90 s each); Trino later unreachable, 181 s per call (driver retries 3×, then the wrapper once) | DataHub "connection failed…" → `connection`; per-turn breaker: after a `connection` failure a tool returns that failure immediately for the rest of the turn; Trino driver `max_attempts = 1`, `request_timeout_seconds = 30` (181 s → 60 s) |
+| UI | The gate panel's "2 model(s)" header does not refresh after a card is deselected (state is correct); CopilotKit's floating inspector button covers "+ New chat" | Open |
+
+With the fixes, the SQL step drafted against `bi.order_level` only, for October 2026, without fetch-tool detours. The run could not finish: DataHub and then Trino (`*.tahoe.wish.site`) became unreachable from this machine during the session.
+
+### Live re-run (2026-11-17): first complete answer
+
+Services reachable again; three more runs of "tell me wish's gmv in last month" in the web UI found three more problems before the fourth produced the answer.
+
+| Found | Evidence | Fix |
+|-------|----------|-----|
+| A correct answer was thrown away | Replaying the summary call offline: the model wrote "GMV for October 2026 was 767,083.27 across 46,656 orders…" with its SQL in a code block; `is_internal_assistant_narration` flags any text over 200 chars containing `date_trunc`/`interval` (a rule meant for mid-loop reasoning), so the row-count fallback ("34 row(s) are in the Results tab") replaced it and the lead re-delegated | `_looks_like_user_summary` judges the prose with fenced code removed |
+| The lead had no values to fall back on | Databot artifacts carried the SQL, columns and row count, never a value | `artifacts.execution.leading_rows` (20 rows / 4k chars); the fallback summary also lists leading rows |
+| Totals cut from the summary's view | A 79-row result sorted Sep days, Sep total, Oct days, Oct total…; the 12k-char preview stopped at Oct 17, so the summary refused to quote a partial month | Preview budget covers a whole executed result (≤ 100 rows: 200 rows / 60k chars); the SQL instruction asks for answer rows (totals) first and small breakdowns |
+| Frontend crash | `selections.filter is not a function` in `CommitCardsToolRender`: `commit_cards` arguments arrived as a string (streaming) or `{item: [...]}` | `asList()` in `toolRenderUtils.ts` accepts arrays, JSON strings and `{item(s): [...]}` |
+
+Result (fourth run): cards gate (stale `daily_rev_tahoe` unticked) → SQL gate with monthly totals first → query → databot summary with the number in about a minute → the lead answered without re-delegating: **October 2026 GMV 767,175.04** by payment-received day (`bi.order_level.gmv`), 767,083.27 by order-approved day — the same order-approved figure the summary model produced the day before from a different query.
+
+Still open: the stale `daily_rev_tahoe` card (re-index); the lead's own reasoning text still shows in its final chat message; the gate header does not refresh after a card is unticked; CopilotKit's inspector button covers "+ New chat"; the SQL step still "checks" value formats with plan-only `trino_explain` (a small read-only sample tool would end that).
+
+### Not done yet
+
+- Routing evals not re-run since these prompt changes.
+- The web UI does not render the lead's `plan` yet; the state carries it.
+- `docs_site/` reader pages still describe the intent router.
+- The frontend production build fails on 5 TypeScript errors in files this change did not touch (CopilotKit slot typings, `useAgentRefresh`); they fail the same way before this change.
+
 <!-- Append the next optimization section above this line -->
 
 
@@ -1658,3 +1828,460 @@ Implementation notes (behavior only): detect emits intentions + plan steps; publ
 
 
 
+
+## Foldable chat rows (2026-11-17)
+
+**User request:** tool messages, reasoning, thinking and the response all render
+inline; make the secondary ones (thinking, tool messages) foldable.
+
+**Design** (frontend only):
+
+- **Thinking** — `<think>` blocks inside assistant text used to be stripped and
+  dropped. They now render as a collapsed "Thinking" row (`FoldSection`), open
+  only while the block is still streaming. AG-UI `reasoning` messages use
+  CopilotKit's built-in reasoning row (open while streaming, "Thought for Ns"
+  and folded after) instead of being hidden.
+- **Reasoning / narration** — text the narration heuristic used to discard
+  (internal monologue, long prose next to tool calls) now goes into a collapsed
+  "Reasoning" row, so nothing is lost but it does not compete with the answer.
+- **Tool cards** — `ToolCallCard` headers are a toggle. Cards are open while
+  the tool runs and fold when it completes; `gate`, `answer` and `warning`
+  cards stay open because the user must read or act on them. A manual toggle
+  wins over the automatic open/fold. The default card for other tools
+  (`delegate`, `write_plan`, memory) was already collapsible in CopilotKit.
+- **Response** — the user-facing reply is unchanged and always visible.
+
+## Routing: definitions go to knowledge, not databot (2026-11-17)
+
+**Incident:** "What does GMV mean in our glossary?" was delegated to databot,
+which ran its cards pipeline and stopped at the cards gate asking the user to
+approve tables — for a question that needs no data.
+
+**Cause:** the roster the lead reads overlapped. Databot's `delegate_when`
+claimed "metric/glossary definitions and schemas", while knowledge's omitted
+glossaries even though its own prompt prefers DataHub glossary lookups.
+
+**Fix:**
+
+- `databot.delegate_when`: finding tables and schemas for a data need, or a
+  concrete data question with SQL; explicitly "not for what a metric or term
+  means".
+- `knowledge.delegate_when`: now starts with "what a metric, KPI or business
+  term means (DataHub glossary definitions)".
+- `lead.toml` rule: "what does X mean / how is X defined" → `knowledge`; send
+  it to databot only when the user also wants a number (the existing
+  `composite_gmv_definition_then_query` case still plans knowledge → databot).
+- New routing eval case `knowledge_glossary_definition`.
+
+Live re-run: the lead delegated to knowledge, which answered from the DataHub
+glossary (`gmv` = sum of `gmv_variation` on `core_data.fct_transaction_variations`,
+LTD items excluded) without any gate.
+
+## Two front agents and a ReAct data specialist (2026-11-17)
+
+**User direction.** Asked whether databot should become "a fully react agent",
+the user decided:
+
+- add a **new ReAct agent as the lead's data specialist**, and keep databot;
+- take databot **off the specialist roster** and treat it as a **front agent at
+  the same level as the lead**;
+- give the two front agents **different web URIs**;
+- **design a new UI for the lead**.
+
+**Why a new specialist rather than rewriting databot.** Most databot bugs we hit
+were seams between its stages: approved cards invisible to the SQL step, a
+foreign tool trail confusing it, empty gates turning into "no approved SQL", a
+stale deny looping the cards layer, a summary step fed through preview budgets.
+One ReAct loop with one message history removes those handoffs, and lets the
+same agent skip discovery for a definition, repair a failed query, or answer a
+follow-up without re-running a pipeline. The staged pipeline stays available on
+its own page for anyone who wants the card review.
+
+**Design.**
+
+- **`warehouse` specialist** (`agent/specialists/warehouse/`,
+  `config/agents/warehouse.toml`). Tools: `fetch_related_models`, Trino
+  describe/list/explain, a few DataHub tools, DataHub MCP, plus two gate tools.
+  - **The review is enforced in tools, not the prompt.**
+    `request_sql_approval(sql, explanation, tables)` interrupts; on approval it
+    stores a fingerprint of the exact SQL (whitespace-insensitive) in
+    `approved_sql`. `run_sql(sql)` refuses anything whose fingerprint is not
+    there, so skipping the review or editing SQL after it cannot run anything.
+    `trino_run_query` is never bound. The reviewer may edit the SQL; the edited
+    version is what gets approved.
+  - The review must be the only call in its batch (on resume the whole tool
+    batch re-runs), and only a single SELECT/WITH is accepted
+    (`validate_select_sql`).
+  - `[run_context.gates] sql_enabled = false` approves automatically but keeps
+    the order (review tool, then run).
+  - Result: answer text (think blocks stripped), artifacts `tables`, `sql`,
+    `execution.leading_rows`; `halted` only when the reviewer stopped it;
+    `failed` when the last query errored.
+- **Front agents.** `front = true` in an agent file marks it; the lead's roster
+  (`delegatable_agents`) skips front agents. Lead and databot are front agents.
+  Lead rules now name `warehouse` for data and `knowledge` for definitions.
+- **Server.** `agui_server.py` serves each front agent at `/agui/<name>`
+  (`/agui/lead`, `/agui/databot`, plus `/agui/databot/actions`) over one shared
+  SQLite checkpointer. `LeadGraphView` overlays a paused specialist as
+  `active_subagent`; the new `DatabotGraphView` overlays databot's paused gate
+  layer, because the root checkpoint still holds pre-layer values and the
+  artifact panel said "idle, no models" while the gate listed them.
+- **Web.** `/` chooses an agent; `/databot` is the existing databot UI talking
+  to agent `databot`; `/lead` is new:
+  - chat on the left (thinking, reasoning and tool cards fold; delegation,
+    plan, SQL-review and query cards);
+  - warehouse's SQL review renders **in the chat** (`useInterrupt`): editable
+    SQL, explanation, tables, Approve / Request changes / Stop;
+  - a workspace on the right: **Plan** (steps and status), **Specialist** (the
+    running or paused specialist; for warehouse: Results table/chart, SQL with
+    review status, Tables considered), **Work record** (every delegation,
+    newest first, expandable with summary and SQL);
+  - a teal accent and its own logo so the two pages are not confused.
+
+**Live run** ("what was wish's gmv last month?" on `/lead`): the lead delegated
+once to warehouse; the review card appeared with the workspace showing "Waiting
+for you"; approving resumed the run, `run_sql` returned the month's totals and
+the lead answered **October 2026 GMV $785,378.49** (gross, finance spine
+`bi.daily_finance_metrics`), with net GMV, refunds and the glossary
+`gmv_variation` cross-check ($768,779.81). Problems found and fixed on the way:
+
+- **Offload loop.** A large schema result was offloaded; reading it back with
+  `read_offloaded_file` offloaded *that* result again, so the agent got a new
+  path every time and never saw the content. Reader results are now never
+  offloaded (`ALWAYS_KEEP_TOOL_RESULTS`).
+- **Over-exploration.** About 25 discovery calls before the first review; the
+  workflow now says three to six lookups, then draft and put open questions in
+  the explanation for the reviewer.
+- **Think block as the summary.** Warehouse's final message was mostly a
+  `<think>` block, which filled the summary budget and cut the answer off; the
+  lead still answered from `leading_rows`. `BaseAgent.result_from_state` now
+  strips think blocks, and warehouse falls back to "answer rows are in the
+  artifacts" when only reasoning came back but the query ran.
+- **Answer folded as "Reasoning".** The frontend narration filter flagged the
+  lead's answer because the SQL it quoted contains `date_trunc`; it now judges
+  prose only (fenced code removed), the same fix as the backend filter.
+- **Stale "Waiting for you".** After approving, the workspace kept the paused
+  badge until the next snapshot; `paused` is ignored while the run is going.
+- **Provider overload.** MiniMax returned 529 "service cluster under heavy
+  load" twice; the LLM retry was two tries 0.5 s apart. It is now four tries
+  with 2/4/6 s backoff and treats 529/overloaded as transient.
+- **One-row results drawn as a line chart.** A single row now defaults to the
+  table view.
+
+**Routing evals** after the switch (15 cases, MiniMax-M3): average **0.889**
+(0.800 before). Data cases route to `warehouse`, the glossary case to
+`knowledge`. Misses: `analysis_trend_chart` went elsewhere than
+`data_analysis`, `clarify_unclear_fix` was not scored as a clarification, and
+two plan cases used one delegation more than the budget.
+
+**Open.** Warehouse still explores more than needed on MiniMax, and the finance-spine vs
+glossary GMV question (which is canonical) is for the team to settle; the
+business-context section could then name it.
+
+**Follow-up: no DataHub in warehouse (2026-11-17).** User direction: don't let
+the data specialist behind the lead search DataHub or compare glossary
+definitions. In the live run it spent much of its ~25 lookups on glossary
+terms and schema fields and then weighed finance-spine GMV against the
+glossary `gmv_variation`. Now: no `[accepted_mcp]`, no `datahub_*` tools, and
+`WarehouseAgent.is_datahub_tool` drops any that a config change adds (native
+`datahub_*` and the DataHub MCP `search` / `get_entities` / `get_lineage` /
+`list_schema_fields`). Its workflow says to use the definition in the task or
+context, else the metric as the chosen dbt model defines it (stated in the
+review explanation), and never to search for or compare glossary definitions.
+Definitions remain the `knowledge` specialist's job; the lead passes them in
+`context` when a data task needs one.
+
+**Follow-up: Tables tab listed every search hit (2026-11-17).** The user saw 27
+tables in the lead workspace's Tables tab, most unrelated to the SQL. The view
+listed `staging_cards`, i.e. every `fetch_related_models` hit (about five per
+search). `WarehouseAgent.ui_view` now returns `tables` = the tables the SQL
+reads (`FROM`/`JOIN` targets via `sql_table_names`, CTE names and
+`extract(... FROM col)` excluded) plus any the review lists, each with its dbt
+description, and `candidates` = the other hits by name. The tab counts only
+used tables; candidates fold under "Also found by search, not used (N)". Live
+re-run: Tables (1) `bi.order_level`, 14 candidates folded; with DataHub removed
+warehouse reached its first review after ~8 tool calls (was ~25).
+
+**Follow-up: DataHub limited to table docs and lineage (2026-11-17).** User
+direction: warehouse may use DataHub, but only to search lineage and table
+documentation. Allowed tools: `datahub_get_lineage`,
+`datahub_get_lineage_paths_between` and a new `datahub_get_table_docs`
+(`WAREHOUSE_DATAHUB_TOOLS`); everything else, glossary/catalog search, raw
+GraphQL and all DataHub MCP tools, is dropped by `is_datahub_tool`. No existing
+tool fit "table documentation": `datahub_list_datasets` is a catalog search that
+also returns glossary terms, tags and lineage. The new tool returns one
+table's documentation only. Measured live, `bi.order_level` has a 35k-char
+Markdown description and 24k chars of column notes (67k in one result, which
+would be offloaded and read back), so it returns the description's first
+2,000 chars plus section headings and column names (~7k), with `section=` for
+one section and `columns=` for up to 12 column notes (short keywords such as
+`dt` match names only). The workflow tells warehouse to read docs only when a
+candidate's purpose, grain or columns are unclear, and lineage only to see
+where data comes from or how two tables relate.
+
+**Follow-up: Airflow MCP was not usable (2026-11-17).** Asked whether the
+Airflow MCP (the diagnostic specialist's) was ready, two problems turned up:
+
+- `mcp.json` ran `uv run --directory /Users/cdpac/sbox/airflow-mcp-server`, a
+  path from another machine; both servers closed on start and loaded 0 tools.
+  At the user's request `mcp.json` (and `mcp_tmp.json`) now name the local
+  checkout directly: `/Users/jixie/wbox/airflow-mcp-server` (the newer
+  ContextLogic clone; `~/sbox` holds an older fork).
+- Every MCP tool was unusable even when it loaded: `get_tools_for_server`
+  loaded tools inside `async with client.session(...)`, so the session closed
+  before any call (`ClosedResourceError`). It now uses
+  `MultiServerMCPClient.get_tools(server_name=...)`, whose tools open a
+  session per call; the old test that asserted the session pattern was
+  rewritten to assert the fix.
+
+Checked live: `airflow_tahoe` and `airflow_legacy` each load 41 read-only
+tools; `get_health` reports healthy and `get_dags` returns DAGs on both.
+`mcp.json` has no `datahub` server, so `[accepted_mcp] datahub` entries load
+nothing (agents fall back to the native DataHub tools).
+
+## Metric catalog before semantic search (2026-11-18)
+
+### Why (design discussion)
+
+`fetch_related_models` finds dbt models by vector search over the Qdrant index.
+It covers every indexed hive model and also answers column, dimension and
+entity questions. Ranking follows embedding similarity, though, so a metric
+question ("GMV last month") can surface a table that mentions GMV but computes
+a different variant, or rank the right model below a look-alike.
+
+The repo now has a curated metric catalog (`tools/data/lib/`): 75 metric roots
+(`final_root.csv`), 455 members, the precise variants of each root such as
+with/without LTD or distinct vs. row count (`root_member.csv`), and a mapping
+from 39 dbt models' metrics to `(root_id, member_id)` with a `related_ratio`
+(`root_member_assign.json`). The model files are copied into
+`tools/data/lib/models/<db>/` from data-governance.
+
+The user's position: the catalog lookup should perform better but has lower
+coverage, so use it first and fall back to semantic search when it cannot
+determine the metric. The options weighed were:
+
+- **Replace `fetch_related_models` outright.** Rejected: the catalog covers 39
+  models against the full index, has nothing for column or entity questions,
+  and `commit_cards`, the human card gate, the frontend and tests are built
+  around the staged card shape.
+- **Catalog first, semantic search as fallback (chosen).** Both tools stage
+  the same `TableCard` shape into `staging_cards`, so everything after
+  staging (`commit_cards`, the gate, warehouse's candidate list) is unchanged.
+
+Two hints the user asked to put in the prompts:
+
+1. The LLM resolves the most relevant `root_id` and `member_id` from the CSV
+   files itself, by grep-like search, rather than the tool guessing them.
+2. `related_ratio` is a preference, not the decision. The LLM weighs every
+   candidate model on description, grain, dimensions, time column and the
+   matched metric definition, and may pick a lower-ratio model that fits better.
+
+### What changed
+
+- `tools/data/metrics.py`: typed loaders (`Root`, `Member`,
+  `MetricAssignment`, `Model`), cached on first use, and two tools.
+  - `search_metric_catalog(pattern, scope, root_id, limit)` is the "grep" over
+    the CSVs: a case-insensitive regex (literal fallback) over ids, Chinese
+    names, definitions and aliases. `scope="roots"` returns roots with `not_a`
+    (look-alikes to rule out); `scope="members"` with `root_id` lists that
+    root's members, the default first. The tool description lists all root ids.
+    A dedicated tool instead of `bash`/`grep` because databot's fetch scope
+    and warehouse have no shell, and they should not get one for this.
+  - `find_models_metrics(root_id, member_id, limit)` stages one card per model
+    assigned to the pair, with `related_ratio` and the matched metric(s)
+    (definition, agg, confidence, evidence). The compact result shows each
+    candidate's description, usage, time column, dimensions and metrics so the
+    LLM can compare them. An unknown pair, the `unassigned` root or an empty
+    result returns a message pointing to `search_metric_catalog` or
+    `fetch_related_models`; `alternative_tool` registers the fallback too.
+- `rag/dbt/ingest.py`: `build_model_payload` extracted from the Qdrant ingest,
+  so catalog cards and indexed cards are built by the same code.
+- Prompts: databot's fetch-stage instruction, next-step and budget prompts, and
+  warehouse's workflow step 1 describe the catalog-first order, the fallback
+  conditions and the `related_ratio` hint.
+- Tool scopes: databot (default, fetch, rag) and warehouse (default) get both
+  tools. Tool names are added to the narration filters in `graph/messages.py`
+  and `databotChatUtils.ts`.
+
+### Guardrails
+
+- Fallback to `fetch_related_models` when no root or member fits, nothing is
+  staged, or the question is about columns or entities.
+- `unassigned` assignments in the JSON are never served.
+- Both tool schemas use plain strings and ints (no `Literal`/`Union`), like
+  `fetch_related_models`, for strict OpenAI-compatible providers.
+
+### Verified
+
+`tests/test_metric_catalog.py` (12 tests): catalog files agree with each other,
+every assigned model has its yml, lookups are sorted and do not mutate the
+index, regex and Chinese search, card shape, staging merge and fallback
+messages. Full suite: 624 passed. Not yet checked in a live chat run.
+
+## Model selection eval: semantic search vs. metric catalog (2026-11-18)
+
+### Why (design discussion)
+
+After adding the metric catalog in front of `fetch_related_models`, the user
+wanted to measure the difference: a dedicated agent that only selects the
+model (no SQL, no query) for a question, run with each retrieval method.
+
+**Could warehouse do it?** Asked directly; the answer was no, for three reasons:
+
+- Its job and prompt end in SQL: discovery, `trino_desc_table`,
+  `request_sql_approval` (a human interrupt), `run_sql`. A "just pick the model"
+  instruction fights the workflow, and the review gate would pause eval runs.
+- It has both retrieval tools at once, so a run cannot isolate one method;
+  every arm needs its own tool set and its own workflow prompt.
+- Its result is free text plus SQL artifacts; the eval needs a structured choice
+  to score, and the staged candidates to tell a retrieval miss from a choice miss.
+
+Building it as a warehouse mode would mean a mode flag across its prompt, tools
+and gate. A small agent on `BaseReactAgent` is less code and keeps warehouse
+unchanged.
+
+### What changed
+
+- `model_selection` agent (`agent/specialists/model_selection`,
+  `config/agents/model_selection.toml`, `ModelSelectionAgentConfig`). `front =
+  true`, so the lead never delegates to it. `run_context.retrieval` picks the
+  arm: `rag` (`fetch_related_models`), `catalog` (`search_metric_catalog` +
+  `find_models_metrics`) or `hybrid` (catalog first, search as fallback). The
+  agent keeps only that arm's tools and the prompt renders only its
+  `workflow_<arm>` section; the choosing rules (grain, dimensions, metric
+  definition; ratio/score are preferences) and the JSON output are shared.
+  Profile refinement is off so eval runs write no user profiles.
+- `evals/selection_case.py` and `python -m evals -a model_selection [--arms ...]
+  [--out file.json]`: each case runs per arm and per LLM (one agent per
+  pair), scored on selection (chosen model in `expected_models`), recall (an
+  expected model was staged at all) and economy (tool calls vs. budget). The
+  report adds a case x arm matrix and a per-arm table with mean tool calls,
+  candidates and seconds.
+- Seed cases `evals/cases/model_selection.json`: six metric questions, one
+  entity question and one metric outside the catalog (`ads.country_spend`).
+  Gold models are a first pass from the catalog and model descriptions and
+  need the user's review.
+
+### Found on the way
+
+25 of the 39 catalog models (everything under `wish/` and `wishpost/`) are not
+in the Qdrant collection `aug_dbt_models`; `core_data` models and other hive
+schemas are. Until the index is rebuilt, `rag` cannot find those gold models,
+which shows up as recall 0, not as a choice error.
+
+### Live smoke run (MiniMax-M3, 1 case)
+
+`dau_yesterday_without_bots`, all three arms:
+
+| Arm | Chosen | Selection | Recall | Tool calls | Seconds |
+|-----|--------|-----------|--------|------------|---------|
+| rag | `fct_dau_w_bots` (look-alike that keeps bots) | 0 | 1 | 2 | 59.5 |
+| catalog | `fct_dau` | 1 | 1 | 5 | 32.8 |
+| hybrid | `fct_dau` | 1 | 1 | 3 | 16.4 |
+
+Vector search staged the right model but ranked the bot-inclusive table first
+and the LLM took it; the catalog's member definitions steered to `fct_dau`.
+One case only: the full 8-case run is still to do.
+
+### Full run (2026-11-18, MiniMax-M3, 8 cases x 3 arms)
+
+The 39 catalog models were ingested into a new Qdrant collection,
+`metric_catalog_models` (5,234 points; job `rag-jobs/metric_catalog_models.json`),
+and `rag` was pointed at it with `--rag-collection`, so all three arms search
+the same 39 models. Results: `evals/results/model_selection_2026-11-18.json`.
+
+| Arm | Selection | Recall | Mean tool calls | Mean candidates | Mean seconds |
+|-----|-----------|--------|-----------------|-----------------|--------------|
+| rag | 0.75 | 0.88 | 3.6 | 9.4 | 77.9 |
+| catalog | 0.88 | 0.88 | 4.0 | 3.1 | 17.4 |
+| hybrid | 0.88 | 0.88 | 4.0 | 5.8 | 26.9 |
+
+- The only choice difference is the DAU case: `rag` again picked
+  `fct_dau_w_bots`, ranked above `fct_dau` by search; both catalog arms
+  picked `fct_dau`. On the other six covered cases all arms chose an accepted model.
+- The catalog is about 4x faster and stages a third of the candidates. `rag`
+  needed 8 searches for the refund case.
+- `facebook_ad_spend_by_country` scores 0 everywhere by construction:
+  `country_spend` is not in the 39-model corpus. It exposed a real problem
+  though: catalog and hybrid ran out of tool budget (9-10 calls) and ended
+  without the JSON answer instead of returning `"model": null`.
+- Seven covered cases is too few to call 0.88 vs 0.75 significant; more cases
+  (especially look-alike tables) and more LLMs are needed.
+
+### Follow-up: warehouse uses the metric catalog only (2026-11-18)
+
+User direction after the eval: warehouse finds models with
+`search_metric_catalog` + `find_models_metrics` and no longer has
+`fetch_related_models` (RAG). Databot keeps catalog-first with the RAG fallback.
+
+- `config/agents/warehouse.toml`: `fetch_related_models` removed from `[tools]`;
+  workflow step 1 is the catalog flow. When the catalog has no fitting root or
+  member, or stages no model, warehouse stops and says no catalog model covers
+  the task (listing what it checked) instead of browsing catalogs or guessing.
+  This also gives it an explicit exit for the "nothing fits" case where the
+  eval agents ran out of budget without answering.
+- Consequence: warehouse can now only answer questions whose metric maps to
+  one of the 39 catalog models (`tools/data/lib/models`); column or entity
+  questions and metrics outside the catalog get a "not covered" answer.
+
+## Fewer `read_offloaded_file` round trips (2026-11-18)
+
+### Why (design discussion)
+
+`read_offloaded_file` was called often. Layer-1 offload runs on every
+compression pass regardless of context fill, and the threshold was 2,000
+tokens (1.5% of the 128k window). The offload store showed most offloaded
+results sat at 2–4k tokens: `trino_run_query`, `search_metric_catalog`,
+`fetch_related_models`, `trino_desc_table`, `bash`. The 10-line / 2,000-char
+preview was too short to work from, so the agent read the file back. Because
+`read_offloaded_file` results are never offloaded, the full text landed in
+context anyway, plus an extra LLM round trip and the preview tokens. The
+largest file group was `prior_turn_tools_archive` (57 files): follow-ups that
+needed an earlier turn's query output had to read the archive.
+
+### What changed
+
+- `tool_result_offload_threshold` 2000 → 8000 (`base.toml`, `CompressionConfig`).
+  Results that are actually large (`get_dags`, `datahub_list_datasets`, big
+  `trino_explain`) are still offloaded.
+- `preview_lines` 10 → 30; the preview character cap (`_PREVIEW_MAX_CHARS`)
+  2,000 → 6,000, otherwise more lines would still be cut at 2,000 chars.
+- `register_tool(offload=False)` marks a tool whose result stays in context at
+  any size (`tools.registry.never_offload_tool_names()`, merged with
+  `[compression] never_offload_tools` in layer 1). Applied to
+  `trino_desc_table`, `hive_desc_table`, `search_metric_catalog`,
+  `fetch_related_models`, `read_offloaded_file`.
+- `warehouse.toml` and `databot.toml`: `[compression] prior_turns_qa_only = false`,
+  so earlier turns' tool results stay available for follow-ups. Layer 3
+  summarization still bounds the context when fill passes `fill_trigger`.
+
+### Open
+
+- A fill-aware layer 1 (skip offloading while fill is low) would remove most
+  remaining round trips; not done.
+
+
+
+### 69-case evaluation (2026-11-18)
+
+The 8-case result was too thin to act on, so the evaluation was redone with 69
+cases (41 metric, 14 look-alike traps, 7 entity, 7 out-of-corpus) on the same
+39-model corpus for every arm. Motivation, method, results and threats to
+validity are in [`evals/MODEL_SELECTION_EVAL.md`](../evals/MODEL_SELECTION_EVAL.md).
+Changes made on the way: `staging_cards` merge reducer (parallel retrieval calls
+crashed LangGraph), crash-tolerant runner with `.partial.jsonl` output, JSON
+answer forced at tool-budget end, `<think>`-aware answer parsing, abstain cases
+(`expected_models: []`), and `python -m evals.selection_report [--rescore]`.
+
+Outcome (all arms, 69 cases): `catalog` 69/69, `hybrid` 69/69, `rag` 67/69
+(two choice misses: `fct_dau_w_bots` for "DAU excluding bots", and `null` for
+merchant ticket response time). 2–0 is not significant, so the decision does
+not rest on accuracy but on cost: the catalog shows the LLM 2.1 candidates
+against 9.6, stays within the 4-call budget on 60 of 69 cases against 49, and
+needs no embedding calls. That supports catalog-first databot and catalog-only
+warehouse. `hybrid` fell back to `fetch_related_models` in 33 of 69 runs
+without changing a single answer, so in production the fallback should stay a
+last resort (no fitting root, or nothing staged), not a second opinion.
+Out-of-corpus questions cost every arm about 8 tool calls before the `null`
+answer: a cap on catalog retries is a candidate change for warehouse. Reviewing
+every miss also found two wrong gold labels, both of which had penalised `rag`.

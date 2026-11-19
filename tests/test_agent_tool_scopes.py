@@ -49,15 +49,15 @@ def test_scopes_follow_config():
             assert expected <= bound, (agent, scope)
 
 
-def test_plan_agent_gets_its_own_planning_tool():
-    import agent.plan.stage_tools as stage
+def test_specialists_keep_generic_planning_tool_lead_does_not():
     import tools.plan as generic
 
     ensure_tools_registered()
-    plan_tools = AgentCatalog.tools_for("plan", "subagent")
-    assert any(t is stage.planning for t in plan_tools)
     swe_tools = AgentCatalog.tools_for("swe", "default")
     assert any(t is generic.planning for t in swe_tools)
+    # The lead plans with its own bound ``write_plan``, not the generic tool.
+    lead_tools = AgentCatalog.tools_for("lead", "default")
+    assert not any(t is generic.planning for t in lead_tools)
 
 
 def _write(path: Path, text: str) -> Path:

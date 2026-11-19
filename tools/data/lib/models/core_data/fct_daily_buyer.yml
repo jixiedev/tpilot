@@ -1,0 +1,210 @@
+version: 2
+
+models:
+  - name: fct_daily_buyer
+    description: >
+      User-day buyer fact: one row per buyer (user_id) per payment-received
+      calendar day (dt) with that day's non-LTD purchase activity aggregated
+      from variation-level transactions. Grain is (user_id, dt). Measures
+      (gmv, revenue, txns, orders) sum variation-level metrics for the payment
+      day; client and shipping_country reflect the earliest checkout transaction
+      on that day (MIN_BY transaction_timestamp). LTD products are excluded
+      upstream. dt is America/Los_Angeles payment-received day (Hive partition).
+      Source: core_data.fct_daily_buyer (Airflow DagDailyFctBuyer).
+    config:
+      meta:
+        owner: vbarsaiyan
+        hive_table: core_data.fct_daily_buyer
+        dag: DagDailyFctBuyer
+        timezone: America/Los_Angeles
+    semantic_model:
+      enabled: true
+      name: fct_daily_buyer
+      config:
+        meta:
+          owner: vbarsaiyan
+          usage: >
+            Always filter metric_time / dt first for partition pruning. Users
+            without a purchase on a day have no row (do not treat missing join
+            as zero GMV). client / shipping_country are earliest-txn attributes
+            for the payment day, not last-touch or spend-weighted. LTD is
+            excluded upstream — do not use for LTD-only GMV.
+    agg_time_dimension: dt
+
+    columns:
+      - name: buyer_day_id
+        description: Surrogate primary key, user_id|dt.
+        data_tests:
+          - not_null
+        entity:
+          type: primary
+          name: buyer_day
+          description: One buyer row for a payment-received calendar day.
+
+      - name: user_id
+        description: Wish buyer identifier. Grain key with dt.
+        entity:
+          type: foreign
+          name: user
+          description: Join key to user dims, fct_dau, dau_attribution, and ULC buyer tables.
+
+      - name: dt
+        description: >
+          Payment-received calendar day (America/Los_Angeles), cast from
+          partition string YYYY-MM-DD. Primary business time axis and Hive
+          partition key.
+        granularity: day
+        dimension:
+          type: time
+          label: Payment received day
+          is_partition: true
+
+      - name: client
+        description: >
+          Client platform code from the buyer's earliest non-LTD transaction on
+          dt (MIN_BY transaction_timestamp). 0=Web, 1=iPhone, 2=iPad,
+          3=Android, 4=Mobile Web, 5=Windows App, 6=Windows Phone App,
+          7=Android Instant App.
+        dimension:
+          type: categorical
+          label: Client code
+
+      - name: client_name
+        description: Human-readable client platform label.
+        dimension:
+          type: categorical
+          label: Client
+
+      - name: client_group
+        description: >
+          Analytics client grouping (Android, iOS, Web, MobileWeb, Other) used
+          by Sundial and monthly_retention_flags.
+        dimension:
+          type: categorical
+          label: Client group
+
+      - name: is_mobile_app
+        description: >
+          True when client is a mobile app platform (1, 2, 3, 5, 6, 7).
+        dimension:
+          type: categorical
+          label: Is mobile app
+
+      - name: shipping_country
+        description: >
+          ISO 3166-1 alpha-2 shipping destination from the buyer's earliest
+          non-LTD transaction on dt.
+        dimension:
+          type: categorical
+          label: Shipping country code
+
+      - name: gmv
+        description: >
+          User-day gross merchandise value (sum of gmv_variation, non-LTD).
+
+      - name: revenue
+        description: >
+          User-day raw marketplace revenue (sum of raw_revenue_variation,
+          non-LTD). Not net company P&L.
+
+      - name: txns
+        description: >
+          Distinct commerce transactions for the user on dt (non-LTD).
+
+      - name: orders
+        description: >
+          Distinct merchant orders for the user on dt (non-LTD).
+
+      - name: dt_str
+        description: Source partition string YYYY-MM-DD (varchar).
+
+    metrics:
+      - name: buyers
+        type: simple
+        label: Buyers
+        description: >
+          Distinct users with at least one non-LTD purchase on dt. Each row is
+          one buyer-day; summing across days yields user-days, not unique users
+          over a range.
+        agg: count_distinct
+        expr: user_id
+
+      - name: gmv
+        type: simple
+        label: GMV
+        description: >
+          Sum of user-day GMV on dt. Non-LTD only (excluded upstream).
+        agg: sum
+        expr: gmv
+        fill_nulls_with: 0
+
+      - name: revenue
+        type: simple
+        label: Revenue
+        description: >
+          Sum of user-day raw marketplace revenue on dt. Non-LTD only.
+        agg: sum
+        expr: revenue
+        fill_nulls_with: 0
+
+      - name: transactions
+        type: simple
+        label: Transactions
+        description: >
+          Sum of per-user distinct transaction counts on dt. Each row's txns
+          is COUNT(DISTINCT transaction_id) for that user-day.
+        agg: sum
+        expr: txns
+        fill_nulls_with: 0
+
+      - name: orders
+        type: simple
+        label: Orders
+        description: >
+          Sum of per-user distinct merchant order counts on dt.
+        agg: sum
+        expr: orders
+        fill_nulls_with: 0
+
+      - name: buyer_day_rows
+        type: simple
+        label: Buyer-day rows
+        description: Row count at user_id × dt grain.
+        agg: count
+        expr: 1
+        fill_nulls_with: 0
+
+      - name: atv
+        type: ratio
+        label: Average transaction value
+        description: GMV / total transactions on dt.
+        numerator: gmv
+        denominator: transactions
+
+      - name: gmv_per_buyer
+        type: ratio
+        label: GMV per buyer
+        description: GMV / distinct buyers on dt.
+        numerator: gmv
+        denominator: buyers
+
+      - name: margin
+        type: ratio
+        label: Margin
+        description: Revenue / GMV (take rate). Non-LTD only.
+        numerator: revenue
+        denominator: gmv
+
+      - name: take_rate
+        type: ratio
+        label: Take rate
+        description: Alias of margin (revenue / GMV).
+        numerator: revenue
+        denominator: gmv
+
+      - name: orders_per_buyer
+        type: ratio
+        label: Orders per buyer
+        description: Total orders / distinct buyers on dt.
+        numerator: orders
+        denominator: buyers

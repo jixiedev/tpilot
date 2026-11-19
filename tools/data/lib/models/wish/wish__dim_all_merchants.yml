@@ -1,0 +1,1274 @@
+version: 2
+
+models:
+  - name: wish__dim_all_merchants
+    description: >
+      Daily full snapshot of the Wish merchant dimension, one row per
+      merchant (`merchant_id`, the Mongo `ObjectId` hex string). The
+      underlying physical object `wish.dim_all_merchants` is a Hive external
+      Parquet table in S3, rebuilt every day at 03:00 America/Los_Angeles by
+      the Airflow DAG `DailyIncrementalMerchants`, which writes a temp table
+      and atomically swaps it into place. Consumers therefore always see the
+      latest snapshot; there is no history in this table.
+
+      The table consolidates `wish.commerce_merchant` and `wish.merchant_user`
+      attributes and adds channel / priority metadata plus rule-based
+      business labels (`segment`, `wish_priority`, `from_trusted_channel`,
+      `is_deliverr_merchant`, `group_name_en`, `signup_source`).
+
+      The table is NOT partitioned -- `SHOW CREATE TABLE` declares no
+      partition column -- so there is no partition time dimension and no
+      `is_partition` marker here. The closest analogue to a partition is the
+      `time` column (the ingestion-time epoch written by the producer DAG at
+      run time), exposed as `snapshot_ts` / `snapshot_date`. It is constant
+      for the whole snapshot: it answers "which daily snapshot did this row
+      come from", NOT "when did something happen to this merchant". Grouping
+      by it is therefore useless for trends.
+
+      The default `agg_time_dimension` is `reg_date` -- the merchant
+      registration day derived from the `ObjectId` prefix
+      (`CONV(SUBSTRING(merchant_id, 1, 8), 16, 10)`). It is a cohort anchor
+      and, unlike `approved_calendar_date`, it is populated for every row, so
+      a time-bucketed query does not silently drop merchants that are not
+      approved yet. Use `approved_calendar_date` (approval cohort),
+      `disable_calendar_date` (disable cohort),
+      `onboarding_completed_calendar_date` (onboarding cohort) or
+      `bba_approved_calendar_date` (blanket-auth approval cohort) when that
+      is the intent -- those are NULL for the rows they do not apply to.
+
+      This is a merchant dimension, not an event log: every row carries the
+      merchant's state as of the last successful daily build. The merchant
+      counters (`num_active_products`, `rating_count`,
+      `rating_count_14_days`) and the quality rates (`average_rating`,
+      `average_rating_14_days`, `rev_share`) are as-of-snapshot values and
+      are NOT additive over time -- summing them across dates double counts
+      the same merchant. `rev_share` and the ratings are rates: average them,
+      do not sum them.
+
+      Data quality: the producer DAG runs a duplicate check on `merchant_id`
+      (`IncMerchantsDuplicateValidate`) and alerts when the duplicate count
+      is greater than zero, so `merchant_id` is expected to be unique and
+      non-null. Boolean-like fields are stored as strings (`'true'` /
+      `'false'` for the CASE-generated `from_trusted_channel` and
+      `is_deliverr_merchant`), so consumers must normalize explicitly.
+      `segment` and `wish_priority` are rule-based and may change whenever
+      the upstream logic changes. `signup_source` defaults to `'Organic'`
+      when the source value is null.
+
+      PII columns (personal names, e-mail, phone numbers, street addresses)
+      are exposed by the underlying table and by this view, but are
+      deliberately NOT exposed as MetricFlow dimensions.
+
+      Source: documentation/llm_generated/hive/wish/dim_all_merchants.md
+    config:
+      meta:
+        hive_table: wish.dim_all_merchants
+        dag: DailyIncrementalMerchants
+        timezone: America/Los_Angeles
+    semantic_model:
+      enabled: true
+      name: wish_dim_all_merchants
+      config:
+        meta:
+          usage: >
+            Daily full snapshot of the Wish merchant dimension (one row per
+            merchant), not an event log: every row carries the merchant's
+            state as of the last successful daily build and the table is
+            fully replaced each run. There is no partition date; the default
+            agg_time_dimension (reg_date) is a cohort anchor, not a snapshot
+            day -- use snapshot_date to identify which daily build a row came
+            from. Count merchants with `merchants` (count_distinct
+            merchant_id) rather than `merchant_rows` (row count) when the
+            grain matters; the producer DAG de-duplicates merchant_id, so the
+            two agree on well-formed data, but `merchant_rows` still counts
+            whatever the table emits. Merchant counters and rates
+            (num_active_products, rating_count, average_rating, rev_share)
+            are as-of-snapshot values: they are not additive over time, and
+            rates must be averaged, not summed. MetricFlow time dimensions
+            are day grain only (project time spine); the `*_ts` and
+            `*_epoch` columns are plain columns for joins.
+    agg_time_dimension: reg_date
+
+    columns:
+      # ---------------------------------------------------------------- entities
+      - name: merchant_id
+        description: >
+          Mongo `ObjectId` hex string (24 chars) of the merchant document.
+          Logical primary key of the table and the join key to every fact
+          table carrying `merchant_id` (`wish.fact_trans_detail`,
+          `wish.products`, ...). The producer DAG runs a duplicate check on
+          this column (`IncMerchantsDuplicateValidate`), so it is unique and
+          non-null in a well-formed snapshot.
+        data_tests:
+          - not_null
+          - unique
+        entity:
+          type: primary
+          name: merchant
+          description: One merchant on the Wish marketplace.
+
+      - name: group_id
+        description: >
+          Merchant group id. Hierarchy join key, shared with the
+          `commerce_merchant` semantic model.
+        entity:
+          type: foreign
+          name: merchant_group
+          description: Merchant group.
+
+      - name: super_group_id
+        description: >
+          Merchant super-group id. Hierarchy join key, shared with the
+          `commerce_merchant` semantic model.
+        entity:
+          type: foreign
+          name: merchant_super_group
+          description: Merchant super-group.
+
+      # ------------------------------------------------------------ time (day)
+      - name: reg_date
+        description: >
+          Calendar date of the merchant registration instant, derived from
+          the `ObjectId` prefix (`reg_time` = epoch seconds of the first 4
+          bytes of the `ObjectId`). Populated for every row, so it is the
+          default metric time dimension of this model (cohort anchor -- the
+          table has no snapshot date).
+        granularity: day
+        dimension:
+          type: time
+          label: Registration date
+
+      - name: approved_calendar_date
+        description: >
+          Calendar date of the merchant approval instant, cast from the
+          `approved_date` varchar unix-second column. NULL for merchants
+          that are not approved yet.
+        granularity: day
+        dimension:
+          type: time
+          label: Approved date
+
+      - name: disable_calendar_date
+        description: >
+          Calendar date of the merchant disable instant, cast from the
+          `disable_date` varchar unix-second column. NULL while the merchant
+          is active.
+        granularity: day
+        dimension:
+          type: time
+          label: Disable date
+
+      - name: onboarding_completed_calendar_date
+        description: >
+          Calendar date on which the merchant completed onboarding, cast from
+          the `onboarding_completed_time` varchar unix-second column. NULL
+          for merchants that never completed onboarding.
+        granularity: day
+        dimension:
+          type: time
+          label: Onboarding completed date
+
+      - name: bba_approved_calendar_date
+        description: >
+          Calendar date of the blanket-auth approval instant, cast from the
+          `bba_approved_date` epoch column. NULL for merchants that are not
+          in `analytics.dim_blanket_auth_merchants`.
+        granularity: day
+        dimension:
+          type: time
+          label: Blanket auth approved date
+
+      - name: snapshot_date
+        description: >
+          Calendar date of the daily build that produced this row, cast from
+          the `time` ingestion-time epoch written by the producer DAG. It is
+          a constant for the whole snapshot, i.e. it identifies the build,
+          not a merchant event.
+        granularity: day
+        dimension:
+          type: time
+          label: Snapshot date
+
+      - name: payment_withhold_until_calendar_date
+        description: >
+          Calendar date until which the merchant's payments are withheld,
+          cast from the `payment_withhold_until` varchar unix-second column.
+          NULL when no hold applies. The application sentinel 3000-01-01
+          (permanent hold) is out of the accepted 2000..2100 window and is
+          therefore exposed as NULL.
+        granularity: day
+        dimension:
+          type: time
+          label: Payment withhold until date
+
+      # -------------------------------------------------------------- enums
+      - name: state
+        description: >
+          Commerce merchant state code from `CommerceMerchant.State`
+          (1=Pending, 2=Approved, 3=Disabled, 4=Request Info,
+          5=Pending Phone, 6=Vacation, 7=Pending Email, 8=Wish Express
+          Only).
+        dimension:
+          type: categorical
+          label: Merchant state code
+
+      - name: state_name
+        description: >
+          Human-readable merchant state label derived from `state`
+          (PENDING, APPROVED, DISABLED, REQUEST_INFO, PENDING_PHONE,
+          VACATION, PENDING_EMAIL, WISH_EXPRESS_ONLY).
+        dimension:
+          type: categorical
+          label: Merchant state
+
+      - name: state_before_disable
+        description: >
+          Merchant state code as it was immediately before the merchant was
+          disabled, stored as a string ('1'..'8').
+        dimension:
+          type: categorical
+          label: State before disable code
+
+      - name: state_before_disable_name
+        description: >
+          Human-readable label derived from `state_before_disable`.
+        dimension:
+          type: categorical
+          label: State before disable
+
+      - name: merchant_state
+        description: >
+          Merchant state code from the merchant-user source
+          (`MerchantUser`). Uses the merchant-state taxonomy: 1=PENDING,
+          2=APPROVED, 3=DISABLED, 4=REQUEST_INFO, 5=PENDING_PHONE,
+          6=VACATION, 7=PENDING_EMAIL, 8=WISH_EXPRESS_ONLY.
+        dimension:
+          type: categorical
+          label: Merchant-user state code
+
+      - name: merchant_state_name
+        description: >
+          Human-readable label derived from `merchant_state`.
+        dimension:
+          type: categorical
+          label: Merchant-user state
+
+      - name: wish_express_state
+        description: >
+          Wish Express state code from `CommerceMerchant.WishExpressState`
+          (1=NONE, 2=PENDING, 3=APPROVED, 4=SUSPENDED, 5=REJECTED,
+          6=TRIAL_PHASE).
+        dimension:
+          type: categorical
+          label: Wish Express state code
+
+      - name: wish_express_state_name
+        description: >
+          Human-readable label derived from `wish_express_state`.
+        dimension:
+          type: categorical
+          label: Wish Express state
+
+      - name: review_state
+        description: >
+          Commerce merchant review-state code from
+          `CommerceMerchant.ReviewState` (0=ALLOW_COUNTERFEIT_REVIEW,
+          1=NO_COUNTERFEIT_REVIEW, 2=EXISTING_MERCHANT_EDUCATION).
+        dimension:
+          type: categorical
+          label: Review state code
+
+      - name: review_state_name
+        description: >
+          Human-readable label derived from `review_state`.
+        dimension:
+          type: categorical
+          label: Review state
+
+      - name: auto_payment_status
+        description: >
+          Auto-payment status code from `CommerceMerchant.AutoPaymentStatus`
+          (1=MANUAL, 2=NET_N).
+        dimension:
+          type: categorical
+          label: Auto payment status code
+
+      - name: auto_payment_status_name
+        description: >
+          Human-readable label derived from `auto_payment_status`.
+        dimension:
+          type: categorical
+          label: Auto payment status
+
+      - name: ticket_handling_state
+        description: >
+          Customer support ticket handling state code from
+          `CommerceMerchant.TicketHandleState` (1=BASIC, 2=ALL_NON_ANGRY,
+          3=ALL (deprecated), 4=NONE, 5=BASIC_TRIAL, 6=WHITE_GLOVE,
+          7=SHORT_WHITE_GLOVE (deprecated)). It determines which tickets the
+          merchant may handle.
+        dimension:
+          type: categorical
+          label: Ticket handling state code
+
+      - name: ticket_handling_state_name
+        description: >
+          Human-readable label derived from `ticket_handling_state`.
+        dimension:
+          type: categorical
+          label: Ticket handling state
+
+      - name: epc_state
+        description: >
+          Early Payment Center state code from the commerce merchant
+          profile (`EPCState`: 1=NONE, 2=PENDING, 3=REJECTED, 4=APPROVED,
+          5=SUSPENDED, 6=EXITED, 7=PRE_APPROVED).
+        dimension:
+          type: categorical
+          label: EPC state code
+
+      - name: epc_state_name
+        description: >
+          Human-readable label derived from `epc_state`.
+        dimension:
+          type: categorical
+          label: EPC state
+
+      - name: disable_reason_category
+        description: >
+          Category code of the reason a merchant was disabled, stored as a
+          stringified enum. Known categories: 1=MERCHANT_REQUEST,
+          2=INVALID_SIGNUP_DATA, 3=MERCHANT_VIOLATE_TOS,
+          4=HIGH_REFUND_RATIO, 5=DUP_REG_SAME_GROUP,
+          6=DUP_REG_DIFF_GROUPS, 7=AGE_UNDER_18, 8=DOCUMENT_FORGERY,
+          9=NOT_SUBMITTED_FILES, 10=INDIVIDUAL_BUSINESS,
+          11=BUSINESS_ANOMALY, 12=DISCREPANT_BUSINESS,
+          13=IP_INFRINGEMENT, 14=INVALID_STORE_NAME,
+          15=NOT_RESPONDED_REQUEST_INFO, 16=CLOSE_ACCOUNT,
+          17=MERCHANT_VIOLATE_TOS_IN_OFAC, 18=DUP_NAME_DETECTED,
+          19=IDENTITY_REVERIFICATION_FAILED.
+        dimension:
+          type: categorical
+          label: Disable reason category code
+
+      - name: disable_reason_category_name
+        description: >
+          Human-readable label derived from `disable_reason_category`.
+        dimension:
+          type: categorical
+          label: Disable reason category
+
+      - name: merchant_payment_policy
+        description: >
+          Merchant payment policy code from
+          `CommerceMerchant.MerchantPaymentPolicy` (1=NORMAL,
+          100=EXPEDITED_MKL22133, 101=EXPEDITED_TRO_RESOLVED,
+          199=EXPEDITED_OTHER, 1000=NOT_EXPEDITED).
+        dimension:
+          type: categorical
+          label: Payment policy code
+
+      - name: merchant_payment_policy_name
+        description: >
+          Human-readable label derived from `merchant_payment_policy`.
+        dimension:
+          type: categorical
+          label: Payment policy
+
+      - name: entity_type
+        description: >
+          Merchant entity type from `MerchantUser.EntityType`, stored as a
+          string ('1'=INDIVIDUAL, '2'=COMPANY).
+        dimension:
+          type: categorical
+          label: Entity type code
+
+      - name: entity_type_name
+        description: >
+          Human-readable label derived from `entity_type`.
+        dimension:
+          type: categorical
+          label: Entity type
+
+      - name: store_id_source
+        description: >
+          Store id source code from `MerchantUser.StoreIdSource`
+          (1=MANUAL, 2=ERP, 3=PSP, 4=PAYPAL).
+        dimension:
+          type: categorical
+          label: Store id source code
+
+      - name: store_id_source_name
+        description: >
+          Human-readable label derived from `store_id_source`.
+        dimension:
+          type: categorical
+          label: Store id source
+
+      - name: payment_provider
+        description: >
+          Merchant payment provider id from the merchant user profile
+          (`MerchantPaymentInfo.Provider`, stored as a string): 0=PAYPAL
+          (deprecated), 1=BILL, 2=CARDINFOLINK, 3=PAYONEER, 4=PINGPONG,
+          5=UMPAY (deprecated), 6=PAYPAL_MERCH, 7=UMPAY_ENTERPRISE
+          (deprecated), 8=ALLPAY, 9=WISHPAY, 10=PAYECO2, 11=UMPAY2,
+          12=LIANLIAN, 13=PAYPAL_EEA.
+        dimension:
+          type: categorical
+          label: Payment provider code
+
+      - name: payment_provider_name
+        description: >
+          Human-readable label derived from `payment_provider`.
+        dimension:
+          type: categorical
+          label: Payment provider
+
+      - name: strategic_flag
+        description: >
+          Strategic flag aggregated from the Deliverr merchants source
+          (`MAX(strategic_flag)` by merchant). `1` is used as the strategic
+          signal.
+        dimension:
+          type: categorical
+          label: Strategic flag code
+
+      - name: strategic_flag_name
+        description: >
+          Human-readable label derived from `strategic_flag`
+          (NOT_STRATEGIC, STRATEGIC).
+        dimension:
+          type: categorical
+          label: Strategic flag
+
+      # ------------------------------------------------- segmentation and labels
+      - name: segment
+        description: >
+          Rule-based merchant segment computed by the producer DAG over
+          explicit merchant sets, store flags, signup / payment / logistics
+          signals, the CN ERP signal, first-order recency and a non-CN LM
+          allowlist. Known values include Testing, Wish Blue, Wish Local, 1P,
+          Phantom, Preorder, Store Upload, CN, Non-CN New, Non-CN LM and
+          Non-CN SMB. The rules may change whenever the upstream logic
+          changes.
+        dimension:
+          type: categorical
+          label: Segment
+
+      - name: wish_priority
+        description: >
+          Hierarchical merchant priority computed by the producer DAG, with
+          the `analytics.whitelisted_merchants` override applied first, then
+          premium / high / medium / low / likely-fake rules based on segment,
+          trust-channel status, strategic and priority indicators and
+          merchant-country consistency. Known values: Premium, High, Medium,
+          Low, Likely Fake, N/A.
+        dimension:
+          type: categorical
+          label: Wish priority
+
+      - name: from_trusted_channel
+        description: >
+          String boolean ('true' / 'false') computed by the producer DAG
+          from managed accounts, strategic merchants, Deliverr / CED /
+          channel-advisor / paypal / jolt / quipt / ERP markers, whitelist
+          membership and BD-rep conditions.
+        dimension:
+          type: categorical
+          label: From trusted channel
+
+      - name: is_deliverr_merchant
+        description: >
+          String boolean ('true' / 'false') computed by the producer DAG:
+          'true' when `(signup_source='ERP' AND partner_name='Deliverr')` or
+          the merchant exists in the Deliverr mapping, else 'false'.
+        dimension:
+          type: categorical
+          label: Is Deliverr merchant
+
+      - name: signup_source
+        description: >
+          Merchant acquisition source. Defaults to 'Organic' when the source
+          value is null.
+        dimension:
+          type: categorical
+          label: Signup source
+
+      - name: group_name
+        description: Merchant group name.
+        dimension:
+          type: categorical
+          label: Group name
+
+      - name: group_name_en
+        description: >
+          English merchant group name, computed by the producer DAG as
+          `COALESCE(company_name_en, company_name)`.
+        dimension:
+          type: categorical
+          label: Group name (EN)
+
+      - name: seller_priority
+        description: Seller priority marker.
+        dimension:
+          type: categorical
+          label: Seller priority
+
+      - name: ced_priority
+        description: CED priority marker.
+        dimension:
+          type: categorical
+          label: CED priority
+
+      - name: channel_advisor_priority
+        description: Channel advisor priority marker.
+        dimension:
+          type: categorical
+          label: Channel advisor priority
+
+      - name: channel_partners
+        description: Channel partners the merchant belongs to.
+        dimension:
+          type: categorical
+          label: Channel partners
+
+      - name: paypal_priority
+        description: PayPal priority marker.
+        dimension:
+          type: categorical
+          label: PayPal priority
+
+      - name: erp_partner_state
+        description: ERP partner state marker.
+        dimension:
+          type: categorical
+          label: ERP partner state
+
+      - name: brand_partner_state
+        description: Brand partner state marker.
+        dimension:
+          type: categorical
+          label: Brand partner state
+
+      - name: bd_rep
+        description: >
+          Business-development rep assigned to the merchant.
+        dimension:
+          type: categorical
+          label: BD rep
+
+      # ---------------------------------------------------------------- flags
+      - name: is_active
+        description: >
+          Merchant active flag, stored as a string boolean
+          ('true' / 'false').
+        dimension:
+          type: categorical
+          label: Is active
+
+      - name: is_banned
+        description: Merchant banned flag (string boolean).
+        dimension:
+          type: categorical
+          label: Is banned
+
+      - name: is_cn_merchant
+        description: >
+          China merchant flag, stored as a string boolean. The exact string
+          casing is not documented in the table documentation, so the raw
+          value is exposed as-is.
+        dimension:
+          type: categorical
+          label: Is CN merchant
+
+      - name: is_store_merchant
+        description: >
+          Store merchant flag, stored as a string boolean. The exact string
+          casing is not documented in the table documentation, so the raw
+          value is exposed as-is.
+        dimension:
+          type: categorical
+          label: Is store merchant
+
+      - name: is_merchant_plus
+        description: Merchant Plus flag (string boolean).
+        dimension:
+          type: categorical
+          label: Is merchant plus
+
+      - name: is_trusted_for_verified_products
+        description: >
+          Trusted for verified products flag (string boolean).
+        dimension:
+          type: categorical
+          label: Is trusted for verified products
+
+      - name: has_products_promoted
+        description: Has promoted products flag (string boolean).
+        dimension:
+          type: categorical
+          label: Has products promoted
+
+      - name: exempt_from_ads
+        description: Advertising-exempt flag (string boolean).
+        dimension:
+          type: categorical
+          label: Exempt from ads
+
+      - name: withhold_funds_permanently
+        description: Funds withheld permanently flag (string boolean).
+        dimension:
+          type: categorical
+          label: Withhold funds permanently
+
+      - name: enabled
+        description: Merchant enabled flag (string boolean).
+        dimension:
+          type: categorical
+          label: Enabled
+
+      - name: dummy_account
+        description: >
+          Dummy account marker. The table documentation does not define the
+          value range, so the raw value is exposed as-is.
+        dimension:
+          type: categorical
+          label: Dummy account
+
+      - name: impression_paused_for_seller_profile_verification
+        description: >
+          Impressions paused pending seller profile verification flag
+          (string boolean).
+        dimension:
+          type: categorical
+          label: Impressions paused for verification
+
+      # ------------------------------------------------------------- geography
+      - name: merchant_country
+        description: >
+          Merchant country used in the segmentation and quality rules.
+        dimension:
+          type: categorical
+          label: Merchant country
+
+      - name: suspected_country
+        description: >
+          Suspected country signal from the commerce merchant profile.
+        dimension:
+          type: categorical
+          label: Suspected country
+
+      - name: reporting_country
+        description: >
+          Convenience column: `COALESCE(suspected_country, merchant_country)`.
+          This is NOT a documented business rule -- both source columns are
+          exposed as dimensions as well.
+        dimension:
+          type: categorical
+          label: Reporting country
+
+      - name: country
+        description: Merchant country string.
+        dimension:
+          type: categorical
+          label: Country
+
+      - name: countries
+        description: Countries string from the commerce merchant profile.
+        dimension:
+          type: categorical
+          label: Countries
+
+      - name: origin_country
+        description: Merchant country of origin.
+        dimension:
+          type: categorical
+          label: Origin country
+
+      - name: bd_merchant_country
+        description: Merchant country as recorded by the business-development rep.
+        dimension:
+          type: categorical
+          label: BD merchant country
+
+      - name: merchant_country_when_onboarding_completed
+        description: >
+          Merchant country at the moment onboarding was completed.
+        dimension:
+          type: categorical
+          label: Merchant country at onboarding
+
+      - name: ip_country_when_created
+        description: >
+          IP country observed when the account was created.
+        dimension:
+          type: categorical
+          label: IP country at creation
+
+      - name: locale
+        description: Merchant locale.
+        dimension:
+          type: categorical
+          label: Locale
+
+      # ------------------------------------------------------ profile / channel
+      - name: erp_code
+        description: ERP partner code of the merchant.
+        dimension:
+          type: categorical
+          label: ERP code
+
+      - name: partner_name
+        description: >
+          Partner name of the merchant. Together with `signup_source` it
+          identifies the Deliverr signups ('ERP' + 'Deliverr').
+        dimension:
+          type: categorical
+          label: Partner name
+
+      - name: carrier_code
+        description: Logistics carrier code.
+        dimension:
+          type: categorical
+          label: Carrier code
+
+      - name: fbw_partner_id
+        description: Fulfilled-by-Wish partner id.
+        dimension:
+          type: categorical
+          label: FBW partner id
+
+      - name: fbw_warehouse_id
+        description: Fulfilled-by-Wish warehouse id.
+        dimension:
+          type: categorical
+          label: FBW warehouse id
+
+      - name: merchant_name
+        description: Merchant store name.
+        dimension:
+          type: categorical
+          label: Merchant name
+
+      - name: company_name
+        description: Registered company name of the merchant.
+        dimension:
+          type: categorical
+          label: Company name
+
+      - name: brand_name
+        description: Brand name of the merchant.
+        dimension:
+          type: categorical
+          label: Brand name
+
+      - name: merchant_source_currency
+        description: Currency the merchant is sourced in.
+        dimension:
+          type: categorical
+          label: Merchant source currency
+
+      - name: onboarding_completed
+        description: >
+          Onboarding completion marker from the merchant user profile.
+        dimension:
+          type: categorical
+          label: Onboarding completed
+
+      - name: onboarding_emails_received
+        description: >
+          Onboarding e-mails received by the merchant.
+        dimension:
+          type: categorical
+          label: Onboarding emails received
+
+      - name: onboarding_steps_completed
+        description: >
+          Onboarding steps completed by the merchant.
+        dimension:
+          type: categorical
+          label: Onboarding steps completed
+
+      - name: disable_reason_text
+        description: >
+          Free-text reason a merchant was disabled.
+        dimension:
+          type: categorical
+          label: Disable reason text
+
+      - name: erp_promo_client_id
+        description: ERP promotion client id.
+        dimension:
+          type: categorical
+          label: ERP promo client id
+
+      - name: erp_promo_referral_id
+        description: ERP promotion referral id.
+        dimension:
+          type: categorical
+          label: ERP promo referral id
+
+      - name: erp_promo_rev_share
+        description: >
+          ERP promotion revenue share. A rate, not an amount.
+        dimension:
+          type: categorical
+          label: ERP promo revenue share
+
+      # -------------------------------------------------------------- measures
+      # Measure columns carry neither an entity nor a dimension: they are
+      # only referenced by `metrics.expr`.
+      - name: num_active_products
+        description: >
+          Number of the merchant's active products. As-of-snapshot value --
+          not additive over time.
+        data_type: integer
+
+      - name: rating_count
+        description: >
+          Total number of ratings the merchant received. As-of-snapshot value
+          -- not additive over time.
+        data_type: integer
+
+      - name: rating_count_14_days
+        description: >
+          Number of ratings the merchant received in the last 14 days.
+          As-of-snapshot value -- not additive over time.
+        data_type: integer
+
+      - name: average_rating
+        description: >
+          Merchant's overall average rating (0.0-5.0). A rate -- average it,
+          do not sum it.
+        data_type: double
+
+      - name: average_rating_14_days
+        description: >
+          Merchant's average rating over the last 14 days. A rate -- average
+          it, do not sum it.
+        data_type: double
+
+      - name: average_rating_display
+        description: >
+          Display version of the merchant's average rating. A rate -- average
+          it, do not sum it.
+        data_type: double
+
+      - name: rev_share
+        description: >
+          Merchant revenue share, stored as a decimal (0.0-1.0). A rate, not
+          an amount -- average it, do not sum it.
+        data_type: double
+
+      - name: avg_fulfillment_time_seconds
+        description: >
+          Merchant's average fulfillment time in seconds (numeric cast of
+          the `avg_fulfillment_time` string). The unit comes from the
+          documentation's cited source (`clroot/sweeper/model/commerce.py`);
+          the table documentation itself only states that the field is a
+          latency, not an absolute timestamp.
+        data_type: double
+
+      - name: avg_shipping_time_seconds
+        description: >
+          Merchant's average shipping time in seconds (numeric cast of the
+          `avg_shipping_time` string).
+        data_type: double
+
+      - name: us_30_day_avg_fulfillment_time_days
+        description: >
+          Merchant's US average fulfillment time in days, over the 30-day
+          metric window (numeric cast of the `us_30_day_avg_fulfillment_time`
+          string).
+        data_type: double
+
+      - name: us_30_day_avg_delivery_time_days
+        description: >
+          Merchant's US average delivery time in days, over the 30-day
+          metric window (numeric cast of the `us_30_day_avg_delivery_time`
+          string).
+        data_type: double
+
+      # ------------------------------------------------- plain / join columns
+      # Raw source values and the derived join helpers. Not MetricFlow
+      # dimensions -- use the `*_calendar_date` columns for time dimensions
+      # and the `*_name` columns for human-readable enums.
+      - name: time
+        description: >
+          Ingestion-time epoch seconds of the producer DAG run that produced
+          this snapshot. NOT a merchant event time. Plain column -- use
+          `snapshot_date` for the day-grain dimension.
+      - name: snapshot_ts
+        description: Snapshot build time as a timestamp. Join column.
+      - name: reg_time
+        description: >
+          Merchant registration epoch seconds, derived from the `ObjectId`
+          prefix. Plain column -- use `reg_date` for the day-grain dimension.
+      - name: reg_ts
+        description: Merchant registration instant as a timestamp. Join column.
+      - name: approved_date
+        description: >
+          Merchant approval instant as stored by the dump (varchar unix
+          seconds). Plain column -- use `approved_calendar_date` for the
+          day-grain dimension.
+      - name: approved_epoch
+        description: Approval instant as unix seconds (bigint). Join column.
+      - name: approved_ts
+        description: Approval instant as a timestamp. Join column.
+      - name: disable_date
+        description: >
+          Merchant disable instant as stored by the dump (varchar unix
+          seconds). Plain column -- use `disable_calendar_date` for the
+          day-grain dimension.
+      - name: disable_epoch
+        description: Disable instant as unix seconds (bigint). Join column.
+      - name: disable_ts
+        description: Disable instant as a timestamp. Join column.
+      - name: onboarding_completed_time
+        description: >
+          Onboarding completion instant as stored by the dump (varchar unix
+          seconds). Plain column -- use
+          `onboarding_completed_calendar_date` for the day-grain dimension.
+      - name: onboarding_completed_epoch
+        description: >
+          Onboarding completion instant as unix seconds (bigint). Join column.
+      - name: onboarding_completed_ts
+        description: >
+          Onboarding completion instant as a timestamp. Join column.
+      - name: bba_approved_date
+        description: >
+          Blanket-auth approval instant as stored by the source (epoch
+          seconds). Plain column -- use `bba_approved_calendar_date` for the
+          day-grain dimension.
+      - name: bba_approved_epoch
+        description: >
+          Blanket-auth approval instant as unix seconds (bigint). Join column.
+      - name: bba_approved_ts
+        description: Blanket-auth approval instant as a timestamp. Join column.
+      - name: payment_withhold_until
+        description: >
+          Payment hold end instant as stored by the dump (varchar unix
+          seconds). Plain column -- use
+          `payment_withhold_until_calendar_date` for the day-grain dimension.
+      - name: payment_withhold_until_epoch
+        description: >
+          Payment hold end instant as unix seconds (bigint). Join column.
+      - name: payment_withhold_until_ts
+        description: Payment hold end instant as a timestamp. Join column.
+      - name: erp_promo_start_time
+        description: >
+          ERP promotion start instant as stored by the dump (varchar unix
+          seconds). Plain column.
+      - name: erp_promo_start_epoch
+        description: ERP promotion start instant as unix seconds (bigint). Join column.
+      - name: erp_promo_start_ts
+        description: ERP promotion start instant as a timestamp. Join column.
+      - name: erp_promo_end_time
+        description: >
+          ERP promotion end instant as stored by the dump (varchar unix
+          seconds). Plain column.
+      - name: erp_promo_end_epoch
+        description: ERP promotion end instant as unix seconds (bigint). Join column.
+      - name: erp_promo_end_ts
+        description: ERP promotion end instant as a timestamp. Join column.
+      - name: avg_fulfillment_time
+        description: >
+          Average fulfillment latency as stored by the source (varchar
+          duration). Plain column -- use `avg_fulfillment_time_seconds`.
+      - name: avg_shipping_time
+        description: >
+          Average shipping latency as stored by the source (varchar
+          duration). Plain column -- use `avg_shipping_time_seconds`.
+      - name: us_30_day_avg_fulfillment_time
+        description: >
+          US average fulfillment latency as stored by the source (varchar
+          duration). Plain column -- use
+          `us_30_day_avg_fulfillment_time_days`.
+      - name: us_30_day_avg_delivery_time
+        description: >
+          US average delivery latency as stored by the source (varchar
+          duration). Plain column -- use `us_30_day_avg_delivery_time_days`.
+      - name: name
+        description: >
+          Merchant contact name. PII -- not exposed as a MetricFlow dimension.
+      - name: display_name
+        description: >
+          Merchant display name. PII -- not exposed as a MetricFlow dimension.
+      - name: display_name_en
+        description: >
+          English merchant display name. PII -- not exposed as a MetricFlow
+          dimension.
+      - name: individual_name
+        description: >
+          Individual registrant name. PII -- not exposed as a MetricFlow
+          dimension.
+      - name: first_name
+        description: >
+          Registrant first name. PII -- not exposed as a MetricFlow dimension.
+      - name: last_name
+        description: >
+          Registrant last name. PII -- not exposed as a MetricFlow dimension.
+      - name: email
+        description: >
+          Registrant e-mail address. PII -- not exposed as a MetricFlow
+          dimension.
+      - name: phone_number
+        description: >
+          Merchant phone number. PII -- not exposed as a MetricFlow dimension.
+      - name: ba_phone_number
+        description: >
+          Business address phone number. PII -- not exposed as a MetricFlow
+          dimension.
+      - name: ba_street_address1
+        description: >
+          Business address line 1. PII -- not exposed as a MetricFlow dimension.
+      - name: ba_street_address2
+        description: >
+          Business address line 2. PII -- not exposed as a MetricFlow dimension.
+      - name: ba_en_street_address1
+        description: >
+          English business address line 1. PII -- not exposed as a MetricFlow
+          dimension.
+      - name: ba_en_street_address2
+        description: >
+          English business address line 2. PII -- not exposed as a MetricFlow
+          dimension.
+      - name: ba_zh_street_address1
+        description: >
+          Chinese business address line 1. PII -- not exposed as a MetricFlow
+          dimension.
+      - name: ba_zh_street_address2
+        description: >
+          Chinese business address line 2. PII -- not exposed as a MetricFlow
+          dimension.
+      - name: ba_street_name
+        description: >
+          Business address street name. PII -- not exposed as a MetricFlow
+          dimension.
+      - name: ba_street_number
+        description: >
+          Business address street number. PII -- not exposed as a MetricFlow
+          dimension.
+      - name: ba_name
+        description: >
+          Business address name. PII -- not exposed as a MetricFlow dimension.
+      - name: ba_city
+        description: >
+          Business address city. PII -- not exposed as a MetricFlow dimension.
+      - name: ba_country
+        description: >
+          Business address country. PII -- not exposed as a MetricFlow dimension.
+      - name: ba_country_code
+        description: >
+          Business address country code. PII -- not exposed as a MetricFlow
+          dimension.
+      - name: ba_state
+        description: >
+          Business address state. PII -- not exposed as a MetricFlow dimension.
+      - name: ba_en_state
+        description: >
+          English business address state. PII -- not exposed as a MetricFlow
+          dimension.
+      - name: ba_en_city
+        description: >
+          English business address city. PII -- not exposed as a MetricFlow
+          dimension.
+      - name: ba_zh_city
+        description: >
+          Chinese business address city. PII -- not exposed as a MetricFlow
+          dimension.
+      - name: ba_zh_country
+        description: >
+          Chinese business address country. PII -- not exposed as a MetricFlow
+          dimension.
+      - name: ba_zh_state
+        description: >
+          Chinese business address state. PII -- not exposed as a MetricFlow
+          dimension.
+
+    metrics:
+      # ------------------------------------------------------- merchant counts
+      - name: merchants
+        type: simple
+        label: Merchants
+        description: >
+          Distinct merchant count (merchant_id) in the selected scope.
+        agg: count_distinct
+        expr: merchant_id
+
+      - name: merchant_rows
+        type: simple
+        label: Merchant rows
+        description: >
+          Row count at merchant grain (one row per merchant). The producer
+          DAG de-duplicates merchant_id, so this normally equals `merchants`.
+        agg: count
+        expr: 1
+
+      - name: approved_merchants
+        type: simple
+        label: Approved merchants
+        description: >
+          Distinct merchants with state = 2 (APPROVED).
+        agg: count_distinct
+        expr: merchant_id
+        filter: "{{ Dimension('merchant__state') }} = 2"
+
+      - name: pending_merchants
+        type: simple
+        label: Pending merchants
+        description: >
+          Distinct merchants with state = 1 (PENDING), i.e. the application
+          is awaiting approval.
+        agg: count_distinct
+        expr: merchant_id
+        filter: "{{ Dimension('merchant__state') }} = 1"
+
+      - name: disabled_merchants
+        type: simple
+        label: Disabled merchants
+        description: >
+          Distinct merchants with state = 3 (DISABLED).
+        agg: count_distinct
+        expr: merchant_id
+        filter: "{{ Dimension('merchant__state') }} = 3"
+
+      - name: vacation_merchants
+        type: simple
+        label: Vacation merchants
+        description: >
+          Distinct merchants with state = 6 (VACATION).
+        agg: count_distinct
+        expr: merchant_id
+        filter: "{{ Dimension('merchant__state') }} = 6"
+
+      - name: trusted_channel_merchants
+        type: simple
+        label: Trusted channel merchants
+        description: >
+          Distinct merchants with from_trusted_channel = 'true'.
+        agg: count_distinct
+        expr: merchant_id
+        filter: "{{ Dimension('merchant__from_trusted_channel') }} = 'true'"
+
+      - name: deliverr_merchants
+        type: simple
+        label: Deliverr merchants
+        description: >
+          Distinct merchants with is_deliverr_merchant = 'true'.
+        agg: count_distinct
+        expr: merchant_id
+        filter: "{{ Dimension('merchant__is_deliverr_merchant') }} = 'true'"
+
+      - name: active_merchants
+        type: simple
+        label: Active merchants
+        description: >
+          Distinct merchants with is_active = 'true'.
+        agg: count_distinct
+        expr: merchant_id
+        filter: "{{ Dimension('merchant__is_active') }} = 'true'"
+
+      # ------------------------------------------------------ quality measures
+      - name: average_rating
+        type: simple
+        label: Average rating
+        description: >
+          Average of the merchants' overall average rating (0.0-5.0). A rate
+          -- average it, do not sum it.
+        agg: average
+        expr: average_rating
+
+      - name: average_rating_14_days
+        type: simple
+        label: Average rating (14 days)
+        description: >
+          Average of the merchants' average rating over the last 14 days.
+        agg: average
+        expr: average_rating_14_days
+
+      - name: average_rating_display
+        type: simple
+        label: Average rating (display)
+        description: >
+          Average of the merchants' display-version average rating.
+        agg: average
+        expr: average_rating_display
+
+      - name: rating_count
+        type: simple
+        label: Rating count
+        description: >
+          Sum of the total number of ratings received by the merchants in
+          scope. Merchant-grain snapshot -- not additive over time.
+        agg: sum
+        expr: rating_count
+
+      - name: rating_count_14_days
+        type: simple
+        label: Rating count (14 days)
+        description: >
+          Sum of the number of ratings received in the last 14 days.
+        agg: sum
+        expr: rating_count_14_days
+
+      # ----------------------------------------------------- activity measures
+      - name: num_active_products
+        type: simple
+        label: Active products
+        description: >
+          Sum of the number of active products across the merchants in scope.
+        agg: sum
+        expr: num_active_products
+
+      # ------------------------------------------------------ payment measures
+      - name: rev_share
+        type: simple
+        label: Revenue share
+        description: >
+          Average of the merchants' revenue share (decimal 0.0-1.0). A rate
+          -- average it, do not sum it.
+        agg: average
+        expr: rev_share
+
+      # -------------------------------------------------- fulfilment measures
+      - name: avg_fulfillment_time
+        type: simple
+        label: Average fulfillment time
+        description: >
+          Average of the merchants' average fulfillment time in seconds.
+        agg: average
+        expr: avg_fulfillment_time_seconds
+
+      - name: avg_shipping_time
+        type: simple
+        label: Average shipping time
+        description: >
+          Average of the merchants' average shipping time in seconds.
+        agg: average
+        expr: avg_shipping_time_seconds
+
+      - name: us_30_day_avg_fulfillment_time
+        type: simple
+        label: US average fulfillment time
+        description: >
+          Average of the merchants' US average fulfillment time in days.
+        agg: average
+        expr: us_30_day_avg_fulfillment_time_days
+
+      - name: us_30_day_avg_delivery_time
+        type: simple
+        label: US average delivery time
+        description: >
+          Average of the merchants' US average delivery time in days.
+        agg: average
+        expr: us_30_day_avg_delivery_time_days
+
+      # --------------------------------------------------------- ratio metrics
+      - name: rating_count_per_merchant
+        type: ratio
+        label: Rating count per merchant
+        description: >
+          Total ratings received per merchant in scope.
+        numerator: rating_count
+        denominator: merchants

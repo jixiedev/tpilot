@@ -1,0 +1,526 @@
+version: 2
+
+models:
+  - name: finance_monthly_purchase_breakdown_lm_ds_1y
+    description: >
+      WishPost logistics finance **purchase-cost breakdown** for Last-Mile
+      (LM) combined programs and Dropship / FBW (DS) programs. Grain is one
+      row per (dt, sales_date, country, region, is_124, business_type,
+      purchase_pricing_channel, purchase_channel,
+      purchase_logistics_supplier, purchase_warehouse_supplier,
+      purchase_large_cargo_supplier) cell. Produced daily by Airflow DAG
+      `WishpostOverallFinancePNL` (task `FinancePurchaseBreakdownTask_LM_DS`,
+      schedule `0 10 * * *`) as a UNION ALL of two aggregated branches: the
+      **DS** branch (Dropship / FBW, keyed on `pre_*` fields) and the **LM**
+      branch (EPC / A+ / Fusion / Smart Combined, keyed on `post_*` fields,
+      with post fees split equally across the pre parcels of one post
+      tracking id). Each `dt` partition is a **full rebuild** of the LM + DS
+      breakdown from the current `*_1y` mid-mapping, so `dt` is the daily
+      snapshot date and `sales_date` is the business (earliest sales
+      payment) date inside the ~1-year window. Fee columns are
+      **CNY-normalized** upstream via `cnfinance.boc_exchange_rate_di`; the
+      Tableau workbook converts to USD in BI. `purchase_other_fees` is
+      defined differently per branch (DS: outbound + hub + residual; LM:
+      additional + residual) and never contains insurance, volumetric or
+      VAT. First-mile non-combined purchase costs live in the sibling table
+      `wishpost.finance_monthly_purchase_breakdown_fm_1y` and must not be
+      summed with this one without a clear fee taxonomy. Used for purchase
+      cost mix by fee type, volume / weight and supplier / channel
+      performance, and 124 vs non-124 channel cost comparison in the
+      Tableau workbook **Logistics Finance Dashboard New**. Tableau models
+      under semantic_layer/models/tableau/ own any dimension joins; this
+      wrapper performs no joins. Source:
+      wishpost.finance_monthly_purchase_breakdown_lm_ds_1y.
+    config:
+      meta:
+        owner: jixie
+        hive_table: wishpost.finance_monthly_purchase_breakdown_lm_ds_1y
+        dag: WishpostOverallFinancePNL
+        upstream:
+          - wishpost.overall_finance_mid_mapping_sales_1y
+          - wishpost.overall_finance_mid_mapping_purchase_1y
+    semantic_model:
+      enabled: true
+      name: finance_monthly_purchase_breakdown_lm_ds_1y
+      config:
+        meta:
+          usage: >
+            dt is a Hive partition AND a rolling snapshot: every dt
+            partition holds a full ~1-year recompute of the LM + DS
+            breakdown, so always filter dt for partition pruning and use
+            the latest partition for "current" numbers. The default metric
+            time dimension is dt (the snapshot date) because summing
+            across many dt partitions double-counts: every sales day of
+            the window reappears in each later dt partition. To trend by
+            the business sales day, restrict dt to a single partition and
+            group by sales_day (the cast of sales_date). The three
+            time-ish columns are distinct on purpose: dt = partition /
+            snapshot date, sales_date / sales_day = business date of the
+            earliest sales payment, time = ETL write marker (constant per
+            partition, never a business date). All fee metrics are
+            CNY-normalized; convert to USD in BI, as the Tableau workbook
+            does. Do not mix the LM + DS fee taxonomy with the first-mile
+            (`fm_1y`) sibling table. On the 124 channel the upstream gate
+            drops LM rows without a positive large-cargo and logistics
+            fee, so absence there is a filter effect, not a zero cost.
+    agg_time_dimension: dt
+
+    columns:
+      - name: purchase_breakdown_lm_ds_id
+        description: >
+          Surrogate primary key — concat of (dt, sales_date, country,
+          region, is_124, business_type, purchase_pricing_channel,
+          purchase_channel, purchase_logistics_supplier,
+          purchase_warehouse_supplier,
+          purchase_large_cargo_supplier). Proxies the documented logical
+          grain of the table for MetricFlow primary entity purposes.
+        data_tests:
+          - not_null
+          - unique
+        entity:
+          type: primary
+          name: wp_finance_purchase_breakdown_lm_ds
+          description: >
+            One WishPost purchase-cost breakdown cell (snapshot date ×
+            business sales date × geography × 124 flag × program ×
+            channel × suppliers).
+
+      - name: dt
+        description: >
+          Hive partition / daily snapshot date (varchar YYYY-MM-DD in the
+          source, Asia/Shanghai, run date − 1 day), cast to date here.
+          Every partition holds a full ~1-year recompute of the LM + DS
+          breakdown, so `dt` is the "as of" date, not a business date.
+          Filter on it for partition pruning and snapshot selection.
+          Default metric time dimension.
+        is_partition: true
+        granularity: day
+        dimension:
+          type: time
+          label: Snapshot date
+
+      - name: sales_day
+        description: >
+          Cast of sales_date to date. The business sales-payment calendar
+          day inside the rolling window — the Asia/Shanghai day of the
+          earliest sales payment on the joined sales mid-mapping row. It
+          is NOT the purchase payment date, not the partition `dt`, and
+          not the ETL `time`. Within one latest-`dt` snapshot it spans
+          ~1 year of sales history. Secondary time dimension — to trend
+          by it, restrict dt to a single partition first, because every
+          sales day reappears in each later dt partition. This is the
+          axis the Tableau dashboard rolls up (day / week / month /
+          quarter / year).
+        granularity: day
+        dimension:
+          type: time
+          label: Sales day
+
+      - name: sales_date
+        description: >
+          Primary business date in YYYY-MM-DD format (raw varchar) — the
+          Asia/Shanghai calendar day of the earliest **sales** payment on
+          the joined sales mid-mapping row. Exposed as the day-granularity
+          time dimension `sales_day`; the raw string is kept for exact
+          string filters and joins. It is not the purchase payment date,
+          not the partition `dt`, and not the ETL `time`.
+        dimension:
+          type: categorical
+          label: Sales date (raw)
+
+      - name: country
+        description: >
+          Destination country short code, upstream
+          `COALESCE(country_code_mapping.country_code_short,
+          raw_country)`. Open set of ISO 3166-1 alpha-2-style codes (e.g.
+          `US`, `CA`, `GB`, `DE`, `FR`, `BR`, `MX`, `AU`, `JP`, `CN`).
+        dimension:
+          type: categorical
+          label: Country
+
+      - name: region
+        description: >
+          Geographic region of the destination country, passed through
+          unchanged from `wishpost.dim_region.region` (NOT the EU / AM / AP
+          taxonomy). Closed stored set: `European States`, `Americas`,
+          `ROW`, `Other` (sentinel for countries with no dim_region match).
+        dimension:
+          type: categorical
+          label: Region (stored)
+
+      - name: region_name
+        description: >
+          Human-friendly remap of `region` mirroring
+          `wishpost.dim_region.region_name` — `European States` → `Europe`,
+          `Americas` → `Americas`, `ROW` → `Rest of World`, `Other` →
+          `Other`.
+        dimension:
+          type: categorical
+          label: Region
+
+      - name: business_type
+        description: >
+          Delivery / purchase program label for the row. Closed set enforced
+          by the DAG filters: `Dropship`, `FBW` (DS branch) and
+          `EPC Combined`, `A+ Combined`, `Fusion Combined`, `Smart Combined`
+          (LM branch). Labels originate from
+          `wishpost.dim_wishpost_program_by_pricing_channel.type`. Related
+          dim types (EPC, A+, Fusion, Smart without Combined, Nile,
+          Uni-freight, …) are out of scope for this table.
+        dimension:
+          type: categorical
+          label: Business type
+
+      - name: business_type_name
+        description: >
+          Human-readable label derived from business_type — `Dropship` →
+          `Dropship`, `FBW` → `Fulfilled by Wish`, `EPC Combined` →
+          `EPC (Express Parcel China) Combined`, `A+ Combined` →
+          `A+ Service Combined`, `Fusion Combined` →
+          `Fusion Service Combined`, `Smart Combined` →
+          `Smart Delivery Combined`.
+        dimension:
+          type: categorical
+          label: Business type label
+
+      - name: is_124
+        description: >
+          124-channel flag for the purchase path. Possible values: `124`
+          (the post order channel is on `wishpost.wishpost_124_channel_list`)
+          and `non-124` (also hard-coded for all Dropship / FBW rows).
+        dimension:
+          type: categorical
+          label: 124 channel flag
+
+      - name: is_124_name
+        description: >
+          Human-readable label derived from is_124 — `124` → `124 channel`,
+          `non-124` → `Non-124 channel`.
+        dimension:
+          type: categorical
+          label: 124 channel label
+
+      - name: purchase_pricing_channel
+        description: >
+          Pricing-channel display dimension, format `"<official_name>
+          (<pricing_channel id>)"`. DS uses the `pre_*` fields, LM the
+          `post_*` fields. Open set — names and codes change over time, so
+          filter on it loosely and join upstream dims when a closed code
+          list is required.
+        dimension:
+          type: categorical
+          label: Purchase pricing channel
+
+      - name: purchase_channel
+        description: >
+          Order / logistics channel display dimension, format
+          `"<official_name> (<channel_code>)"`. Open set that includes both
+          124 and non-124 channels; brittle to filter by exact string.
+        dimension:
+          type: categorical
+          label: Purchase channel
+
+      - name: purchase_logistics_supplier
+        description: >
+          Logistics carrier / supplier display dimension, format
+          `"<entity_name> (<entity_code>)"`, from
+          `wishpost.wishpost_provider_entity`. The code applies where the
+          logistics material (102, 510) applies. Open set; names can be
+          missing upstream and the display string may look incomplete.
+        dimension:
+          type: categorical
+          label: Purchase logistics supplier
+
+      - name: purchase_warehouse_supplier
+        description: >
+          Warehouse supplier display dimension, format `"<entity_name>
+          (<entity_code>)"`. The code applies where the warehouse material
+          (108 pre, 135 post) applies.
+        dimension:
+          type: categorical
+          label: Purchase warehouse supplier
+
+      - name: purchase_large_cargo_supplier
+        description: >
+          Large-cargo supplier display dimension, format `"<name> (<code>)"`,
+          from the large-cargo fee allocation. Multi-carrier cases can
+          carry a composite `code_max+code_min` / `name_max+name_min`.
+          Dropship / FBW rows often show a sentinel such as `None (NULL)`.
+        dimension:
+          type: categorical
+          label: Purchase large cargo supplier
+
+      - name: volume
+        description: >
+          Parcel volume at the aggregation grain. DS: `COUNT(pre_tracking_id)`
+          after dedupe; LM: `COUNT(pre_tracking_id_cnt)` over the pre/post
+          pairs after equal-split allocation. Measure column: it is
+          referenced by metrics only.
+
+      - name: weight
+        description: >
+          Sum of shipment weight in kg at the aggregation grain. DS:
+          `SUM(MAX(pre_weight))`; LM: `SUM(post_weight /
+          pre_tracking_id_cnt)`. Measure column: it is referenced by metrics
+          only.
+
+      - name: purchase_logistics_fee
+        description: >
+          Sum of purchase logistics fees, CNY-normalized. Upstream material
+          102 (pre) and 102 / 510 (post). DS: `SUM(MAX(pre_logistics_fee))`
+          per tracking id; LM: `SUM(post_logistics_fee /
+          pre_tracking_id_cnt)`. Measure column: it is referenced by metrics
+          only.
+
+      - name: purchase_other_fees
+        description: >
+          Sum of residual "other" purchase fees, CNY-normalized. DS:
+          `pre_outbound_fee` (125) + `pre_hub_fee` (128) + `pre_other_fees`;
+          LM: `post_additional_fee` (127) + `post_other_fees`. Does NOT
+          include insurance, volumetric or VAT. Measure column: it is
+          referenced by metrics only.
+
+      - name: purchase_insurance_fee
+        description: >
+          Sum of insurance purchase fees, CNY-normalized. Upstream material
+          107. Measure column: it is referenced by metrics only.
+
+      - name: purchase_volumetric_fee
+        description: >
+          Sum of volumetric (dimensional-weight) purchase fees, CNY-normalized.
+          Upstream offline allocation material 307. Measure column: it is
+          referenced by metrics only.
+
+      - name: purchase_warehouse_fee
+        description: >
+          Sum of warehouse purchase fees, CNY-normalized. Upstream material
+          108 (pre) and 135 (post). Measure column: it is referenced by
+          metrics only.
+
+      - name: purchase_large_cargo_fee
+        description: >
+          Sum of large-cargo / linehaul purchase fees, CNY-normalized, from
+          the `large_cargo_fee_new` allocation. For LM `is_124 = '124'`
+          rows the upstream gate keeps the row only when the rounded
+          large-cargo fee and the logistics fee are both positive, so
+          absence there is a filter effect, not a zero cost. Measure
+          column: it is referenced by metrics only.
+
+      - name: purchase_vat_fee
+        description: >
+          Sum of VAT purchase fees, CNY-normalized. Upstream material 126
+          (post) and the offline allocation material 309 (pre). Measure
+          column: it is referenced by metrics only.
+
+      - name: time
+        description: >
+          Unix epoch seconds (bigint) evaluated by `unix_timestamp()` when
+          the partition was materialized — an ETL load marker, constant for
+          essentially all rows of one run. NOT a business event time: never
+          use it for sales trends or date filters. Use `sales_day` for the
+          business axis and `dt` for the snapshot.
+        dimension:
+          type: categorical
+          label: Record create unix time
+
+      - name: record_ts
+        description: >
+          Timestamp converted from `time`. Kept for ETL freshness and lag
+          audits only — it is not a MetricFlow time dimension (the project
+          time spine is day, and this column carries no business meaning).
+        dimension:
+          type: categorical
+          label: Record create timestamp
+
+    metrics:
+      - name: total_purchase_cost
+        type: simple
+        label: Total purchase cost (CNY)
+        description: >
+          Total purchase cost of the LM + DS breakdown, CNY-normalized —
+          purchase_logistics_fee + purchase_other_fees +
+          purchase_insurance_fee + purchase_volumetric_fee +
+          purchase_warehouse_fee + purchase_large_cargo_fee +
+          purchase_vat_fee. This is the dashboard's "Purchase LM & DS"
+          measure with the fee filter set to All. Filter `dt` to the latest
+          partition before aggregating. Time grain: dt.
+        agg: sum
+        expr: >
+          purchase_logistics_fee + purchase_other_fees
+          + purchase_insurance_fee + purchase_volumetric_fee
+          + purchase_warehouse_fee + purchase_large_cargo_fee
+          + purchase_vat_fee
+        fill_nulls_with: 0
+
+      - name: total_logistics_fee
+        type: simple
+        label: Total purchase logistics fee (CNY)
+        description: >
+          Sum of purchase_logistics_fee (CNY-normalized) over the selected
+          breakdown cells. Time grain: dt.
+        agg: sum
+        expr: purchase_logistics_fee
+        fill_nulls_with: 0
+
+      - name: total_other_fees
+        type: simple
+        label: Total purchase other fees (CNY)
+        description: >
+          Sum of purchase_other_fees (CNY-normalized) over the selected
+          breakdown cells. Excludes insurance, volumetric and VAT, and uses
+          a different fee composition for the DS branch (outbound + hub +
+          residual) than for the LM branch (additional + residual). Time
+          grain: sales_date.
+        agg: sum
+        expr: purchase_other_fees
+        fill_nulls_with: 0
+
+      - name: total_insurance_fee
+        type: simple
+        label: Total purchase insurance fee (CNY)
+        description: >
+          Sum of purchase_insurance_fee (CNY-normalized) over the selected
+          breakdown cells. Time grain: dt.
+        agg: sum
+        expr: purchase_insurance_fee
+        fill_nulls_with: 0
+
+      - name: total_volumetric_fee
+        type: simple
+        label: Total purchase volumetric fee (CNY)
+        description: >
+          Sum of purchase_volumetric_fee (CNY-normalized) over the selected
+          breakdown cells. Time grain: dt.
+        agg: sum
+        expr: purchase_volumetric_fee
+        fill_nulls_with: 0
+
+      - name: total_warehouse_fee
+        type: simple
+        label: Total purchase warehouse fee (CNY)
+        description: >
+          Sum of purchase_warehouse_fee (CNY-normalized) over the selected
+          breakdown cells. Time grain: dt.
+        agg: sum
+        expr: purchase_warehouse_fee
+        fill_nulls_with: 0
+
+      - name: total_large_cargo_fee
+        type: simple
+        label: Total purchase large cargo fee (CNY)
+        description: >
+          Sum of purchase_large_cargo_fee (CNY-normalized) over the selected
+          breakdown cells. For LM rows on the 124 channel the upstream gate
+          drops rows without a positive large-cargo and logistics fee, so
+          absence is a filter effect rather than a zero cost. Time grain:
+          sales_date.
+        agg: sum
+        expr: purchase_large_cargo_fee
+        fill_nulls_with: 0
+
+      - name: total_vat_fee
+        type: simple
+        label: Total purchase VAT fee (CNY)
+        description: >
+          Sum of purchase_vat_fee (CNY-normalized) over the selected
+          breakdown cells. Time grain: dt.
+        agg: sum
+        expr: purchase_vat_fee
+        fill_nulls_with: 0
+
+      - name: total_volume
+        type: simple
+        label: Total parcel volume
+        description: >
+          Sum of volume (parcel count) over the selected breakdown cells.
+          For LM rows the post fee is split equally across the pre parcels
+          of one post tracking id, so volume counts pre parcels. Time
+          grain: sales_date.
+        agg: sum
+        expr: volume
+        fill_nulls_with: 0
+
+      - name: total_weight
+        type: simple
+        label: Total shipment weight (kg)
+        description: >
+          Sum of weight in kg over the selected breakdown cells. For LM rows
+          the post weight is split equally across the pre parcels of one
+          post tracking id, so this is an equal-split weight, not a
+          weight-proportional cost allocation. Time grain: dt.
+        agg: sum
+        expr: weight
+        fill_nulls_with: 0
+
+      - name: record_count
+        type: simple
+        label: Purchase breakdown cell rows
+        description: >
+          Row count at the (dt, sales_date, country, region, is_124,
+          business_type, purchase_pricing_channel, purchase_channel,
+          purchase_logistics_supplier, purchase_warehouse_supplier,
+          purchase_large_cargo_supplier) grain. Equivalent to the
+          dashboard's "Number of Records". Time grain: dt.
+        agg: count
+        expr: 1
+
+      - name: distinct_countries
+        type: simple
+        label: Distinct countries
+        description: >
+          Distinct destination country codes represented in the selected
+          breakdown cells. Time grain: dt.
+        agg: count_distinct
+        expr: country
+
+      - name: distinct_regions
+        type: simple
+        label: Distinct regions
+        description: >
+          Distinct region values (European States / Americas / ROW / Other)
+          represented in the selected breakdown cells. Time grain:
+          sales_date.
+        agg: count_distinct
+        expr: region
+
+      - name: distinct_business_types
+        type: simple
+        label: Distinct business types
+        description: >
+          Distinct program labels (Dropship, FBW, EPC Combined, A+ Combined,
+          Fusion Combined, Smart Combined) represented in the selected
+          breakdown cells. Time grain: dt.
+        agg: count_distinct
+        expr: business_type
+
+      - name: distinct_logistics_suppliers
+        type: simple
+        label: Distinct logistics suppliers
+        description: >
+          Distinct purchase_logistics_supplier display strings represented
+          in the selected breakdown cells. Because the value is a
+          "name (code)" display string it changes over time, so treat the
+          count as indicative rather than as a stable supplier roster.
+          Time grain: dt.
+        agg: count_distinct
+        expr: purchase_logistics_supplier
+
+      - name: purchase_cost_per_parcel
+        type: ratio
+        label: Purchase cost per parcel (CNY)
+        description: >
+          total_purchase_cost divided by total_volume — average purchase
+          cost per parcel in CNY for the selected breakdown cells. Derived
+          from two simple metrics of the same model. Time grain: dt.
+        numerator: total_purchase_cost
+        denominator: total_volume
+
+      - name: logistics_fee_share
+        type: ratio
+        label: Logistics fee share of purchase cost
+        description: >
+          total_logistics_fee divided by total_purchase_cost — the logistics
+          component of the purchase cost mix (0.4 = 40%). Derived from two
+          simple metrics of the same model. Time grain: dt.
+        numerator: total_logistics_fee
+        denominator: total_purchase_cost

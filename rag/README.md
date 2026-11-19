@@ -358,6 +358,7 @@ The collection names are hard-coded in `tools/rag/jira.py` (`JIRA_PROFILES`) and
 | Jira CXDS | `aug_jira_ds` | `fetch_related_jira_tickets(project="ds")` |
 | Jira SQD | `aug_jira_sqd` | `fetch_related_jira_tickets(project="sqd")` |
 | dbt semantic models | `aug_dbt_models` | `fetch_related_models(layer="hive_analytics")` |
+| dbt models of the metric catalog (the 39 in `tools/data/lib/models`) | `metric_catalog_models` | the `model_selection` eval only (`--rag-collection metric_catalog_models`); job file `rag-jobs/metric_catalog_models.json` |
 | Google Drive | any (e.g. `gdrive_tahoe`) | not read by a tool yet |
 
 ## Python API

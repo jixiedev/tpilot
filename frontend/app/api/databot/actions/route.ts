@@ -11,7 +11,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "invalid JSON body" }, { status: 400 });
   }
 
-  const upstream = await fetch(`${AGUI_BACKEND_URL}/actions`, {
+  const upstream = await fetch(`${AGUI_BACKEND_URL}/databot/actions`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),

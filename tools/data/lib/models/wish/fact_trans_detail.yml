@@ -1,0 +1,1169 @@
+version: 2
+
+models:
+  - name: fact_trans_detail
+    description: >
+      Consolidated Wish transaction fact — commerce transaction, merchant
+      transaction and order tracking information joined into one fact table.
+      Physical source is the Hive table `wish.fact_trans_detail`, produced daily
+      by the Airflow / Spark ETL (DAG `IncrementalFactTransDetail`, 06:00 PST)
+      that lands the MongoDB `commerce_transaction` /
+      `commerce_transaction_item`, `MerchantTransaction` and `OrderTrackingInfo`
+      documents. This model is a read-only view over that table (materialized in
+      schema `semantic_dw`); the ETL is not reimplemented here.
+
+
+      **Grain** — one row per commerce line item. The documented composite key is
+      (c_transaction_id, variation_id) — the data-quality duplication check for
+      this table dedups on exactly that pair — so the surrogate primary key
+      `transaction_variation_id` is
+      `concat(c_transaction_id, '-', variation_id)`. The table documentation
+      names `c_transaction_id` alone as the primary key, but the table holds
+      several line rows per transaction, so `c_transaction_id` is not unique
+      here.
+
+
+      **Order vs line grain** — one commerce transaction spans many line rows, so
+      the transaction-level columns (`total_amount`, `subtotal`, `total_shipping`,
+      `flat_rate_shipping`, `tax_amount`, `tax_cost`, `tax_fee`, `processor_fee`,
+      `cash`, `discount_amount`, `discounts_applied`, `total_credits_applied`,
+      `credits_applied`, `installments`) are *repeated on every line row* of the
+      same transaction. Summing them over line rows over-counts by the number of
+      lines per transaction; aggregate at `c_transaction_id` first when a
+      per-transaction number is needed. The line-level columns (`paid_price`,
+      `paid_shipping`, `item_price`, `item_total`, `price`, `shipping`,
+      `quantity`, `gmv`, `paid_amount`, `cost`) are safe to sum over line rows.
+
+
+      **Time** — `dt` is the Hive partition (varchar YYYY-MM-DD) and the default
+      metric time dimension; it is the UTC calendar date of the transaction, not
+      the payment-received, order-approved or refund day. `transaction_date`,
+      `payment_received_date`, `order_approved_date`, `order_date`,
+      `confirmed_delivered_date` and `refunded_date` are extra day-grain time
+      dimensions derived from the unix-second columns; the project time spine is
+      day, so no hour/second-grain time dimension is registered. The raw unix
+      columns and their `*_ts` timestamp companions are kept alongside for joins.
+
+
+      **Enums** — `state`, `payment_type`, `client`, `refund_reason_category` and
+      `order_state` keep their raw code column and gain a human-readable
+      `*_name` column built from the documented code list. `app_type_name`
+      already exists in the source and is passed through.
+
+
+      **Caveats** — monetary columns are in the currency named by `currency`
+      (multi-currency rows exist, so cross-currency sums need an exchange-rate
+      aware metric); `is_testing` rows are QA data and should be excluded from
+      production reporting; `ip_address`, `shipping_recipient`, `device_id`,
+      `req_visitor_id` and `seed_visitor_id` are PII; duplicate `c_transaction_id`
+      records occasionally appear because of upstream ETL issues.
+
+
+      **Scope** — the dbt wrapper exposes the full physical column set, while
+      this semantic model surfaces a curated set of dimensions (documented enums,
+      meaningful flags, geography and product attributes) plus the measure
+      columns the metrics aggregate over.
+    config:
+      meta:
+        owner: jixie
+        hive_table: wish.fact_trans_detail
+        grain: one row per (c_transaction_id, variation_id) commerce line item
+        primary_key: transaction_variation_id
+        partition_column: dt
+    semantic_model:
+      enabled: true
+      name: fact_trans_detail
+    primary_entity: transaction_variation
+    agg_time_dimension: dt
+
+    columns:
+      # ------------------------------------------------------------------
+      # entities
+      # ------------------------------------------------------------------
+      - name: transaction_variation_id
+        description: >
+          Surrogate primary key for the line grain, built as
+          `concat(c_transaction_id, '-', variation_id)`.
+        entity:
+          type: primary
+          name: transaction_variation
+
+      - name: c_transaction_id
+        description: >
+          Commerce transaction identifier (Mongo ObjectId). A transaction spans
+          many line rows, so it is not unique on its own in this table.
+        entity:
+          type: foreign
+          name: transaction
+
+      - name: variation_id
+        description: Unique identifier for the product variation (line item).
+        entity:
+          type: foreign
+          name: variation
+
+      - name: user_id
+        description: Buyer user id. Null for guest checkout.
+        entity:
+          type: foreign
+          name: user
+
+      - name: merchant_id
+        description: Merchant id of the selling merchant.
+        entity:
+          type: foreign
+          name: merchant
+
+      - name: product_id
+        description: Product id the line item belongs to.
+        entity:
+          type: foreign
+          name: product
+
+      - name: payment_id
+        description: Payment processor transaction id.
+        entity:
+          type: foreign
+          name: payment
+
+      - name: m_transaction_id
+        description: >
+          Merchant transaction identifier. The documented relationship mapping is
+          `c_transaction_id` + `variation_id` -> `m_transaction_id`.
+        entity:
+          type: foreign
+          name: merchant_transaction
+
+      - name: merchant_payment_id
+        description: Merchant payment identifier.
+        entity:
+          type: foreign
+          name: merchant_payment
+
+      - name: merchant_refund_id
+        description: Merchant refund identifier.
+        entity:
+          type: foreign
+          name: merchant_refund
+
+      - name: tracking_id
+        description: >
+          Shipping tracking identifier. The documented relationship mapping is
+          `m_transaction_id` + `tracking_id` -> tracking information.
+        entity:
+          type: foreign
+          name: tracking
+
+      - name: store_id
+        description: Store identifier.
+        entity:
+          type: foreign
+          name: store
+
+      # ------------------------------------------------------------------
+      # time dimensions
+      # ------------------------------------------------------------------
+      - name: dt
+        description: >
+          Hive partition date (YYYY-MM-DD) — the UTC calendar date of the
+          transaction. Not the payment-received, order-approved or refund day.
+          Always filter on it first. Default metric time dimension.
+        granularity: day
+        dimension:
+          type: time
+          label: Partition date
+          is_partition: true
+
+      - name: transaction_date
+        description: >
+          Calendar date (UTC) of the transaction, derived from the unix-second
+          `transaction_time` column.
+        granularity: day
+        dimension:
+          type: time
+          label: Transaction date
+
+      - name: payment_received_date
+        description: >
+          Calendar date (UTC) the payment was received, derived from the
+          unix-second `payment_received_time` column. Use this for
+          revenue-recognition (cash-in) cuts; `dt` is the default metric time.
+        granularity: day
+        dimension:
+          type: time
+          label: Payment received date
+
+      - name: order_approved_date
+        description: >
+          Calendar date (UTC) the order was approved, derived from the
+          unix-second `order_approved_time` column.
+        granularity: day
+        dimension:
+          type: time
+          label: Order approved date
+
+      - name: order_date
+        description: >
+          Calendar date (UTC) of the merchant order, derived from the
+          unix-second `order_time` column.
+        granularity: day
+        dimension:
+          type: time
+          label: Order date
+
+      - name: confirmed_delivered_date
+        description: >
+          Calendar date (UTC) the parcel was confirmed delivered, derived from
+          the unix-second `confirmed_delivered_time` column.
+        granularity: day
+        dimension:
+          type: time
+          label: Confirmed delivered date
+
+      - name: refunded_date
+        description: >
+          Calendar date (UTC) the refund happened, derived from the unix-second
+          `refunded_time` column.
+        granularity: day
+        dimension:
+          type: time
+          label: Refunded date
+
+      # ------------------------------------------------------------------
+      # enum dimensions (raw code + human-readable label)
+      # ------------------------------------------------------------------
+      - name: state
+        description: >
+          Transaction state code. 0=PENDING, 1=APPROVED, 2=ACKNOWLEDGED,
+          3=SHIPPED, 4=DECLINED, 5=REFUNDED, 6=C2C_ON_DELIVERY,
+          7=C2C_DELIVERED, 8=C2C_ACCEPTED, 10=EXCEPTION,
+          11=GIFT_WAITING_FOR_ACCEPT, 12=REQUIRE_REVIEW, 13=DELAYING,
+          14=LABEL_GENERATED, 15=LABEL_DOWNLOADED.
+        dimension:
+          type: categorical
+          label: Transaction state
+
+      - name: state_name
+        description: Human-readable label for `state`.
+        dimension:
+          type: categorical
+          label: Transaction state (name)
+
+      - name: payment_type
+        description: >
+          Payment method code. See `payment_type_name` for the full list
+          (-1=NONE, 0=PAYPAL, 1=BRAINTREE, 2=BRAINTREE_FB, 3=STRIPE, ...).
+        dimension:
+          type: categorical
+          label: Payment type
+
+      - name: payment_type_name
+        description: >
+          Human-readable payment method label, from the documented PaymentType
+          enum (PAYPAL, BRAINTREE, STRIPE, ADYEN, KLARNA, AFTERPAY, ...).
+        dimension:
+          type: categorical
+          label: Payment type (name)
+
+      - name: client
+        description: >
+          Client platform code. 0=Web, 1=iPhone, 2=iPad, 3=Android,
+          4=Mobile Web, 5=Windows Desktop, 6=Windows Phone.
+        dimension:
+          type: categorical
+          label: Client platform
+
+      - name: client_name
+        description: Human-readable label for `client`.
+        dimension:
+          type: categorical
+          label: Client platform (name)
+
+      - name: refund_reason_category
+        description: >
+          Refund reason category code. The table documentation names only a
+          subset of the codes (4=SUSPECTED_FRAUD, 20-27=quality related,
+          40/54/65=fraud related); the full enum is not documented for this
+          table.
+        dimension:
+          type: categorical
+          label: Refund reason category
+
+      - name: refund_reason_category_name
+        description: >
+          Human-readable label for the refund reason codes that the table
+          documentation enumerates. Codes 20-23 and 27 collapse to 'QUALITY' and
+          40/54/65 to 'FRAUD' because the documentation does not name them
+          individually.
+        dimension:
+          type: categorical
+          label: Refund reason category (name)
+
+      - name: order_state
+        description: >
+          Order state code. The table documentation names only state 3
+          (SHIPPED); the remaining codes are not documented for this table.
+        dimension:
+          type: categorical
+          label: Order state
+
+      - name: order_state_name
+        description: >
+          Human-readable label for `order_state`. Only the documented state 3
+          (SHIPPED) is labelled; every other code is null — use the raw
+          `order_state` column for those.
+        dimension:
+          type: categorical
+          label: Order state (name)
+
+      - name: app_type
+        description: Application type code.
+        dimension:
+          type: categorical
+          label: App type
+
+      - name: app_type_name
+        description: Human-readable application type name, taken from the source table.
+        dimension:
+          type: categorical
+          label: App type (name)
+
+      - name: item_state
+        description: State of the individual line item.
+        dimension:
+          type: categorical
+          label: Item state
+
+      - name: item_prev_state
+        description: Previous state of the line item.
+        dimension:
+          type: categorical
+          label: Item previous state
+
+      - name: ltd_product_state
+        description: State of the limited-time-deal product.
+        dimension:
+          type: categorical
+          label: LTD product state
+
+      - name: currency
+        description: >
+          Currency code the monetary columns of this row are expressed in.
+          Rows are not currency-normalised, so cross-currency sums need an
+          exchange-rate aware metric.
+        dimension:
+          type: categorical
+          label: Currency
+
+      - name: payment_method
+        description: Raw payment method detail string.
+        dimension:
+          type: categorical
+          label: Payment method
+
+      - name: service_code
+        description: Shipping service code.
+        dimension:
+          type: categorical
+          label: Service code
+
+      - name: provider
+        description: Shipping provider name.
+        dimension:
+          type: categorical
+          label: Provider
+
+      - name: aftership_state
+        description: AfterShip tracking state code.
+        dimension:
+          type: categorical
+          label: AfterShip state
+
+      # ------------------------------------------------------------------
+      # flags ('true' / 'false' string booleans)
+      # ------------------------------------------------------------------
+      - name: is_ltd_product
+        description: >
+          'true' when the line item is a limited-time-deal product. Raw flag
+          column; use `is_ltd_product_flag` for filtering.
+        dimension:
+          type: categorical
+          label: Is LTD product
+
+      - name: is_ltd_product_flag
+        description: >
+          Boolean version of `is_ltd_product`. Null source values are mapped
+          to false so that "exclude LTD" filters keep non-LTD lines.
+        dimension:
+          type: categorical
+          label: Is LTD product (flag)
+
+      - name: is_testing
+        description: >
+          'true' for QA/test transactions. Exclude these from production
+          reporting.
+        dimension:
+          type: categorical
+          label: Is testing
+
+      - name: is_delivered
+        description: 'true when the parcel reached the delivered checkpoint.'
+        dimension:
+          type: categorical
+          label: Is delivered
+
+      - name: is_confirmed
+        description: 'true when the tracking record was confirmed by the carrier.'
+        dimension:
+          type: categorical
+          label: Is confirmed
+
+      - name: is_c2c
+        description: 'true when the transaction is customer-to-customer.'
+        dimension:
+          type: categorical
+          label: Is C2C
+
+      - name: is_wish_express
+        description: 'true when the transaction uses Wish Express shipping.'
+        dimension:
+          type: categorical
+          label: Is Wish Express
+
+      - name: is_gifting
+        description: 'true when the transaction is a gift.'
+        dimension:
+          type: categorical
+          label: Is gifting
+
+      - name: is_free_gift
+        description: 'true when the line item is a free gift.'
+        dimension:
+          type: categorical
+          label: Is free gift
+
+      - name: is_free_sample
+        description: 'true when the line item is a free sample.'
+        dimension:
+          type: categorical
+          label: Is free sample
+
+      - name: is_daily_giveaway
+        description: 'true when the line item comes from a daily giveaway.'
+        dimension:
+          type: categorical
+          label: Is daily giveaway
+
+      - name: is_partial_refund
+        description: 'true when the line item was only partially refunded.'
+        dimension:
+          type: categorical
+          label: Is partial refund
+
+      - name: is_new_refund
+        description: 'true when the refund was raised by the new refund flow.'
+        dimension:
+          type: categorical
+          label: Is new refund
+
+      - name: item_is_fbw
+        description: 'true when the line item is Fulfilled by Wish.'
+        dimension:
+          type: categorical
+          label: Item is FBW
+
+      - name: contains_fbw_item
+        description: 'true when the transaction contains at least one FBW item.'
+        dimension:
+          type: categorical
+          label: Contains FBW item
+
+      - name: contains_self_serve_fbw_item
+        description: 'true when the transaction contains a self-serve FBW item.'
+        dimension:
+          type: categorical
+          label: Contains self serve FBW item
+
+      - name: is_fbw
+        description: 'true when the order is Fulfilled by Wish.'
+        dimension:
+          type: categorical
+          label: Is FBW
+
+      - name: is_self_serve_fbw
+        description: 'true when the order is fulfilled by a self-serve FBW warehouse.'
+        dimension:
+          type: categorical
+          label: Is self serve FBW
+
+      - name: is_strategic_merchant
+        description: 'true when the merchant is a strategic merchant.'
+        dimension:
+          type: categorical
+          label: Is strategic merchant
+
+      - name: is_wish_x_merchant
+        description: 'true when the merchant is a Wish X merchant.'
+        dimension:
+          type: categorical
+          label: Is Wish X merchant
+
+      - name: is_commerce_loan
+        description: 'true when the transaction uses a commerce loan (Buy Now, Pay Later).'
+        dimension:
+          type: categorical
+          label: Is commerce loan
+
+      - name: is_pts_redemption
+        description: 'true when the transaction uses points redemption.'
+        dimension:
+          type: categorical
+          label: Is PTS redemption
+
+      - name: chargeback
+        description: 'true when the transaction has a chargeback.'
+        dimension:
+          type: categorical
+          label: Chargeback
+
+      - name: prefulfill_cancellation
+        description: 'true when the order was cancelled before fulfillment.'
+        dimension:
+          type: categorical
+          label: Pre-fulfillment cancellation
+
+      - name: wish_pays
+        description: 'true when Wish covered the cost of the item.'
+        dimension:
+          type: categorical
+          label: Wish pays
+
+      - name: is_wlc
+        description: 'true when the order is a Wish Local Commerce order.'
+        dimension:
+          type: categorical
+          label: Is WLC
+
+      - name: is_wish_express_late_arrival
+        description: 'true when the Wish Express parcel arrived late.'
+        dimension:
+          type: categorical
+          label: Is Wish Express late arrival
+
+      - name: wish_express_on_time
+        description: 'true when the Wish Express parcel arrived on time.'
+        dimension:
+          type: categorical
+          label: Wish Express on time
+
+      - name: is_wishify_order
+        description: 'true when the order came through the Wishify flow.'
+        dimension:
+          type: categorical
+          label: Is Wishify order
+
+      - name: is_payment_forfeited
+        description: 'true when the payment was forfeited.'
+        dimension:
+          type: categorical
+          label: Is payment forfeited
+
+      - name: return_to_sender
+        description: 'true when the parcel is on its way back to the sender.'
+        dimension:
+          type: categorical
+          label: Return to sender
+
+      - name: is_delivery_failure
+        description: 'true when the delivery failed.'
+        dimension:
+          type: categorical
+          label: Is delivery failure
+
+      - name: is_valid_tracking
+        description: 'true when the tracking record is valid.'
+        dimension:
+          type: categorical
+          label: Is valid tracking
+
+      - name: is_confirmed_shipped
+        description: 'true when the shipment was confirmed by the carrier.'
+        dimension:
+          type: categorical
+          label: Is confirmed shipped
+
+      - name: last_mile_tracking_expected
+        description: 'true when a last-mile tracking event is expected.'
+        dimension:
+          type: categorical
+          label: Last mile tracking expected
+
+      - name: wishpost_registered
+        description: 'true when the parcel was registered with the carrier.'
+        dimension:
+          type: categorical
+          label: Wishpost registered
+
+      # ------------------------------------------------------------------
+      # geography / product attributes
+      # ------------------------------------------------------------------
+      - name: shipping_country
+        description: ISO country code of the shipping destination.
+        dimension:
+          type: categorical
+          label: Shipping country
+
+      - name: dest_country
+        description: Destination country of the parcel.
+        dimension:
+          type: categorical
+          label: Destination country
+
+      - name: origin_country
+        description: Origin country of the parcel.
+        dimension:
+          type: categorical
+          label: Origin country
+
+      - name: country_code
+        description: Country code of the transaction.
+        dimension:
+          type: categorical
+          label: Country code
+
+      - name: ip_country
+        description: Country derived from the buyer IP address.
+        dimension:
+          type: categorical
+          label: IP country
+
+      - name: shipping_state
+        description: State / province of the shipping destination.
+        dimension:
+          type: categorical
+          label: Shipping state
+
+      - name: shipping_city
+        description: City of the shipping destination.
+        dimension:
+          type: categorical
+          label: Shipping city
+
+      - name: shipping_zipcode
+        description: Zip / postal code of the shipping destination.
+        dimension:
+          type: categorical
+          label: Shipping zip code
+
+      - name: sku
+        description: Stock keeping unit of the line item.
+        dimension:
+          type: categorical
+          label: SKU
+
+      - name: size
+        description: Item size attribute of the variation.
+        dimension:
+          type: categorical
+          label: Size
+
+      - name: color
+        description: Item color attribute of the variation.
+        dimension:
+          type: categorical
+          label: Color
+
+      - name: business_days_to_arrival
+        description: Business days to arrival, as estimated for the parcel.
+        dimension:
+          type: categorical
+          label: Business days to arrival
+
+      - name: refund_reason
+        description: Free-text refund reason recorded on the line item.
+        dimension:
+          type: categorical
+          label: Refund reason
+
+      - name: declined_reason
+        description: Reason the transaction was declined.
+        dimension:
+          type: categorical
+          label: Declined reason
+
+      - name: pending_reason
+        description: Reason for transaction pending status.
+        dimension:
+          type: categorical
+          label: Pending reason
+
+      - name: credit_ids
+        description: Comma-separated list of credit ids applied to the transaction.
+        dimension:
+          type: categorical
+          label: Credit ids
+
+      - name: cart_coupon_codes_applied
+        description: Applied cart coupon codes.
+        dimension:
+          type: categorical
+          label: Cart coupon codes applied
+
+      - name: displayed_price
+        description: Price displayed to the customer, as a formatted string.
+        dimension:
+          type: categorical
+          label: Displayed price
+
+      - name: displayed_shipping
+        description: Shipping cost displayed to the customer, as a formatted string.
+        dimension:
+          type: categorical
+          label: Displayed shipping
+
+      - name: pppi_personal_price_types
+        description: Personal price types applied to the item price.
+        dimension:
+          type: categorical
+          label: Personal price types (item)
+
+      - name: sppi_personal_price_types
+        description: Personal price types applied to the shipping price.
+        dimension:
+          type: categorical
+          label: Personal price types (shipping)
+
+      - name: ttd_tags_before_override
+        description: Tags before the time-to-delivery override was applied.
+        dimension:
+          type: categorical
+          label: TTD tags before override
+
+      # ------------------------------------------------------------------
+      # PII / device identifiers
+      # ------------------------------------------------------------------
+      - name: ip_address
+        description: IP address of the customer. PII.
+        dimension:
+          type: categorical
+          label: IP address
+
+      - name: shipping_recipient
+        description: Name of the shipping recipient. PII.
+        dimension:
+          type: categorical
+          label: Shipping recipient
+
+      - name: device_id
+        description: Device identifier of the buyer session. PII.
+        dimension:
+          type: categorical
+          label: Device id
+
+      - name: req_visitor_id
+        description: Request visitor identifier. PII.
+        dimension:
+          type: categorical
+          label: Request visitor id
+
+      - name: seed_visitor_id
+        description: Seed visitor identifier. PII.
+        dimension:
+          type: categorical
+          label: Seed visitor id
+
+      # ------------------------------------------------------------------
+      # measure columns (referenced by metrics only)
+      # ------------------------------------------------------------------
+      - name: gmv
+        description: >
+          Gross Merchandise Value of the line item. The documented formula is
+          `quantity * (price + shipping)`; the ETL already materialises it as
+          this column. Line grain.
+        label: GMV
+
+      - name: paid_price
+        description: >
+          Price paid by the customer for this line, after credits — the
+          documented formula is `displayed_price * quantity - credits_applied`.
+          Line grain.
+        label: Paid price
+
+      - name: paid_shipping
+        description: Shipping amount paid by the customer for this line. Line grain.
+        label: Paid shipping
+
+      - name: paid_amount
+        description: Total amount paid for the transaction item. Line grain.
+        label: Paid amount
+
+      - name: cost
+        description: Cost paid to the merchant for the item. Line grain.
+        label: Cost of goods sold
+
+      - name: merchant_price
+        description: Merchant-set item price. Line grain.
+        label: Merchant price
+
+      - name: merchant_shipping
+        description: Merchant-set shipping cost. Line grain.
+        label: Merchant shipping
+
+      - name: quantity
+        description: Quantity of items in the line. Line grain.
+        label: Quantity
+
+      - name: total_amount
+        description: >
+          Total amount paid by the user after discounts and credits, per the
+          documented formula
+          `subtotal + total_shipping + flat_rate_shipping + tax_amount
+          - total_credits_applied - discount_amount - cash`.
+          Transaction level — repeated on every line row.
+        label: Total amount
+
+      - name: tax_amount
+        description: >
+          Tax amount charged to the user. Transaction level — repeated on every
+          line row.
+        label: Tax amount
+
+      - name: tax_cost
+        description: Tax cost component. Transaction level — repeated on every line row.
+        label: Tax cost
+
+      - name: tax_fee
+        description: Tax processing fee. Transaction level — repeated on every line row.
+        label: Tax fee
+
+      - name: discount_amount
+        description: >
+          Total discount amount applied. Transaction level — repeated on every
+          line row.
+        label: Discount amount
+
+      - name: processor_fee
+        description: >
+          Payment processor fee. Transaction level — repeated on every line row.
+        label: Processor fee
+
+      - name: blended_ttd
+        description: >
+          Blended time to delivery in days, per the documented formula
+          `(user_confirmed_delivery - order_time) / 24 / 60 / 60`.
+        label: Blended time to delivery
+
+    derived_semantics:
+      dimensions:
+        - name: is_excluded_variation
+          type: categorical
+          label: Is excluded variation
+          description: >
+            'true' for the two placeholder variation ids that the glossary
+            excludes from the WBR buyer metrics
+            (`variation_id NOT IN ('000000000000000000000001',
+            '000000000000000000000003')`). Exposed as a dimension so the
+            exclusion can be expressed as a metric filter.
+          expr: "case when variation_id in ('000000000000000000000001', '000000000000000000000003') then 'true' else 'false' end"
+
+    metrics:
+      # ------------------------------------------------------------------
+      # line-grain money
+      # ------------------------------------------------------------------
+      - name: gmv
+        type: simple
+        label: GMV
+        description: >
+          Gross Merchandise Value: sum of the line-grain `gmv` column, i.e. the
+          documented `quantity * (price + shipping)` formula. Limited-time-deal
+          line items are excluded, matching the house convention that standard
+          commerce reporting drops LTD lines; use `gmv_w_ltd` for the
+          unfiltered total.
+        agg: sum
+        expr: gmv
+        fill_nulls_with: 0
+        filter: "{{ Dimension('transaction_variation__is_ltd_product_flag') }} = false"
+
+      - name: gmv_w_ltd
+        type: simple
+        label: GMV (incl. LTD)
+        description: >
+          Gross Merchandise Value including limited-time-deal line items.
+        agg: sum
+        expr: gmv
+        fill_nulls_with: 0
+
+      - name: revenue
+        type: simple
+        label: Revenue (paid price)
+        description: >
+          Merchandise revenue: sum of `paid_price`, i.e. the merchandise amount
+          actually paid by the customer for the line item. The table
+          documentation does not define a separate "revenue" formula — its
+          revenue example sums the transaction-level `total`, which is repeated
+          on every line row — so this metric uses the line-grain paid amount,
+          consistent with `wish.master_commerce_transactions`. LTD line items
+          are excluded; see `revenue_w_ltd`.
+        agg: sum
+        expr: paid_price
+        fill_nulls_with: 0
+        filter: "{{ Dimension('transaction_variation__is_ltd_product_flag') }} = false"
+
+      - name: revenue_w_ltd
+        type: simple
+        label: Revenue (incl. LTD)
+        description: Merchandise revenue including limited-time-deal line items.
+        agg: sum
+        expr: paid_price
+        fill_nulls_with: 0
+
+      - name: paid_shipping
+        type: simple
+        label: Paid shipping
+        description: Shipping revenue collected from the customer for the line item.
+        agg: sum
+        expr: paid_shipping
+        fill_nulls_with: 0
+
+      - name: paid_amount
+        type: simple
+        label: Paid amount
+        description: Total amount paid for the transaction item.
+        agg: sum
+        expr: paid_amount
+        fill_nulls_with: 0
+
+      - name: cost
+        type: simple
+        label: Cost of goods sold
+        description: Sum of the line-grain cost paid to the merchant for the item.
+        agg: sum
+        expr: cost
+        fill_nulls_with: 0
+
+      - name: merchant_price
+        type: simple
+        label: Merchant price
+        description: Sum of the merchant-set item price.
+        agg: sum
+        expr: merchant_price
+        fill_nulls_with: 0
+
+      - name: merchant_shipping
+        type: simple
+        label: Merchant shipping
+        description: Sum of the merchant-set shipping cost.
+        agg: sum
+        expr: merchant_shipping
+        fill_nulls_with: 0
+
+      - name: quantity
+        type: simple
+        label: Quantity
+        description: Sum of the item quantity.
+        agg: sum
+        expr: quantity
+        fill_nulls_with: 0
+
+      # ------------------------------------------------------------------
+      # transaction-level money — repeated on every line row of a transaction,
+      # so summing over line rows over-counts by the number of lines.
+      # ------------------------------------------------------------------
+      - name: total_amount
+        type: simple
+        label: Total amount
+        description: >
+          Sum of the transaction-level total paid by the user. The value is
+          repeated on every line row of the transaction, so summing it over
+          line rows over-counts — aggregate at `c_transaction_id` first when a
+          per-transaction number is needed. For a line-grain revenue figure use
+          `revenue` instead.
+        agg: sum
+        expr: total_amount
+        fill_nulls_with: 0
+
+      - name: tax_amount
+        type: simple
+        label: Tax amount
+        description: >
+          Sum of the tax charged to the user. Transaction level — repeated on
+          every line row, so summing it over line rows over-counts.
+        agg: sum
+        expr: tax_amount
+        fill_nulls_with: 0
+
+      - name: tax_cost
+        type: simple
+        label: Tax cost
+        description: >
+          Sum of the tax cost component. Transaction level — repeated on every
+          line row, so summing it over line rows over-counts.
+        agg: sum
+        expr: tax_cost
+        fill_nulls_with: 0
+
+      - name: tax_fee
+        type: simple
+        label: Tax fee
+        description: >
+          Sum of the tax processing fee. Transaction level — repeated on every
+          line row, so summing it over line rows over-counts.
+        agg: sum
+        expr: tax_fee
+        fill_nulls_with: 0
+
+      - name: discount_amount
+        type: simple
+        label: Discount amount
+        description: >
+          Sum of the total discount amount applied. Transaction level — repeated
+          on every line row, so summing it over line rows over-counts.
+        agg: sum
+        expr: discount_amount
+        fill_nulls_with: 0
+
+      - name: processor_fee
+        type: simple
+        label: Processor fee
+        description: >
+          Sum of the payment processor fee. Transaction level — repeated on
+          every line row, so summing it over line rows over-counts.
+        agg: sum
+        expr: processor_fee
+        fill_nulls_with: 0
+
+      # ------------------------------------------------------------------
+      # counts
+      # ------------------------------------------------------------------
+      - name: transactions
+        type: simple
+        label: Transactions
+        description: Count of distinct commerce transactions.
+        agg: count_distinct
+        expr: c_transaction_id
+
+      - name: transaction_lines
+        type: simple
+        label: Transaction lines
+        description: Count of commerce line items — the physical grain of this table.
+        agg: count
+        expr: 1
+
+      - name: buyers
+        type: simple
+        label: Buyers
+        description: >
+          Count of distinct buyers (user ids). Guest checkout rows have a null
+          user id.
+        agg: count_distinct
+        expr: user_id
+
+      - name: merchants
+        type: simple
+        label: Merchants
+        description: Count of distinct merchants.
+        agg: count_distinct
+        expr: merchant_id
+
+      - name: products
+        type: simple
+        label: Products
+        description: Count of distinct products.
+        agg: count_distinct
+        expr: product_id
+
+      - name: variations
+        type: simple
+        label: Variations
+        description: Count of distinct product variations.
+        agg: count_distinct
+        expr: variation_id
+
+      # ------------------------------------------------------------------
+      # refunds / logistics
+      # ------------------------------------------------------------------
+      - name: refunded_transactions
+        type: simple
+        label: Refunded transactions
+        description: Count of distinct commerce transactions in REFUNDED state (state 5).
+        agg: count_distinct
+        expr: c_transaction_id
+        filter: "{{ Dimension('transaction_variation__state_name') }} = 'REFUNDED'"
+
+      - name: refunded_gmv
+        type: simple
+        label: Refunded GMV
+        description: GMV of the line items whose transaction state is REFUNDED (state 5).
+        agg: sum
+        expr: gmv
+        fill_nulls_with: 0
+        filter: "{{ Dimension('transaction_variation__state_name') }} = 'REFUNDED'"
+
+      - name: shipped_line_items
+        type: simple
+        label: Shipped line items
+        description: >
+          Line items of transactions in SHIPPED order state (order_state 3),
+          per the documented Logistics Performance Analysis example.
+        agg: count
+        expr: 1
+        filter: "{{ Dimension('transaction_variation__order_state_name') }} = 'SHIPPED'"
+
+      - name: delivered_line_items
+        type: simple
+        label: Delivered line items
+        description: >
+          Line items of delivered parcels, per the documented Logistics
+          Performance Analysis example
+          (`SUM(CASE WHEN is_delivered = 'true' THEN 1 ELSE 0 END)`). Counted
+          at the line grain of this table, so it is a line-item count rather
+          than an order count.
+        agg: count
+        expr: 1
+        filter: "{{ Dimension('transaction_variation__is_delivered') }} = 'true'"
+
+      - name: avg_ttd_days
+        type: simple
+        label: Average blended time to delivery (days)
+        description: >
+          Average of the blended time to delivery in days, per the documented
+          Logistics Performance Analysis example (`AVG(blended_ttd)`).
+        agg: average
+        expr: blended_ttd
+
+      # ------------------------------------------------------------------
+      # glossary metrics (glossary/application/datapark/datapark.jsonnet)
+      # ------------------------------------------------------------------
+      - name: incoming_orders
+        type: simple
+        label: Incoming orders
+        description: >
+          Users with incoming orders (WBR buyers_raw). Glossary calculation:
+          `user_id`; glossary filter excludes the two placeholder variations.
+        agg: count_distinct
+        expr: user_id
+        filter: "{{ Dimension('transaction_variation__is_excluded_variation') }} = 'false'"
+
+      - name: approved_orders
+        type: simple
+        label: Approved orders
+        description: >
+          Users with approved / payment-received orders. Glossary calculation:
+          `CASE WHEN COALESCE(payment_received_time, order_approved_time) IS NOT
+          NULL THEN user_id END`; glossary filter excludes the two placeholder
+          variations.
+        agg: count_distinct
+        expr: "case when coalesce(payment_received_time, order_approved_time) is not null then user_id end"
+        filter: "{{ Dimension('transaction_variation__is_excluded_variation') }} = 'false'"
+
+      - name: approval_rate
+        type: ratio
+        label: Approval rate
+        description: >
+          Share of incoming order users that are approved — glossary
+          calculation `approved_orders / incoming_orders`. Both sides are
+          grouped on the model default metric time dimension (`dt`, the
+          transaction day), so the ratio reads as "of the orders that came in
+          on this day, what share of their users are approved".
+        numerator: approved_orders
+        denominator: incoming_orders

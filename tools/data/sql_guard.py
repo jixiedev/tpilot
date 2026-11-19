@@ -61,6 +61,47 @@ def validate_read_only_sql(sql: str) -> str:
     return normalized
 
 
+_PLAN_ONLY_FIRST_TOKEN = frozenset({"SELECT", "WITH"})
+
+
+def validate_select_sql(sql: str) -> str:
+    """Return a single SELECT or WITH query, stripped, without a trailing semicolon.
+
+    Stricter than :func:`validate_read_only_sql`: no SHOW / DESCRIBE / EXPLAIN,
+    so the statement is exactly the query a reviewer approves and a tool runs.
+    """
+    statement = validate_read_only_sql(sql)
+    statement = re.sub(r";\s*$", "", statement).rstrip()
+    first = (_first_token(statement) or "").upper()
+    if first not in _PLAN_ONLY_FIRST_TOKEN:
+        raise ValueError(
+            "Only a single SELECT or WITH query is accepted "
+            f"(got a statement starting with {first or '?'})."
+        )
+    return statement
+
+
+def validate_plan_only_sql(sql: str) -> str:
+    """Return ``EXPLAIN <sql>`` for a single read-only query; never something that executes.
+
+    For the explain tool, which must not run the query before the human SQL
+    gate: the statement must start with SELECT or WITH. ``ANALYZE ...`` would
+    become ``EXPLAIN ANALYZE ...`` (which executes the query), and an explicit
+    ``EXPLAIN`` prefix could carry ANALYZE or TYPE options, so both are refused.
+    """
+    try:
+        statement = validate_select_sql(sql)
+    except ValueError as exc:
+        if "SELECT or WITH" not in str(exc):
+            raise
+        raise ValueError(
+            "The explain tool only validates a SELECT or WITH query; it never "
+            f"executes SQL ({exc}) "
+            "Queries run only after the SQL gate approves them."
+        ) from exc
+    return validate_read_only_sql(f"EXPLAIN {statement}")
+
+
 def _validate_explained_statement(sql: str) -> None:
     """Require the statement wrapped by ``EXPLAIN`` to be read-only too."""
     match = _EXPLAIN_PREFIX.match(sql)

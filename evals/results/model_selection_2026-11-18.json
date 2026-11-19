@@ -1,0 +1,1099 @@
+{
+  "summary": [
+    {
+      "arm": "rag",
+      "runs": 8,
+      "selection": 0.75,
+      "recall": 0.875,
+      "economy": 0.75,
+      "tool_calls": 3.625,
+      "candidates": 9.375,
+      "seconds": 77.91963628137091,
+      "average": 0.7916666666666666
+    },
+    {
+      "arm": "catalog",
+      "runs": 8,
+      "selection": 0.875,
+      "recall": 0.875,
+      "economy": 0.875,
+      "tool_calls": 4.0,
+      "candidates": 3.125,
+      "seconds": 17.387466474003304,
+      "average": 0.875
+    },
+    {
+      "arm": "hybrid",
+      "runs": 8,
+      "selection": 0.875,
+      "recall": 0.875,
+      "economy": 0.875,
+      "tool_calls": 4.0,
+      "candidates": 5.75,
+      "seconds": 26.857726203124912,
+      "average": 0.875
+    }
+  ],
+  "runs": [
+    {
+      "case": "model_selection/metric/gmv_last_month",
+      "kind": "metric",
+      "arm": "rag",
+      "model": "MiniMax-M3",
+      "cancelled": false,
+      "expected": [
+        "fct_transaction_variations",
+        "master_commerce_transactions",
+        "fact_trans_detail"
+      ],
+      "chosen": "fct_transaction_variations",
+      "candidates": [
+        "finance_monthly_sales_breakdown_1y",
+        "master_commerce_transactions",
+        "master_merchant_transactions",
+        "fct_transaction_variations",
+        "fct_daily_buyer",
+        "wishpost_order_clean_full_cycle",
+        "master_product_variations",
+        "commerce_merchant",
+        "dau_attribution",
+        "merchant_user",
+        "dim_all_products",
+        "master_products"
+      ],
+      "tool_calls": [
+        "fetch_related_models",
+        "fetch_related_models",
+        "fetch_related_models"
+      ],
+      "seconds": 89.44,
+      "score": {
+        "selection": 1.0,
+        "recall": 1.0,
+        "economy": 1.0,
+        "details": {
+          "expected": [
+            "fct_transaction_variations",
+            "master_commerce_transactions",
+            "fact_trans_detail"
+          ],
+          "chosen": "fct_transaction_variations",
+          "parsed": true,
+          "root_id": null,
+          "member_id": null,
+          "reason": "Core transaction fact for Wish with a payment-received dt time column and a defined `gmv` metric (plus `gmv_w_ltd` for LTD-inclusive views), so summing GMV over last month's partitions yields marketplace-wide GMV with no merchant/brand filter. `master_commerce_transactions` (per commerce line item with gmv/actual_gmv/refunded_gmv) is an acceptable fallback for refund-adjusted GMV, and `fct_daily_buyer` aggregates GMV per buyer-day but only for non-LTD purchases."
+        },
+        "total": 1.0
+      },
+      "reply": "<think>Let me evaluate. The question: \"What was Wish's total GMV last month?\" Need marketplace-wide GMV for the previous calendar month.\n\nCandidates:\n- fct_transaction_variations: variation-level transaction fact for Wish GMV, revenue, tax, buyer analysis. Grain: one row per commerce transaction and product variation within payment-received partition dt (America/Los_Angeles). Metrics: gmv, gmv_w_ltd, etc. Time dimension dt.\n- master_commerce_transactions: master commerce transaction fact — one row per commerce line item. Metrics gmv, gmv_w_ltd, actual_gmv...\n- master_merchant_transactions: merchant transaction fact for the Wish platform with gmv metric.\n- fct_daily_buyer: buyer-day, gmv.\n- finance_monthly_sales_breakdown_1y: WishPost logistics finance sales revenue — GMV here is logistics parcel GMV, restricted to WishPost parcels; not marketplace-wide.\n\nThe most canonical marketplace GMV fact is fct_transaction_variations (core_data), which is described as \"Variation-level transaction fact for Wish GMV, revenue, tax, and buyer analysis\" with gmv metric and payment-received dt. Let me check whether there's an aggregated model like agg or fct_daily. Maybe there's a dedicated model like \"mart_gmv_daily\" or \"core_data.agg_...\". Let me do one more search specifically for GMV by day/aggregate for the whole marketplace. Actually I've already used 3 searches (max twice if candidates don't fit — I did 3). The instruction says \"Search again with a different phrasing at most twice if the candidates do not fit.\" I've done 3 searches total (1 initial + 2). So I should finish now.\n\nBetween fct_transaction_variations and master_commerce_transactions: For marketplace-wide GMV, fct_transaction_variations is the Tahoe core fact designed for GMV/revenue/buyer analysis with payment-received dt partition and metric definitions (gmv, gmv_w_ltd). master_commerce_transactions has gmv, actual_gmv, refunded_gmv but includes state/refund filtering. fct_transaction_variations description explicitly says \"Financial metrics are proportionally...\" — probably distributed to avoid double counting. Hmm, that's a risk: if financial metrics are proportionally allocated across variations, summing gmv over rows might give correct total, or might require un-proportionalization. But the metric gmv exists, defined with metric definitions.\n\nLet me consider committing cards — the workflow mentions commit_cards to commit a card for the human gate. But the final output format requires a JSON object with model, alternatives, root_id, member_id. The staging results don't include root_id/member_id explicitly. Hmm. The TableCard shape includes name, model_type, physical_tables, etc. There's no root_id/member_id in the returned results. So I'll set those to null unless commit_cards returns them.\n\nShould I call commit_cards? The tool description says \"Each hit is saved to state.staging_cards with a staging_id. To commit a card for the human gate, call commit_cards with that staging_id and the dimensions/metrics you intend to use.\" There's no commit_cards tool in my function list though — only fetch_related_models is available. So I cannot call it. I'll finish with JSON.\n\nLet me do one final check on whether fct_transaction_variations is the right pick vs an aggregate. Actually the key thing: \"total GMV last month\" requires a time filter on dt, summing gmv. fct_transaction_variations provides that with payment-received date grain and gmv metric. Alternatively master_commerce_transactions (wish.master_commerce_transactions) with gmv, actual_gmv, refunded_gmv and transaction_date.\n\nWhich is the canonical \"Wish GMV\"? Given the model description \"Variation-level transaction fact for Wish GMV, revenue, tax, and buyer analysis\" in core_data (the modern warehouse core), I'd pick fct_transaction_variations. Alternatives: master_commerce_transactions, master_merchant_transactions, fct_daily_buyer.\n\nWait — but there's a caution about \"Financial metrics are proportionall...\" — proportionally distributed? If gmv is proportionally split among variations, summing gmv over rows still yields total gmv. Fine.\n\nAlso consider fct_daily_buyer: gmv at (user_id, dt) — buyer-day. Summing gives total GMV for non-LTD purchases only (\"that day's non-LTD purchase activity\"). fct_transaction_variations covers both gmv and gmv_w_ltd.\n\nI'll pick fct_transaction_variations.\n\nNow the final answer format: only the JSON object. But the system reminder says final reply in message text. The output instruction says \"Finish with one message and no tool calls, containing only this JSON object.\" So I output only JSON.\n\nroot_id / member_id: I don't have them. Provide null.\n\nReason: one or two sentences about grain, dimensions, metric definition.</think>\n\n{\"model\": \"fct_transaction_variations\", \"alternatives\": [\"master_commerce_transactions\", \"master_merchant_transactions\", \"fct_daily_buyer\"], \"root_id\": null, \"member_id\": null, \"reason\": \"Core transaction fact for Wish with a payment-received dt time column and a defined `gmv` metric (plus `gmv_w_ltd` for LTD-inclusive views), so summing GMV over last month's partitions yields marketplace-wide GMV with no merchant/brand filter. `master_commerce_transactions` (per commerce line item with gmv/actual_gmv/refunded_gmv) is an acceptable fallback for refund-adjusted GMV, and `fct_daily_buyer` aggregates GMV per buyer-day but only for non-LTD purchases.\"}"
+    },
+    {
+      "case": "model_selection/metric/dau_yesterday_without_bots",
+      "kind": "metric",
+      "arm": "rag",
+      "model": "MiniMax-M3",
+      "cancelled": false,
+      "expected": [
+        "fct_dau"
+      ],
+      "chosen": "fct_dau_w_bots",
+      "candidates": [
+        "fct_dau_w_bots",
+        "fct_dau",
+        "ulc_base_users",
+        "ulc_power_user",
+        "ulc_active_users",
+        "add_to_cart_detail",
+        "master_users",
+        "daily_commerce_product_metrics",
+        "feed_tile_interactions_detail",
+        "dau_attribution"
+      ],
+      "tool_calls": [
+        "fetch_related_models",
+        "fetch_related_models",
+        "fetch_related_models"
+      ],
+      "seconds": 63.7,
+      "score": {
+        "selection": 0.0,
+        "recall": 1.0,
+        "economy": 1.0,
+        "details": {
+          "expected": [
+            "fct_dau"
+          ],
+          "chosen": "fct_dau_w_bots",
+          "parsed": true,
+          "root_id": null,
+          "member_id": null,
+          "reason": "fct_dau_w_bots has one row per user_id × dt (daily grain, dt = partition date) and defines the good_dau metric on is_good_dau, which counts registered and guest active users while excluding bots; core_data.fct_dau is the fallback but covers registered users only."
+        },
+        "total": 0.6666666666666666
+      },
+      "reply": "<think>The evidence is sufficient: `fct_dau_w_bots` is the model with `good_dau` metric (excluding bots) at user_id × dt grain, and `dt` time dimension. `fct_dau` excludes bots upstream but only registered users (no guests). The question asks DAU excluding bots — `fct_dau_w_bots` with `good_dau` / `is_good_dau` is the intended model.\n\nI need root_id and member_id from the catalog. The tool didn't return those fields explicitly. The TableCard shape mentioned includes name, model_type, physical_tables, etc., plus score and matched chunk type. No root_id/member_id present in results. Let me maybe check the catalog via another search? The tool doesn't provide catalog root_id/member_id. The output schema says root_id: catalog root_id or null. Since not available, use null.\n\nHmm, maybe there's a way: fetch_related_models with a query might return catalog info. The tool description says \"Each hit is saved to state.staging_cards with a staging_id\" and mentions \"related_ratio (catalog)\". Perhaps searching with layer... there's a \"layer\" parameter mentioned in the description but not in schema. The schema only has query, limit, chunk_type. So no.\n\nI'll finish with the JSON answer, root_id and member_id null.\n\nActually, should I commit cards? The task output only requires JSON. The workflow mentions commit_cards for the human gate, but there's no commit_cards tool available here. So skip.\n\nLet me answer.</think>\n\n**Reasoning before answering:** Both candidate DAU models were retrieved. `core_data.fct_dau` is registered-users-only (bots/temp users already filtered upstream, no guest traffic). `core_data.fct_dau_w_bots` is the comprehensive one-row-per-user_id × dt fact that includes registered + guest traffic plus bot traffic, and exposes the `is_good_dau` / `good_dau` metric (bot-free users) with `dt` as the daily partition. Since the question is explicitly \"DAU excluding bots\", the `good_dau` metric in `fct_dau_w_bots` is the right definition, with `dt` = yesterday. No further retrieval is needed.\n\n```json\n{\"model\": \"fct_dau_w_bots\",\n \"alternatives\": [\"fct_dau\"],\n \"root_id\": null,\n \"member_id\": null,\n \"reason\": \"fct_dau_w_bots has one row per user_id × dt (daily grain, dt = partition date) and defines the good_dau metric on is_good_dau, which counts registered and guest active users while excluding bots; core_data.fct_dau is the fallback but covers registered users only.\"}\n```"
+    },
+    {
+      "case": "model_selection/metric/refund_amount_last_week",
+      "kind": "metric",
+      "arm": "rag",
+      "model": "MiniMax-M3",
+      "cancelled": false,
+      "expected": [
+        "commerce_transaction_refund_items",
+        "fct_refund"
+      ],
+      "chosen": "fct_refund",
+      "candidates": [
+        "merchant_transaction_refund_items",
+        "master_merchant_transactions",
+        "fct_refund",
+        "wishpost_order_clean_full_cycle",
+        "commerce_transaction_refund_items",
+        "master_commerce_transactions",
+        "fct_transaction_variations",
+        "daily_commerce_product_metrics",
+        "dau_attribution",
+        "fact_trans_detail"
+      ],
+      "tool_calls": [
+        "fetch_related_models",
+        "fetch_related_models",
+        "fetch_related_models",
+        "fetch_related_models",
+        "fetch_related_models",
+        "fetch_related_models",
+        "fetch_related_models",
+        "fetch_related_models"
+      ],
+      "seconds": 170.73,
+      "score": {
+        "selection": 1.0,
+        "recall": 1.0,
+        "economy": 0.0,
+        "details": {
+          "expected": [
+            "commerce_transaction_refund_items",
+            "fct_refund"
+          ],
+          "chosen": "fct_refund",
+          "parsed": true,
+          "root_id": null,
+          "member_id": null,
+          "reason": "fct_refund is the dedicated refund fact at commerce-transaction × variation grain, with refunded_amount and refunded/transaction timestamps for filtering last week. The alternatives support order-cohort refund metrics but have less direct refund-event grain."
+        },
+        "total": 0.6666666666666666
+      },
+      "reply": "<think>We need answer as model selection JSON only, no SQL/query. Need choose best dbt model. Need infer root_id/member_id catalog? We have staging IDs, not catalog root/member. Output requires root_id/member_id or null. Likely null if unavailable. Need choose one.\n\nQuestion: \"What was the total refunded amount on Wish orders last week?\" We only need model selection, likely fct_refund because total refunded amount, daily refund fact, refunded_amount. But wording \"on Wish orders last week\" could mean refunds that occurred last week (filter refund date / dt). fct_refund best direct refund events and refunded_amount. master_merchant_transactions has orders and refund_amount/refunded_amount, with order_date and refunded_date; could cohort refunds by orders placed last week. Ambiguity: \"on Wish orders last week\" likely total refunded amount associated with orders from last week. Which table best? Need compare grain, dimensions, metric definition.\n\nLet's parse candidate descriptions. fct_refund: daily refund fact at commerce transaction × variation grain, aggregated refund events from merchant_order_fulfillment ACTION='REFUNDED'. Captures refunded dollar amount, etc. Has transaction_time, refunded_time, dt/ds. Metrics refund, refund_events, refunded_transactions, refunded_buyers. Column refunded_amount. If \"last week\" means refunds in last week, ideal.\n\nmaster_merchant_transactions: one row per merchant transaction; metrics orders, refund_amount, refunded_amount. Has order_date, refunded_date, dt. Could filter order_date last week. It might be standard model for \"Wish orders\". master_commerce_transactions: one row per commerce line item, metrics refund_amount/refunded_gmv/refunded_orders. fct_refund is dedicated.\n\nQuestion asks \"total refunded amount on Wish orders last week\" likely a standard KPI query and model should be perhaps master_commerce_transactions because metric `refund_amount` and refunded_orders. But fct_refund directly has `refunded_amount`. Let's examine possible catalog root/member IDs? Tool only gives staging_id; final root_id/member_id null unless we can know. Maybe staging_id includes random suffix, and commit_cards could resolve root IDs, but max calls reached. So null.\n\nNeed decide best. Let's think semantic intent: \"total refunded amount on Wish orders last week\" likely asks amount refunded, time filter on orders last week. Dedicated fct_refund with transaction_time/refunded_time and refunded_amount. Grain event at transaction x variation. If multiple refund events per transaction variation, sum refunded_amount. It can answer last week's refunds directly via refunded_time. \"on Wish orders\" doesn't require order_id (it has transaction_id). \"last week\" likely event date. Alternatives fct_transaction? master_merchant_transactions and master_commerce_transactions. Could include fct_refund as chosen, master_merchant_transactions and master_commerce_transactions as alternatives.\n\nNeed adhere final output only JSON object. Reason one/two sentences grain, dimensions, metric definition. Since no actual number asked from us; model selection agent chooses model. We should not answer number. Include model exact dbt model name likely `fct_refund`. Alternatives array. root_id null, member_id null.\n\nNeed mention temporal ambiguity: fct_refund provides refunded_time/transaction_time for last-week filter and refunded_amount. `dt/ds` daily grain. Alternatives cohort by order_date if \"orders placed last week\" intended. We only get one/two sentences. JSON valid. Ensure only JSON.</think>\n\n{\"model\":\"fct_refund\",\"alternatives\":[\"master_merchant_transactions\",\"master_commerce_transactions\"],\"root_id\":null,\"member_id\":null,\"reason\":\"fct_refund is the dedicated refund fact at commerce-transaction × variation grain, with refunded_amount and refunded/transaction timestamps for filtering last week. The alternatives support order-cohort refund metrics but have less direct refund-event grain.\"}"
+    },
+    {
+      "case": "model_selection/metric/active_buyers_by_lifecycle",
+      "kind": "metric",
+      "arm": "rag",
+      "model": "MiniMax-M3",
+      "cancelled": false,
+      "expected": [
+        "ulc_active_buyers"
+      ],
+      "chosen": "ulc_active_buyers",
+      "candidates": [
+        "ulc_active_buyers",
+        "ulc_active_users",
+        "ulc_base_users",
+        "ulc_power_user",
+        "fct_daily_buyer",
+        "wishpost_order_clean_full_cycle",
+        "master_merchant_transactions",
+        "master_users"
+      ],
+      "tool_calls": [
+        "fetch_related_models"
+      ],
+      "seconds": 17.89,
+      "score": {
+        "selection": 1.0,
+        "recall": 1.0,
+        "economy": 1.0,
+        "details": {
+          "expected": [
+            "ulc_active_buyers"
+          ],
+          "chosen": "ulc_active_buyers",
+          "parsed": true,
+          "root_id": null,
+          "member_id": null,
+          "reason": "Grain is one row per user_id × dt for active buyers with a `lifecycle` stage column (New/Retained/Resurrected) and `dt`/`dt_str` for daily grouping; metrics include active_buyers and lifecycle_new/retained/resurrected for the per-stage split."
+        },
+        "total": 1.0
+      },
+      "reply": "<think>The top hit `ulc_active_buyers` is clearly the right model: ULC active-buyer snapshot, one row per user_id × dt, with lifecycle dimension (New/Retained/Resurrected) and metrics active_buyers, lifecycle_new, lifecycle_retained, lifecycle_resurrected. The question asks for active buyers per day split by lifecycle stage.\n\nNote: the question mentions \"reactivated\" while the model calls it \"Resurrected\" — same thing.\n\nI have enough evidence. Let me finalize. But should I verify grain via a columns search? The description is clear. I could do one more search to confirm alternatives, but the instructions say prefer minimum tool path. The evidence is sufficient: ulc_active_buyers is the top match with high score and metrics matching exactly.\n\nAlternatives: ulc_active_users (users, not buyers), ulc_base_users (intervals, not daily active buyers).\n\nOutput JSON with model, alternatives, root_id, member_id. I need root_id and member_id from the catalog — the staging cards don't have those. Hmm. The TableCard shape doesn't include root_id/member_id here. Since I can't get them without another call... The tool returned staging_id but not root_id/member_id. I'll set them to null since they're unknown. Actually, maybe there's a separate catalog tool, but only fetch_related_models is available. So null.\n\nI'll finish with the JSON.</think>\n\nThe top candidate `ulc_active_buyers` is a direct match: ULC buyer snapshot at one row per `user_id` × `dt`, carrying the `lifecycle` dimension (New / Retained / Resurrected, i.e. reactivated) plus the metrics `active_buyers`, `lifecycle_new`, `lifecycle_retained`, `lifecycle_resurrected` and the `dt` / `dt_str` time column for per-day grouping. `ulc_active_users` is the analogous user-level (not buyer-level) snapshot, and `ulc_base_users` is an interval table without a per-day buyer snapshot, so neither fits the requested grain as well.\n\n{\"model\": \"ulc_active_buyers\", \"alternatives\": [\"ulc_active_users\", \"ulc_base_users\"], \"root_id\": null, \"member_id\": null, \"reason\": \"Grain is one row per user_id × dt for active buyers with a `lifecycle` stage column (New/Retained/Resurrected) and `dt`/`dt_str` for daily grouping; metrics include active_buyers and lifecycle_new/retained/resurrected for the per-stage split.\"}"
+    },
+    {
+      "case": "model_selection/metric/add_to_cart_by_page",
+      "kind": "metric",
+      "arm": "rag",
+      "model": "MiniMax-M3",
+      "cancelled": false,
+      "expected": [
+        "add_to_cart_data_detail",
+        "add_to_cart_detail"
+      ],
+      "chosen": "add_to_cart_detail",
+      "candidates": [
+        "add_to_cart_detail",
+        "add_to_cart_data_detail",
+        "fct_dau",
+        "daily_commerce_product_metrics",
+        "fct_refund"
+      ],
+      "tool_calls": [
+        "fetch_related_models",
+        "fetch_related_models"
+      ],
+      "seconds": 35.91,
+      "score": {
+        "selection": 1.0,
+        "recall": 1.0,
+        "economy": 1.0,
+        "details": {
+          "expected": [
+            "add_to_cart_data_detail",
+            "add_to_cart_detail"
+          ],
+          "chosen": "add_to_cart_detail",
+          "parsed": true,
+          "root_id": null,
+          "member_id": null,
+          "reason": "add_to_cart_detail is one row per deduplicated add-to-cart log event with the add_to_cart_events metric, plus the page_id/page_type dimensions and a dt/event_day partition for 'yesterday'; add_to_cart_data_detail is an equivalent add-to-cart event detail model with the same grain and page_id."
+        },
+        "total": 1.0
+      },
+      "reply": "<think>Both `add_to_cart_detail` and `add_to_cart_data_detail` have page_id and dt. `add_to_cart_detail` ranks higher and is described as the current model. The question asks \"how many add-to-cart events happened yesterday, broken down by page?\" — needs add_to_cart_events metric, page_id dimension, dt/event_day time column.\n\nI'll pick `add_to_cart_detail` as primary, `add_to_cart_data_detail` as alternative. Do I need root_id/member_id? The output schema mentions catalog root_id and member_id — but I don't have a catalog tool. The staging cards have staging_id only. I'll include what I have; root_id/member_id null.\n\nLet me check whether there's a difference: add_to_cart_detail has page_type, module_type, feed_type; add_to_cart_data_detail has product_source. Both one row per dedup add-to-cart log event. add_to_cart_detail scores higher in metrics search. The description is identical (copied). Hmm, which is the canonical one? The metrics search ranked add_to_cart_detail first (0.98) vs add_to_cart_data_detail (0.82); columns search ranked data_detail first. Both have page_id, dt, event_day, and add_to_cart_events metric.\n\nI'll choose add_to_cart_detail with add_to_cart_data_detail as alternative. No further tool calls needed.\n\nNote about \"yesterday\" — relative date, dt/event_day partition. Fine.\n\nLet me output the JSON. But wait — I should consider whether a commit_cards call is needed. The workflow says \"To commit a card for the human gate, call commit_cards with that staging_id\" — but the tool list only includes fetch_related_models. The output format asks for root_id/member_id from catalog. There's no commit tool available and no catalog tool, so null.\n\nI'll finish.</think>\n\nBoth candidates are deduplicated add-to-cart event-detail models with `page_id`, `dt`/`event_day`, and the `add_to_cart_events` metric; `add_to_cart_detail` ranked highest on the metric query, and `daily_commerce_product_metrics` was ruled out because it only has product-level daily `add_to_carts` with no page dimension. Choosing `add_to_cart_detail` (grain: one row per deduplicated add-to-cart log event), with `add_to_cart_data_detail` as an acceptable alternative.\n\n```json\n{\"model\": \"add_to_cart_detail\",\n \"alternatives\": [\"add_to_cart_data_detail\"],\n \"root_id\": null,\n \"member_id\": null,\n \"reason\": \"add_to_cart_detail is one row per deduplicated add-to-cart log event with the add_to_cart_events metric, plus the page_id/page_type dimensions and a dt/event_day partition for 'yesterday'; add_to_cart_data_detail is an equivalent add-to-cart event detail model with the same grain and page_id.\"}\n```"
+    },
+    {
+      "case": "model_selection/metric/wishpost_monthly_profit",
+      "kind": "metric",
+      "arm": "rag",
+      "model": "MiniMax-M3",
+      "cancelled": false,
+      "expected": [
+        "finance_monthly_profits_1y",
+        "finance_monthly_profits_by_combine_ratio_1y"
+      ],
+      "chosen": "finance_monthly_profits_1y",
+      "candidates": [
+        "finance_monthly_profits_1y",
+        "finance_monthly_profits_by_combine_ratio_1y",
+        "finance_monthly_sales_breakdown_1y"
+      ],
+      "tool_calls": [
+        "fetch_related_models",
+        "fetch_related_models",
+        "fetch_related_models"
+      ],
+      "seconds": 53.57,
+      "score": {
+        "selection": 1.0,
+        "recall": 1.0,
+        "economy": 1.0,
+        "details": {
+          "expected": [
+            "finance_monthly_profits_1y",
+            "finance_monthly_profits_by_combine_ratio_1y"
+          ],
+          "chosen": "finance_monthly_profits_1y",
+          "parsed": true,
+          "root_id": null,
+          "member_id": null,
+          "reason": "finance_monthly_profits_1y is the WishPost logistics P&L rollup across all delivery programs, with daily snapshot grain at (dt, date_type, date_value, delivery_program, country, region, is_124), so date_type/date_value give monthly buckets over the rolling 1-year window and the `profit` metric (with `profit_on_sales_date` and `profit_margin` variants) is the logistics profit measure. The sibling finance_monthly_profits_by_combine_ratio_1y is acceptable only if warehouse-combination programs (EPC, A+, Fusion, Smart) were wanted, since it filters out Dropship and FBW."
+        },
+        "total": 1.0
+      },
+      "reply": "<think>The question: \"What was WishPost's monthly logistics profit over the past year?\" The best model is finance_monthly_profits_1y (overall P&L rollup for all delivery programs), with date_type/date_value for monthly grain, and the `profit` metric.\n\nThe alternative is finance_monthly_profits_by_combine_ratio_1y (warehouse-combination programs only).\n\nI have enough. I should commit the card? The instructions mention commit_cards for the human gate, but the tool isn't in my available functions list — only fetch_related_models. So I'll just output the JSON.\n\nroot_id/member_id: I don't have catalog root_id/member_id from the results. The staging results don't include root_id/member_id. So I'll set null.\n\nLet me produce the final JSON with the model name.\n\nModel name: \"finance_monthly_profits_1y\" — should I use the dbt model name or the physical table name? The physical table is wishpost.finance_monthly_profits_1y. I'll use \"finance_monthly_profits_1y\".\n\nAlso I should give an actual answer to the user? The role says output only the JSON object. The final message should contain only the JSON object. But the system reminder suggests writing complete final reply. The role instruction says: \"Finish with one message and no tool calls, containing only this JSON object\". I'll follow the role instruction.</think>\n\n{\"model\": \"finance_monthly_profits_1y\", \"alternatives\": [\"finance_monthly_profits_by_combine_ratio_1y\"], \"root_id\": null, \"member_id\": null, \"reason\": \"finance_monthly_profits_1y is the WishPost logistics P&L rollup across all delivery programs, with daily snapshot grain at (dt, date_type, date_value, delivery_program, country, region, is_124), so date_type/date_value give monthly buckets over the rolling 1-year window and the `profit` metric (with `profit_on_sales_date` and `profit_margin` variants) is the logistics profit measure. The sibling finance_monthly_profits_by_combine_ratio_1y is acceptable only if warehouse-combination programs (EPC, A+, Fusion, Smart) were wanted, since it filters out Dropship and FBW.\"}"
+    },
+    {
+      "case": "model_selection/entity/merchant_app_authorizations",
+      "kind": "entity",
+      "arm": "rag",
+      "model": "MiniMax-M3",
+      "cancelled": false,
+      "expected": [
+        "wish__merchant_authorization"
+      ],
+      "chosen": "wish__merchant_authorization",
+      "candidates": [
+        "wish__merchant_authorization",
+        "erp_daily_dump",
+        "merchant_user",
+        "master_commerce_transactions",
+        "master_users",
+        "dau_attribution",
+        "merchant_transaction_refund_items"
+      ],
+      "tool_calls": [
+        "fetch_related_models"
+      ],
+      "seconds": 35.39,
+      "score": {
+        "selection": 1.0,
+        "recall": 1.0,
+        "economy": 1.0,
+        "details": {
+          "expected": [
+            "wish__merchant_authorization"
+          ],
+          "chosen": "wish__merchant_authorization",
+          "parsed": true,
+          "root_id": null,
+          "member_id": null,
+          "reason": "One row per merchant × partner OAuth grant (merchant_id × partner_user_id) with partner_name and auth dates, so it directly records which third-party apps a merchant has authorized; erp_daily_dump only logs ERP API activity events."
+        },
+        "total": 1.0
+      },
+      "reply": "<think>The top candidate `wish__merchant_authorization` matches exactly: \"Merchant × ERP/partner OAuth authorization snapshot ... Grain is one row per active public Merchant App refresh-token grant (merchant_id × partner_user_id). Records which Wish merchants...\" That's the answer.\n\nI need to output the JSON with model name, alternatives, root_id, member_id. But the tool result doesn't show root_id/member_id for the staging card. Let me check — the returned dicts contain name, model_type, physical_tables, cte, agg_time_dimension, columns, metrics, owner, usage plus score and matched chunk type. The results above didn't include root_id/member_id. Hmm. I could do one more search to see if root_id appears. But the instruction says avoid unnecessary calls. The JSON asks for root_id/member_id or null. I'll provide null since not returned.\n\nActually, maybe I should check if the output includes those fields when searching. The returned fields shown don't include root_id/member_id. So null.\n\nLet me give the final answer.\n\nShould I consider alternatives? erp_daily_dump records ERP API activity, not authorizations. So alternatives could be empty or include erp_daily_dump. I'll list erp_daily_dump as a weaker alternative... Actually \"alternatives\" means other candidates I would accept. erp_daily_dump is about API activity events, not authorization records. I'd say alternatives: [\"erp_daily_dump\"]. Hmm, maybe it's fine to include it as a partial alternative. I'll include it.\n\nActually, better to be accurate: the question asks which table records which third-party apps a merchant has authorized — merchant_authorization fits perfectly. I'll list erp_daily_dump as a weaker alternative for partner-level context.\n\nLet me finalize.</think>\n\n**`wish__merchant_authorization`** is the right model — its description states it is a \"Merchant × ERP/partner OAuth authorization snapshot,\" grain of one row per active public Merchant App refresh-token grant (merchant_id × partner_user_id), with columns `merchant_id`, `partner_user_id`, `partner_name`, `auth_dt`/`auth_date`, and metrics `authorizations`, `merchants`, `erp_partners`. That directly records which third-party apps/ERP partners a merchant has authorized.\n\n`erp_daily_dump` (merchant ERP API request activity events) and `merchant_user` (account-level state, including a `authorized_merchant_users` metric) are weaker fits — they capture activity/account state rather than the grant records themselves.\n\n```json\n{\"model\": \"wish__merchant_authorization\",\n \"alternatives\": [\"erp_daily_dump\"],\n \"root_id\": null,\n \"member_id\": null,\n \"reason\": \"One row per merchant × partner OAuth grant (merchant_id × partner_user_id) with partner_name and auth dates, so it directly records which third-party apps a merchant has authorized; erp_daily_dump only logs ERP API activity events.\"}\n```"
+    },
+    {
+      "case": "model_selection/uncovered/facebook_ad_spend_by_country",
+      "kind": "uncovered",
+      "arm": "rag",
+      "model": "MiniMax-M3",
+      "cancelled": false,
+      "expected": [
+        "country_spend"
+      ],
+      "chosen": "",
+      "candidates": [
+        "fct_dau",
+        "finance_monthly_purchase_breakdown_lm_ds_1y",
+        "finance_monthly_profits_by_combine_ratio_1y",
+        "master_merchant_transactions",
+        "finance_monthly_sales_breakdown_1y",
+        "finance_monthly_profits_1y",
+        "finance_monthly_purchase_breakdown_fm_1y",
+        "master_product_variations",
+        "dau_attribution",
+        "wishpost_order_clean_full_cycle",
+        "add_to_cart_detail",
+        "master_users",
+        "fact_trans_detail",
+        "merchant_transaction_refund_items",
+        "daily_commerce_product_metrics",
+        "fct_dau_w_bots",
+        "feed_tile_interactions_detail",
+        "add_to_cart_data_detail",
+        "commerce_transaction_refund_items",
+        "fct_daily_buyer"
+      ],
+      "tool_calls": [
+        "fetch_related_models",
+        "fetch_related_models",
+        "fetch_related_models",
+        "fetch_related_models",
+        "fetch_related_models",
+        "fetch_related_models",
+        "fetch_related_models",
+        "fetch_related_models"
+      ],
+      "seconds": 156.72,
+      "score": {
+        "selection": 0.0,
+        "recall": 0.0,
+        "economy": 0.0,
+        "details": {
+          "expected": [
+            "country_spend"
+          ],
+          "chosen": "",
+          "parsed": true,
+          "root_id": null,
+          "member_id": null,
+          "reason": "No candidate model measures advertising spend with Facebook channel, country, and a monthly time grain. The closest, dau_attribution, has user-day grain with country and attributed ad channel but no ad-spend or cost metric, so it cannot answer how much was spent."
+        },
+        "total": 0.0
+      },
+      "reply": "<think>We need answer only JSON per developer. Need choose model or null. We did multiple searches, no actual ad spend model found. Need determine whether any candidate fits? dau_attribution has country_code and ads_channel_last_touch_1d, but no spend metric/cost. User asks \"How much did we spend on Facebook ads per country last month?\" Need model with actual advertising spend by country/channel/time. Search results don't reveal such. Could perhaps a model hidden due semantic search mismatch, perhaps \"marketing_spend\" model. We have reached max calls, must answer based on learned. Output model null, alternatives maybe [], root_id/member_id null, reason concise saying no candidate found that measures spend; closest dau_attribution identifies attributed users/channel and country but has no ad spend metric/cost. The output reason requirement says grain dimensions metric definition. Should mention no suitable model found among candidates. Alternatives maybe dau_attribution? But \"other candidates you would accept\" should not include because doesn't answer spend. So [].\n\nNeed strictly JSON object and only it. Ensure valid JSON. root_id null member_id null. Maybe model null. Reason one/two sentences.</think>\n\n{\"model\":null,\"alternatives\":[],\"root_id\":null,\"member_id\":null,\"reason\":\"No candidate model measures advertising spend with Facebook channel, country, and a monthly time grain. The closest, dau_attribution, has user-day grain with country and attributed ad channel but no ad-spend or cost metric, so it cannot answer how much was spent.\"}"
+    },
+    {
+      "case": "model_selection/metric/gmv_last_month",
+      "kind": "metric",
+      "arm": "catalog",
+      "model": "MiniMax-M3",
+      "cancelled": false,
+      "expected": [
+        "fct_transaction_variations",
+        "master_commerce_transactions",
+        "fact_trans_detail"
+      ],
+      "chosen": "fct_transaction_variations",
+      "candidates": [
+        "fct_transaction_variations",
+        "master_commerce_transactions",
+        "fact_trans_detail",
+        "fct_daily_buyer",
+        "dau_attribution",
+        "daily_commerce_product_metrics",
+        "fct_experiments_metrics"
+      ],
+      "tool_calls": [
+        "search_metric_catalog",
+        "search_metric_catalog",
+        "find_models_metrics"
+      ],
+      "seconds": 26.82,
+      "score": {
+        "selection": 1.0,
+        "recall": 1.0,
+        "economy": 1.0,
+        "details": {
+          "expected": [
+            "fct_transaction_variations",
+            "master_commerce_transactions",
+            "fact_trans_detail"
+          ],
+          "chosen": "fct_transaction_variations",
+          "parsed": true,
+          "root_id": "gmv",
+          "member_id": "sum_excl_ltd",
+          "reason": "The default gmv member is sum_excl_ltd (house default excludes LTD lines), and fct_transaction_variations is the canonical variation-grain commerce fact whose `gmv` metric equals sum(gmv_variation) where is_ltd_product='false', with dt/payment_received_time for summing the prior calendar month across all of Wish. master_commerce_transactions and fact_trans_detail are equivalent line-grain fallbacks; user-day/product-day/experiment models are the wrong grain for a marketplace total."
+        },
+        "total": 1.0
+      },
+      "reply": "<think>The question: \"Wish's total GMV last month\" — needs a monthly total, marketplace-wide. The default member sum_excl_ltd. Which model fits best? fct_transaction_variations (variation grain, dt partition, payment_received_time), master_commerce_transactions (line item grain, dt), fact_trans_detail (line grain).\n\nTotal GMV for a month across the whole marketplace — the transaction-grain fact at line/variation level is appropriate. fct_transaction_variations is the highest related_ratio, in core_data, and is the canonical Wish GMV fact with `gmv` metric column = sum_excl_ltd. But master_commerce_transactions is also a good fit with dt, transaction_date, payment_received_date.\n\nWhich one to choose? The description of fct_transaction_variations: \"Variation-level transaction fact for Wish GMV, revenue, tax, and buyer analysis... Excludes Wish Cash and BNPL special variation IDs, pending/declined/exception states\". Its matched metric description matches exactly. It's related_ratio 0.99, high confidence, and is the canonical GMV fact used across warehouse. master_commerce_transactions (0.98) also matches with the house LTD exclusion convention, with is_testing filter dimension.\n\nBoth fine. I'll pick fct_transaction_variations as primary with master_commerce_transactions and fact_trans_detail as alternatives.\n\nActually, consideration: for a monthly total, one needs to filter dt within the month. fct_transaction_variations is partitioned by dt with payment_received_time. That's fine.\n\nNote there may also be a pre-aggregated monthly model? Not staged. So choose fct_transaction_variations.\n\nOutput JSON with model, alternatives, root_id, member_id, reason.</think>\n\n{\"model\": \"fct_transaction_variations\", \"alternatives\": [\"master_commerce_transactions\", \"fact_trans_detail\"], \"root_id\": \"gmv\", \"member_id\": \"sum_excl_ltd\", \"reason\": \"The default gmv member is sum_excl_ltd (house default excludes LTD lines), and fct_transaction_variations is the canonical variation-grain commerce fact whose `gmv` metric equals sum(gmv_variation) where is_ltd_product='false', with dt/payment_received_time for summing the prior calendar month across all of Wish. master_commerce_transactions and fact_trans_detail are equivalent line-grain fallbacks; user-day/product-day/experiment models are the wrong grain for a marketplace total.\"}"
+    },
+    {
+      "case": "model_selection/metric/dau_yesterday_without_bots",
+      "kind": "metric",
+      "arm": "catalog",
+      "model": "MiniMax-M3",
+      "cancelled": false,
+      "expected": [
+        "fct_dau"
+      ],
+      "chosen": "fct_dau",
+      "candidates": [
+        "fct_dau",
+        "ulc_active_users",
+        "ulc_power_user",
+        "feed_tile_interactions_detail",
+        "fct_dau_w_bots"
+      ],
+      "tool_calls": [
+        "search_metric_catalog",
+        "search_metric_catalog",
+        "find_models_metrics",
+        "find_models_metrics"
+      ],
+      "seconds": 20.15,
+      "score": {
+        "selection": 1.0,
+        "recall": 1.0,
+        "economy": 1.0,
+        "details": {
+          "expected": [
+            "fct_dau"
+          ],
+          "chosen": "fct_dau",
+          "parsed": true,
+          "root_id": "dau",
+          "member_id": "distinct",
+          "reason": "fct_dau is the registered-user daily active user fact at user x calendar-day grain (dt) with bots, temporary users, and suspicious traffic filtered upstream, matching a DAU count excluding bots; fct_dau_w_bots would include bot/guest traffic, while ulc_active_users and feed_tile_interactions_detail are ULC-lifecycle and event-detail grains with a bot flag rather than the bot-excluded DAU metric."
+        },
+        "total": 1.0
+      },
+      "reply": "<think>The question: \"How many daily active users did Wish have yesterday, excluding bots?\"\n\n\"Excluding bots\" — fct_dau excludes bots upstream (bots, temporary users, suspicious traffic filtered upstream). So fct_dau is the best fit for \"DAU excluding bots\". The w_guests member includes bots when enabled upstream. fct_dau's scope filter says \"registered / bots-temp filtered upstream when from fct_dau\" — that's the default member \"distinct\".\n\nfct_dau: one row per registered user with activity on partition dt, with bots, temporary users, suspicious traffic filtered upstream. Grain user × day, dt dimension. That's exactly \"daily active users excluding bots\".\n\nAlternatives: fct_dau_w_bots (includes bots — not a good alternative for excluding bots, but could filter... actually no bot filter dimension listed besides user_type registered). ulc_active_users (ULC active, derived from fct_dau_w_bots... it says ULC base users). feed_tile_interactions_detail has likely_bot dimension.\n\nI'll pick fct_dau as the model. Alternatives: ulc_active_users, feed_tile_interactions_detail maybe. Root id: dau, member_id: distinct.\n\nShould I commit cards? The workflow mentions \"Commit the chosen ones with commit_cards using their staging_id\" but the tools available are only search_metric_catalog and find_models_metrics. No commit_cards tool exists. So just output JSON.\n\nOutput only the JSON object.</think>\n\n{\"model\": \"fct_dau\", \"alternatives\": [\"ulc_active_users\", \"feed_tile_interactions_detail\"], \"root_id\": \"dau\", \"member_id\": \"distinct\", \"reason\": \"fct_dau is the registered-user daily active user fact at user x calendar-day grain (dt) with bots, temporary users, and suspicious traffic filtered upstream, matching a DAU count excluding bots; fct_dau_w_bots would include bot/guest traffic, while ulc_active_users and feed_tile_interactions_detail are ULC-lifecycle and event-detail grains with a bot flag rather than the bot-excluded DAU metric.\"}"
+    },
+    {
+      "case": "model_selection/metric/refund_amount_last_week",
+      "kind": "metric",
+      "arm": "catalog",
+      "model": "MiniMax-M3",
+      "cancelled": false,
+      "expected": [
+        "commerce_transaction_refund_items",
+        "fct_refund"
+      ],
+      "chosen": "commerce_transaction_refund_items",
+      "candidates": [
+        "commerce_transaction_refund_items",
+        "fct_refund",
+        "master_commerce_transactions",
+        "merchant_transaction_refund_items",
+        "master_merchant_transactions",
+        "wishpost_order_clean_full_cycle"
+      ],
+      "tool_calls": [
+        "search_metric_catalog",
+        "search_metric_catalog",
+        "find_models_metrics"
+      ],
+      "seconds": 9.32,
+      "score": {
+        "selection": 1.0,
+        "recall": 1.0,
+        "economy": 1.0,
+        "details": {
+          "expected": [
+            "commerce_transaction_refund_items",
+            "fct_refund"
+          ],
+          "chosen": "commerce_transaction_refund_items",
+          "parsed": true,
+          "root_id": "refund_amount",
+          "member_id": "sum",
+          "reason": "Buyer-facing refund dollars at refund-line grain (transaction_id x variation_id), USD, additive with a dt partition/time column for a last-week filter, and it is the primary analytical source for total refund amount without merchant or currency caveats. Merchant-side and logistics rollup models are either merchant-currency or parcel-grain, and master_commerce_transactions repeats order-level refund amounts per line."
+        },
+        "total": 1.0
+      },
+      "reply": "<think>The question: \"total refunded amount on Wish orders last week\". The metric is refund_amount/sum. Candidates: commerce_transaction_refund_items (refund line items, buyer-facing USD, time basis refund), fct_refund, master_commerce_transactions (commerce line items with refund amount), merchant_transaction_refund_items (merchant currency, not USD-normalized), master_merchant_transactions, wishpost_order_clean_full_cycle.\n\nBest fit: commerce_transaction_refund_items — \"Total USD amount refunded to the user\" at refund line grain, primary analytical source for refunds, time basis refund, dt dimension. Since user asks about \"Wish orders\" (buyer-facing, platform-level, no merchant filter) and refund amount in USD.\n\nAlternatives: fct_refund, master_commerce_transactions, master_merchant_transactions.\n\nI have enough. Output JSON.\n\nNote \"last week\" — dt dimension available. Good.\n\nLet me write the final answer with JSON only? The instructions say finish with one message containing only this JSON object. But the system reminder says reply with final answer in text. The task output spec says \"containing only this JSON object\". I'll output the JSON.\n\nI should not call commit_cards? The tool description says \"Commit the chosen ones with commit_cards using their staging_id.\" But commit_cards is not in my available functions. So skip.</think>\n\n{\"model\": \"commerce_transaction_refund_items\", \"alternatives\": [\"fct_refund\", \"master_commerce_transactions\", \"master_merchant_transactions\"], \"root_id\": \"refund_amount\", \"member_id\": \"sum\", \"reason\": \"Buyer-facing refund dollars at refund-line grain (transaction_id x variation_id), USD, additive with a dt partition/time column for a last-week filter, and it is the primary analytical source for total refund amount without merchant or currency caveats. Merchant-side and logistics rollup models are either merchant-currency or parcel-grain, and master_commerce_transactions repeats order-level refund amounts per line.\"}"
+    },
+    {
+      "case": "model_selection/metric/active_buyers_by_lifecycle",
+      "kind": "metric",
+      "arm": "catalog",
+      "model": "MiniMax-M3",
+      "cancelled": false,
+      "expected": [
+        "ulc_active_buyers"
+      ],
+      "chosen": "ulc_active_buyers",
+      "candidates": [
+        "ulc_active_buyers"
+      ],
+      "tool_calls": [
+        "search_metric_catalog",
+        "search_metric_catalog",
+        "find_models_metrics"
+      ],
+      "seconds": 12.12,
+      "score": {
+        "selection": 1.0,
+        "recall": 1.0,
+        "economy": 1.0,
+        "details": {
+          "expected": [
+            "ulc_active_buyers"
+          ],
+          "chosen": "ulc_active_buyers",
+          "parsed": true,
+          "root_id": "active_buyers",
+          "member_id": "distinct",
+          "reason": "ULC active-buyer snapshot at user_id×dt grain with a lifecycle dimension (New/Retained/Resurrected) and daily lifecycle_new/retained/resurrected metrics, filtered on dt for 'this month'. All three lifecycle members map to this same table."
+        },
+        "total": 1.0
+      },
+      "reply": "<think>The single staged model `ulc_active_buyers` matches: grain (user_id, dt), dimensions include lifecycle, and metrics include lifecycle_new/retained/resurrected. It also has metric_time/dt aggregation. This is the answer.\n\nDo I need to check other models? The staging returned only one model. I could check alternatives via lifecycle member, but the model is the same. I'll finish.</think>\n\nThe staged model `ulc_active_buyers` matches all requirements: grain is one row per `user_id` × `dt` with a `lifecycle` dimension (New / Retained / Resurrected) and pre-computed `lifecycle_new`, `lifecycle_retained`, `lifecycle_resurrected` metrics, aggregated daily on `dt`/`metric_time`. No further lookup is needed.\n\n```json\n{\"model\": \"ulc_active_buyers\",\n \"alternatives\": [],\n \"root_id\": \"active_buyers\",\n \"member_id\": \"distinct\",\n \"reason\": \"ULC active-buyer snapshot at user_id×dt grain with a lifecycle dimension (New/Retained/Resurrected) and daily lifecycle_new/retained/resurrected metrics, filtered on dt for 'this month'. All three lifecycle members map to this same table.\"}\n```"
+    },
+    {
+      "case": "model_selection/metric/add_to_cart_by_page",
+      "kind": "metric",
+      "arm": "catalog",
+      "model": "MiniMax-M3",
+      "cancelled": false,
+      "expected": [
+        "add_to_cart_data_detail",
+        "add_to_cart_detail"
+      ],
+      "chosen": "add_to_cart_data_detail",
+      "candidates": [
+        "add_to_cart_data_detail",
+        "add_to_cart_detail",
+        "feed_tile_interactions_detail"
+      ],
+      "tool_calls": [
+        "search_metric_catalog",
+        "search_metric_catalog",
+        "find_models_metrics"
+      ],
+      "seconds": 9.46,
+      "score": {
+        "selection": 1.0,
+        "recall": 1.0,
+        "economy": 1.0,
+        "details": {
+          "expected": [
+            "add_to_cart_data_detail",
+            "add_to_cart_detail"
+          ],
+          "chosen": "add_to_cart_data_detail",
+          "parsed": true,
+          "root_id": "add_to_cart_events",
+          "member_id": "count",
+          "reason": "One row per deduplicated add-to-cart log event (matches the 'count' member: logged ATC actions, not cart lines or users), with page attribution in page_type/page_id and dt as the Pacific-time partition day for filtering yesterday; add_to_cart_detail is the equivalent pre-governance table, while feed_tile_interactions_detail is tile-level and inflates event counts."
+        },
+        "total": 1.0
+      },
+      "reply": "<think>The question: \"How many add-to-cart events happened yesterday, broken down by page?\" The metric is add_to_cart_events/count. The dimension \"page\" — add_to_cart_data_detail has page_type, page_id, module_type. add_to_cart_detail has page_type too. feed_tile_interactions_detail has page_id, page_type, page_name.\n\nWhich model is best? add_to_cart_data_detail is described as the governed downstream interface for analytics and business reporting, replacing direct consumption of... (add_to_cart_detail presumably). It has page_type, module_type dimensions, and add_to_cart_events metric with high confidence at event grain.\n\nThe member count_mapped requires page_type and module_type non-null; but the question just asks for events broken down by page — default member \"count\" is fine.\n\nChoose add_to_cart_data_detail (governed interface, one row per deduplicated ATC log event, has page_type/page_id). Alternative: add_to_cart_detail.\n\nThe instructions mention commit_cards but the output format is just JSON. The workflow says \"Commit the chosen ones with commit_cards using their staging_id\" — but there's no commit_cards tool available in the function list. The final output is the JSON only.\n\nSo answer with JSON.</think>\n\n**Evidence gathered:** `add_to_cart_events` / member `count` (default) maps to three staged models, all at ATC-event grain. `add_to_cart_data_detail` is the governed downstream interface with `page_type` (and `page_id`, `module_type`) plus `dt` partition column for \"yesterday\"; `add_to_cart_detail` is the same grain pre-governance; `feed_tile_interactions_detail` is tile-level (one logged event fans out to many rows) and counts via `action='add_to_cart'`.\n\n**Choice:** `add_to_cart_data_detail` — one row per deduplicated add-to-cart log event with `page_type`/`page_id` attribution and `dt` (PT partition) as the default metric time, matching the `count` member definition exactly.\n\n```json\n{\"model\": \"add_to_cart_data_detail\",\n \"alternatives\": [\"add_to_cart_detail\", \"feed_tile_interactions_detail\"],\n \"root_id\": \"add_to_cart_events\",\n \"member_id\": \"count\",\n \"reason\": \"One row per deduplicated add-to-cart log event (matches the 'count' member: logged ATC actions, not cart lines or users), with page attribution in page_type/page_id and dt as the Pacific-time partition day for filtering yesterday; add_to_cart_detail is the equivalent pre-governance table, while feed_tile_interactions_detail is tile-level and inflates event counts.\"}\n```"
+    },
+    {
+      "case": "model_selection/metric/wishpost_monthly_profit",
+      "kind": "metric",
+      "arm": "catalog",
+      "model": "MiniMax-M3",
+      "cancelled": false,
+      "expected": [
+        "finance_monthly_profits_1y",
+        "finance_monthly_profits_by_combine_ratio_1y"
+      ],
+      "chosen": "finance_monthly_profits_1y",
+      "candidates": [
+        "finance_monthly_profits_by_combine_ratio_1y",
+        "finance_monthly_profits_1y"
+      ],
+      "tool_calls": [
+        "search_metric_catalog",
+        "search_metric_catalog",
+        "find_models_metrics"
+      ],
+      "seconds": 11.0,
+      "score": {
+        "selection": 1.0,
+        "recall": 1.0,
+        "economy": 1.0,
+        "details": {
+          "expected": [
+            "finance_monthly_profits_1y",
+            "finance_monthly_profits_by_combine_ratio_1y"
+          ],
+          "chosen": "finance_monthly_profits_1y",
+          "parsed": true,
+          "root_id": "logistics_profit",
+          "member_id": "sum",
+          "reason": "wishpost.finance_monthly_profits_1y is the overall WishPost logistics P&L rollup (daily snapshot grain at dt, date_type, date_value, delivery_program, country, region, is_124) with ~1 year of rolling data and a 'profit' metric = total_sales - total_purchase in USD, matching the additive sum member for monthly logistics profit; it must be filtered to a single date_type perspective. The combine-ratio sibling only covers EPC/A+/Fusion/Smart programs and purchase_date perspective, so it is acceptable only if the question were scoped to combination programs."
+        },
+        "total": 1.0
+      },
+      "reply": "<think>The question: \"What was WishPost's monthly logistics profit over the past year?\" The overall P&L table is `finance_monthly_profits_1y` (wishpost.finance_monthly_profits_1y), which covers all programs. The combine-ratio one is only for combination programs. Since the question asks WishPost overall monthly logistics profit over the past year, choose `finance_monthly_profits_1y`.\n\nBoth are candidates; the combine-ratio one as alternative.\n\nThe evidence is sufficient. Note: I should output the JSON object with model name, alternatives, root_id, member_id, reason. The instruction says \"Commit the chosen ones with commit_cards using their staging_id\" — but I don't have a commit_cards tool available. The output spec says finish with one message with only the JSON object. So I'll output the JSON.</think>\n\n{\"model\": \"finance_monthly_profits_1y\",\n \"alternatives\": [\"finance_monthly_profits_by_combine_ratio_1y\"],\n \"root_id\": \"logistics_profit\",\n \"member_id\": \"sum\",\n \"reason\": \"wishpost.finance_monthly_profits_1y is the overall WishPost logistics P&L rollup (daily snapshot grain at dt, date_type, date_value, delivery_program, country, region, is_124) with ~1 year of rolling data and a 'profit' metric = total_sales - total_purchase in USD, matching the additive sum member for monthly logistics profit; it must be filtered to a single date_type perspective. The combine-ratio sibling only covers EPC/A+/Fusion/Smart programs and purchase_date perspective, so it is acceptable only if the question were scoped to combination programs.\"}"
+    },
+    {
+      "case": "model_selection/entity/merchant_app_authorizations",
+      "kind": "entity",
+      "arm": "catalog",
+      "model": "MiniMax-M3",
+      "cancelled": false,
+      "expected": [
+        "wish__merchant_authorization"
+      ],
+      "chosen": "wish__merchant_authorization",
+      "candidates": [
+        "wish__merchant_authorization"
+      ],
+      "tool_calls": [
+        "search_metric_catalog",
+        "search_metric_catalog",
+        "search_metric_catalog",
+        "find_models_metrics"
+      ],
+      "seconds": 13.5,
+      "score": {
+        "selection": 1.0,
+        "recall": 1.0,
+        "economy": 1.0,
+        "details": {
+          "expected": [
+            "wish__merchant_authorization"
+          ],
+          "chosen": "wish__merchant_authorization",
+          "parsed": true,
+          "root_id": "merchant_authorizations",
+          "member_id": "count",
+          "reason": "Catalog root merchant_authorizations/count is defined as active merchant–partner OAuth grant rows at merchant_id × partner_user_id grain, which matches the question exactly. The staged model wish__merchant_authorization carries those authorization rows with dimensions merchant_id, partner_user_id, partner_name and auth_dt, so it records which third-party/ERP apps each merchant has authorized."
+        },
+        "total": 1.0
+      },
+      "reply": "<think>The staged model is wish__merchant_authorization. That's the answer. Only one candidate. No need for commit_cards? The instructions say \"Commit the chosen ones with commit_cards\" but the output instruction says to finish with JSON only. There's no commit_cards tool available in my function list anyway (only search_metric_catalog and find_models_metrics). So output the JSON.\n\nNote: I should not describe tables beyond what retrieval tools returned. The description mentioned grain: one row per active public Merchant App refresh-token grant (merchant_id × partner_user_id). Answer: wish__merchant_authorization.</think>\n\n{\"model\": \"wish__merchant_authorization\", \"alternatives\": [], \"root_id\": \"merchant_authorizations\", \"member_id\": \"count\", \"reason\": \"Catalog root merchant_authorizations/count is defined as active merchant–partner OAuth grant rows at merchant_id × partner_user_id grain, which matches the question exactly. The staged model wish__merchant_authorization carries those authorization rows with dimensions merchant_id, partner_user_id, partner_name and auth_dt, so it records which third-party/ERP apps each merchant has authorized.\"}"
+    },
+    {
+      "case": "model_selection/uncovered/facebook_ad_spend_by_country",
+      "kind": "uncovered",
+      "arm": "catalog",
+      "model": "MiniMax-M3",
+      "cancelled": false,
+      "expected": [
+        "country_spend"
+      ],
+      "chosen": "",
+      "candidates": [],
+      "tool_calls": [
+        "search_metric_catalog",
+        "search_metric_catalog",
+        "search_metric_catalog",
+        "search_metric_catalog",
+        "search_metric_catalog",
+        "search_metric_catalog",
+        "search_metric_catalog",
+        "search_metric_catalog",
+        "search_metric_catalog"
+      ],
+      "seconds": 36.72,
+      "score": {
+        "selection": 0.0,
+        "recall": 0.0,
+        "economy": 0.0,
+        "details": {
+          "expected": [
+            "country_spend"
+          ],
+          "chosen": "",
+          "parsed": false,
+          "root_id": null,
+          "member_id": null,
+          "reason": null
+        },
+        "total": 0.0
+      },
+      "reply": "<think>We need respond final only JSON per developer. We have max tool calls. Need decide model or null. We need follow workflow: root metric catalog no fitting root/member for ad spend Facebook country. We searched roots broadly; no marketing spend root. We only can use catalog + find_models_metrics. We did not get to find_models because no root. Therefore model null, root null, member null, reason no catalog root/member matching ad spend, only product boost revenue/ad revenue and COGS etc. Need alternatives likely [].\n\nBut let's carefully assess question: \"How much did we spend on Facebook ads per country last month?\" Could potentially root \"cost\" and member? No, cost explicitly merchant COGS/shipping, not marketing spend. Search roots no marketing spend. So null. We need include assumptions and gaps per system-reminder perhaps reason. Must only JSON object. \"root_id\": null etc. reason one/two sentences grain dimensions metric definition. Say no catalog root/member represents paid-media spend by channel/country; cost is merchant COGS and product_boost_revenue is advertising revenue received, both semantically opposite. Therefore no dbt model could be selected. Is model null required when catalog no fitting root or member. alternatives empty.\n\nNeed ensure exact format:\n{\"model\":null,\"alternatives\":[],\"root_id\":null,\"member_id\":null,\"reason\":\"No catalog root/member represents paid Facebook ad spend by country; the available cost root is merchant COGS/shipping, while product_boost_revenue is ad revenue received, not marketing spend. Therefore no matching dbt model can be selected from the catalog.\"}\n\nOnly JSON object no Markdown.</think>\n\n{\"model\":null,\"alternatives\":[],\"root_id\":null,\"member_id\":null,\"reason\":\"No catalog root/member represents paid Facebook ad spend by country; the cost root covers merchant COGS and shipping costs, while product_boost_revenue is advertising revenue received. Therefore no matching dbt model can be selected.\"}"
+    },
+    {
+      "case": "model_selection/metric/gmv_last_month",
+      "kind": "metric",
+      "arm": "hybrid",
+      "model": "MiniMax-M3",
+      "cancelled": false,
+      "expected": [
+        "fct_transaction_variations",
+        "master_commerce_transactions",
+        "fact_trans_detail"
+      ],
+      "chosen": "fct_transaction_variations",
+      "candidates": [
+        "fct_transaction_variations",
+        "master_commerce_transactions",
+        "fact_trans_detail",
+        "fct_daily_buyer",
+        "dau_attribution",
+        "daily_commerce_product_metrics",
+        "fct_experiments_metrics"
+      ],
+      "tool_calls": [
+        "search_metric_catalog",
+        "search_metric_catalog",
+        "find_models_metrics"
+      ],
+      "seconds": 9.68,
+      "score": {
+        "selection": 1.0,
+        "recall": 1.0,
+        "economy": 1.0,
+        "details": {
+          "expected": [
+            "fct_transaction_variations",
+            "master_commerce_transactions",
+            "fact_trans_detail"
+          ],
+          "chosen": "fct_transaction_variations",
+          "parsed": true,
+          "root_id": "gmv",
+          "member_id": "sum_excl_ltd",
+          "reason": "fct_transaction_variations is the canonical core_data variation-level commerce fact whose 'gmv' metric matches the house default GMV definition (sum of gmv_variation, LTD excluded) with a dt partition column for the 'last month' filter, giving a marketplace-wide total with no brand/merchant dimension required. master_commerce_transactions and fact_trans_detail carry the same gmv metric at line grain and are acceptable substitutes; user-day (fct_daily_buyer) or product-day models are less suitable for a plain platform total."
+        },
+        "total": 1.0
+      },
+      "reply": "<think>The staged models give a clear picture. The best fit for \"Wish's total GMV last month\" (marketplace-wide, no dimensions beyond time) is `fct_transaction_variations` (core_data) — the variation-level transaction fact with `gmv` metric (excl LTD), dt partitioning, and it's the canonical source for GMV, revenue, buyers etc. `master_commerce_transactions` and `fact_trans_detail` are alternatives. `fct_daily_buyer` is user-day grain — sum works but not a marketplace total without care (still fine, but less canonical).\n\nShould I commit cards? The workflow says \"Commit the chosen ones with `commit_cards` using their `staging_id`.\" But the tool `commit_cards` isn't listed in my available functions. Only three functions: CompatFetchRelatedModelsdf6e1b, CompatFindModelsMetricsc82af4, CompatSearchMetricCatalog37fc08. So no commit tool available. I'll just output the JSON.\n\nChoose `fct_transaction_variations`. Note: it excludes LTD by default via `gmv` metric, and `dt` for partition pruning; also has `gmv_w_ltd`. Last month → filter dt to previous calendar month.\n\nAlternatively master_commerce_transactions has richer dimensions (state, payment type). But fct_transaction_variations has highest ratio and is the core_data core fact, with usage guidance about payment_received_time for revenue recognition. For GMV by month, dt partition is fine.\n\nOutput JSON.</think>\n\n**Evidence gathered:** catalog resolved GMV → root `gmv`, default member `sum_excl_ltd` (line-grain merchandise GMV, excl. LTD, transaction time basis). `find_models_metrics` staged 7 candidates; the highest-fit one is the core variation-level transaction fact (partitioned `dt`, `payment_received_time`, `gmv` = `sum(gmv_variation)` where `is_ltd_product='false'`), with two Hive line-grain facts as equally valid alternatives.\n\n```json\n{\"model\": \"fct_transaction_variations\",\n \"alternatives\": [\"master_commerce_transactions\", \"fact_trans_detail\"],\n \"root_id\": \"gmv\",\n \"member_id\": \"sum_excl_ltd\",\n \"reason\": \"fct_transaction_variations is the canonical core_data variation-level commerce fact whose 'gmv' metric matches the house default GMV definition (sum of gmv_variation, LTD excluded) with a dt partition column for the 'last month' filter, giving a marketplace-wide total with no brand/merchant dimension required. master_commerce_transactions and fact_trans_detail carry the same gmv metric at line grain and are acceptable substitutes; user-day (fct_daily_buyer) or product-day models are less suitable for a plain platform total.\"}\n```"
+    },
+    {
+      "case": "model_selection/metric/dau_yesterday_without_bots",
+      "kind": "metric",
+      "arm": "hybrid",
+      "model": "MiniMax-M3",
+      "cancelled": false,
+      "expected": [
+        "fct_dau"
+      ],
+      "chosen": "fct_dau",
+      "candidates": [
+        "fct_dau",
+        "ulc_active_users",
+        "ulc_power_user",
+        "feed_tile_interactions_detail"
+      ],
+      "tool_calls": [
+        "search_metric_catalog",
+        "search_metric_catalog",
+        "find_models_metrics"
+      ],
+      "seconds": 14.96,
+      "score": {
+        "selection": 1.0,
+        "recall": 1.0,
+        "economy": 1.0,
+        "details": {
+          "expected": [
+            "fct_dau"
+          ],
+          "chosen": "fct_dau",
+          "parsed": true,
+          "root_id": "dau",
+          "member_id": "distinct",
+          "reason": "fct_dau is a user×day fact where bots, temporary users and suspicious traffic are already filtered upstream, matching the dau/distinct member (registered DAU, bots excluded); counting distinct user_id on the yesterday dt partition gives DAU excluding bots. ulc_active_users is a ULC-active user-day snapshot (alternative if lifecycle framing is wanted), and feed_tile_interactions_detail only has interaction grain with a likely_bot flag."
+        },
+        "total": 1.0
+      },
+      "reply": "<think>The question: \"How many daily active users did Wish have yesterday, excluding bots?\"\n\nCandidates: fct_dau (registered users, bots and temporary users filtered upstream) — one row per registered user per day, bots already excluded upstream. That's a good fit: \"registered DAU from fct_dau-style facts\" with bots filtered upstream.\n\nAlternative: feed_tile_interactions_detail has likely_bot dimension but grain is interaction, not user-day.\n\nfct_dau_w_bots includes bots; ulc_active_users is ULC-active which may include bots? The DAU definition says \"registered / bots-temp filtered upstream when from fct_dau\".\n\nSo fct_dau is the right model: user×day grain, bots/temp filtered upstream, dt time column. ulc_active_users is an alternative for ULC-active.\n\nAlso check member \"w_guests\" — that's fct_dau_w_bots-style including bots, but \"excluding bots\" points to fct_dau.\n\nThe metric member used: dau/distinct. Good.\n\nShould I commit cards? The tool description mentions commit_cards but it's not in the available tools list. The available functions are only fetch_related_models, find_models_metrics, search_metric_catalog. So no commit.\n\nI think I have enough. Let me give the final answer.\n\nNote the \"yesterday\" — dt partition relative to current date. Fine.\n\nFinal JSON: model fct_dau, alternatives: ulc_active_users, maybe fct_dau_w_bots? Let me check whether a fct_dau_w_bots model exists... It's mentioned in ulc_power_user description as core_data.fct_dau_w_bots. But it includes bots, so not a good alternative for \"excluding bots\". I'll list ulc_active_users and feed_tile_interactions_detail as alternatives.\n\nroot_id dau, member_id distinct.</think>\n\n**Evidence gathered:**\n- Catalog root `dau` (\"DAU / 日活用户\") covers distinct active users at user×day grain, including a \"bots-temp filtered upstream\" scope note for `fct_dau`-style facts; the `w_guests` member is the `fct_dau_w_bots` variant that *includes* bots, so it is the wrong recipe for \"excluding bots\".\n- `find_models_metrics(dau, distinct)` staged `fct_dau` (registered users, bots/temp/suspicious traffic filtered upstream, one row per user×day, `dt` partition), `ulc_active_users` (ULC-active user×day with lifecycle flags), `ulc_power_user`, and `feed_tile_interactions_detail` (interaction grain with a `likely_bot` flag).\n\n`fct_dau` is the best fit: user×calendar-day grain, `dt` as agg time dimension for \"yesterday\", and bots already excluded upstream, so `count_distinct(user_id)` on yesterday's partition gives DAU excluding bots without an extra filter.\n\n{\"model\": \"fct_dau\", \"alternatives\": [\"ulc_active_users\", \"feed_tile_interactions_detail\"], \"root_id\": \"dau\", \"member_id\": \"distinct\", \"reason\": \"fct_dau is a user×day fact where bots, temporary users and suspicious traffic are already filtered upstream, matching the dau/distinct member (registered DAU, bots excluded); counting distinct user_id on the yesterday dt partition gives DAU excluding bots. ulc_active_users is a ULC-active user-day snapshot (alternative if lifecycle framing is wanted), and feed_tile_interactions_detail only has interaction grain with a likely_bot flag.\"}"
+    },
+    {
+      "case": "model_selection/metric/refund_amount_last_week",
+      "kind": "metric",
+      "arm": "hybrid",
+      "model": "MiniMax-M3",
+      "cancelled": false,
+      "expected": [
+        "commerce_transaction_refund_items",
+        "fct_refund"
+      ],
+      "chosen": "commerce_transaction_refund_items",
+      "candidates": [
+        "commerce_transaction_refund_items",
+        "fct_refund",
+        "master_commerce_transactions",
+        "merchant_transaction_refund_items",
+        "master_merchant_transactions",
+        "wishpost_order_clean_full_cycle"
+      ],
+      "tool_calls": [
+        "search_metric_catalog",
+        "search_metric_catalog",
+        "find_models_metrics"
+      ],
+      "seconds": 6.92,
+      "score": {
+        "selection": 1.0,
+        "recall": 1.0,
+        "economy": 1.0,
+        "details": {
+          "expected": [
+            "commerce_transaction_refund_items",
+            "fct_refund"
+          ],
+          "chosen": "commerce_transaction_refund_items",
+          "parsed": true,
+          "root_id": "refund_amount",
+          "member_id": "sum",
+          "reason": "Buyer-facing refund line items (one row per refund_id) with the contract amount = refund_payment_amount + refund_cash_amount in USD, which matches the catalog's refund_amount/sum definition; `dt` is the daily partition and metric time dimension, so 'last week' is a dt filter. master_commerce_transactions is an acceptable alternative for the state=5 (refunded) variant, and fct_refund for the daily core refund fact."
+        },
+        "total": 1.0
+      },
+      "reply": "<think>The question: \"total refunded amount on Wish orders last week\". Best model: commerce_transaction_refund_items (buyer-facing refund lines, USD, primary analytical source) — grain one row per refund line, agg time dimension dt. Alternatively master_commerce_transactions for state=5 refunds.\n\nThe question says \"on Wish orders\" — Wish platform, not a brand. Total refunded amount = refund_amount sum. The commerce_transaction_refund_items is the primary analytical source, USD, with dt partition. I'll pick that. Alternatives: master_commerce_transactions, fct_refund.\n\nNote \"last week\" — needs a time dimension; dt is the agg time dimension for commerce_transaction_refund_items. Fine.\n\nI should commit cards? The output instruction says finish with one message and no tool calls containing the JSON. The workflow says commit chosen ones with commit_cards — but there's no commit_cards tool available in the list. Only three tools. So finish.\n\nLet me produce the JSON.</think>\n\n{\"model\": \"commerce_transaction_refund_items\", \"alternatives\": [\"master_commerce_transactions\", \"fct_refund\", \"master_merchant_transactions\"], \"root_id\": \"refund_amount\", \"member_id\": \"sum\", \"reason\": \"Buyer-facing refund line items (one row per refund_id) with the contract amount = refund_payment_amount + refund_cash_amount in USD, which matches the catalog's refund_amount/sum definition; `dt` is the daily partition and metric time dimension, so 'last week' is a dt filter. master_commerce_transactions is an acceptable alternative for the state=5 (refunded) variant, and fct_refund for the daily core refund fact.\"}"
+    },
+    {
+      "case": "model_selection/metric/active_buyers_by_lifecycle",
+      "kind": "metric",
+      "arm": "hybrid",
+      "model": "MiniMax-M3",
+      "cancelled": false,
+      "expected": [
+        "ulc_active_buyers"
+      ],
+      "chosen": "ulc_active_buyers",
+      "candidates": [
+        "ulc_active_buyers"
+      ],
+      "tool_calls": [
+        "search_metric_catalog",
+        "search_metric_catalog",
+        "find_models_metrics"
+      ],
+      "seconds": 9.89,
+      "score": {
+        "selection": 1.0,
+        "recall": 1.0,
+        "economy": 1.0,
+        "details": {
+          "expected": [
+            "ulc_active_buyers"
+          ],
+          "chosen": "ulc_active_buyers",
+          "parsed": true,
+          "root_id": "active_buyers",
+          "member_id": "lifecycle_new",
+          "reason": "ulc_active_buyers is the ULC active-buyer snapshot at user_id × dt grain with a `lifecycle` dimension (New / Retained / Resurrected) and dt as the agg time dimension, and it carries the catalog metrics lifecycle_new, lifecycle_retained and lifecycle_resurrected as distinct counts per snapshot day — exactly the daily, lifecycle-split active-buyer measure requested (note it is buyers, not DAU; ulc_active_users is the login-based ULC table)."
+        },
+        "total": 1.0
+      },
+      "reply": "<think>The staged model `ulc_active_buyers` fits perfectly: grain user_id × dt, dimensions dt, lifecycle, metrics lifecycle_new/retained/resurrected. It's the only candidate. I could check alternatives via fetch_related_models, but the catalog gives one clear answer. The instructions say to commit the chosen card, but there's no commit_cards tool available in my list — actually commit_cards was mentioned in tool descriptions but not in my function list. My available functions are only fetch_related_models, find_models_metrics, search_metric_catalog. So no commit needed.\n\nI have enough. Output the JSON.\n\nShould I quickly check for alternatives like ulc_active_users (login ULC)? The description says \"Do not mix with ulc_active_users (login ULC...)\". The question asks for active buyers, so ulc_active_buyers is right. I could list ulc_active_users as an alternative but it's a different metric (DAU users). I'll keep alternatives minimal — maybe include ulc_active_users as a weaker alternative. I'll just do a quick fetch_related_models? The guidance biases to finish. I'll finish.\n\nOutput JSON with model name \"ulc_active_buyers\", root_id \"active_buyers\", member_id \"lifecycle_new\" (primary; others lifecycle_retained, lifecycle_resurrected).</think>\n\nThe catalog resolved cleanly: `active_buyers` root with lifecycle member recipes (`lifecycle_new`, `lifecycle_retained`, `lifecycle_resurrected`), and `find_models_metrics` staged exactly one model — `ulc_active_buyers` — whose grain is user_id × dt with a `lifecycle` dimension and all three lifecycle metrics defined. No further retrieval is needed.\n\n```json\n{\"model\": \"ulc_active_buyers\",\n \"alternatives\": [\"ulc_active_users\"],\n \"root_id\": \"active_buyers\",\n \"member_id\": \"lifecycle_new\",\n \"reason\": \"ulc_active_buyers is the ULC active-buyer snapshot at user_id × dt grain with a `lifecycle` dimension (New / Retained / Resurrected) and dt as the agg time dimension, and it carries the catalog metrics lifecycle_new, lifecycle_retained and lifecycle_resurrected as distinct counts per snapshot day — exactly the daily, lifecycle-split active-buyer measure requested (note it is buyers, not DAU; ulc_active_users is the login-based ULC table).\"}\n```"
+    },
+    {
+      "case": "model_selection/metric/add_to_cart_by_page",
+      "kind": "metric",
+      "arm": "hybrid",
+      "model": "MiniMax-M3",
+      "cancelled": false,
+      "expected": [
+        "add_to_cart_data_detail",
+        "add_to_cart_detail"
+      ],
+      "chosen": "add_to_cart_data_detail",
+      "candidates": [
+        "add_to_cart_data_detail",
+        "add_to_cart_detail",
+        "feed_tile_interactions_detail"
+      ],
+      "tool_calls": [
+        "search_metric_catalog",
+        "search_metric_catalog",
+        "find_models_metrics"
+      ],
+      "seconds": 18.24,
+      "score": {
+        "selection": 1.0,
+        "recall": 1.0,
+        "economy": 1.0,
+        "details": {
+          "expected": [
+            "add_to_cart_data_detail",
+            "add_to_cart_detail"
+          ],
+          "chosen": "add_to_cart_data_detail",
+          "parsed": true,
+          "root_id": "add_to_cart_events",
+          "member_id": "count",
+          "reason": "add_to_cart_data_detail is the governed ATC event-grain model (one row per deduplicated add-to-cart log event) with the page dimension (page_type, page_id, module_type) and the dt/event_day time columns, matching catalog metric add_to_cart_events/count; add_to_cart_detail is the equivalent upstream detail table, and feed_tile_interactions_detail is only a fallback since it counts product-tile rows with action='add_to_cart' rather than ATC events."
+        },
+        "total": 1.0
+      },
+      "reply": "<think>The question: \"How many add-to-cart events happened yesterday, broken down by page?\" — need a model with add-to-cart events at event grain with page dimension. Candidates: add_to_cart_data_detail (one row per deduplicated ATC log event, has page_type, page_id, module_type), add_to_cart_detail (one row per logged ATC action), feed_tile_interactions_detail (row per product tile interaction, action=add_to_cart).\n\nThe best fit: add_to_cart_detail or add_to_cart_data_detail — both event grain with page dimensions. add_to_cart_data_detail is the governed downstream interface that replaces direct consumption of add_to_cart_detail (it's the newer governed one). Its description says \"This is the governed downstream interface for analytics and business reporting and replaces direct consumption of...\" — so add_to_cart_data_detail is preferred.\n\n\"Broken down by page\" — page_type or page_id. Both models have page_id and page_type.\n\nAlso \"yesterday\" — time dimension dt (Pacific) or event_day (UTC). Both have both.\n\nShould I commit cards? The instructions mention commit_cards as part of workflow, but the tool list doesn't include commit_cards... The available tools are only search_metric_catalog, find_models_metrics, fetch_related_models. The output is just JSON. So no commit needed.\n\nI think we have enough. But should I check fetch_related_models for a model specifically about page breakdown? The metric catalog member \"count_mapped\" is about page_type/module_type non-null. The member \"count\" (default) is right for counting all ATC events.\n\nI'll answer with add_to_cart_data_detail as the chosen model, alternatives add_to_cart_detail and feed_tile_interactions_detail.\n\nMaybe a quick fetch_related_models to verify there isn't a better \"add to cart by page\" model? The candidates are already good. But \"broken down by page\" could also be a page-level metric. Let me do one fetch_related_models with chunk_type=\"model+columns\" query \"add-to-cart events by page type page_id\" to check for alternatives. That's cheap and might reveal a page-grain model. But bias to finish... I think the evidence is sufficient. Actually, one check could be valuable to ensure no dedicated \"atc by page\" model exists. But the metric-driven path already staged the three relevant candidates with high confidence. I'll finish.\n\nActually, let me consider the choice between add_to_cart_data_detail and add_to_cart_detail more carefully. The descriptions are nearly identical; data_detail says it's the governed downstream interface replacing direct consumption of the upstream (add_to_cart_detail). So data_detail is the recommended one.\n\nOutput JSON.</think>\n\n{\"model\": \"add_to_cart_data_detail\", \"alternatives\": [\"add_to_cart_detail\", \"feed_tile_interactions_detail\"], \"root_id\": \"add_to_cart_events\", \"member_id\": \"count\", \"reason\": \"add_to_cart_data_detail is the governed ATC event-grain model (one row per deduplicated add-to-cart log event) with the page dimension (page_type, page_id, module_type) and the dt/event_day time columns, matching catalog metric add_to_cart_events/count; add_to_cart_detail is the equivalent upstream detail table, and feed_tile_interactions_detail is only a fallback since it counts product-tile rows with action='add_to_cart' rather than ATC events.\"}"
+    },
+    {
+      "case": "model_selection/metric/wishpost_monthly_profit",
+      "kind": "metric",
+      "arm": "hybrid",
+      "model": "MiniMax-M3",
+      "cancelled": false,
+      "expected": [
+        "finance_monthly_profits_1y",
+        "finance_monthly_profits_by_combine_ratio_1y"
+      ],
+      "chosen": "finance_monthly_profits_1y",
+      "candidates": [
+        "finance_monthly_profits_1y",
+        "finance_monthly_profits_by_combine_ratio_1y",
+        "finance_monthly_sales_breakdown_1y",
+        "finance_monthly_purchase_breakdown_lm_ds_1y"
+      ],
+      "tool_calls": [
+        "search_metric_catalog",
+        "fetch_related_models",
+        "search_metric_catalog",
+        "find_models_metrics"
+      ],
+      "seconds": 31.45,
+      "score": {
+        "selection": 1.0,
+        "recall": 1.0,
+        "economy": 1.0,
+        "details": {
+          "expected": [
+            "finance_monthly_profits_1y",
+            "finance_monthly_profits_by_combine_ratio_1y"
+          ],
+          "chosen": "finance_monthly_profits_1y",
+          "parsed": true,
+          "root_id": "logistics_profit",
+          "member_id": "sum",
+          "reason": "finance_monthly_profits_1y is the overall WishPost logistics P&L rollup (all delivery programs) with monthly date_value/date_type and a `profit` metric = total_sales - total_purchase matching the logistics_profit/sum definition; the combine-ratio sibling excludes Dropship and FBW, so it only fits if the ask is limited to warehouse-combination programs."
+        },
+        "total": 1.0
+      },
+      "reply": "<think>The user asks for \"WishPost's monthly logistics profit over the past year\". The overall P&L table finance_monthly_profits_1y is the sibling for overall P&L across all programs. The combine-ratio one excludes Dropship and FBW. So choose finance_monthly_profits_1y.\n\nShould I commit cards? The workflow says commit chosen ones with commit_cards. But the tool list only has search_metric_catalog, find_models_metrics, fetch_related_models — no commit_cards available in the function list. Indeed the functions listed are only three; commit_cards isn't in my available functions. So I can't call it. I'll just output the JSON.\n\nLet me finalize. Root id: logistics_profit, member id: sum. Alternatives: finance_monthly_profits_by_combine_ratio_1y.\n\nAlso note date_type must be filtered to one perspective.</think>\n\nBoth candidates are staged and I've resolved the metric: `logistics_profit` / `sum` (WishPost logistics profit = sales-side fees minus purchase-side costs). The overall table `finance_monthly_profits_1y` covers all delivery programs (including Dropship/FBW) with `date_value`/`date_type` for monthly aggregation, whereas `finance_monthly_profits_by_combine_ratio_1y` is restricted to warehouse-combination programs (EPC, A+, Fusion, Smart) — so the overall table is the right fit for \"WishPost's\" total monthly logistics profit. The only caveat is that `finance_monthly_profits_1y` stores two recognition perspectives in the same rows (`date_type = 'sales_date'` and `'purchase_date'`), so a single-perspective filter is required on the `date_value` month plus `dt` latest partition.\n\n```json\n{\"model\": \"finance_monthly_profits_1y\",\n \"alternatives\": [\"finance_monthly_profits_by_combine_ratio_1y\"],\n \"root_id\": \"logistics_profit\",\n \"member_id\": \"sum\",\n \"reason\": \"finance_monthly_profits_1y is the overall WishPost logistics P&L rollup (all delivery programs) with monthly date_value/date_type and a `profit` metric = total_sales - total_purchase matching the logistics_profit/sum definition; the combine-ratio sibling excludes Dropship and FBW, so it only fits if the ask is limited to warehouse-combination programs.\"}\n```"
+    },
+    {
+      "case": "model_selection/entity/merchant_app_authorizations",
+      "kind": "entity",
+      "arm": "hybrid",
+      "model": "MiniMax-M3",
+      "cancelled": false,
+      "expected": [
+        "wish__merchant_authorization"
+      ],
+      "chosen": "wish__merchant_authorization",
+      "candidates": [
+        "wish__merchant_authorization"
+      ],
+      "tool_calls": [
+        "search_metric_catalog",
+        "search_metric_catalog",
+        "find_models_metrics"
+      ],
+      "seconds": 10.98,
+      "score": {
+        "selection": 1.0,
+        "recall": 1.0,
+        "economy": 1.0,
+        "details": {
+          "expected": [
+            "wish__merchant_authorization"
+          ],
+          "chosen": "wish__merchant_authorization",
+          "parsed": true,
+          "root_id": "merchant_authorizations",
+          "member_id": "count",
+          "reason": "Grain is one row per active non-revoked merchant_id × partner_user_id OAuth grant, with partner_name identifying the third-party app owner and auth_dt as the authorization date, matching the merchant-authorizations catalog definition (active merchant–partner grants)."
+        },
+        "total": 1.0
+      },
+      "reply": "The catalog and model search converge on a single model: `wish__merchant_authorization`, a merchant × partner OAuth authorization snapshot whose grain is one row per merchant_id × partner_user_id grant, with `partner_name` (the app owner) and `auth_dt`. That directly answers \"which third-party apps a merchant has authorized.\"\n\n```json\n{\"model\": \"wish__merchant_authorization\",\n \"alternatives\": [],\n \"root_id\": \"merchant_authorizations\",\n \"member_id\": \"count\",\n \"reason\": \"Grain is one row per active non-revoked merchant_id × partner_user_id OAuth grant, with partner_name identifying the third-party app owner and auth_dt as the authorization date, matching the merchant-authorizations catalog definition (active merchant–partner grants).\"}\n```"
+    },
+    {
+      "case": "model_selection/uncovered/facebook_ad_spend_by_country",
+      "kind": "uncovered",
+      "arm": "hybrid",
+      "model": "MiniMax-M3",
+      "cancelled": false,
+      "expected": [
+        "country_spend"
+      ],
+      "chosen": "",
+      "candidates": [
+        "dau_attribution",
+        "fct_dau",
+        "finance_monthly_sales_breakdown_1y",
+        "fct_experiments_metrics",
+        "finance_monthly_purchase_breakdown_lm_ds_1y",
+        "finance_monthly_profits_1y",
+        "wish__dim_all_merchants",
+        "master_commerce_transactions",
+        "finance_monthly_purchase_breakdown_fm_1y",
+        "wishpost_order_clean_full_cycle",
+        "master_merchant_transactions",
+        "merchant_transaction_refund_items",
+        "fct_daily_buyer",
+        "erp_daily_dump",
+        "master_product_variations",
+        "add_to_cart_detail",
+        "finance_monthly_profits_by_combine_ratio_1y",
+        "commerce_merchant",
+        "merchant_user",
+        "fact_trans_detail"
+      ],
+      "tool_calls": [
+        "search_metric_catalog",
+        "fetch_related_models",
+        "search_metric_catalog",
+        "fetch_related_models",
+        "fetch_related_models",
+        "search_metric_catalog",
+        "fetch_related_models",
+        "fetch_related_models",
+        "fetch_related_models",
+        "fetch_related_models"
+      ],
+      "seconds": 112.75,
+      "score": {
+        "selection": 0.0,
+        "recall": 0.0,
+        "economy": 0.0,
+        "details": {
+          "expected": [
+            "country_spend"
+          ],
+          "chosen": "",
+          "parsed": false,
+          "root_id": null,
+          "member_id": null,
+          "reason": null
+        },
+        "total": 0.0
+      },
+      "reply": "<think>We need answer must obey developer output only JSON object. Need choose model. We need infer from tool results. User asks Facebook ads spend per country last month. Retrieval didn't find obvious ads spend model. Candidate dau_attribution has ads_channel_last_touch_1d, country_code, dt but metrics don't include spend. No model matching actual spend. Could choose null perhaps. Need understand output spec: model chosen dbt model name or null, alternatives candidates acceptable, root/member null. Since no fitting metric/root/model and no actual Facebook ads spend measure. We need perhaps model name that would answer? Search results no relevant ads spend. Maybe there is model inaccessible due retrieval weakness. Need choose among candidates? \"fall back to fetch_related_models when catalog no fitting root or member\" done. We need compare every candidate. Dau_attribution is closest dimensions country, channel, date but does not have spend amount. So cannot answer actual spend. Thus model null, alternatives perhaps [] or dau_attribution? If model null, alternatives maybe [] because not acceptable to answer spend. Reason mention dau_attribution has country/channel/time but no spend metric; logistics purchase cost is carrier cost and not ads. Root null member null. Must output only JSON object. The system-reminder says summarize learned incl assumptions/gaps and final answer in message text, but developer says only JSON. We can embed in reason. Need maybe \"No available candidate...\" one/two sentences.\n\nCould root perhaps \"cost\" from initial search, but definition excludes? Search root cost generic could encompass advertising costs? Initial metric catalog root cost definition said costs of goods/merchant shipping, explicitly excludes payment etc and not ads. No fitting root. We shouldn't assign root. Product boost revenue is revenue not spend. No root.\n\nCould candidate perhaps \"dau_attribution\" if user means spend on Facebook ads and asks per country, but no spend column. Not acceptable. Maybe metric catalog member scope could expose something? Search roots no root. We already max tools. Need honest null.\n\nNeed ensure JSON valid, no Markdown. Reason one/two sentences. Alternatives perhaps [].\n\nLet's craft: {\"model\": null, \"alternatives\": [], \"root_id\": null, \"member_id\": null, \"reason\": \"No retrieved dbt model or catalog metric measures Facebook advertising spend. `dau_attribution` has daily country and ads-channel attribution dimensions but only user/DAU/GMV metrics, while the finance country tables measure logistics purchase costs rather than ad spend, so neither can answer the requested amount.\"} Only object.</think>\n\n{\"model\":null,\"alternatives\":[],\"root_id\":null,\"member_id\":null,\"reason\":\"No retrieved dbt model or catalog metric measures Facebook advertising spend. `dau_attribution` has daily country and ads-channel dimensions but only user, DAU, and GMV metrics; the country-level finance models measure logistics purchase costs rather than ad spend.\"}"
+    }
+  ]
+}

@@ -1,0 +1,656 @@
+version: 2
+
+models:
+  - name: commerce_transaction_refund_items
+    description: >
+      Commerce (buyer) refund line items. Grain is one row per
+      `CommerceTransactionRefundItem` — a refund line embedded under a MongoDB
+      `CommerceTransactionRefund` document keyed by `(transaction_id,
+      variation_id)`. `refund_id` is the unique row key; one parent refund
+      document may carry many refund items, so aggregate at `refund_id` before
+      joining to avoid fan-out.
+
+
+      This is the primary analytical source for how much was refunded to the
+      user, by which payment method (original payment vs Wish Cash), why
+      (reason / high-level category), who initiated the refund, and how merchant
+      cost responsibility is allocated. It separates user-facing refund
+      amounts (`amount`, `refund_payment_amount`, `refund_cash_amount`,
+      `refund_fee_amount`) from merchant cost basis fields (`cost`,
+      `shipping_cost`, `merchant_responsibility`, `merchant_tax_amount`) — the
+      two are not interchangeable.
+
+
+      Built daily by Airflow DAG `IncrementalCTRefund_Tahoe` (08:00 UTC): the
+      extract picks refund items whose ObjectId falls in the run-day window,
+      merges them with the prior master, writes a dated snapshot
+      `sweeper_dev.commerce_transaction_refund_items_YYYYMMDD`, and recreates
+      the Hive view `wish.commerce_transaction_refund_items` as `SELECT *` from
+      that snapshot. Partitioned by `dt` (varchar YYYY-MM-DD, Pacific
+      refund-day derived from `refund_time`); always filter `dt` for pruning
+      and for refund-day semantics.
+
+
+      Time semantics: `dt` is the Pacific refund day and is the default metric
+      time dimension. `refund_time` is the refund item creation instant (unix
+      seconds, UTC) and `merchant_payment_time` is the merchant payout
+      deduction instant (stringified unix seconds); both are exposed as
+      timestamp columns for joins only, not as MetricFlow time dimensions
+      (the project time spine is day). `time` and `date` are ETL load-window
+      markers and must not be used for refund reporting.
+
+
+      Known gaps carried from the source: `reason_id` has no name column
+      because `sweeper_dev.dim_refund_reasons` may lag the Python enum — use
+      `reason_id` + `high_level_refund_category` here and join the dimension
+      in a Tableau model. `cash_refund_status`, `credit_refund_status` and
+      `refund_credit_amount` exist on Mongo but are not exported to this table.
+    config:
+      meta:
+        owner: raxu
+        hive_table: wish.commerce_transaction_refund_items
+        dag: IncrementalCTRefund_Tahoe
+        grain: one row per CommerceTransactionRefundItem (refund_id)
+    semantic_model:
+      enabled: true
+      name: commerce_transaction_refund_items
+    primary_entity: refund_item
+    agg_time_dimension: dt
+
+    columns:
+      # ------------------------------------------------------------------
+      # entities
+      # ------------------------------------------------------------------
+      - name: refund_id
+        description: >
+          Unique id of the refund line item (Mongo ObjectId string). Generated
+          when the refund job is queued so the same job cannot run twice and
+          double-refund. The unique row key of this table and the primary
+          entity of the semantic model.
+        data_tests:
+          - not_null
+        entity:
+          type: primary
+          name: refund_item
+          description: One refund line item on wish.commerce_transaction_refund_items.
+
+      - name: transaction_id
+        description: >
+          Commerce transaction (order) id (Mongo ObjectId string) of the parent
+          `CommerceTransactionRefund` document. With `variation_id` it identifies
+          the parent commerce line item. Join key into the order / transaction
+          fact tables.
+        entity:
+          type: foreign
+          name: transaction
+          description: Commerce transaction (order) id.
+
+      - name: variation_id
+        description: >
+          Product variation id (Mongo ObjectId string). With `transaction_id` it
+          uniquely identifies the parent commerce line item / refund document.
+        entity:
+          type: foreign
+          name: variation
+          description: Product variation id.
+
+      - name: merchant_payment_id
+        description: >
+          Associated `MerchantPayment.id` (Mongo ObjectId string) for the
+          merchant payout deduction caused by this refund. Often null while
+          `merchant_payment_status` is UNDEDUCTED.
+        entity:
+          type: foreign
+          name: merchant_payment
+          description: Merchant payment (payout) id.
+
+      # ------------------------------------------------------------------
+      # time
+      # ------------------------------------------------------------------
+      - name: dt
+        description: >
+          Pacific refund-day partition (varchar YYYY-MM-DD in
+          America/Los_Angeles), derived from `refund_time` at ETL time. This is
+          the default metric time dimension and the preferred filter for large
+          scans and refund-day reporting. Cast to DATE here. Distinct from the
+          ETL load day (`date`) and from the UTC calendar day of
+          `refund_time` — near midnight the two can differ.
+        granularity: day
+        is_partition: true
+        dimension:
+          type: time
+          label: Refund day (Pacific)
+
+      - name: refund_time
+        description: >
+          Unix epoch seconds (UTC) when the refund item was created — the
+          primary refund business event timestamp. Not registered as a
+          MetricFlow time dimension (unix seconds; project time spine is day);
+          use `dt` for refund-day reporting.
+        label: Refund time (unix s)
+
+      - name: refund_time_ts
+        description: >
+          `refund_time` converted to a UTC timestamp for joins and display.
+          Not registered as a MetricFlow time dimension.
+        label: Refund timestamp (UTC)
+
+      - name: merchant_payment_time
+        description: >
+          Unix epoch seconds (UTC, stored as varchar) when Wish deducted the
+          merchant-responsible portion from the merchant payment. Often null
+          or empty when `merchant_payment_status` is UNDEDUCTED. Typically on
+          or after `refund_time`. Parse with
+          `try_cast(merchant_payment_time as bigint)`. Not registered as a
+          MetricFlow time dimension.
+        label: Merchant deduction time (unix s)
+
+      - name: merchant_payment_time_ts
+        description: >
+          `merchant_payment_time` parsed and converted to a UTC timestamp for
+          joins and display. Not registered as a MetricFlow time dimension.
+        label: Merchant deduction timestamp (UTC)
+
+      - name: payment_refund_status_time
+        description: >
+          Unix epoch seconds (UTC) when the original-payment refund leg status
+          last changed (PSP confirmation, e.g. REFUND_ISSUED). Not the refund
+          item creation time, and the Wish Cash leg status time is not
+          exported to this table. Not registered as a MetricFlow time
+          dimension.
+        label: Payment refund status time (unix s)
+
+      - name: time
+        description: >
+          Unix epoch seconds of the Airflow day-window END for the ETL batch
+          that loaded this row. Pipeline metadata only — identical for every
+          row in one DAG run. Not refund creation time. Do not use for refund
+          analytics or time-series reporting.
+        label: ETL load window end (unix s)
+
+      - name: date
+        description: >
+          Unix epoch seconds of the Airflow day-window START for the ETL batch
+          that loaded this row. Pipeline load-day marker only. Do not
+          substitute for `refund_time` or `dt` in business reporting.
+        label: ETL load window start (unix s)
+
+      # ------------------------------------------------------------------
+      # user-facing refund amounts (USD)
+      # ------------------------------------------------------------------
+      - name: amount
+        description: >
+          Total USD amount refunded to the user for this item. Business rule:
+          `amount = refund_payment_amount + refund_cash_amount` (the fee is
+          separate, in `refund_fee_amount`). Referenced by the `refund_amount`
+          metric.
+        label: Refund amount (USD)
+
+      - name: refund_payment_amount
+        description: >
+          USD amount of the user's external payment spend being refunded.
+          Cannot exceed what the user paid externally. Pre-2017-07-20 refunds
+          may be null — treat as `amount`. Referenced by the
+          `refund_payment_amount` metric.
+        label: Refund payment amount (USD)
+
+      - name: refund_cash_amount
+        description: >
+          USD amount refunding the user's Wish Cash spend (always returned to
+          commerce cash). Pre-2017-07-20 refunds may be null — treat as 0.
+        label: Refund cash amount (USD)
+
+      - name: refund_fee_amount
+        description: >
+          Transaction fee amount refunded with the item, always in USD (not
+          localized). Financial reporting must decide explicitly whether
+          "refund GMV" includes it. Referenced by the `refund_fee_amount`
+          metric.
+        label: Refund fee amount (USD)
+
+      - name: localized_amount
+        description: >
+          Total refund amount in the user's local currency. Not aggregatable
+          across currencies, so it is deliberately not exposed as a metric.
+        label: Localized refund amount
+
+      - name: localized_refund_payment_amount
+        description: >
+          Localized-currency counterpart of `refund_payment_amount`. Not
+          aggregatable across currencies, so it is deliberately not exposed as
+          a metric.
+        label: Localized refund payment amount
+
+      - name: localized_refund_cash_amount
+        description: >
+          Localized-currency counterpart of `refund_cash_amount`. Not
+          aggregatable across currencies, so it is deliberately not exposed as
+          a metric.
+        label: Localized refund cash amount
+
+      - name: quantity
+        description: >
+          Quantity of items covered by this refund line (relevant for FULL and
+          PARTIAL_QUANTITY refunds). Referenced by the `refund_quantity`
+          metric.
+        label: Refund quantity
+
+      # ------------------------------------------------------------------
+      # merchant cost basis (USD) - not what the user was refunded
+      # ------------------------------------------------------------------
+      - name: cost
+        description: >
+          Merchant item cost for the refunded line in USD (localized merchant
+          cost converted with hedged, else daily, else spot FX). Merchant cost
+          basis, not user-paid price. Referenced by the `merchant_cost`
+          metric.
+        label: Merchant item cost (USD)
+
+      - name: shipping_cost
+        description: >
+          Merchant shipping cost for the refunded item in USD (localized
+          merchant shipping cost converted with hedged, else daily, else spot
+          FX). Merchant cost basis, not user-paid shipping. Referenced by the
+          `merchant_shipping_cost` metric.
+        label: Merchant shipping cost (USD)
+
+      - name: merchant_tax_amount
+        description: >
+          Tax amount associated with this refund when the merchant remits tax
+          (USD, >= 0). Defaults to 0. Referenced by the `merchant_tax_amount`
+          metric.
+        label: Merchant tax amount (USD)
+
+      - name: merchant_responsibility
+        description: >
+          Float in [0.0, 1.0]: the share of the refund cost borne by the
+          merchant. 1.0 = merchant fully responsible, 0.0 = Wish fully
+          responsible. Used as a multiplier in `merchant_responsible_amount`.
+          A continuous ratio, so it is exposed as a coefficient rather than a
+          groupable dimension.
+        label: Merchant responsibility share
+
+      - name: partial_amount_percentage
+        description: >
+          Multiplicative factor in [0.0, 1.0] applied when `type` is 3
+          (PARTIAL_AMOUNT) to the merchant amount calculation. Defaults to
+          0.0. A continuous ratio, so it is exposed as a coefficient rather
+          than a groupable dimension.
+        label: Partial amount percentage
+
+      # ------------------------------------------------------------------
+      # documented calculated fields (materialized in the model SQL)
+      # ------------------------------------------------------------------
+      - name: refund_to_original_payment_amount
+        description: >
+          Refund amount that went back to the user's original external payment
+          method. Documented formula:
+          `case when coalesce(refund_payment_method, 1) = 1 then coalesce(refund_payment_amount, amount) else 0 end`.
+          Referenced by the `refund_to_original_payment_amount` metric.
+        label: Refund to original payment (USD)
+
+      - name: refund_to_wish_cash_amount
+        description: >
+          Refund amount that went back to the user's Wish Cash balance.
+          Documented formula:
+          `coalesce(refund_cash_amount, 0) + case when refund_payment_method = 2 then coalesce(refund_payment_amount, 0) else 0 end`.
+          Referenced by the `refund_to_wish_cash_amount` metric.
+        label: Refund to Wish Cash (USD)
+
+      - name: merchant_amount
+        description: >
+          Merchant cost basis for the refunded line:
+          `(cost + shipping_cost) * quantity`, multiplied by
+          `partial_amount_percentage` when `type` is 3 (PARTIAL_AMOUNT).
+          Referenced by the `merchant_amount` metric.
+        label: Merchant amount (USD)
+
+      - name: merchant_responsible_amount
+        description: >
+          Merchant share of the refund cost:
+          `merchant_amount * coalesce(merchant_responsibility, 0)`. This is the
+          merchant eat-cost figure used by risk / finance OKR reporting.
+          Referenced by the `merchant_responsible_amount` metric.
+        label: Merchant responsible amount (USD)
+
+      # ------------------------------------------------------------------
+      # reason
+      # ------------------------------------------------------------------
+      - name: reason_id
+        description: >
+          Refund reason category id (`CommerceTransactionItem.RefundReasonCategory`).
+          103 documented codes (-1 through 1110), including deprecated codes
+          that may still appear historically. There is deliberately no name
+          column: `sweeper_dev.dim_refund_reasons` may lag the Python enum, so
+          use `reason_id` + `high_level_refund_category` here and join the
+          dimension in a Tableau model.
+        dimension:
+          type: categorical
+          label: Refund reason id
+
+      - name: reason_note
+        description: >
+          Free-text note for the refund (ASCII-cleaned at ETL). Unstructured
+          and high cardinality — filter on it only with care.
+        dimension:
+          type: categorical
+          label: Refund reason note
+
+      - name: high_level_refund_category
+        description: >
+          Coarse refund category assigned at ETL from `reason_id` via
+          `HighLevelRefundReasonCategory.REASON_ID_TO_HIGH_LEVEL_CATEGORY_MAP`.
+          Possible values: Cancellation, Fraud & Risk, Fulfillment, Logistics,
+          Merchant - Product Issue, Merchant - Gaming/Listing Issue, Product,
+          Wish Error, Wish Local. Null when `reason_id` is not in the map
+          (e.g. deprecated codes, 66=PREFER_NOT_TO_SAY, some CommerceHub
+          codes).
+        dimension:
+          type: categorical
+          label: High-level refund category
+
+      - name: refund_by
+        description: >
+          User / script / job identifier that issued the refund (often a
+          MerchantUser ObjectId or a job name). Open set of issuers.
+        dimension:
+          type: categorical
+          label: Refunded by
+
+      # ------------------------------------------------------------------
+      # enums: raw code + human-readable label
+      # ------------------------------------------------------------------
+      - name: source
+        description: >
+          Refund issuer channel code (`RefundSource`). 100=MERCHANT,
+          200=USER, 300=WISH, 400=PAYMENT_PROVIDER. See `source_name` for the
+          human-readable label.
+        dimension:
+          type: categorical
+          label: Refund source code
+
+      - name: source_name
+        description: >
+          Human-readable refund issuer channel derived from `source`:
+          Merchant Dashboard, Wish Assistant / Transaction Detail Page, Wish
+          Admin / CS Agent, Payment Provider. Use this for reporting; `source`
+          remains the raw code.
+        dimension:
+          type: categorical
+          label: Refund source
+
+      - name: type
+        description: >
+          Refund scope code (`RefundType`). 1=FULL, 2=PARTIAL_QUANTITY,
+          3=PARTIAL_AMOUNT. `type` = 3 additionally uses
+          `partial_amount_percentage` and `amount_type`. See `type_name`.
+        dimension:
+          type: categorical
+          label: Refund type code
+
+      - name: type_name
+        description: >
+          Human-readable refund scope derived from `type`: FULL,
+          PARTIAL_QUANTITY, PARTIAL_AMOUNT.
+        dimension:
+          type: categorical
+          label: Refund type
+
+      - name: amount_type
+        description: >
+          Partial-amount component code (`RefundAmountType`). 1=GENERAL,
+          2=SHIPPING, 3=PRICE. Only relevant when `type` is 3
+          (PARTIAL_AMOUNT). See `amount_type_name`.
+        dimension:
+          type: categorical
+          label: Refund amount type code
+
+      - name: amount_type_name
+        description: >
+          Human-readable partial-amount component derived from `amount_type`:
+          GENERAL, SHIPPING, PRICE.
+        dimension:
+          type: categorical
+          label: Refund amount type
+
+      - name: refund_payment_method
+        description: >
+          Destination of `refund_payment_amount` (`RefundMethod`).
+          1=ORIGINAL_PAYMENT, 2=COMMERCE_CASH. Null on pre-2017 rows —
+          assume 1. See `refund_payment_method_name`.
+        dimension:
+          type: categorical
+          label: Refund payment method code
+
+      - name: refund_payment_method_name
+        description: >
+          Human-readable refund destination derived from
+          `refund_payment_method`: ORIGINAL_PAYMENT, COMMERCE_CASH (Wish
+          Cash).
+        dimension:
+          type: categorical
+          label: Refund payment method
+
+      - name: payment_refund_status
+        description: >
+          Original-payment refund leg status code (`RefundStatus`).
+          1=REFUND_INITIATED (Pending), 2=REFUND_ISSUED (Confirmed),
+          3=REFUND_VOIDED (Not Paid), 4=REFUND_FAILED (Denied). Final
+          statuses are 2 and 3. The Wish Cash leg status is not exported to
+          this table. See `payment_refund_status_name`.
+        dimension:
+          type: categorical
+          label: Payment refund status code
+
+      - name: payment_refund_status_name
+        description: >
+          Human-readable original-payment refund leg status derived from
+          `payment_refund_status`: REFUND_INITIATED, REFUND_ISSUED,
+          REFUND_VOIDED, REFUND_FAILED.
+        dimension:
+          type: categorical
+          label: Payment refund status
+
+      - name: merchant_payment_status
+        description: >
+          Merchant payout deduction state code (`PaymentStatus`).
+          0=UNDEDUCTED, 1=DEDUCTED_BEFORE_PAYMENT,
+          2=DEDUCTED_AFTER_PAYMENT. See `merchant_payment_status_name`.
+        dimension:
+          type: categorical
+          label: Merchant payment status code
+
+      - name: merchant_payment_status_name
+        description: >
+          Human-readable merchant payout deduction state derived from
+          `merchant_payment_status`: UNDEDUCTED, DEDUCTED_BEFORE_PAYMENT,
+          DEDUCTED_AFTER_PAYMENT.
+        dimension:
+          type: categorical
+          label: Merchant payment status
+
+      - name: should_refund_payment
+        description: >
+          Boolean flag stored as the string 'true' / 'false'. 'true' = the
+          refund returns the user's external payment spend; 'false' =
+          cash-only / non-payment refund path.
+        dimension:
+          type: categorical
+          label: Should refund payment (raw)
+
+      - name: should_refund_payment_name
+        description: >
+          Human-readable rendering of `should_refund_payment`: "Refund to
+          original payment" or "Cash-only refund (no external payment
+          refund)".
+        dimension:
+          type: categorical
+          label: Should refund payment
+
+      - name: merchant_dispute_reason
+        description: >
+          Merchant dispute reason code, stored as a string (Corresponds to the
+          `DisputeReason` enum when set). See `merchant_dispute_reason_name`
+          for the decoded value.
+        dimension:
+          type: categorical
+          label: Merchant dispute reason code
+
+      - name: merchant_dispute_reason_name
+        description: >
+          Human-readable merchant dispute reason decoded from
+          `merchant_dispute_reason` (CORRECT_SIZE, VALID_TRACKING,
+          AUTHORIZED_TO_SELL, FRAUDULENT_BEHAVIOR, MERCHANT_HIGH_REFUND_EAT_COST,
+          MERCHANT_REPORT_FRAUD, MERCHANT_REPORT_RETURN, ...). Unmapped values
+          fall through to the raw code.
+        dimension:
+          type: categorical
+          label: Merchant dispute reason
+
+    metrics:
+      - name: refund_amount
+        type: simple
+        label: Refund amount (USD)
+        description: >
+          Total USD amount refunded to the user, summed over refund line items.
+          Model contract: `amount = refund_payment_amount + refund_cash_amount`.
+          The transaction fee is excluded (see `refund_fee_amount`).
+        agg: sum
+        expr: amount
+        fill_nulls_with: 0
+
+      - name: refund_fee_amount
+        type: simple
+        label: Refund fee amount (USD)
+        description: >
+          Total USD transaction fee refunded along with the item. Kept separate
+          from `refund_amount` so that "refund GMV" definitions can include or
+          exclude it explicitly.
+        agg: sum
+        expr: refund_fee_amount
+        fill_nulls_with: 0
+
+      - name: refund_to_original_payment_amount
+        type: simple
+        label: Refund to original payment (USD)
+        description: >
+          USD refunded back to the user's original external payment method.
+          Uses `coalesce(refund_payment_method, 1) = 1` so pre-2017 rows with a
+          null method are treated as ORIGINAL_PAYMENT.
+        agg: sum
+        expr: refund_to_original_payment_amount
+        fill_nulls_with: 0
+
+      - name: refund_to_wish_cash_amount
+        type: simple
+        label: Refund to Wish Cash (USD)
+        description: >
+          USD refunded back to the user's Wish Cash balance, including the
+          payment-amount leg when `refund_payment_method` is 2
+          (COMMERCE_CASH).
+        agg: sum
+        expr: refund_to_wish_cash_amount
+        fill_nulls_with: 0
+
+      - name: refund_quantity
+        type: simple
+        label: Refunded quantity
+        description: >
+          Total number of items covered by the refund lines in scope. Relevant
+          for FULL and PARTIAL_QUANTITY refunds; `type` = 3 (PARTIAL_AMOUNT)
+          lines are amount-based.
+        agg: sum
+        expr: quantity
+        fill_nulls_with: 0
+
+      - name: refund_items
+        type: simple
+        label: Refund line items
+        description: >
+          Count of refund line items in scope. One row per
+          `CommerceTransactionRefundItem`.
+        agg: count
+        expr: 1
+
+      - name: refunded_transactions
+        type: simple
+        label: Refunded transactions
+        description: >
+          Distinct commerce transactions (orders) that have at least one refund
+          line item in scope. A transaction may carry several refund items.
+        agg: count_distinct
+        expr: transaction_id
+
+      - name: refunded_variations
+        type: simple
+        label: Refunded variations
+        description: >
+          Distinct product variations (SKUs) that have at least one refund line
+          item in scope.
+        agg: count_distinct
+        expr: variation_id
+
+      - name: refund_amount_issued
+        type: simple
+        label: Refund amount issued (USD)
+        description: >
+          USD refunded to the user's original payment where the payment leg
+          reached REFUND_ISSUED (PSP confirmed). Excludes refunds that are
+          still pending, voided or denied.
+        agg: sum
+        expr: amount
+        fill_nulls_with: 0
+        filter: |
+          {{ Dimension('refund_item__payment_refund_status_name') }} = 'REFUND_ISSUED'
+
+      - name: merchant_amount
+        type: simple
+        label: Merchant amount (USD)
+        description: >
+          Merchant cost basis for the refunded lines:
+          `(cost + shipping_cost) * quantity`, adjusted by
+          `partial_amount_percentage` for PARTIAL_AMOUNT refunds. This is the
+          merchant cost, not the amount refunded to the user.
+        agg: sum
+        expr: merchant_amount
+        fill_nulls_with: 0
+
+      - name: merchant_responsible_amount
+        type: simple
+        label: Merchant responsible amount (USD)
+        description: >
+          Merchant share of the refund cost: `merchant_amount *
+          coalesce(merchant_responsibility, 0)`. This is the merchant eat-cost
+          figure used in risk / finance OKR reporting.
+        agg: sum
+        expr: merchant_responsible_amount
+        fill_nulls_with: 0
+
+      - name: merchant_cost
+        type: simple
+        label: Merchant item cost (USD)
+        description: >
+          Sum of the merchant item cost of the refunded lines (USD), before
+          shipping and before the responsibility split.
+        agg: sum
+        expr: cost
+        fill_nulls_with: 0
+
+      - name: merchant_shipping_cost
+        type: simple
+        label: Merchant shipping cost (USD)
+        description: >
+          Sum of the merchant shipping cost of the refunded lines (USD). This
+          is merchant cost basis, not user-paid shipping.
+        agg: sum
+        expr: shipping_cost
+        fill_nulls_with: 0
+
+      - name: merchant_tax_amount
+        type: simple
+        label: Merchant tax amount (USD)
+        description: >
+          Sum of the tax remitted by the merchant on the refunded lines (USD).
+        agg: sum
+        expr: merchant_tax_amount
+        fill_nulls_with: 0

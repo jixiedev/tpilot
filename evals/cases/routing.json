@@ -1,0 +1,131 @@
+{
+  "models": [
+    "MiniMax-M3"
+  ],
+  "lead": [
+    {
+      "name": "data_gmv_query",
+      "query": "What was yesterday's GMV? Use the warehouse and run SQL if needed.",
+      "expected_decision": "delegate",
+      "expected_routes": [
+        "warehouse"
+      ]
+    },
+    {
+      "name": "data_table_lookup",
+      "query": "Find the table that stores daily active users and describe its schema.",
+      "expected_decision": "delegate",
+      "expected_routes": [
+        "warehouse"
+      ]
+    },
+    {
+      "name": "knowledge_jira_lookup",
+      "query": "Which Jira ticket tracks security vulnerabilities in Superset?",
+      "expected_decision": "delegate",
+      "expected_routes": [
+        "knowledge"
+      ]
+    },
+    {
+      "name": "knowledge_architecture_docs",
+      "query": "Where is the Tahoe deployment architecture documented?",
+      "expected_decision": "delegate",
+      "expected_routes": [
+        "knowledge"
+      ]
+    },
+    {
+      "name": "knowledge_glossary_definition",
+      "query": "What does GMV mean in our glossary?",
+      "expected_decision": "delegate",
+      "expected_routes": [
+        "knowledge"
+      ]
+    },
+    {
+      "name": "composite_gmv_definition_then_query",
+      "query": "Look up the GMV metric definition in team docs, then query yesterday's GMV from the warehouse.",
+      "expected_decision": "plan",
+      "expected_routes": [
+        "knowledge",
+        "warehouse"
+      ]
+    },
+    {
+      "name": "diagnostic_failed_dag",
+      "query": "The daily_orders Airflow DAG failed last night. Check its task logs and tell me why.",
+      "expected_decision": "delegate",
+      "expected_routes": [
+        "diagnostic"
+      ]
+    },
+    {
+      "name": "analysis_trend_chart",
+      "query": "Compare weekly GMV by region over the last quarter and chart the trend.",
+      "expected_decision": "delegate",
+      "expected_routes": [
+        "data_analysis"
+      ]
+    },
+    {
+      "name": "swe_edit_script",
+      "query": "Add a --dry-run flag to scripts/backfill.py and run it once to check it works.",
+      "expected_decision": "delegate",
+      "expected_routes": [
+        "swe"
+      ]
+    },
+    {
+      "name": "plan_diagnose_then_fix",
+      "query": "Find out why the orders_daily Trino query started failing today, then fix the SQL in our dbt model file.",
+      "expected_decision": "plan",
+      "expected_routes": [
+        "diagnostic",
+        "swe"
+      ]
+    },
+    {
+      "name": "answer_small_talk",
+      "query": "hello",
+      "expected_decision": [
+        "answer",
+        "clarify"
+      ],
+      "expected_routes": []
+    },
+    {
+      "name": "answer_capabilities",
+      "query": "What kinds of requests can you help me with?",
+      "expected_decision": "answer",
+      "expected_routes": []
+    },
+    {
+      "name": "clarify_ambiguous_revenue",
+      "query": "Show me revenue.",
+      "expected_decision": "clarify",
+      "expected_routes": []
+    },
+    {
+      "name": "clarify_unclear_fix",
+      "query": "It broke again, can you fix it?",
+      "expected_decision": "clarify",
+      "expected_routes": []
+    },
+    {
+      "name": "specialist_infra_error_is_reported_not_debugged",
+      "query": "what is gmv of wish in last month",
+      "expected_decision": "delegate",
+      "expected_routes": [
+        "warehouse"
+      ],
+      "max_delegations": 2,
+      "stub_results": {
+        "warehouse": {
+          "status": "failed",
+          "summary": "I couldn't get the GMV: the warehouse query could not run. Exact error: no approved SQL in state"
+        }
+      }
+    }
+  ]
+}

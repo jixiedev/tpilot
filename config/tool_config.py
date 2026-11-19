@@ -23,6 +23,12 @@ class TrinoToolConfig(BaseModel):
     catalog: str = "hive"
     schema_name: str = "default"
     http_scheme: str = "https"
+    #: Seconds per HTTP request to the coordinator (each poll of a running query).
+    request_timeout_seconds: float = 30.0
+    #: Driver-level attempts per request. The tool wrapper already retries
+    #: transient errors once, so the driver's default of 3 made an unreachable
+    #: Trino block a single tool call for ~3 minutes (6 with the wrapper retry).
+    max_attempts: int = 1
 
 
 class DataHubToolConfig(BaseModel):

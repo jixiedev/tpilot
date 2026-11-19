@@ -8,32 +8,30 @@ import {
 // ---------------------------------------------------------------------------
 // Path B wiring (see agui_server.py and langgraph.json http.app).
 //
-// The graph runs wrapped in a ``LangGraphAgent`` and is served by
-// ``langgraph dev`` on port 8000 at the ``/agui`` path. ``langgraph dev``
-// honours the ``http.app`` field in langgraph.json — it imports the
-// module and mounts the resulting Starlette/FastAPI app alongside its
-// own LangGraph Platform routes.
-//
-// This route no longer wraps a ``LangGraphAgent`` — that was the source
-// of the "View in Inspector (local only)" issue, because the raw AG-UI
-// bridge didn't surface the graph's tool calls to the runtime's
-// registry. We now point the runtime straight at the AG-UI endpoint
-// via an ``HttpAgent`` so the runtime forwards events 1:1 and lets the
-// frontend's chat panel re-render.
+// ``langgraph dev`` (port 8000) mounts agui_server.py, which serves one AG-UI
+// endpoint per front agent: ``/agui/lead`` and ``/agui/databot``. Each
+// CopilotKit agent below forwards to its endpoint through a plain
+// ``HttpAgent``, so tool calls, state snapshots and interrupts pass 1:1.
+// The pages pick their agent: ``/lead`` uses ``lead``, ``/databot`` uses
+// ``databot``.
 // ---------------------------------------------------------------------------
 
-const AGUI_BACKEND_URL =
-  process.env.AGUI_BACKEND_URL || "http://localhost:8000/agui";
+/** AG-UI base URL; each agent is served at ``${AGUI_BACKEND_URL}/<agent>``. */
+const AGUI_BACKEND_URL = (
+  process.env.AGUI_BACKEND_URL || "http://localhost:8000/agui"
+).replace(/\/+$/, "");
 
 const runtime = new CopilotRuntime({
   agents: {
-    // One HttpAgent per logical agent name. The CopilotKit runtime keys
-    // its agent registry on this name; the frontend's ``useAgent`` and
-    // the ``<CopilotKit agent="...">`` prop must use the same string.
-    databot: new HttpAgent({
-      url: AGUI_BACKEND_URL,
+    // Keys are the agent ids the pages use (``useAgent({ agentId })``).
+    lead: new HttpAgent({
+      url: `${AGUI_BACKEND_URL}/lead`,
       description:
-        "Databot — staged data retrieval pipeline (RAG → human-gated SQL → execute).",
+        "TahoePilot lead agent — answers, plans and delegates to specialists (warehouse runs reviewed SQL).",
+    }),
+    databot: new HttpAgent({
+      url: `${AGUI_BACKEND_URL}/databot`,
+      description: "Databot — table cards → human-gated SQL → execute.",
     }),
   },
   // SSE mode. The real conversation state lives in checkpoints.sqlite

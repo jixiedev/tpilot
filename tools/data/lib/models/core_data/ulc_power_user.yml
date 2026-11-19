@@ -1,0 +1,140 @@
+version: 2
+
+models:
+  - name: ulc_power_user
+    description: >
+      User Lifecycle (ULC) power-day snapshot: one row per user_id × dt for users
+      with DAU on the snapshot calendar day. power_days counts distinct active
+      calendar days in core_data.fct_dau_w_bots over a rolling 28-day window
+      ending on dt (inclusive upper bound). Daily pipeline requires activity on
+      dt itself (HAVING COUNT_IF(dau.dt = ds) >= 1). Values are 1–28 when
+      day_interval = 28. Downstream ulc_active_users derives power_flag from
+      power_days >= 10. Grain is (user_id, dt). dt is the Hive partition key
+      and aligns to Airflow ds (YYYY-MM-DD). Source: core_data.ulc_power_user
+      (UlcPowerUserDaily / UlcPowerUserOverwrite).
+    config:
+      meta:
+        owner: zpasha
+        hive_table: core_data.ulc_power_user
+        dag: UlcPowerUserDaily
+        timezone: UTC
+    semantic_model:
+      enabled: true
+      name: ulc_power_user
+      config:
+        meta:
+          owner: zpasha
+          usage: >
+            Always filter metric_time / dt first for partition pruning. Join on
+            user_id AND dt for daily grain. power_days is distinct DAU days in a
+            rolling 28-day window ending on dt — not days-since-X or session
+            length. Daily partitions only include users active on dt; use LEFT
+            JOIN when inactive users matter. ulc_active_users picks
+            max_by(power_days, dt) over a relative window when joining.
+    agg_time_dimension: dt
+
+    columns:
+      - name: user_day_id
+        description: Surrogate primary key, user_id|dt.
+        data_tests:
+          - not_null
+        entity:
+          type: primary
+          name: power_user_day
+          description: One ULC power-day row for a user on a snapshot calendar day.
+
+      - name: user_id
+        description: Wish user identifier. Grain key with dt.
+        entity:
+          type: foreign
+          name: user
+          description: Join key to fct_dau_w_bots, ulc_active_users, and other user-day facts.
+
+      - name: dt
+        description: >
+          Hive partition and ULC snapshot calendar day (source string cast to
+          date). Inclusive upper bound of the DAU window that feeds power_days.
+          Aligns to Airflow ds on write.
+        granularity: day
+        dimension:
+          type: time
+          label: ULC snapshot day
+          is_partition: true
+
+      - name: is_power_user
+        description: >
+          Binary power-user flag derived from power_days: 1 when power_days >= 10
+          (power_thresh), else 0.
+        dimension:
+          type: categorical
+          label: Power user flag code
+
+      - name: is_power_user_name
+        description: Human-readable power-user label (Power user / Not power user).
+        dimension:
+          type: categorical
+          label: Is power user
+
+      - name: power_days
+        description: >
+          Distinct calendar days with DAU in rolling 28-day window ending on dt.
+          Bounded integer 1–28 when day_interval = 28.
+
+      - name: dt_str
+        description: Source partition string YYYY-MM-DD (varchar).
+
+    metrics:
+      - name: user_day_rows
+        type: simple
+        label: Power user-day rows
+        description: Row count at user_id × dt grain.
+        agg: count
+        expr: 1
+        fill_nulls_with: 0
+
+      - name: snapshot_users
+        type: simple
+        label: Snapshot users
+        description: >
+          Distinct users with a power-day row on dt. Daily pipeline includes only
+          users active on dt; each row is one user-day.
+        agg: count_distinct
+        expr: user_id
+
+      - name: power_users
+        type: simple
+        label: Power users
+        description: >
+          Distinct users with power_days >= 10 (power_thresh) on dt.
+        agg: count_distinct
+        expr: user_id
+        filter: "{{ Dimension('power_user_day__is_power_user_name') }} = 'Power user'"
+
+      - name: power_days_total
+        type: simple
+        label: Power days total
+        description: Sum of power_days across user-days on dt.
+        agg: sum
+        expr: power_days
+        fill_nulls_with: 0
+
+      - name: power_days_average
+        type: simple
+        label: Power days average
+        description: Average power_days across user-days on dt.
+        agg: average
+        expr: power_days
+
+      - name: power_user_days
+        type: simple
+        label: Power user-days
+        description: User-day rows where power_days >= 10.
+        agg: sum_boolean
+        expr: is_power_user
+
+      - name: power_user_rate
+        type: ratio
+        label: Power user rate
+        description: Power users / snapshot users on dt.
+        numerator: power_users
+        denominator: snapshot_users

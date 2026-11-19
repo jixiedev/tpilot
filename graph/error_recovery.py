@@ -10,7 +10,7 @@ from collections.abc import Awaitable, Callable
 from typing import Any, TypeVar
 
 from langchain_core.messages import AIMessage, ToolMessage
-from langgraph.errors import NodeError
+from langgraph.errors import GraphBubbleUp, NodeError
 from langgraph.prebuilt.tool_node import ToolCallRequest
 from langgraph.types import Command, RetryPolicy
 
@@ -26,8 +26,11 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_TOOL_RETRY_ATTEMPTS = 2
 DEFAULT_TOOL_RETRY_BASE_DELAY = 0.5
-DEFAULT_LLM_RETRY_ATTEMPTS = 2
-DEFAULT_LLM_RETRY_BASE_DELAY = 0.5
+# A provider overload (MiniMax 529 "service cluster under heavy load") clears
+# within seconds; two tries 0.5 s apart failed whole web runs. Linear backoff:
+# 2 s, 4 s, 6 s.
+DEFAULT_LLM_RETRY_ATTEMPTS = 4
+DEFAULT_LLM_RETRY_BASE_DELAY = 2.0
 
 _TOOL_RECOVERY_PROMPT = """\
 A tool step failed after automatic retries. Review the latest TOOL ERROR JSON \
@@ -103,6 +106,60 @@ def _enrich_tool_error_message(
     return enriched, structured
 
 
+class BubbleUpCarrier(BaseException):
+    """Carries a LangGraph ``GraphBubbleUp`` (interrupt) past ToolNode's wrapper guard.
+
+    With ``wrap_tool_call`` / ``awrap_tool_call`` set, ToolNode (langgraph 1.2)
+    turns any ``Exception`` raised through the wrapper into an error ToolMessage,
+    ``GraphInterrupt`` included, so an interrupt inside a tool (e.g. a nested
+    specialist's human gate) would never pause the graph. The wrappers below
+    re-raise it inside this ``BaseException``; ``StepActionNode`` unwraps it.
+    """
+
+    def __init__(self, original: BaseException) -> None:
+        super().__init__(original)
+        self.original = original
+
+
+def _unreachable_this_turn(request: ToolCallRequest, tool_name: str) -> ToolMessage | None:
+    """Short-circuit a tool whose service was unreachable earlier in this turn.
+
+    Each attempt against a down service can block for the full timeout (plus
+    the automatic retry), and models tend to rephrase and call again. After a
+    ``connection`` failure, later calls in the same turn (since the latest
+    human message) return that failure at once.
+    """
+    state = request.state if isinstance(request.state, dict) else {}
+    for message in reversed(list(state.get("messages") or [])):
+        if getattr(message, "type", "") == "human":
+            return None
+        if not isinstance(message, ToolMessage) or (message.name or "") != tool_name:
+            continue
+        earlier = StructuredToolError.from_message_content(str(message.content))
+        if earlier is None or earlier.error_type is not ToolErrorType.CONNECTION:
+            continue
+        skipped = StructuredToolError(
+            error_type=ToolErrorType.CONNECTION,
+            tool=tool_name,
+            message=(
+                f"not called: `{tool_name}` could not reach its service earlier in this "
+                f"turn ({earlier.message})"
+            ),
+            retryable=False,
+            hint=(
+                f"`{tool_name}` is unreachable this turn. Do not call it again; continue "
+                "without it and say in your reply which service was unreachable."
+            ),
+        )
+        return ToolMessage(
+            content=skipped.to_message_content(),
+            name=tool_name,
+            tool_call_id=str(request.tool_call.get("id") or ""),
+            status="error",
+        )
+    return None
+
+
 def make_retrying_tool_wrapper(
     *,
     max_attempts: int = DEFAULT_TOOL_RETRY_ATTEMPTS,
@@ -118,8 +175,14 @@ def make_retrying_tool_wrapper(
         execute: Callable[[ToolCallRequest], ToolMessage | Any],
     ) -> ToolMessage | Any:
         tool_name = request.tool_call.get("name", "unknown")
+        skipped = _unreachable_this_turn(request, tool_name)
+        if skipped is not None:
+            return skipped
         for attempt in range(max_attempts):
-            result = execute(request)
+            try:
+                result = execute(request)
+            except GraphBubbleUp as exc:
+                raise BubbleUpCarrier(exc) from None
             if not isinstance(result, ToolMessage) or result.status != "error":
                 return result
 
@@ -166,8 +229,14 @@ def make_async_retrying_tool_wrapper(
         execute: Callable[[ToolCallRequest], Awaitable[ToolMessage | Any]],
     ) -> ToolMessage | Any:
         tool_name = request.tool_call.get("name", "unknown")
+        skipped = _unreachable_this_turn(request, tool_name)
+        if skipped is not None:
+            return skipped
         for attempt in range(max_attempts):
-            result = await execute(request)
+            try:
+                result = await execute(request)
+            except GraphBubbleUp as exc:
+                raise BubbleUpCarrier(exc) from None
             if not isinstance(result, ToolMessage) or result.status != "error":
                 return result
 
@@ -246,6 +315,8 @@ def transient_llm_retry_on(exc: BaseException) -> bool:
             "connection refused",
             "temporarily unavailable",
             " 429",
+            " 529",
+            "overloaded",
             " 502",
             " 503",
             " 504",

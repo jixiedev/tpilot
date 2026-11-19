@@ -4,25 +4,20 @@ from __future__ import annotations
 
 from config.agent_config import (
     DatabotAgentConfig,
-    IntentAgentConfig,
-    PlanAgentConfig,
+    LeadAgentConfig,
     ReactAgentConfig,
     agent_config_path,
 )
 
 
-def test_handoff_context_is_narrow() -> None:
-    ctx = IntentAgentConfig(agent_config_path("intent")).run_context
-    assert ctx["max_tool_calls"] == 30
-    assert ctx["clarification_threshold"] == 0.85
-    assert ctx["max_clarification_rounds"] == 2
-
-
-def test_plan_context_has_no_tool_budget() -> None:
-    ctx = PlanAgentConfig(agent_config_path("plan")).run_context
-    assert "max_tool_calls" not in ctx
-    assert ctx["max_idle_reason_rounds"] == 1
-    assert "next_step" not in ctx
+def test_lead_context_adds_delegation_budget() -> None:
+    ctx = LeadAgentConfig(agent_config_path("lead")).run_context
+    assert ctx["max_tool_calls"] == 12
+    assert ctx["max_delegations"] == 6
+    overridden = LeadAgentConfig(
+        agent_config_path("lead"), run_overrides={"max_delegations": 2}
+    ).run_context
+    assert overridden["max_delegations"] == 2
 
 
 def test_databot_context_nests_react_stages() -> None:
@@ -47,15 +42,10 @@ def test_databot_gates_can_be_disabled_via_override() -> None:
     assert ctx["gates"]["sql_enabled"] is False
 
 
-def test_react_context_merges_catalog_handoff() -> None:
-    handoff = IntentAgentConfig(
-        agent_config_path("intent"),
-        run_overrides={"max_tool_calls": 99},
-    ).run_context
+def test_react_context_applies_catalog_overrides() -> None:
     merged = ReactAgentConfig(
         agent_config_path("knowledge"),
-        run_overrides=handoff,
+        run_overrides={"max_tool_calls": 99},
     ).run_context
-    knowledge = ReactAgentConfig(agent_config_path("knowledge")).run_context
     assert merged["max_tool_calls"] == 99
-    assert knowledge["next_step"] in merged["next_step"] or merged["next_step"]
+    assert merged["next_step"].strip()

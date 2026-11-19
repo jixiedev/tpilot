@@ -59,6 +59,10 @@ class ReactTurnMessagePolicy(TurnMessagePolicy):
             ).run(state)
         return dict(state)
 
+    def commit_subagent_state(self, state: ReactAgentState) -> dict[str, Any]:
+        """Delegated runs never refine the profile: the prompt is the lead's brief."""
+        return dict(state)
+
 
 class BaseReactAgent(BaseAgent[ReactAgentState]):
     """Shared ReAct wiring: graph build, tools, and step routing.

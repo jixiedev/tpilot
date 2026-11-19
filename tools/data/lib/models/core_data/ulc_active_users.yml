@@ -1,0 +1,221 @@
+version: 2
+
+models:
+  - name: ulc_active_users
+    description: >
+      User Lifecycle (ULC) active-user snapshot: one row per user_id × dt for
+      users whose ulc_base_users activity interval covers the snapshot calendar
+      day. Records lifecycle stage (New / Retained / Resurrected), loyalty
+      (loyal_cycles, loyal_flag at threshold 2), and power usage (power_days,
+      power_flag at threshold 10) from a rolling 28-day DAU window. Grain is
+      (user_id, dt). Users missing from this table on a day may still appear in
+      raw DAU if not in ulc_base_users for that snapshot — use LEFT JOIN when
+      inactive users matter. dt aligns to Airflow ds (YYYY-MM-DD snapshot day).
+      Source: core_data.ulc_active_users (UlcActiveUserDaily / UlcActiveUserOverwrite).
+    config:
+      meta:
+        owner: jpearcy
+        hive_table: core_data.ulc_active_users
+        dag: UlcActiveUserDaily
+        timezone: UTC
+    semantic_model:
+      enabled: true
+      name: ulc_active_users
+      config:
+        meta:
+          owner: jpearcy
+          usage: >
+            Always filter metric_time / dt first for partition pruning. Join
+            facts on user_id AND dt for daily grain. loyal_cycles encodes current
+            streak length in 28-day cycle units; power_days is distinct DAU days
+            in a rolling 28-day window ending on dt (not days-since-X). Users
+            without a row on dt are not classified as active in ULC.
+    agg_time_dimension: dt
+
+    columns:
+      - name: user_day_id
+        description: Surrogate primary key, user_id|dt.
+        data_tests:
+          - not_null
+        entity:
+          type: primary
+          name: active_user_day
+          description: One active ULC user row for a snapshot calendar day.
+
+      - name: user_id
+        description: Wish user identifier. Grain key with dt.
+        entity:
+          type: foreign
+          name: user
+          description: Join key to fct_dau, fct_daily_buyer, dau_attribution, and other user-day facts.
+
+      - name: dt
+        description: >
+          Hive partition and ULC snapshot calendar day (source string cast to
+          date). User must appear in ulc_base_users with start_dt ≤ dt ≤ end_dt.
+          Aligns to Airflow ds on write.
+        granularity: day
+        dimension:
+          type: time
+          label: ULC snapshot day
+          is_partition: true
+
+      - name: lifecycle
+        description: >
+          Lifecycle stage at snapshot dt: New (first interval, <28 days from
+          start_dt), Retained (≥28 days in streak or <28 days since
+          previous_end_dt), or Resurrected (return after longer gap).
+        dimension:
+          type: categorical
+          label: Lifecycle stage
+
+      - name: loyal_flag
+        description: >
+          Binary loyalty flag: 1 when loyal_cycles >= 2 (loyal_thresh), else 0.
+        dimension:
+          type: categorical
+          label: Loyal flag code
+
+      - name: loyal_flag_name
+        description: Human-readable loyalty label (Loyal / Not loyal).
+        dimension:
+          type: categorical
+          label: Is loyal
+
+      - name: power_flag
+        description: >
+          Binary power-user flag: 1 when power_days >= 10 (power_thresh), else 0.
+          NULL power_days maps to 0.
+        dimension:
+          type: categorical
+          label: Power flag code
+
+      - name: power_flag_name
+        description: Human-readable power-user label (Power user / Not power user).
+        dimension:
+          type: categorical
+          label: Is power user
+
+      - name: loyal_cycles
+        description: >
+          Current active interval length in 28-day cycle units
+          (DATE_DIFF(start_dt, end_dt) / 27, rounded). Non-negative integer.
+
+      - name: power_days
+        description: >
+          Distinct calendar days with DAU in rolling 28-day window ending on dt
+          (from ulc_power_user). NULL when no qualifying upstream row; else 1–28.
+
+      - name: dt_str
+        description: Source partition string YYYY-MM-DD (varchar).
+
+    metrics:
+      - name: active_users
+        type: simple
+        label: Active users
+        description: >
+          Distinct users classified as ULC-active on dt. Each row is one
+          user-day; summing across days yields user-days, not unique users over
+          a range.
+        agg: count_distinct
+        expr: user_id
+
+      - name: user_day_rows
+        type: simple
+        label: Active user-day rows
+        description: Row count at user_id × dt grain.
+        agg: count
+        expr: 1
+        fill_nulls_with: 0
+
+      - name: lifecycle_new
+        type: simple
+        label: Lifecycle New users
+        description: >
+          Distinct active users with lifecycle = New on dt (first interval,
+          <28 days from start_dt).
+        agg: count_distinct
+        expr: user_id
+        filter: "{{ Dimension('active_user_day__lifecycle') }} = 'New'"
+
+      - name: lifecycle_retained
+        type: simple
+        label: Lifecycle Retained users
+        description: >
+          Distinct active users with lifecycle = Retained on dt.
+        agg: count_distinct
+        expr: user_id
+        filter: "{{ Dimension('active_user_day__lifecycle') }} = 'Retained'"
+
+      - name: lifecycle_resurrected
+        type: simple
+        label: Lifecycle Resurrected users
+        description: >
+          Distinct active users with lifecycle = Resurrected on dt.
+        agg: count_distinct
+        expr: user_id
+        filter: "{{ Dimension('active_user_day__lifecycle') }} = 'Resurrected'"
+
+      - name: loyal_users
+        type: simple
+        label: Loyal users
+        description: >
+          Distinct active users with loyal_flag = 1 (loyal_cycles >= 2) on dt.
+        agg: count_distinct
+        expr: user_id
+        filter: "{{ Dimension('active_user_day__loyal_flag_name') }} = 'Loyal'"
+
+      - name: power_users
+        type: simple
+        label: Power users
+        description: >
+          Distinct active users with power_flag = 1 (power_days >= 10) on dt.
+        agg: count_distinct
+        expr: user_id
+        filter: "{{ Dimension('active_user_day__power_flag_name') }} = 'Power user'"
+
+      - name: loyal_cycles_total
+        type: simple
+        label: Loyal cycles total
+        description: >
+          Sum of loyal_cycles across active user-days on dt.
+        agg: sum
+        expr: loyal_cycles
+        fill_nulls_with: 0
+
+      - name: power_days_total
+        type: simple
+        label: Power days total
+        description: >
+          Sum of power_days across active user-days on dt (NULL treated as 0).
+        agg: sum
+        expr: power_days
+        fill_nulls_with: 0
+
+      - name: loyal_user_days
+        type: simple
+        label: Loyal user-days
+        description: User-day rows where loyal_flag = 1.
+        agg: sum_boolean
+        expr: loyal_flag
+
+      - name: power_user_days
+        type: simple
+        label: Power user-days
+        description: User-day rows where power_flag = 1.
+        agg: sum_boolean
+        expr: power_flag
+
+      - name: loyal_rate
+        type: ratio
+        label: Loyal rate
+        description: Loyal users / active users on dt.
+        numerator: loyal_users
+        denominator: active_users
+
+      - name: power_user_rate
+        type: ratio
+        label: Power user rate
+        description: Power users / active users on dt.
+        numerator: power_users
+        denominator: active_users

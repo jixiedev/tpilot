@@ -43,11 +43,11 @@ def sandbox(tmp_path: Path) -> dict:
     pkill_log = tmp_path / "pkill.log"
     # Record pkill calls instead of killing anything machine-wide.
     _write_exe(shims / "pkill", f'echo "$*" >> "{pkill_log}"\nexit 0\n')
-    # curl: /agui answers 404 (route not mounted); everything else 200.
+    # curl: /agui/databot answers 404 (route not mounted); everything else 200.
     _write_exe(
         shims / "curl",
         'for a in "$@"; do last="$a"; done\n'
-        'case "$last" in */agui) printf 404 ;; *) printf 200 ;; esac\n',
+        'case "$last" in */agui/databot) printf 404 ;; *) printf 200 ;; esac\n',
     )
     _write_exe(shims / "npm", "sleep 60 &\nwait\n")
     _write_exe(root / ".venv" / "bin" / "langgraph", "sleep 60 &\nwait\n")
@@ -179,11 +179,13 @@ def test_start_then_stop_uses_own_process_groups(sandbox: dict) -> None:
 
 
 def test_status_reports_agui_404_as_not_mounted(sandbox: dict) -> None:
+    """Each front agent's endpoint is probed; a 404 one is reported as not mounted."""
     result = _run(sandbox, "status")
     assert result.returncode == 0, result.stderr
     agui = [line for line in result.stdout.splitlines() if line.startswith("AG-UI")]
-    assert len(agui) == 1
-    assert "not mounted" in agui[0]
-    assert "HTTP 404" in agui[0]
-    assert "ALIVE" not in agui[0]
+    assert len(agui) == 2
+    lead, databot = agui
+    assert "/agui/lead" in lead and "ALIVE" in lead
+    assert "/agui/databot" in databot and "not mounted" in databot
+    assert "HTTP 404" in databot
     assert "ALIVE (HTTP 200)" in result.stdout  # :8000 / :3000 still probed

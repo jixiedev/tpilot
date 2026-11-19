@@ -16,10 +16,29 @@ extends = "base"
 
 layout = [
     "role",
+    "business_context",
     "general_rules",
     "output",
     "session_layout",
 ]
+
+# Shared by every agent that extends "tahoe" (an agent with its own layout
+# must list "business_context" too).
+[system_prompt.sections.business_context]
+title = "Business context"
+text = """
+TahoePilot works for the Tahoe team at Wish, the e-commerce marketplace. "Wish"
+is our company: the warehouse, metrics, glossary, dbt models, pipelines and
+code are Wish's own.
+- In a data question, "Wish" (or "wish") means the whole Wish marketplace.
+  "Wish's GMV last month" is total marketplace GMV for that month; it is not
+  a brand, merchant, store or tenant to look up, and no brand or merchant
+  filter applies.
+- Only treat a name as a merchant, brand, store or product when the user says
+  so (for example "the merchant called X"), or when it is clearly not Wish.
+- Table and column names that contain "wish" usually describe the platform,
+  not a brand.
+"""
 
 [system_prompt.sections.role]
 title = "Role"

@@ -1,78 +1,56 @@
-"use client";
+import Link from "next/link";
 
-import { useState } from "react";
-import {
-  CopilotChatConfigurationProvider,
-  CopilotChat,
-} from "@copilotkit/react-core/v2";
-import { ColorSchemeToggle } from "./providers";
-import { DatabotNewChatButton } from "./components/DatabotNewChatButton";
-import { DatabotSessionProvider, useDatabotSession } from "./components/DatabotSessionContext";
-import { DatabotMessageView } from "./components/DatabotMessageView";
-import { DatabotSidePanels } from "./components/DatabotSidePanels";
-import { DatabotToolRenderers } from "./components/DatabotToolRenderers";
-import { GatePanel } from "./components/GatePanel";
+const AGENTS = [
+  {
+    href: "/lead",
+    mark: "TP",
+    name: "Lead",
+    title: "Ask TahoePilot",
+    text: "One conversation for everything: the lead answers, asks when something is unclear, plans multi-step work and hands it to specialists. Data questions go to Warehouse, and you review every query before it runs.",
+    points: ["Plans only when needed", "Live plan, specialist work and results", "SQL review in the chat"],
+    tone: "lead",
+  },
+  {
+    href: "/databot",
+    mark: "DB",
+    name: "Databot",
+    title: "Staged data retrieval",
+    text: "The guided data pipeline: Databot proposes table cards for you to approve, drafts SQL for you to approve, runs it and explains the result.",
+    points: ["Review and edit table cards", "Edit SQL before it runs", "Results table and chart"],
+    tone: "databot",
+  },
+];
 
-function DatabotWorkingPanels({ debugEnabled }: { debugEnabled: boolean }) {
-  const { sessionKey } = useDatabotSession();
+export default function Home() {
   return (
-    <div className="databot-right-column" data-testid="databot-right-column">
-      <GatePanel key={`gate-${sessionKey}`} />
-      <DatabotSidePanels key={`side-${sessionKey}`} debugEnabled={debugEnabled} />
-    </div>
-  );
-}
-
-export default function Page() {
-  const [debugEnabled, setDebugEnabled] = useState(false);
-
-  return (
-    <CopilotChatConfigurationProvider agentId="databot">
-    <DatabotSessionProvider>
-    <main className="databot-shell">
-      <header className="databot-topbar">
-        <div className="databot-brand">
-          <span className="databot-logo" aria-hidden="true">
-            TP
-          </span>
-          <div className="databot-topbar-main">
-            <h1>TahoePilot</h1>
-            <p className="databot-tagline">Databot · tables, metrics, SQL, and human gates</p>
-          </div>
-        </div>
-        <div className="databot-topbar-actions">
-          <ColorSchemeToggle />
-          <label className="databot-switch-field">
-            <input
-              type="checkbox"
-              checked={debugEnabled}
-              onChange={(e) => setDebugEnabled(e.target.checked)}
-              data-testid="debug-toggle"
-            />
-            <span className="databot-switch" aria-hidden="true" />
-            <span>Debug</span>
-          </label>
-          <DatabotNewChatButton />
+    <main className="landing">
+      <header className="landing-head">
+        <span className="lead-logo" aria-hidden="true">
+          TP
+        </span>
+        <div>
+          <h1>TahoePilot</h1>
+          <p>Pick an agent. Each has its own page and its own conversations.</p>
         </div>
       </header>
-
-      <div className="databot-layout">
-        <div className="databot-chat-column" data-testid="databot-chat-column">
-          <CopilotChat
-            messageView={DatabotMessageView}
-            labels={{
-              modalHeaderTitle: "Databot",
-              welcomeMessageText:
-                "Ask about tables or metrics, or run SQL. I’ll fetch candidates, draft the query, and wait for your approval before executing.",
-            }}
-            className="databot-chat"
-          />
-        </div>
-        <DatabotToolRenderers />
-        <DatabotWorkingPanels debugEnabled={debugEnabled} />
+      <div className="landing-grid">
+        {AGENTS.map((agent) => (
+          <Link key={agent.href} href={agent.href} className={`landing-card landing-card--${agent.tone}`}>
+            <span className="landing-mark" aria-hidden="true">
+              {agent.mark}
+            </span>
+            <span className="landing-name">{agent.name}</span>
+            <span className="landing-title">{agent.title}</span>
+            <span className="landing-text">{agent.text}</span>
+            <ul className="landing-points">
+              {agent.points.map((p) => (
+                <li key={p}>{p}</li>
+              ))}
+            </ul>
+            <span className="landing-go">Open {agent.name} →</span>
+          </Link>
+        ))}
       </div>
     </main>
-    </DatabotSessionProvider>
-    </CopilotChatConfigurationProvider>
   );
 }

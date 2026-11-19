@@ -13,9 +13,30 @@ export function stripThinkBlocks(content: string): string {
   return cut.trim();
 }
 
+/**
+ * Text inside the model's think blocks, joined; `open` is true while the
+ * last block is still streaming (no closing tag yet).
+ */
+export function extractThinkText(content: string): { text: string; open: boolean } {
+  const parts: string[] = [];
+  for (const match of content.matchAll(/<think>([\s\S]*?)<\/think>/gi)) {
+    parts.push(match[1].trim());
+  }
+  const rest = content.replace(/<think>[\s\S]*?<\/think>/gi, "");
+  const unclosed = /<think>([\s\S]*)$/i.exec(rest);
+  if (unclosed) parts.push(unclosed[1].trim());
+  return { text: parts.filter(Boolean).join("\n\n"), open: unclosed !== null };
+}
+
 /** Hide internal monologue; keep short user-facing status lines. */
 export function isHiddenAssistantNarration(content: string): boolean {
-  const text = stripThinkBlocks(content);
+  // Judge the prose only: a real answer often quotes the SQL it ran in a
+  // fenced block (date_trunc, current_date, tool-like names), which made the
+  // lead's full GMV answer fold away as "Reasoning".
+  const text = stripThinkBlocks(content)
+    .replace(/```[\s\S]*?```/g, "")
+    .replace(/```[\s\S]*$/, "")
+    .trim();
   if (!text) return false;
 
   const lower = text.toLowerCase();
@@ -49,6 +70,8 @@ export function isHiddenAssistantNarration(content: string): boolean {
   if (
     lower.includes("invoke_knowledge") ||
     lower.includes("fetch_related_models") ||
+    lower.includes("find_models_metrics") ||
+    lower.includes("search_metric_catalog") ||
     lower.includes("commit_cards") ||
     lower.includes("add_card_to_state") ||
     lower.includes("mark_cards_selected") ||

@@ -1,0 +1,339 @@
+version: 2
+
+models:
+  - name: erp_daily_dump
+    description: >
+      Daily fact table of merchant ERP (third-party platform) API activity.
+      Each daily load captures the DEDUPLICATED combinations of merchant, ERP
+      partner, API event, HTTP response, endpoint URI and application error
+      code for merchant API requests that were made through an ERP partner
+      OAuth application (`partner_id` is not null). One row per
+      (dt, merchant_id, partner_id, tid, response_status, uri, code) tuple --
+      repeated identical calls inside one day collapse into a single row, so
+      `COUNT(*)` is NOT request volume. The physical object
+      `wish.erp_daily_dump` is written daily at 00:00 UTC by the Airflow DAG
+      `DailyERPDumpTahoe` from `sweeper.merchant_requests` and is partitioned
+      by `dt` (YYYY-MM-DD, UTC).
+
+      Time semantics: `dt` is the only business day on the table and the
+      default `agg_time_dimension`. `stat_date` and `time` are unix epoch
+      seconds of the batch start, are identical to each other and to the `dt`
+      day, and are therefore kept as plain columns for epoch-window filters
+      rather than registered as time dimensions. The per-request clock time is
+      NOT on this table -- query `sweeper.merchant_requests` for sub-day
+      analysis or request counts.
+
+      Use this model to answer "did merchant X use ERP partner Y for event Z
+      on day D" and to roll up ERP API errors by partner, event, HTTP status
+      or application error code. Use `analytics.erp_client_id_mapping_dump`
+      (joined in a Tableau model, not here) for authoritative partner display
+      names, and `sweeper.merchant_requests` for call volume and latency.
+
+      Source: documentation/llm_generated/hive/wish/erp_daily_dump.md
+    config:
+      meta:
+        hive_table: wish.erp_daily_dump
+        dag: DailyERPDumpTahoe
+        upstream_table: sweeper.merchant_requests
+        timezone: UTC
+    semantic_model:
+      enabled: true
+      name: erp_daily_dump
+      config:
+        meta:
+          usage: >
+            Deduplicated daily ERP API activity fact (one row per day x
+            merchant x partner x event x HTTP status x URI x application code
+            combination). Not an event log: repeated identical calls inside a
+            day are collapsed, so use `erp_api_events` for the number of
+            distinct activity combinations and query
+            `sweeper.merchant_requests` directly when you need raw request
+            volume or latency. MetricFlow time dimensions are day grain only
+            (project time spine); `stat_date` and `time` are plain columns for
+            epoch-window filters and joins. Joins to partner / merchant
+            dimension tables belong in Tableau models under
+            `semantic_layer/models/tableau/`, which ref() this wrapper.
+    agg_time_dimension: activity_dt
+
+    columns:
+      # ---------------------------------------------------------------- entities
+      - name: erp_activity_id
+        description: >
+          Surrogate primary key built from the producer's deduplicated natural
+          grain: dt | merchant_id | partner_id | tid | response_status | uri
+          | code. Unique and non-null because the producer de-duplicates with
+          GROUP BY over exactly these columns.
+        data_tests:
+          - not_null
+          - unique
+        entity:
+          type: primary
+          name: erp_api_activity
+          description: >
+            One deduplicated ERP API activity combination (merchant, ERP
+            partner, API event, HTTP status, endpoint, application code) on a
+            given day.
+
+      - name: merchant_id
+        description: >
+          Mongo `ObjectId` hex string (24 chars) of the CommerceMerchant that
+          called the ERP partner API. Join key to `wish.commerce_merchant.id`,
+          `wish.dim_all_merchants.merchant_id` and `wish.merchant_user.
+          merchant_id`. Non-null for every row of this table.
+        entity:
+          type: foreign
+          name: merchant
+          description: A commerce merchant on the Wish marketplace.
+
+      - name: partner_id
+        description: >
+          ObjectId hex string (24 chars) of the ERP partner OAuth application
+          the merchant called through. Always non-null (the producer filters
+          `_partner_id IS NOT NULL`). 158 distinct values in the current
+          catalog. Join key to `analytics.erp_client_id_mapping_dump.
+          partner_id` and to the `erp_partner` entity of the merchant
+          authorization model.
+        entity:
+          type: foreign
+          name: erp_partner
+          description: An ERP partner OAuth application on the Wish platform.
+
+      # ---------------------------------------------------------- time dimensions
+      - name: activity_dt
+        description: >
+          Activity day as a date, cast from the Hive partition column `dt`
+          (YYYY-MM-DD, UTC). The single business day of this table and the
+          default metric time dimension.
+        granularity: day
+        dimension:
+          type: time
+          label: ERP activity date
+          is_partition: true
+
+      # ----------------------------------------------------- categorical dimensions
+      - name: partner_name
+        description: >
+          Human-readable ERP partner label, mapped from the documented
+          158-value partner catalog (PARTNER_NAME_MAP). Sourced from the CASE
+          mapping in the model SQL; use the
+          `analytics.erp_client_id_mapping_dump` lookup in a Tableau model
+          when an authoritative display name is required. Unmapped ids fall
+          back to 'Other ERP partner'.
+        dimension:
+          type: categorical
+          label: ERP partner name
+
+      - name: tid
+        description: >
+          Merchant API event id (MerchEvent `tid`), as a string. 10001-10105
+          are the product / variant / order API events (10103 =
+          API_ORDER_FULFILL_ONE); 18603 = product boost external campaign
+          creation.
+        dimension:
+          type: categorical
+          label: ERP API event id
+
+      - name: tid_name
+        description: >
+          Human-readable label for `tid` (MerchEvent catalog). Constant event
+          ids are named exactly; the documented event families (10005-10018
+          product, 10051-10062 variant, 10106-10117 order, 10151-10159
+          merchant, 10200-10204 CK1, 10300-10305 insurance, 10400-10408
+          courier, 10500-10505 external ticket) are labelled by family.
+        dimension:
+          type: categorical
+          label: ERP API event name
+
+      - name: response_status
+        description: >
+          HTTP response status of the merchant API call, as a string ('200',
+          '400', '401', ...). Non-2xx means the call failed at the HTTP level.
+        dimension:
+          type: categorical
+          label: HTTP response status
+
+      - name: response_status_name
+        description: >
+          Human-readable label for `response_status` (standard HTTP status
+          names). Unmapped statuses fall back to 'Other HTTP status'.
+        dimension:
+          type: categorical
+          label: HTTP response status name
+
+      - name: code
+        description: >
+          Application-level result / error code returned by the merchant API
+          ('0' = no error, 1000-1060 parameter and guard errors, 2000-2001
+          access and rate-limit errors, 4000-4005 auth and routing errors,
+          5003/6000/9000 overloaded / blocked / unknown, 22100-22114 FBW-FBS
+          external errors).
+        dimension:
+          type: categorical
+          label: ERP application error code
+
+      - name: code_name
+        description: >
+          Human-readable label for `code` (Errors catalog). Unmapped codes
+          fall back to 'Other application error'.
+        dimension:
+          type: categorical
+          label: ERP application error code name
+
+      - name: uri
+        description: >
+          Requested API endpoint path, e.g. '/v2/order/fulfill-one' or
+          '/v1/product/get'. Open vocabulary (not a closed enum) and
+          high-cardinality; use it to isolate endpoint families such as
+          fulfillment ('%fulfill-one%') or product read APIs.
+        dimension:
+          type: categorical
+          label: ERP API endpoint path
+
+      # ------------------------------------------------------------ plain columns
+      - name: dt
+        description: >
+          Raw Hive partition value (YYYY-MM-DD string) the row was written
+          under. Kept as a plain column for string-level partition filters
+          and for the `max_by(partner_id, dt)` "latest ERP partner" pattern;
+          `activity_dt` is the date-typed time dimension.
+
+      - name: stat_date
+        description: >
+          Batch start stamp (unix epoch seconds, UTC) of the daily load.
+          Identical for every row of a partition and identical to `time` and
+          to the `dt` day; kept for epoch-window filters and joins, not
+          registered as a time dimension.
+
+      - name: time
+        description: >
+          Batch start stamp (unix epoch seconds, UTC), a duplicate of
+          `stat_date` in the current producer. Kept for parity with the
+          source table; not a time dimension.
+
+      - name: action
+        description: >
+          Reserved producer placeholder. The current DAG writes NULL for
+          every row, so this column carries no information.
+
+      - name: _c7
+        description: >
+          Reserved producer placeholder. The current DAG writes NULL for
+          every row, so this column carries no information.
+
+    metrics:
+      # ------------------------------------------------------------- activity volume
+      - name: erp_api_events
+        description: >
+          Deduplicated ERP API activity combinations. One per
+          (day, merchant, partner, event, HTTP status, URI, code) tuple.
+          This is NOT request volume -- repeated identical calls inside a day
+          are collapsed by the producer.
+        type: simple
+        agg: count
+        expr: 1
+        fill_nulls_with: 0
+
+      - name: active_erp_merchants
+        description: >
+          Distinct merchants with at least one ERP partner API activity on
+          the day. The metric behind the ERP active-merchant counts.
+        type: simple
+        agg: count_distinct
+        expr: merchant_id
+        fill_nulls_with: 0
+
+      - name: erp_partners
+        description: >
+          Distinct ERP partner OAuth applications with at least one activity
+          on the day.
+        type: simple
+        agg: count_distinct
+        expr: partner_id
+        fill_nulls_with: 0
+
+      # ------------------------------------------------------------------ HTTP errors
+      - name: erp_api_success_events
+        description: >
+          Activity combinations whose HTTP response status is 200.
+        type: simple
+        agg: count
+        expr: 1
+        filter: |
+          {{ Dimension('erp_api_activity__response_status') }} = '200'
+        fill_nulls_with: 0
+
+      - name: erp_api_error_events
+        description: >
+          Activity combinations whose HTTP response status is not 200.
+          This counts the deduplicated combinations, not failed calls.
+        type: simple
+        agg: count
+        expr: 1
+        filter: |
+          {{ Dimension('erp_api_activity__response_status') }} != '200'
+        fill_nulls_with: 0
+
+      - name: erp_api_error_rate
+        description: >
+          Share of ERP activity combinations that returned a non-200 HTTP
+          status.
+        type: ratio
+        numerator: erp_api_error_events
+        denominator: erp_api_events
+
+      # ------------------------------------------------------------- fulfillment API
+      - name: erp_fulfillment_api_events
+        description: >
+          Activity combinations against the order fulfillment endpoint
+          family (URI contains 'fulfill-one').
+        type: simple
+        agg: count
+        expr: 1
+        filter: |
+          {{ Dimension('erp_api_activity__uri') }} like '%fulfill-one%'
+        fill_nulls_with: 0
+
+      - name: erp_fulfillment_error_events
+        description: >
+          Activity combinations against the order fulfillment endpoint family
+          (URI contains 'fulfill-one') that returned a non-200 HTTP status.
+          This is the ChannelAdvisor-style fulfillment error signal.
+        type: simple
+        agg: count
+        expr: 1
+        filter: |
+          {{ Dimension('erp_api_activity__uri') }} like '%fulfill-one%'
+          and {{ Dimension('erp_api_activity__response_status') }} != '200'
+        fill_nulls_with: 0
+
+      - name: erp_fulfillment_error_rate
+        description: >
+          Share of fulfillment endpoint activity combinations that returned a
+          non-200 HTTP status.
+        type: ratio
+        numerator: erp_fulfillment_error_events
+        denominator: erp_fulfillment_api_events
+
+      - name: erp_fulfillment_merchants
+        description: >
+          Distinct merchants with at least one fulfillment endpoint activity
+          (URI contains 'fulfill-one') on the day.
+        type: simple
+        agg: count_distinct
+        expr: merchant_id
+        filter: |
+          {{ Dimension('erp_api_activity__uri') }} like '%fulfill-one%'
+        fill_nulls_with: 0
+
+      - name: erp_order_fulfill_merchants
+        description: >
+          Distinct merchants with at least one API_ORDER_FULFILL_ONE event
+          (tid 10103) on the day. Merchant-level counterpart of
+          `erp_fulfillment_merchants`, keyed on the event id instead of the
+          endpoint path.
+        type: simple
+        agg: count_distinct
+        expr: merchant_id
+        filter: |
+          {{ Dimension('erp_api_activity__tid') }} = '10103'
+        fill_nulls_with: 0

@@ -16,11 +16,17 @@ _ALTERNATIVE_TOOLS: dict[str, str] = {}
 # Every static tool by name; agents pick from it via ``[tools]`` in their config.
 _TOOL_REGISTRY: dict[str, BaseTool] = {}
 
+# Model-facing tool names whose results context compression must keep in full
+# (``register_tool(offload=False)``). Merged with ``[compression]
+# never_offload_tools`` by ``memory.compress``.
+_NEVER_OFFLOAD: set[str] = set()
+
 
 def register_tool(
     tool: BaseTool | None = None,
     *,
     key: str | None = None,
+    offload: bool = True,
 ) -> Any:
     """Add ``tool`` to the registry; use as ``@register_tool`` or ``@register_tool(key=...)``.
 
@@ -28,9 +34,14 @@ def register_tool(
     share a model-facing name (e.g. the plan agent's own ``planning`` is
     registered as ``plan.planning``). Which agents get a tool is declared in
     ``config/agents/<agent>.toml`` under ``[tools]``, by registry key.
+
+    ``offload=False`` marks a tool whose result the agent needs verbatim
+    (schemas, catalog lookups): layer-1 compression never moves it to a file,
+    whatever its size. Use it for mid-sized results the agent would otherwise
+    read straight back with ``read_offloaded_file``.
     """
     if tool is None:
-        return lambda t: register_tool(t, key=key)
+        return lambda t: register_tool(t, key=key, offload=offload)
     registry_key = key or getattr(tool, "name", "") or ""
     if not registry_key:
         raise ValueError(f"cannot register a tool without a name: {tool!r}")
@@ -41,7 +52,14 @@ def register_tool(
             "pass register_tool(key=...) to disambiguate"
         )
     _TOOL_REGISTRY[registry_key] = tool
+    if not offload:
+        _NEVER_OFFLOAD.add(getattr(tool, "name", "") or registry_key)
     return tool
+
+
+def never_offload_tool_names() -> frozenset[str]:
+    """Model-facing names of tools registered with ``offload=False``."""
+    return frozenset(_NEVER_OFFLOAD)
 
 
 def registered_tools() -> dict[str, BaseTool]:

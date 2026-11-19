@@ -1,11 +1,17 @@
 "use client";
 
 import { useAgent, useCopilotChatConfiguration } from "@copilotkit/react-core/v2";
+import type { AbstractAgent } from "@ag-ui/client";
 import { resetDatabotAgentView } from "./databotClientReset";
 import { useDatabotSession } from "./DatabotSessionContext";
+import { DATABOT_AGENT_ID } from "./databotAgent";
 
 type DatabotNewChatButtonProps = {
   className?: string;
+  /** Agent whose thread is replaced (databot or lead). */
+  agentId?: string;
+  /** Clears the agent's in-memory view after the new thread starts. */
+  resetAgentView?: (agent: AbstractAgent) => void;
 };
 
 /**
@@ -13,16 +19,20 @@ type DatabotNewChatButtonProps = {
  * UI, and show the welcome screen.
  * Requires ``CopilotChatConfigurationProvider`` and ``DatabotSessionProvider``.
  */
-export function DatabotNewChatButton({ className }: DatabotNewChatButtonProps) {
+export function DatabotNewChatButton({
+  className,
+  agentId = DATABOT_AGENT_ID,
+  resetAgentView = resetDatabotAgentView,
+}: DatabotNewChatButtonProps) {
   const config = useCopilotChatConfiguration();
-  const { agent, isReady } = useAgent({ agentId: "databot" });
+  const { agent, isReady } = useAgent({ agentId });
   const { resetSessionUi } = useDatabotSession();
   const busy = isReady && agent.isRunning;
 
   const handleClick = () => {
     if (busy) return;
     config?.startNewThread();
-    if (isReady) resetDatabotAgentView(agent);
+    if (isReady) resetAgentView(agent);
     resetSessionUi();
   };
 

@@ -8,8 +8,10 @@ from collections.abc import Mapping
 from typing import Any, Generic, TypeVar
 
 from langchain_core.language_models import BaseChatModel
+from langchain_core.runnables import RunnableConfig
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph.state import CompiledStateGraph
+from langgraph.types import StateSnapshot
 
 from agent.listener import AgentListener, ListenerHub
 from agent.prompt import SystemPromptAssembler
@@ -18,7 +20,14 @@ from agent.turn import AgentTurnResult, OnInterrupt
 from config.agent_config import AgentConfig
 from memory import CompressionConfig, ContextCompressor, make_compressor
 from memory.session_runtime import SessionRuntime
-from agent.session import SessionUserRequest, session_graph_config
+from agent.session import GRAPH_RECURSION_LIMIT, SessionUserRequest, session_graph_config
+from graph.messages import strip_think_blocks
+from agent.subagent import (
+    SubagentResult,
+    SubagentTask,
+    nested_run_config,
+    standalone_config,
+)
 from graph.state import SessionAgentState
 
 S = TypeVar("S", bound=SessionAgentState)
@@ -152,6 +161,75 @@ class BaseAgent(ABC, Generic[S]):
             profile,
             session_state,
         )
+
+    # ------------------------------------------------------------------
+    # Subagent contract (see agent/subagent.py)
+    # ------------------------------------------------------------------
+
+    def subagent_input(self, task: SubagentTask) -> dict[str, Any]:
+        """Fresh graph input for one delegated task: persona, then the lead's brief."""
+        user_id = self.session_runtime.resolve_user_id(task.user_id or None)
+        profile = self.session_runtime.load(user_id)
+        return self.session_turn_processor.new_turn_state_with_messages(
+            session=task.child_session(),
+            user_id=user_id,
+            user_prompt=task.prompt(),
+            user_profile=profile,
+            prior=None,
+            turn_boundary="",
+        )
+
+    def ui_view(self, state: Mapping[str, Any]) -> dict[str, Any]:
+        """Fields of this agent's state that a web UI renders (empty by default)."""
+        del state
+        return {}
+
+    async def aget_active_snapshot(self, config: RunnableConfig) -> StateSnapshot:
+        """Snapshot to show / patch while paused. Staged agents return the paused layer's."""
+        return await self.build_graph().aget_state(config)
+
+    def result_from_state(self, state: Mapping[str, Any]) -> SubagentResult:
+        """Read a finished specialist state. Override to add artifacts or a UI view."""
+        # Reasoning models put a think block before the answer; left in, it
+        # filled the summary budget and cut the answer off for the lead.
+        summary = strip_think_blocks(AgentTurnResult.extract_output(state))
+        return SubagentResult(
+            agent=self.agent_config.name,
+            status="done" if summary else "failed",
+            summary=summary or "(the specialist returned no text output)",
+            ui_state=self.ui_view(state),
+        )
+
+    async def run_as_subagent(self, task: SubagentTask) -> SubagentResult:
+        """Run one delegated task to completion and return its result.
+
+        Called from inside the lead's tool node, the graph runs nested under the
+        lead's checkpoint thread, so interrupts pause the lead and resume here.
+        On resume this method runs again from the top; ``ainvoke`` then loads
+        the nested checkpoint and continues at the paused node instead of
+        starting over. Outside any graph (tests, scripts) it gets its own thread.
+        """
+        graph = self.build_graph()
+        # Nested: the parent's config (thread, namespace) is inherited; only the
+        # step ceiling is set, as the parent's would otherwise apply.
+        config: RunnableConfig = {"recursion_limit": GRAPH_RECURSION_LIMIT}
+        if nested_run_config() is None:
+            config = {**standalone_config(task), **config}
+        state = await graph.ainvoke(self.subagent_input(task), config)
+        if AgentTurnResult.interrupt_values(state):
+            # Standalone run with no parent to pause: surface it as a failure.
+            question = AgentTurnResult.interrupt_question(state) or "input"
+            return SubagentResult(
+                agent=self.agent_config.name,
+                status="failed",
+                summary=f"The specialist paused for human input ({question}) outside an interactive run.",
+            )
+        committed = await asyncio.to_thread(
+            self.session_turn_processor.commit_subagent_state, state
+        )
+        result = self.result_from_state(committed)
+        result.agent = task.agent or result.agent
+        return result
 
     def register_secondary(self, listener: AgentListener) -> None:
         """Attach a secondary listener (eval, UI) without rebuilding the graph."""

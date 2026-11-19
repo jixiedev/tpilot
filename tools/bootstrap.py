@@ -12,10 +12,10 @@ def ensure_tools_registered() -> None:
         return
 
     import agent.specialists.databot.stage_tools  # noqa: F401
-    import agent.plan.stage_tools  # noqa: F401
     import memory.tools  # noqa: F401
     import tools.code  # noqa: F401
     import tools.data.hive  # noqa: F401
+    import tools.data.metrics  # noqa: F401
     import tools.data.s3  # noqa: F401
     import tools.data.trino  # noqa: F401
     import tools.external.datahub  # noqa: F401

@@ -1,0 +1,907 @@
+version: 2
+
+models:
+  - name: master_order_tracking_infos
+    description: >
+      Order tracking records for Wish shipments: one row per order-tracking
+      record, carrying the tracking provider, the current carrier state, the
+      shipment / delivery timestamps, the destination geography and the
+      shipping cost / weight. Source: `wish.master_order_tracking_infos`, a
+      Hive view over the MongoDB `sweeper__ordertrackinginfo_cow` collection
+      that is rebuilt daily by the incremental OTI processing pipeline
+      (`incremental_processing_oti.py`) with merge logic for updates. No
+      Airflow / Spark ETL logic is reimplemented in this wrapper and the
+      grain is not changed.
+
+      Partitioned by `dt` (varchar YYYY-MM-DD, cast to date here). `dt` is
+      calculated by the source ETL from the record creation timestamp, so it
+      is the *creation* day of the tracking record, and it is the default
+      metric time dimension. The data has a 1-2 day freshness lag, and old
+      partitions may be archived or deleted by the retention policy.
+
+      The physical table documents `tracking_id` as the primary key, but the
+      table is incrementally re-emitted with merge logic, so the same
+      `tracking_id` can reappear in a later partition. The wrapper therefore
+      exposes the surrogate key `tracking_record_key`
+      (`concat_ws('||', tracking_id, dt)`), which is unique at the physical
+      grain even when `tracking_id` repeats across partitions, and keeps
+      `tracking_id` as a join key.
+
+      Time semantics: the Unix-epoch columns documented as such
+      (`tracking_created_time`, `confirmed_delivered_time`, `shipped_date`,
+      `tracking_cancelled_date`, `first_confirmed_update_time`,
+      `first_in_transit_tracking_time`, `wishpost_order_creation_time`,
+      `time`) are converted with `from_unixtime` to `*_ts` timestamps and,
+      where they are used as time dimensions, to `*_day` dates. The project
+      time spine is day-grained, so only `dt`, `shipped_day` and
+      `confirmed_delivered_day` are registered as MetricFlow time
+      dimensions. `exp_delivery_time` is an integer "expected delivery
+      timestamp" whose encoding the table documentation does not state as
+      Unix seconds, so it is exposed as a raw bigint only. Timestamps are
+      mostly UTC, though the documentation warns that some source values
+      may be in local time zones.
+
+      PII columns (`name`, `phone_number`, `signed_by`, `street_address`) are
+      exposed by the underlying view but are deliberately NOT declared as
+      MetricFlow dimensions.
+    config:
+      meta:
+        owner: jixie
+        hive_table: wish.master_order_tracking_infos
+        upstream_collection: sweeper__ordertrackinginfo_cow
+        upstream_owners: vnaidu@wish.com, jiachenli@wish.com, vbarsaiyan@wish.com
+        timezone: UTC
+    semantic_model:
+      enabled: true
+      name: master_order_tracking_infos
+      config:
+        meta:
+          usage: >
+            Always filter `dt` for partition pruning. `dt` is the creation
+            day of the tracking record and the default metric time, so the
+            standard shipment metrics (`total_shipments`,
+            `delivered_shipments`, `failed_deliveries`, `failure_rate`,
+            `delivery_rate`) are *cohort* metrics: they describe the records
+            created in the filtered period. Use `confirmed_delivered_day` or
+            `shipped_day` to slice by the delivery / shipment event day
+            instead. `is_delivered`, `is_confirmed`, `is_delivery_failure`
+            and `is_valid_tracking` are varchar flags holding the lowercase
+            string 'true' / 'false'; `is_valid_tracking` is by definition
+            identical to `is_confirmed`. The `_name` columns give a
+            human-readable label for the documented `tracking_source` and
+            `aftership_state` codes; prefer the `_name` columns for
+            reporting and keep the raw codes for joins. Dimension joins
+            (transaction, product, merchant, user) belong in a Tableau
+            datasource model, not in this Hive wrapper.
+    agg_time_dimension: dt
+
+    columns:
+      # ---- identity ------------------------------------------------------------
+      - name: tracking_record_key
+        description: >
+          Surrogate primary key. `concat_ws('||', tracking_id, dt)` over the
+          physical primary key and the partition date. Unique at the
+          physical grain even when the same `tracking_id` is re-emitted in a
+          later partition.
+        entity:
+          type: primary
+          name: tracking_record
+          description: One order-tracking record.
+        is_partition: false
+
+      - name: tracking_id
+        description: >
+          Physical primary key of the table: the MongoDB `_id` of the
+          `OrderTrackingInfo` document. Documented as unique and non-null,
+          but the incremental merge pipeline can re-emit the same id in a
+          later `dt` partition, so it is exposed as a join key rather than
+          as the primary entity.
+        entity:
+          type: foreign
+          name: tracking
+          description: Tracking record identifier.
+        is_partition: false
+
+      - name: wish_standard_tracking_id
+        description: >
+          Wish-standardized tracking number, i.e. the number the customer
+          sees. The same parcel can be tracked by several providers, each
+          with its own `tracking_id`, so this column is not unique.
+        entity:
+          type: foreign
+          name: tracking_number
+          description: Customer-facing standardized tracking number.
+        is_partition: false
+
+      - name: transaction_id
+        description: >
+          Commerce transaction the shipment belongs to. One transaction can
+          carry several tracking records (one per parcel / provider).
+        entity:
+          type: foreign
+          name: transaction
+          description: Commerce transaction the shipment belongs to.
+        is_partition: false
+
+      - name: variation_id
+        description: >
+          Product variation (variant-level selection) that was shipped.
+        entity:
+          type: foreign
+          name: variation
+          description: Shipped product variation.
+        is_partition: false
+
+      - name: product_id
+        description: >
+          Product that was shipped.
+        entity:
+          type: foreign
+          name: product
+          description: Shipped product.
+        is_partition: false
+
+      - name: user_id
+        description: >
+          Buyer of the order the shipment belongs to.
+        entity:
+          type: foreign
+          name: user
+          description: Buyer of the order.
+        is_partition: false
+
+      - name: merchant_id
+        description: >
+          Merchant fulfilling the order.
+        entity:
+          type: foreign
+          name: merchant
+          description: Merchant fulfilling the order.
+        is_partition: false
+
+      # ---- time dimensions -----------------------------------------------------
+      - name: dt
+        description: >
+          Hive partition date, cast from the varchar YYYY-MM-DD source
+          value. Calculated by the source ETL from the record creation
+          timestamp, so it is the creation day of the tracking record and
+          the default metric time dimension.
+        granularity: day
+        dimension:
+          type: time
+          label: Tracking creation day
+        is_partition: true
+
+      - name: shipped_day
+        description: >
+          Day the parcel was shipped, derived from the documented Unix
+          timestamp `shipped_date`. Alternative day-granularity time
+          dimension for shipment-event analysis.
+        granularity: day
+        dimension:
+          type: time
+          label: Shipped day
+        is_partition: false
+
+      - name: confirmed_delivered_day
+        description: >
+          Day the parcel was confirmed delivered, derived from the
+          documented Unix timestamp `confirmed_delivered_time`. Null for
+          parcels that were never confirmed delivered. Alternative
+          day-granularity time dimension for delivery-event analysis.
+        granularity: day
+        dimension:
+          type: time
+          label: Confirmed delivered day
+        is_partition: false
+
+      # ---- raw timestamp columns (kept for joins, not time dimensions) ----------
+      - name: time
+        description: >
+          Unix epoch seconds of the tracking record creation, from the
+          MongoDB `created` field. Kept for joins and drill-down; it is not
+          registered as a MetricFlow time dimension.
+        is_partition: false
+
+      - name: tracking_created_time
+        description: >
+          Unix epoch seconds of the tracking creation, from the MongoDB
+          `created` field. Kept for joins and drill-down.
+        is_partition: false
+
+      - name: tracking_created_ts
+        description: >
+          Timestamp converted from `tracking_created_time` (UTC). Not
+          registered as a MetricFlow time dimension -- the project time
+          spine is day-grained only.
+        is_partition: false
+
+      - name: shipped_date
+        description: >
+          Unix epoch seconds of the shipment date, extracted from the
+          `user_shipping_details` JSON. Kept for joins and drill-down.
+        is_partition: false
+
+      - name: shipped_ts
+        description: >
+          Timestamp converted from `shipped_date`. Not registered as a
+          MetricFlow time dimension -- the project time spine is
+          day-grained only.
+        is_partition: false
+
+      - name: confirmed_delivered_time
+        description: >
+          Unix epoch seconds of the confirmed delivery. Null until the
+          parcel is confirmed delivered. Kept for joins and drill-down.
+        is_partition: false
+
+      - name: confirmed_delivered_ts
+        description: >
+          Timestamp converted from `confirmed_delivered_time`. Not
+          registered as a MetricFlow time dimension -- the project time
+          spine is day-grained only.
+        is_partition: false
+
+      - name: first_confirmed_update_time
+        description: >
+          Unix epoch seconds of the first confirmed tracking update, from
+          the MongoDB `first_confirmed_update_time` field. Null for parcels
+          that were never confirmed. Kept for joins and drill-down.
+        is_partition: false
+
+      - name: first_confirmed_update_ts
+        description: >
+          Timestamp converted from `first_confirmed_update_time`. Not
+          registered as a MetricFlow time dimension -- the project time
+          spine is day-grained only.
+        is_partition: false
+
+      - name: first_in_transit_tracking_time
+        description: >
+          Unix epoch seconds of the first in-transit tracking update, from
+          the MongoDB `first_in_transit_tracking_time` field. Kept for joins
+          and drill-down.
+        is_partition: false
+
+      - name: first_in_transit_ts
+        description: >
+          Timestamp converted from `first_in_transit_tracking_time`. Not
+          registered as a MetricFlow time dimension -- the project time
+          spine is day-grained only.
+        is_partition: false
+
+      - name: tracking_cancelled_date
+        description: >
+          Unix epoch seconds of the tracking cancellation, extracted from the
+          `cancel_data` JSON. Kept for joins and drill-down.
+        is_partition: false
+
+      - name: tracking_cancelled_ts
+        description: >
+          Timestamp converted from `tracking_cancelled_date`. Not registered
+          as a MetricFlow time dimension -- the project time spine is
+          day-grained only.
+        is_partition: false
+
+      - name: wishpost_order_creation_time
+        description: >
+          Unix epoch seconds of the WishPost order creation, from the
+          MongoDB `wishpost_order_creation_time` field. Kept for joins and
+          drill-down.
+        is_partition: false
+
+      - name: wishpost_order_creation_ts
+        description: >
+          Timestamp converted from `wishpost_order_creation_time`. Not
+          registered as a MetricFlow time dimension -- the project time
+          spine is day-grained only.
+        is_partition: false
+
+      - name: exp_delivery_time
+        description: >
+          Expected delivery timestamp, an integer from the MongoDB
+          `exp_delivery_time` field. The table documentation does not state
+          the encoding as Unix seconds, so it is exposed as a raw bigint and
+          is not converted.
+        is_partition: false
+
+      # ---- enums ---------------------------------------------------------------
+      - name: tracking_source
+        description: >
+          Raw code of the source system that provided the tracking data
+          (1=AFTERSHIP, 2=TRACK17, 3=EASYPOST, 4=WISHPOST, 6=DHL, 7=EMS,
+          8=CHINAPOST, 9=GENERIC, 10=WOSP, 11=TRACKINGMORE, 12=WTS,
+          99=NO_OP, 100=USER). The code 5 is not defined by the source
+          enum. Use `tracking_source_name` for reporting.
+        dimension:
+          type: categorical
+          label: Tracking source code
+        is_partition: false
+
+      - name: tracking_source_name
+        description: >
+          Human-readable label for `tracking_source`, derived from the
+          documented `TrackingSource` enum. Undocumented codes map to
+          'UNKNOWN'.
+        dimension:
+          type: categorical
+          label: Tracking source
+        is_partition: false
+
+      - name: aftership_state
+        description: >
+          Raw code of the current tracking state (0=ORDER_PLACED,
+          1=MARKED_SHIPPED, 2=TRACKING_CHANGED, 3=SEND_TRACKING_SUCCESS,
+          4=SEND_TRACKING_FAIL, 5=IN_TRANSIT, 6=OUT_FOR_DELIVERY,
+          7=ATTEMPT_FAIL, 8=DELIVERED, 9=EXCEPTION, 10=EXPIRED, 11=PENDING,
+          12=INFO_RECEIVED). Use `aftership_state_name` for reporting.
+        dimension:
+          type: categorical
+          label: Aftership state code
+        is_partition: false
+
+      - name: aftership_state_name
+        description: >
+          Human-readable label for `aftership_state`, derived from the
+          documented `TrackingAction` enum. Undocumented codes map to
+          'UNKNOWN'. The source also carries a separate display-text mapping
+          for a subset of the codes (3 / 4 / 11 = 'Pending',
+          12 = 'Tracking Info Received', 5 = 'In Transit',
+          6 = 'Out for Delivery', 7 = 'Delivery Attempt Failed',
+          8 = 'Delivered', 9 = 'Exception',
+          10 = 'Tracking Code Expired'); this column uses the enum names.
+        dimension:
+          type: categorical
+          label: Aftership state
+        is_partition: false
+
+      # ---- status flags --------------------------------------------------------
+      - name: is_delivered
+        description: >
+          Flag indicating that the package was confirmed delivered, either
+          through carrier confirmation or through merchant dispute
+          resolution. Holds the lowercase string 'true' / 'false'.
+        dimension:
+          type: categorical
+          label: Delivered
+        is_partition: false
+
+      - name: is_delivered_name
+        description: >
+          Human-readable label for `is_delivered`: 'Delivered',
+          'Not delivered' or 'Unknown'.
+        dimension:
+          type: categorical
+          label: Delivered status
+        is_partition: false
+
+      - name: is_confirmed
+        description: >
+          Flag indicating that the shipment is confirmed, i.e. it received a
+          confirmed shipment state update from the carrier or from merchant
+          dispute resolution. Fake tracking numbers and cancelled shipments
+          are never confirmed. Holds the lowercase string 'true' / 'false'.
+        dimension:
+          type: categorical
+          label: Confirmed
+        is_partition: false
+
+      - name: is_confirmed_name
+        description: >
+          Human-readable label for `is_confirmed`: 'Confirmed',
+          'Not confirmed' or 'Unknown'.
+        dimension:
+          type: categorical
+          label: Confirmed status
+        is_partition: false
+
+      - name: is_delivery_failure
+        description: >
+          Flag indicating a delivery failure. Set when any tracking
+          checkpoint carries the ATTEMPT_FAIL (7) or EXCEPTION (9) state.
+          Holds the lowercase string 'true' / 'false'.
+        dimension:
+          type: categorical
+          label: Delivery failure
+        is_partition: false
+
+      - name: is_delivery_failure_name
+        description: >
+          Human-readable label for `is_delivery_failure`: 'Delivery
+          failure', 'No delivery failure' or 'Unknown'.
+        dimension:
+          type: categorical
+          label: Delivery failure status
+        is_partition: false
+
+      - name: is_valid_tracking
+        description: >
+          Flag indicating a valid tracking record. By construction it is
+          identical to `is_confirmed`. Holds the lowercase string
+          'true' / 'false'.
+        dimension:
+          type: categorical
+          label: Valid tracking
+        is_partition: false
+
+      - name: is_valid_tracking_name
+        description: >
+          Human-readable label for `is_valid_tracking`: 'Valid tracking',
+          'Invalid tracking' or 'Unknown'.
+        dimension:
+          type: categorical
+          label: Valid tracking status
+        is_partition: false
+
+      # ---- shipping details ----------------------------------------------------
+      - name: origin_country
+        description: >
+          Country the package originated from.
+        dimension:
+          type: categorical
+          label: Origin country
+        is_partition: false
+
+      - name: dest_country
+        description: >
+          Destination country for delivery, from the MongoDB
+          `dest_country` field.
+        dimension:
+          type: categorical
+          label: Destination country
+        is_partition: false
+
+      - name: dest_country_tracking
+        description: >
+          Destination country as seen by the tracking provider. Documented
+          as the same value as `dest_country`.
+        dimension:
+          type: categorical
+          label: Tracking destination country
+        is_partition: false
+
+      - name: country
+        description: >
+          Delivery country extracted from the `user_shipping_details` JSON.
+        dimension:
+          type: categorical
+          label: Shipping details country
+        is_partition: false
+
+      - name: city
+        description: >
+          Delivery city extracted from the `user_shipping_details` JSON.
+        dimension:
+          type: categorical
+          label: Shipping details city
+        is_partition: false
+
+      - name: state
+        description: >
+          Delivery state / province extracted from the `user_shipping_details`
+          JSON.
+        dimension:
+          type: categorical
+          label: Shipping details state
+        is_partition: false
+
+      - name: zipcode
+        description: >
+          Postal / ZIP code extracted from the `user_shipping_details` JSON.
+        dimension:
+          type: categorical
+          label: Shipping details zipcode
+        is_partition: false
+
+      - name: dest_city
+        description: >
+          Destination city, from the MongoDB `dest_city` field.
+        dimension:
+          type: categorical
+          label: Destination city
+        is_partition: false
+
+      - name: dest_state
+        description: >
+          Destination state / province, from the MongoDB `dest_state` field.
+        dimension:
+          type: categorical
+          label: Destination state
+        is_partition: false
+
+      - name: dest_zipcode
+        description: >
+          Destination ZIP code. Documented as a placeholder field that is
+          currently null.
+        dimension:
+          type: categorical
+          label: Destination zipcode
+        is_partition: false
+
+      - name: street_address
+        description: >
+          Street address. Documented as a placeholder field that is currently
+          null.
+        dimension:
+          type: categorical
+          label: Street address
+        is_partition: false
+
+      - name: pickup_location
+        description: >
+          Location the package was picked up at.
+        dimension:
+          type: categorical
+          label: Pickup location
+        is_partition: false
+
+      - name: pickup_note
+        description: >
+          Additional free-text notes about the pickup.
+        dimension:
+          type: categorical
+          label: Pickup note
+        is_partition: false
+
+      - name: provider
+        description: >
+          Name of the shipping provider (carrier) that handles the parcel.
+        dimension:
+          type: categorical
+          label: Provider
+        is_partition: false
+
+      - name: provider_id
+        description: >
+          Numeric identifier of the shipping provider, extracted from the
+          `user_shipping_details` JSON. The documentation notes that the
+          provider id mapping is not consistent across systems.
+        dimension:
+          type: categorical
+          label: Provider id
+        is_partition: false
+
+      - name: service_code
+        description: >
+          Shipping service code chosen for the parcel.
+        dimension:
+          type: categorical
+          label: Service code
+        is_partition: false
+
+      - name: carrier_tier
+        description: >
+          Carrier service tier level of the parcel.
+        dimension:
+          type: categorical
+          label: Carrier tier
+        is_partition: false
+
+      - name: weight_unit
+        description: >
+          Unit of measurement of `weight`. `total_weight` is only meaningful
+          within a single unit, so always group by `weight_unit` when
+          summing weight across providers.
+        dimension:
+          type: categorical
+          label: Weight unit
+        is_partition: false
+
+      - name: wishpost_channel
+        description: >
+          WishPost shipping channel identifier. Null for non-WishPost
+          shipments.
+        dimension:
+          type: categorical
+          label: WishPost channel
+        is_partition: false
+
+      - name: wishpost_warehouse
+        description: >
+          WishPost warehouse identifier. Null for non-WishPost shipments.
+        dimension:
+          type: categorical
+          label: WishPost warehouse
+        is_partition: false
+
+      - name: wishpost_registered
+        description: >
+          WishPost registration status of the shipment.
+        dimension:
+          type: categorical
+          label: WishPost registered
+        is_partition: false
+
+      - name: last_mile_tracking_expected
+        description: >
+          Whether last mile tracking is expected for the parcel.
+        dimension:
+          type: categorical
+          label: Last mile tracking expected
+        is_partition: false
+
+      - name: return_to_sender
+        description: >
+          Flag indicating that the parcel is being returned to the sender.
+        dimension:
+          type: categorical
+          label: Return to sender
+        is_partition: false
+
+      # ---- measures ------------------------------------------------------------
+      - name: shipping_cost
+        description: >
+          Shipping cost amount of the parcel, in the currency recorded by
+          the source. Referenced by the shipping-cost metrics.
+        is_partition: false
+
+      - name: weight
+        description: >
+          Package weight, in the unit given by `weight_unit`. Referenced by
+          the weight metrics.
+        is_partition: false
+
+      - name: delivery_days
+        description: >
+          Transit time from tracking creation to confirmed delivery, in days:
+          `(confirmed_delivered_time - tracking_created_time) / 86400`. Null
+          until the parcel is confirmed delivered. Referenced by
+          `avg_delivery_days`.
+        is_partition: false
+
+      # ---- PII (exposed by the view, not a MetricFlow dimension) ---------------
+      - name: name
+        description: >
+          Recipient name from the `user_shipping_details` JSON. PII -- not
+          exposed as a MetricFlow dimension.
+        is_partition: false
+
+      - name: phone_number
+        description: >
+          Recipient phone number. PII -- not exposed as a MetricFlow
+          dimension.
+        is_partition: false
+
+      - name: signed_by
+        description: >
+          Name of the person who signed for the delivery. PII -- not exposed
+          as a MetricFlow dimension.
+        is_partition: false
+
+    metrics:
+      - name: total_shipments
+        type: simple
+        label: Total shipments
+        description: >
+          Count of tracking records at this grain
+          (wish.master_order_tracking_infos). One row is one order-tracking
+          record, not one parcel and not one transaction. Cohort metric: the
+          records are the ones created in the filtered `dt` period.
+        agg: count
+        expr: 1
+        fill_nulls_with: 0
+
+      - name: unique_tracking_ids
+        type: simple
+        label: Unique tracking ids
+        description: >
+          Distinct tracking record count. Corresponds to the
+          `unique_tracking_ids` expression in the table documentation's
+          tracking-source-distribution example. Lower than
+          `total_shipments` when the same `tracking_id` is re-emitted in
+          several `dt` partitions.
+        agg: count_distinct
+        expr: tracking_id
+
+      - name: delivered_shipments
+        type: simple
+        label: Delivered shipments
+        description: >
+          Count of tracking records whose package is confirmed delivered
+          (`is_delivered = 'true'`). Corresponds to the `delivered_count`
+          expression in the table documentation's delivery-performance
+          example.
+        agg: count
+        expr: 1
+        fill_nulls_with: 0
+        filter: >
+          {{ Dimension('tracking_record__is_delivered') }} = 'true'
+
+      - name: confirmed_shipments
+        type: simple
+        label: Confirmed shipments
+        description: >
+          Count of tracking records with a confirmed shipment
+          (`is_confirmed = 'true'`). The documentation's delivery and
+          failure examples restrict the whole analysis to confirmed
+          shipments, so this is the standard denominator of the shipping
+          performance metrics.
+        agg: count
+        expr: 1
+        fill_nulls_with: 0
+        filter: >
+          {{ Dimension('tracking_record__is_confirmed') }} = 'true'
+
+      - name: confirmed_delivered_shipments
+        type: simple
+        label: Confirmed delivered shipments
+        description: >
+          Count of tracking records that are both confirmed and delivered
+          (`is_confirmed = 'true'` and `is_delivered = 'true'`). Numerator
+          of `delivery_rate`.
+        agg: count
+        expr: 1
+        fill_nulls_with: 0
+        filter: >
+          {{ Dimension('tracking_record__is_delivered') }} = 'true'
+          AND {{ Dimension('tracking_record__is_confirmed') }} = 'true'
+
+      - name: failed_deliveries
+        type: simple
+        label: Failed deliveries
+        description: >
+          Count of tracking records with a delivery failure
+          (`is_delivery_failure = 'true'`), i.e. whose checkpoints contain
+          an ATTEMPT_FAIL (7) or EXCEPTION (9) state. Corresponds to the
+          `failed_deliveries` expression in the table documentation's
+          failed-delivery example.
+        agg: count
+        expr: 1
+        fill_nulls_with: 0
+        filter: >
+          {{ Dimension('tracking_record__is_delivery_failure') }} = 'true'
+
+      - name: confirmed_failed_deliveries
+        type: simple
+        label: Confirmed failed deliveries
+        description: >
+          Count of tracking records that are confirmed and failed delivery
+          (`is_confirmed = 'true'` and `is_delivery_failure = 'true'`).
+          Numerator of `failure_rate`.
+        agg: count
+        expr: 1
+        fill_nulls_with: 0
+        filter: >
+          {{ Dimension('tracking_record__is_delivery_failure') }} = 'true'
+          AND {{ Dimension('tracking_record__is_confirmed') }} = 'true'
+
+      - name: valid_tracking_shipments
+        type: simple
+        label: Valid tracking shipments
+        description: >
+          Count of tracking records with a valid tracking number
+          (`is_valid_tracking = 'true'`). By construction the flag is
+          identical to `is_confirmed`, so this metric equals
+          `confirmed_shipments`; it is exposed because the source table
+          carries the flag explicitly.
+        agg: count
+        expr: 1
+        fill_nulls_with: 0
+        filter: >
+          {{ Dimension('tracking_record__is_valid_tracking') }} = 'true'
+
+      - name: distinct_transactions
+        type: simple
+        label: Distinct transactions
+        description: >
+          Distinct commerce transaction count among the tracking records. One
+          transaction can carry several tracking records, so this is lower
+          than `total_shipments`.
+        agg: count_distinct
+        expr: transaction_id
+
+      - name: distinct_merchants
+        type: simple
+        label: Distinct merchants
+        description: >
+          Distinct merchant count among the tracking records.
+        agg: count_distinct
+        expr: merchant_id
+
+      - name: distinct_users
+        type: simple
+        label: Distinct buyers
+        description: >
+          Distinct buyer count among the tracking records.
+        agg: count_distinct
+        expr: user_id
+
+      - name: distinct_products
+        type: simple
+        label: Distinct products
+        description: >
+          Distinct product count among the tracking records.
+        agg: count_distinct
+        expr: product_id
+
+      - name: distinct_variations
+        type: simple
+        label: Distinct variations
+        description: >
+          Distinct product variation count among the tracking records.
+        agg: count_distinct
+        expr: variation_id
+
+      - name: distinct_providers
+        type: simple
+        label: Distinct providers
+        description: >
+          Distinct shipping provider (carrier) count among the tracking
+          records. Useful for carrier-coverage analysis.
+        agg: count_distinct
+        expr: provider
+
+      - name: total_shipping_cost
+        type: simple
+        label: Total shipping cost
+        description: >
+          Sum of the shipping cost of the tracked parcels, in the currency
+          recorded by the source. Not comparable across providers that
+          report in different currencies.
+        agg: sum
+        expr: shipping_cost
+        fill_nulls_with: 0
+
+      - name: avg_shipping_cost
+        type: simple
+        label: Average shipping cost
+        description: >
+          Average shipping cost per tracking record, in the currency recorded
+          by the source.
+        agg: average
+        expr: shipping_cost
+
+      - name: total_weight
+        type: simple
+        label: Total weight
+        description: >
+          Sum of the parcel weights. Only meaningful within a single
+          `weight_unit`; always group by `weight_unit`.
+        agg: sum
+        expr: weight
+        fill_nulls_with: 0
+
+      - name: avg_weight
+        type: simple
+        label: Average weight
+        description: >
+          Average parcel weight per tracking record. Only meaningful within
+          a single `weight_unit`; always group by `weight_unit`.
+        agg: average
+        expr: weight
+
+      - name: avg_delivery_days
+        type: simple
+        label: Average delivery days
+        description: >
+          Average transit time in days from tracking creation to confirmed
+          delivery, over the delivered parcels only. Corresponds to the
+          `avg_delivery_days` expression in the table documentation's
+          delivery-performance example. Null for records that were never
+          confirmed delivered.
+        agg: average
+        expr: delivery_days
+        filter: >
+          {{ Dimension('tracking_record__is_delivered') }} = 'true'
+
+      - name: failure_rate
+        type: ratio
+        label: Failure rate
+        description: >
+          Share of confirmed shipments that failed delivery, expressed as a
+          fraction between 0 and 1 (multiply by 100 for a percentage).
+          Corresponds to the `failure_rate` expression in the table
+          documentation's failed-delivery example, which is computed over
+          confirmed shipments only.
+        numerator: confirmed_failed_deliveries
+        denominator: confirmed_shipments
+
+      - name: delivery_rate
+        type: ratio
+        label: Delivery rate
+        description: >
+          Share of confirmed shipments that were delivered, expressed as a
+          fraction between 0 and 1 (multiply by 100 for a percentage).
+          Delivered shipments are always a subset of confirmed shipments.
+        numerator: confirmed_delivered_shipments
+        denominator: confirmed_shipments

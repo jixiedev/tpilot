@@ -1,0 +1,468 @@
+version: 2
+
+models:
+  - name: fct_transaction_variations
+    description: >
+      Variation-level transaction fact for Wish GMV, revenue, tax, and buyer
+      analysis. Grain is one row per commerce transaction and product variation
+      within payment-received partition dt (America/Los_Angeles). Financial
+      metrics are proportionally allocated by
+      (paid_price + paid_shipping) / (subtotal + total_shipping).
+      Excludes Wish Cash and BNPL special variation IDs, pending/declined/exception
+      states, and refunds that precede payment received.
+      Source: core_data.fct_transaction_variations (Airflow DAG FctTransactionVariations).
+    config:
+      meta:
+        owner: jcui
+        hive_table: core_data.fct_transaction_variations
+        dag: FctTransactionVariations
+        timezone: America/Los_Angeles
+    semantic_model:
+      enabled: true
+      name: fct_transaction_variations
+      config:
+        meta:
+          owner: jcui
+          usage: >
+            Filter metric_time / dt first for partition pruning. Use
+            payment_received_time (same calendar date as dt) for revenue
+            recognition; transaction_time for checkout / user-behavior analysis.
+    agg_time_dimension: dt
+
+    columns:
+      - name: transaction_variation_id
+        description: Surrogate primary key, transaction_id|variation_id.
+        data_tests:
+          - not_null
+        entity:
+          type: primary
+          name: transaction_variation
+          description: Unique variation line within a commerce transaction.
+
+      - name: transaction_id
+        description: Commerce transaction identifier (c_transaction_id).
+        entity:
+          type: foreign
+          name: transaction
+          description: Checkout / basket. Multiple variations can share one transaction.
+
+      - name: variation_id
+        description: Product variation identifier. Wish Cash and BNPL variations are excluded.
+        entity:
+          type: foreign
+          name: variation
+
+      - name: order_id
+        description: Merchant transaction / order identifier (m_transaction_id).
+        entity:
+          type: foreign
+          name: order
+
+      - name: user_id
+        description: Buyer user identifier.
+        entity:
+          type: foreign
+          name: user
+
+      - name: merchant_id
+        description: Merchant identifier.
+        entity:
+          type: foreign
+          name: merchant
+
+      - name: product_id
+        description: Product identifier.
+        entity:
+          type: foreign
+          name: product
+
+      - name: visitor_id
+        description: Request visitor id for session attribution. May be null on older rows.
+        entity:
+          type: foreign
+          name: visitor
+
+      - name: seed_visitor_id
+        description: Original visitor id for multi-session attribution. May be null.
+        entity:
+          type: foreign
+          name: seed_visitor
+
+      - name: dt
+        description: >
+          Physical partition date (America/Los_Angeles), equal to payment_received_time
+          as a date. Always filter this field first.
+        granularity: day
+        dimension:
+          type: time
+          label: Partition date
+          is_partition: true
+
+      - name: payment_received_time
+        description: Date payment was received (America/Los_Angeles). Same calendar date as dt.
+        granularity: day
+        dimension:
+          type: time
+          label: Payment received date
+
+      - name: transaction_time
+        description: >
+          Date the user completed checkout (America/Los_Angeles). Can differ
+          from payment_received_time when payment is delayed.
+        granularity: day
+        dimension:
+          type: time
+          label: Transaction / checkout date
+
+      - name: transaction_ts
+        description: >
+          Transaction creation timestamp converted from UTC unix seconds.
+          Kept as a column for joins; not a MetricFlow time dimension (spine is day).
+
+      - name: payment_received_ts
+        description: >
+          Payment received timestamp converted from UTC unix seconds.
+          Kept as a column for joins; not a MetricFlow time dimension (spine is day).
+
+      - name: shipping_country
+        description: ISO 3166-1 alpha-2 shipping destination country code.
+        dimension:
+          type: categorical
+          label: Shipping country code
+
+      - name: client
+        description: Client platform code. 0=Web, 1=iPhone, 2=iPad, 3=Android, 4=Mobile Web, 5=Windows Desktop, 6=Windows Phone, 7=Android Instant App.
+        dimension:
+          type: categorical
+          label: Client code
+
+      - name: client_name
+        description: Human-readable client platform.
+        dimension:
+          type: categorical
+          label: Client
+
+      - name: payment_type
+        description: Payment method code. See payment_type_name for labels.
+        dimension:
+          type: categorical
+          label: Payment type code
+
+      - name: payment_type_name
+        description: Human-readable payment method.
+        dimension:
+          type: categorical
+          label: Payment type
+
+      - name: installments
+        description: Number of payment installments. NULL or 1 is a single payment.
+        dimension:
+          type: categorical
+          label: Installments
+
+      - name: is_installment
+        description: True when installments > 1.
+        dimension:
+          type: categorical
+          label: Is installment
+
+      - name: is_ltd_product
+        description: "'true' if Limited Time Deal product, else 'false'."
+        dimension:
+          type: categorical
+          label: Is LTD product
+
+      - name: is_temporary_user
+        description: "'true' if temporary/logged-out user, else 'false'."
+        dimension:
+          type: categorical
+          label: Is temporary user
+
+      - name: gmv_variation
+        description: Gross merchandise value allocated to this variation.
+      - name: raw_revenue_variation
+        description: Marketplace revenue after costs and taxes, at variation grain. 1P merchant cost is not subtracted.
+      - name: raw_total_tax
+        description: Tax cost + merchant tax (FX-adjusted) + GB TBD remit amount.
+      - name: wish_cash_variation
+        description: Wish Cash credit allocated to this variation.
+      - name: quantity
+        description: Units purchased for this variation.
+      - name: total
+        description: Amount paid by the user after discounts and credits, at variation grain.
+      - name: payment_lag_days
+        description: Days between checkout date and payment-received date (dt - transaction_time).
+      - name: transaction_timestamp
+        description: Unix seconds (UTC) of transaction creation. Kept for joins; use transaction_ts as the time dimension.
+      - name: time
+        description: Unix seconds (UTC) of payment received. Kept for joins; use payment_received_ts as the time dimension.
+
+    metrics:
+      # ----- including LTD -----
+      - name: gmv_w_ltd
+        type: simple
+        label: GMV (incl. LTD)
+        description: Sum of variation-level GMV, including Limited Time Deal products.
+        agg: sum
+        expr: gmv_variation
+        fill_nulls_with: 0
+
+      - name: revenue_w_ltd
+        type: simple
+        label: Revenue (incl. LTD)
+        description: Sum of raw_revenue_variation, including LTD. EXP name raw_revenue_w_ltd.
+        agg: sum
+        expr: raw_revenue_variation
+        fill_nulls_with: 0
+
+      - name: wish_cash_w_ltd
+        type: simple
+        label: Wish Cash (incl. LTD)
+        description: Sum of Wish Cash applied at variation grain, including LTD.
+        agg: sum
+        expr: wish_cash_variation
+        fill_nulls_with: 0
+
+      - name: raw_total_tax_w_ltd
+        type: simple
+        label: Tax (incl. LTD)
+        description: Sum of raw_total_tax, including LTD.
+        agg: sum
+        expr: raw_total_tax
+        fill_nulls_with: 0
+
+      - name: quantity_w_ltd
+        type: simple
+        label: Quantity (incl. LTD)
+        description: Units sold, including LTD.
+        agg: sum
+        expr: quantity
+        fill_nulls_with: 0
+
+      - name: total_paid_w_ltd
+        type: simple
+        label: User paid amount (incl. LTD)
+        description: Sum of variation-level total paid after discounts and credits.
+        agg: sum
+        expr: total
+        fill_nulls_with: 0
+
+      - name: transactions_w_ltd
+        type: simple
+        label: Transactions (incl. LTD)
+        description: Distinct commerce transactions (checkouts) with payment received.
+        agg: count_distinct
+        expr: transaction_id
+
+      - name: buyers_w_ltd
+        type: simple
+        label: Buyers (incl. LTD)
+        description: Distinct user_id with a transaction, including LTD. EXP name buyer_w_ltd.
+        agg: count_distinct
+        expr: user_id
+
+      - name: orders_w_ltd
+        type: simple
+        label: Orders (incl. LTD)
+        description: Distinct merchant orders (order_id / m_transaction_id), including LTD.
+        agg: count_distinct
+        expr: order_id
+
+      - name: variation_lines_w_ltd
+        type: simple
+        label: Variation lines (incl. LTD)
+        description: Row count at variation grain, including LTD.
+        agg: count
+        expr: 1
+        fill_nulls_with: 0
+
+      - name: unique_products_sold_w_ltd
+        type: simple
+        label: Unique products sold (incl. LTD)
+        description: Distinct product_id sold, including LTD.
+        agg: count_distinct
+        expr: product_id
+
+      # ----- excluding LTD (Datapark / EXP default) -----
+      - name: gmv
+        type: simple
+        label: GMV
+        description: >
+          GMV excluding LTD. Equivalent to sum(gmv_variation) where
+          is_ltd_product = 'false'.
+        agg: sum
+        expr: gmv_variation
+        fill_nulls_with: 0
+        filter: "{{ Dimension('transaction_variation__is_ltd_product') }} = 'false'"
+
+      - name: revenue
+        type: simple
+        label: Revenue
+        description: >
+          Marketplace revenue excluding LTD (sum of raw_revenue_variation).
+          EXP glossary name is raw_revenue.
+        agg: sum
+        expr: raw_revenue_variation
+        fill_nulls_with: 0
+        filter: "{{ Dimension('transaction_variation__is_ltd_product') }} = 'false'"
+
+      - name: wish_cash
+        type: simple
+        label: Wish Cash
+        description: Wish Cash spent excluding LTD.
+        agg: sum
+        expr: wish_cash_variation
+        fill_nulls_with: 0
+        filter: "{{ Dimension('transaction_variation__is_ltd_product') }} = 'false'"
+
+      - name: raw_total_tax
+        type: simple
+        label: Tax
+        description: Total tax excluding LTD.
+        agg: sum
+        expr: raw_total_tax
+        fill_nulls_with: 0
+        filter: "{{ Dimension('transaction_variation__is_ltd_product') }} = 'false'"
+
+      - name: quantity
+        type: simple
+        label: Quantity
+        description: Units sold excluding LTD.
+        agg: sum
+        expr: quantity
+        fill_nulls_with: 0
+        filter: "{{ Dimension('transaction_variation__is_ltd_product') }} = 'false'"
+
+      - name: total_paid
+        type: simple
+        label: User paid amount
+        description: Sum of variation-level total paid after discounts and credits, excluding LTD.
+        agg: sum
+        expr: total
+        fill_nulls_with: 0
+        filter: "{{ Dimension('transaction_variation__is_ltd_product') }} = 'false'"
+
+      - name: transactions
+        type: simple
+        label: Transactions
+        description: Distinct checkouts with payment received, excluding LTD.
+        agg: count_distinct
+        expr: transaction_id
+        filter: "{{ Dimension('transaction_variation__is_ltd_product') }} = 'false'"
+
+      - name: buyers
+        type: simple
+        label: Buyers
+        description: Distinct user_id with a transaction, excluding LTD. EXP name buyer.
+        agg: count_distinct
+        expr: user_id
+        filter: "{{ Dimension('transaction_variation__is_ltd_product') }} = 'false'"
+
+      - name: orders
+        type: simple
+        label: Orders
+        description: Distinct merchant orders (order_id), excluding LTD. Datapark orders.
+        agg: count_distinct
+        expr: order_id
+        filter: "{{ Dimension('transaction_variation__is_ltd_product') }} = 'false'"
+
+      - name: variation_lines
+        type: simple
+        label: Variation lines
+        description: >
+          Row count at variation grain, excluding LTD. WBR topline count(*)
+          denominator. EXP num_of_order is count_distinct of
+          transaction_id-variation_id, which matches this grain.
+        agg: count
+        expr: 1
+        fill_nulls_with: 0
+        filter: "{{ Dimension('transaction_variation__is_ltd_product') }} = 'false'"
+
+      - name: unique_products_sold
+        type: simple
+        label: Unique products sold
+        description: Distinct product_id sold, excluding LTD.
+        agg: count_distinct
+        expr: product_id
+        filter: "{{ Dimension('transaction_variation__is_ltd_product') }} = 'false'"
+
+      - name: gmv_upto_p999
+        type: simple
+        label: GMV (capped at 200)
+        description: >
+          EXP gmv_upto_p999. Excluding LTD, each variation GMV is capped at 200
+          (approx. 99.9th percentile).
+        agg: sum
+        expr: "least(gmv_variation, 200)"
+        fill_nulls_with: 0
+        filter: "{{ Dimension('transaction_variation__is_ltd_product') }} = 'false'"
+
+      - name: raw_revenue_999
+        type: simple
+        label: Revenue (rows <= 40)
+        description: EXP raw_revenue_999. Sum of excluding-LTD revenue only when the row is <= 40.
+        agg: sum
+        expr: "case when raw_revenue_variation <= 40 then raw_revenue_variation else null end"
+        filter: "{{ Dimension('transaction_variation__is_ltd_product') }} = 'false'"
+
+      - name: payment_lag_days
+        type: simple
+        label: Payment lag (days)
+        description: >
+          Average days between transaction_time (checkout) and payment_received_time.
+          Datapark dt_vs_transaction_time_lag. Typically ~1-2 days globally; BR/MX ~10 days.
+        agg: average
+        expr: payment_lag_days
+
+      - name: atv
+        type: ratio
+        label: Average transaction value
+        description: GMV / distinct transactions (excluding LTD).
+        numerator: gmv
+        denominator: transactions
+
+      - name: aiv
+        type: ratio
+        label: Average item value
+        description: GMV / quantity (excluding LTD).
+        numerator: gmv
+        denominator: quantity
+
+      - name: gmv_per_buyer
+        type: ratio
+        label: GMV per buyer
+        description: GMV / distinct buyers (excluding LTD).
+        numerator: gmv
+        denominator: buyers
+
+      - name: gmv_per_order
+        type: ratio
+        label: GMV per variation line
+        description: >
+          GMV / variation line count (WBR topline uses count(*) as denominator),
+          excluding LTD.
+        numerator: gmv
+        denominator: variation_lines
+
+      - name: margin
+        type: ratio
+        label: Margin
+        description: Revenue / GMV excluding LTD. Also called take rate in WBR.
+        numerator: revenue
+        denominator: gmv
+
+      - name: take_rate
+        type: ratio
+        label: Take rate
+        description: Alias of margin used in WBR topline (revenue / GMV).
+        numerator: revenue
+        denominator: gmv
+
+      - name: orders_per_buyer
+        type: ratio
+        label: Variation lines per buyer
+        description: >
+          Variation line count / distinct buyers (WBR topline orders-per-buyer),
+          excluding LTD.
+        numerator: variation_lines
+        denominator: buyers

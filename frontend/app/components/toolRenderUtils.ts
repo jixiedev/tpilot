@@ -152,3 +152,26 @@ export function parseGlossaryResult(result: unknown): GlossarySummary | null {
     rawNote: typeof payload.note === "string" ? payload.note : undefined,
   };
 }
+
+/**
+ * Tool-call arguments as a list, whatever shape they arrive in: an array; a
+ * JSON string (arguments still streaming, or a model that sends strings); or
+ * an `{ item: [...] }` / `{ items: [...] }` wrapper some models emit.
+ * Anything else is an empty list, so a renderer never crashes on `.filter`.
+ */
+export function asList(value: unknown): unknown[] {
+  if (Array.isArray(value)) return value;
+  if (typeof value === "string") {
+    try {
+      return asList(JSON.parse(value));
+    } catch {
+      return [];
+    }
+  }
+  if (value && typeof value === "object") {
+    const wrapped = (value as { item?: unknown; items?: unknown }).item ??
+      (value as { items?: unknown }).items;
+    if (wrapped !== undefined) return asList(wrapped);
+  }
+  return [];
+}

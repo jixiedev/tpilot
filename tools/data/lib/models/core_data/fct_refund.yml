@@ -1,0 +1,186 @@
+version: 2
+
+models:
+  - name: fct_refund
+    description: >
+      Daily refund fact at commerce transaction × variation grain (aggregated refund
+      events from merchant_order_fulfillment ACTION='REFUNDED'). Captures refunded
+      dollar amount, refund reason, partial vs full refund type, merchant eat-cost
+      ratio, and LTD product context. Partitioned by dt (Airflow load day,
+      America/Los_Angeles). Source: core_data.fct_refund (DailyCorePipelines /
+      MRFDailyCore / fct_refund.yaml).
+    config:
+      meta:
+        hive_table: core_data.fct_refund
+        dag: DailyCorePipelines
+        timezone: America/Los_Angeles
+    semantic_model:
+      enabled: true
+      name: fct_refund
+      config:
+        meta:
+          usage: >
+            Always filter dt first for partition pruning. Use dt for daily load-day
+            scans; use ds for calendar date derived from event time; convert
+            transaction_time / refunded_time / time unix columns for event-level
+            analysis. Experiment GMD attributes metrics on time (event timestamp).
+    agg_time_dimension: dt
+
+    columns:
+      - name: refund_event_id
+        description: >
+          Surrogate primary key from dt, transaction_id, variation_id, time,
+          refunded_amount, refund_reason_category, and refunded_amount_type.
+        data_tests:
+          - not_null
+        entity:
+          type: primary
+          name: refund_event
+          description: One aggregated refund event row within partition dt.
+
+      - name: transaction_id
+        description: Commerce transaction identifier (c_transaction_id). Grain key with variation_id.
+        entity:
+          type: foreign
+          name: transaction
+          description: Commerce transaction; multiple refund events may share one transaction.
+
+      - name: variation_id
+        description: Product variation identifier. Placeholder variation IDs are excluded upstream.
+        entity:
+          type: foreign
+          name: variation
+
+      - name: user_id
+        description: Buyer user identifier. Experiment GMD subject key.
+        entity:
+          type: foreign
+          name: user
+
+      - name: merchant_id
+        description: Merchant identifier for the refunded item.
+        entity:
+          type: foreign
+          name: merchant
+
+      - name: product_id
+        description: Product identifier for the refunded line item.
+        entity:
+          type: foreign
+          name: product
+
+      - name: dt
+        description: >
+          Hive partition / Airflow load day (America/Los_Angeles). Always filter
+          this field first for partition pruning.
+        granularity: day
+        dimension:
+          type: time
+          label: Partition / load date
+          is_partition: true
+
+      - name: ds
+        description: >
+          Calendar date derived from event time (DATE(FROM_UNIXTIME(time)) in the
+          pipeline). Can differ from dt near timezone boundaries.
+        granularity: day
+        dimension:
+          type: time
+          label: Event calendar date (from time)
+
+      - name: refund_reason_category
+        description: Integer refund reason code (CommerceTransactionItem.RefundReasonCategory).
+        dimension:
+          type: categorical
+          label: Refund reason code
+
+      - name: refund_reason_category_name
+        description: Human-readable refund reason name mapped from refund_reason_category.
+        dimension:
+          type: categorical
+          label: Refund reason
+
+      - name: refunded_amount_type
+        description: >
+          Partial vs full refund amount type (PARTIAL_REFUND_GENERAL,
+          PARTIAL_REFUND_SHIPPING, PARTIAL_REFUND_PRICE, FULL_REFUND).
+        dimension:
+          type: categorical
+          label: Refund amount type
+
+      - name: eat_cost_ratio
+        description: Merchant eat-cost ratio (0=Wish eats cost, 1=merchant eats cost).
+        dimension:
+          type: categorical
+          label: Eat cost ratio code
+
+      - name: eat_cost_ratio_name
+        description: Human-readable cost bearer (Wish eats cost, Merchant eats cost, Other).
+        dimension:
+          type: categorical
+          label: Cost bearer
+
+      - name: is_ltd_product
+        description: "'true' if Limited Time Deal product, else 'false'."
+        dimension:
+          type: categorical
+          label: Is LTD product
+
+      - name: refunded_amount
+        description: Dollar amount refunded for this event (USD-oriented).
+      - name: transaction_time
+        description: Unix seconds (UTC) when the commerce transaction was created. Not a MetricFlow time dimension.
+      - name: refunded_time
+        description: Unix seconds (UTC) when the refund finished (MIN(end) in pipeline). Not a MetricFlow time dimension.
+      - name: time
+        description: Unix seconds of the REFUNDED fulfillment event; GMD experiment timestamp column.
+      - name: transaction_ts
+        description: Transaction creation timestamp converted from UTC unix seconds. Kept for joins.
+      - name: refunded_ts
+        description: Refund completion timestamp converted from UTC unix seconds. Kept for joins.
+      - name: event_ts
+        description: Event logging timestamp converted from UTC unix seconds. Kept for joins.
+      - name: refund_lag_days
+        description: Days from transaction creation to refund completion ((refunded_time - transaction_time) / 86400).
+
+    metrics:
+      - name: refund
+        type: simple
+        label: Refund amount
+        description: >
+          Sum of refunded_amount. Experiment metric exp.refund (inverted: lower is
+          better). GMD timestamp column is time; default metric time is partition dt.
+        agg: sum
+        expr: refunded_amount
+        fill_nulls_with: 0
+
+      - name: refund_events
+        type: simple
+        label: Refund events
+        description: Count of refund event rows at this table's grain.
+        agg: count
+        expr: 1
+        fill_nulls_with: 0
+
+      - name: refunded_transactions
+        type: simple
+        label: Refunded transactions
+        description: Distinct commerce transactions with at least one refund event.
+        agg: count_distinct
+        expr: transaction_id
+
+      - name: refunded_buyers
+        type: simple
+        label: Refunded buyers
+        description: Distinct buyer user_id with at least one refund event.
+        agg: count_distinct
+        expr: user_id
+
+      - name: refund_lag_days
+        type: simple
+        label: Refund lag (days)
+        description: >
+          Median-friendly average days from transaction creation (transaction_time)
+          to refund completion (refunded_time).
+        agg: average
+        expr: refund_lag_days

@@ -1,0 +1,464 @@
+version: 2
+
+models:
+  - name: finance_monthly_sales_breakdown_1y
+    description: >
+      WishPost logistics finance **sales** revenue breakdown over a
+      rolling ~1-year window. Daily snapshot grain at (dt, date_type,
+      date_value, country, region, is_124, business_type,
+      pricing_channel, channel) per aggregation cell. Produced by the
+      `WishpostOverallFinancePNL` Airflow DAG (task
+      `FinanceSalesBreakdownTask`, daily 10:00 Asia/Shanghai) with
+      `INSERT OVERWRITE ... PARTITION (dt='{biz_date}')`, where
+      biz_date = execution_date − 1 day. Each `dt` partition holds a
+      full rolling ~366-day recompute of the sales side, so `dt` is the
+      daily snapshot ("as of") date and `date_value` (exposed as
+      `sales_day`) is the business sales-payment calendar day inside
+      that window. `date_type` is always `sales_date` on this table —
+      the sibling `wishpost.finance_monthly_profits_1y` carries both
+      `sales_date` and `purchase_date` perspectives, this one is
+      sales-side only.
+
+      Fee components: `logistics_fee` (sales fee_type 102),
+      `overtime_fine` (fee_type 108, a fee amount and NOT a
+      timestamp), `sensitive_fee` (fee_type 118) and `other_fees` (all
+      remaining fee types). Revenue = logistics_fee + overtime_fine +
+      sensitive_fee + other_fees. Fees and `weight` are
+      **maturity-gated**: immature parcels contribute 0, so the fee
+      denominator must be `volume_mature`, not `volume`. Maturity rate
+      = SUM(volume_mature) / SUM(volume). `volume` counts all sales
+      tracking_ids; `volume_mature` counts only parcels whose
+      purchase-side costs have landed. `gmv` and `mid_cnt` are
+      **not** maturity-gated. Amounts are not FX-converted in the DAG
+      (they follow the sales payment dump currency, typically CNY);
+      Tableau may convert with a dashboard exchange-rate parameter.
+      Feeds the Tableau workbook *Logistics Finance Dashboard New*
+      (custom SQL selects the latest `dt` partition). Tableau models
+      under `semantic_layer/models/tableau/` own any dimension joins;
+      this wrapper performs no joins. Source:
+      wishpost.finance_monthly_sales_breakdown_1y.
+    config:
+      meta:
+        owner: jixie
+        hive_table: wishpost.finance_monthly_sales_breakdown_1y
+        dag: WishpostOverallFinancePNL
+        task: FinanceSalesBreakdownTask
+    semantic_model:
+      enabled: true
+      name: finance_monthly_sales_breakdown_1y
+      config:
+        meta:
+          usage: >
+            dt is a Hive partition AND a rolling snapshot: every dt
+            partition holds a full ~1-year recompute of the sales
+            window, so always filter dt for partition pruning and use
+            the latest partition for "current" numbers. The default
+            metric time dimension is dt (the snapshot date) because
+            summing across many dt partitions double-counts: every
+            sales day of the window reappears in each later dt
+            partition. To trend by the business sales day, restrict dt
+            to a single partition and group by sales_day (the cast of
+            date_value). `time` is the ETL write epoch marker
+            (unix_timestamp() at insert, constant per partition load)
+            and is not a business clock — do not use it for revenue
+            cutoffs or sales trends. Fees and weight are zeroed for
+            immature parcels by design, so compare them against
+            volume_mature rather than volume. is_124 is NULL when the
+            sales mid has no purchase mid-mapping match (maturity then
+            fails) — treat NULL separately from 'non-124'.
+    agg_time_dimension: dt
+
+    columns:
+      - name: sales_cell_id
+        description: >
+          Surrogate primary key — concat(dt, '|', date_type, '|',
+          date_value, '|', country, '|', region, '|', is_124, '|',
+          business_type, '|', pricing_channel, '|', channel) with
+          NULLs replaced by '__null__'. Proxies the natural
+          (dt, date_type, date_value, country, region, is_124,
+          business_type, pricing_channel, channel) composite grain for
+          MetricFlow primary entity purposes.
+        data_tests:
+          - not_null
+          - unique
+        entity:
+          type: primary
+          name: wp_finance_sales_cell
+          description: >
+            One WishPost monthly sales breakdown cell (snapshot date ×
+            recognition perspective × sales day × country × region ×
+            124 channel × delivery program × pricing channel × order
+            channel).
+
+      - name: dt
+        description: >
+          Hive partition / daily snapshot date (varchar YYYY-MM-DD in
+          the source, cast to date here). Beijing timezone, run date −
+          1 day. Every partition holds a full rolling ~1-year recompute
+          of the business window, so dt is the "as of" date, not a
+          business date. Default metric time dimension.
+        is_partition: true
+        granularity: day
+        dimension:
+          type: time
+          label: Snapshot date
+
+      - name: sales_day
+        description: >
+          Cast of date_value to date. The business sales-payment
+          calendar day inside the rolling window (upstream:
+          from_unixtime(min(payment.time) + 8*3600, 'yyyy-MM-dd') per
+          tracking_id, i.e. the Beijing calendar day of the earliest
+          qualifying sales payment). Secondary time dimension — each
+          sales day repeats in every later dt partition, so restrict dt
+          to a single partition before aggregating on sales_day.
+        granularity: day
+        dimension:
+          type: time
+          label: Sales day
+
+      - name: date_value
+        description: >
+          Sales-payment calendar day in YYYY-MM-DD format (raw varchar).
+          Business time axis of the table; date_type is always
+          'sales_date' here.
+        dimension:
+          type: categorical
+          label: Sales date (raw)
+
+      - name: date_type
+        description: >
+          Time-axis metadata for date_value. Possible values:
+          'sales_date' only in the current producer (sales payment
+          calendar day, not purchase date and not the partition dt).
+        dimension:
+          type: categorical
+          label: Date type
+
+      - name: country
+        description: >
+          Destination country short code, ISO 3166-1 alpha-2–style
+          (e.g. 'US', 'DE', 'GB', 'BR', 'MX', 'CN'). Upstream
+          COALESCE(country_code_mapping.country_code_short,
+          payment.country); open set, not a closed enum.
+        dimension:
+          type: categorical
+          label: Destination country
+
+      - name: region
+        description: >
+          Geographic region of the destination country, passed through
+          from wishpost.dim_region (NOT remapped to EU/AM/AP). Possible
+          values: 'Americas', 'European States', 'ROW', 'Other' —
+          'Other' is both a stored dim label and the join-miss
+          sentinel.
+        dimension:
+          type: categorical
+          label: Region
+
+      - name: is_124
+        description: >
+          124 / large-cargo channel flag, taken from the purchase
+          mid-mapping join. Possible values: '124' (post channel on
+          wishpost.wishpost_124_channel_list), 'non-124' (not on the
+          list; hard-coded for Dropship/FBW purchase paths) and NULL
+          when no purchase row matches the sales mid.
+        dimension:
+          type: categorical
+          label: 124 channel flag
+
+      - name: is_124_name
+        description: >
+          Human-readable label derived from is_124 ('124' → '124
+          channel', 'non-124' → 'Non-124 channel', NULL stays NULL).
+        dimension:
+          type: categorical
+          label: 124 channel label
+
+      - name: business_type
+        description: >
+          Delivery program, from dim_wishpost_program_by_pricing_channel
+          joined on pricing_channel. Closed domain of 21 labels: FBW,
+          EPC, A+, Fusion, EPC Combined, A+ Combined, Fusion Combined,
+          Nile, Nile Combined, Smart, Smart Combined, 124, Uni-freight,
+          Uni-freight Combined, Blue to Store, Cloud Warehouse, HUB,
+          Easy Smart, Easy Smart Combined, Other, Dropship. Maturity
+          also depends on it: Dropship/FBW mature on
+          pre_business_type, other programs on post_business_type.
+        dimension:
+          type: categorical
+          label: Business type
+
+      - name: delivery_program
+        description: >
+          Tableau "Delivery Program" rollup of business_type — Combined
+          variants collapse to their base program ('A+ Combined' → 'A+',
+          'Fusion Combined' → 'Fusion', 'EPC Combined' → 'EPC', 'Smart
+          Combined' → 'Smart'), Dropship and FBW are kept, and every
+          other label (Nile, Uni-freight, HUB, Other, 124, …) becomes
+          'Others'.
+        dimension:
+          type: categorical
+          label: Delivery program
+
+      - name: delivery_program_name
+        description: >
+          Human-readable label derived from delivery_program ('A+' → 'A+
+          service', 'Fusion' → 'Fusion service', 'EPC' → 'EPC (Express
+          Parcel China)', 'Smart' → 'Smart delivery', 'Dropship' →
+          'Dropship', 'FBW' → 'Fulfilled by Wish', 'Others' →
+          'Others').
+        dimension:
+          type: categorical
+          label: Delivery program label
+
+      - name: pricing_channel
+        description: >
+          Display label CONCAT(pricing_channel_name, ' (',
+          pricing_channel_code, ')') where the name is
+          COALESCE(dim_pricing_channel.official_name, 'None') and the
+          code is the payment pricing_channel id. Open set of strings,
+          not a closed enum.
+        dimension:
+          type: categorical
+          label: Pricing channel
+
+      - name: channel
+        description: >
+          Display label CONCAT(channel_name, ' (', channel_code, ')')
+          where the name is COALESCE(dim_order_channel.official_name,
+          'None') and the code is the payment / order channel id.
+          Open set of strings including 124 and non-124 channels; 124
+          membership is not encoded in the label — use is_124.
+        dimension:
+          type: categorical
+          label: Order channel
+
+      - name: time
+        description: >
+          Unix epoch seconds (bigint) of the ETL write —
+          `unix_timestamp()` on the final INSERT, so constant per
+          partition load. Not a business clock; do not use it for sales
+          trends or revenue cutoffs. Kept for load-freshness audits
+          and joins.
+        dimension:
+          type: categorical
+          label: Record create unix time
+
+      - name: record_ts
+        description: >
+          Timestamp converted from `time`. ETL load instant only — not
+          a MetricFlow time dimension (the project time spine is day).
+        dimension:
+          type: categorical
+          label: Record create timestamp
+
+      - name: volume
+        description: >
+          Measure — count of distinct sales tracking_ids in the cell.
+          Includes immature parcels, so it is the denominator of the
+          maturity rate.
+
+      - name: volume_mature
+        description: >
+          Measure — count of tracking_ids whose purchase-side costs have
+          landed. Maturity rules: 124 channels need
+          post_large_cargo_fee > 0 and post_logistics_fee > 0;
+          non-124 programs need post_business_type IS NOT NULL and a
+          business_type outside Dropship/FBW; Dropship/FBW need
+          pre_business_type IS NOT NULL. Always <= volume.
+
+      - name: weight
+        description: >
+          Measure — sum of parcel weight in kg for mature tracking_ids
+          only; immature parcels contribute 0.
+
+      - name: logistics_fee
+        description: >
+          Measure — sum of sales logistics fees for mature tracking_ids
+          only (sales fee_type 102). Not FX-converted.
+
+      - name: overtime_fine
+        description: >
+          Measure — sum of the sales "overtime_fine" bucket for mature
+          tracking_ids only (sales fee_type 108). Despite the name this
+          is a fee amount, not a timestamp.
+
+      - name: sensitive_fee
+        description: >
+          Measure — sum of sensitive-product fees for mature
+          tracking_ids only (sales fee_type 118).
+
+      - name: other_fees
+        description: >
+          Measure — sum of all remaining sales fees for mature
+          tracking_ids only (fee types other than 102 / 108 / 118:
+          insurance, VAT, hub, warehouse, consumable, express, …).
+
+      - name: mid_cnt
+        description: >
+          Measure — sum of merchant-transaction item counts (mid) in the
+          cell. Counts all parcels, not maturity-gated.
+
+      - name: gmv
+        description: >
+          Measure — sum of item GMV (wish.fact_trans_detail.gmv) in the
+          cell. Not maturity-gated.
+
+    metrics:
+      - name: sales_revenue
+        type: simple
+        label: Sales revenue
+        description: >
+          Sales-side revenue in the source currency (typically CNY, no FX
+          conversion in the DAG) = logistics_fee + overtime_fine +
+          sensitive_fee + other_fees. Fees are maturity-gated, so this
+          is the revenue of mature parcels only. Time grain: dt
+          (daily snapshot).
+        agg: sum
+        expr: logistics_fee + overtime_fine + sensitive_fee + other_fees
+        fill_nulls_with: 0
+
+      - name: total_logistics_fee
+        type: simple
+        label: Total logistics fee
+        description: >
+          Sum of logistics_fee (sales fee_type 102) over the selected
+          cells — mature parcels only. Time grain: dt.
+        agg: sum
+        expr: logistics_fee
+        fill_nulls_with: 0
+
+      - name: total_overtime_fine
+        type: simple
+        label: Total overtime fine
+        description: >
+          Sum of overtime_fine (sales fee_type 108 bucket) over the
+          selected cells — mature parcels only. This is a fee amount,
+          not a time metric. Time grain: dt.
+        agg: sum
+        expr: overtime_fine
+        fill_nulls_with: 0
+
+      - name: total_sensitive_fee
+        type: simple
+        label: Total sensitive fee
+        description: >
+          Sum of sensitive_fee (sales fee_type 118) over the selected
+          cells — mature parcels only. Time grain: dt.
+        agg: sum
+        expr: sensitive_fee
+        fill_nulls_with: 0
+
+      - name: total_other_fees
+        type: simple
+        label: Total other fees
+        description: >
+          Sum of other_fees (all sales fee types except 102 / 108 / 118)
+          over the selected cells — mature parcels only. Time grain: dt.
+        agg: sum
+        expr: other_fees
+        fill_nulls_with: 0
+
+      - name: total_volume
+        type: simple
+        label: Total volume (parcels)
+        description: >
+          Sum of volume — distinct sales tracking_ids in the cell,
+          including immature parcels. Denominator of the maturity rate.
+          Time grain: dt.
+        agg: sum
+        expr: volume
+        fill_nulls_with: 0
+
+      - name: total_volume_mature
+        type: simple
+        label: Total mature volume (parcels)
+        description: >
+          Sum of volume_mature — parcels whose purchase-side costs have
+          landed. Use as the denominator for fee-per-parcel metrics
+          instead of volume. Time grain: dt.
+        agg: sum
+        expr: volume_mature
+        fill_nulls_with: 0
+
+      - name: total_weight
+        type: simple
+        label: Total weight (kg)
+        description: >
+          Sum of weight in kg over the selected cells — mature parcels
+          only. Time grain: dt.
+        agg: sum
+        expr: weight
+        fill_nulls_with: 0
+
+      - name: total_gmv
+        type: simple
+        label: Total GMV
+        description: >
+          Sum of gmv (item GMV from wish.fact_trans_detail) over the
+          selected cells. Not maturity-gated, so GMV covers immature
+          parcels too. Time grain: dt.
+        agg: sum
+        expr: gmv
+        fill_nulls_with: 0
+
+      - name: total_mid_cnt
+        type: simple
+        label: Total item count
+        description: >
+          Sum of mid_cnt — merchant-transaction item counts in the cell.
+          Counts all parcels, not maturity-gated. Time grain: dt.
+        agg: sum
+        expr: mid_cnt
+        fill_nulls_with: 0
+
+      - name: sales_cell_count
+        type: simple
+        label: Sales breakdown cells
+        description: >
+          Row count at the (dt, date_type, date_value, country, region,
+          is_124, business_type, pricing_channel, channel) grain. Use as
+          a denominator for share-of-cells reporting.
+        agg: count
+        expr: 1
+
+      - name: total_countries
+        type: simple
+        label: Distinct countries
+        description: >
+          Distinct destination country codes represented in the
+          selected cells.
+        agg: count_distinct
+        expr: country
+
+      - name: total_regions
+        type: simple
+        label: Distinct regions
+        description: >
+          Distinct region values (Americas / European States / ROW /
+          Other) represented in the selected cells.
+        agg: count_distinct
+        expr: region
+
+      - name: maturity_rate
+        type: ratio
+        label: Maturity rate
+        description: >
+          Mature parcel share = total_volume_mature / total_volume
+          (0.8 = 80% of parcels have landed purchase-side costs).
+          Computed on the same selection, so it inherits the
+          snapshot-window caveat of its inputs.
+        numerator: total_volume_mature
+        denominator: total_volume
+
+      - name: revenue_per_mature_parcel
+        type: ratio
+        label: Revenue per mature parcel
+        description: >
+          sales_revenue / total_volume_mature — average revenue per
+          mature parcel. The denominator is volume_mature (not volume)
+          because fees are maturity-gated; using volume would understate
+          revenue per parcel.
+        numerator: sales_revenue
+        denominator: total_volume_mature

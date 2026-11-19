@@ -5,7 +5,7 @@
     "args": [
       "run",
       "--directory",
-      "/Users/cdpac/sbox/airflow-mcp-server",
+      "/Users/jixie/wbox/airflow-mcp-server",
       "airflow-mcp-server",
       "--safe",
       "--static-tools",
@@ -21,7 +21,7 @@
     "args": [
       "run",
       "--directory",
-      "/Users/cdpac/sbox/airflow-mcp-server",
+      "/Users/jixie/wbox/airflow-mcp-server",
       "airflow-mcp-server",
       "--safe",
       "--static-tools",

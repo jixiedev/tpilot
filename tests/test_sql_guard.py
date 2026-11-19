@@ -68,3 +68,40 @@ def test_explain_must_wrap_read_only_statement(sql: str) -> None:
 )
 def test_explain_of_read_only_statement_is_allowed(sql: str) -> None:
     assert validate_read_only_sql(sql) == sql
+
+
+@pytest.mark.parametrize(
+    "sql",
+    [
+        "ANALYZE SELECT 1",  # becomes EXPLAIN ANALYZE, which executes the query
+        "/* c */ analyze select 1",
+        "EXPLAIN ANALYZE SELECT 1",
+        "EXPLAIN SELECT 1",
+        "EXPLAIN (TYPE IO) SELECT 1",
+        "SHOW TABLES",
+        "DELETE FROM t",
+        "SELECT 1; SELECT 2",
+    ],
+)
+def test_plan_only_refuses_anything_that_could_execute(sql: str) -> None:
+    from tools.data.sql_guard import validate_plan_only_sql
+
+    with pytest.raises(ValueError):
+        validate_plan_only_sql(sql)
+
+
+def test_plan_only_wraps_select_and_with() -> None:
+    from tools.data.sql_guard import validate_plan_only_sql
+
+    assert validate_plan_only_sql("SELECT 1;") == "EXPLAIN SELECT 1"
+    assert validate_plan_only_sql("WITH a AS (SELECT 1) SELECT * FROM a").startswith("EXPLAIN WITH")
+
+
+def test_trino_explain_never_sends_analyze(monkeypatch) -> None:
+    from tools.data import trino
+
+    sent: list[str] = []
+    monkeypatch.setattr(trino, "_execute_query", lambda sql, limit: sent.append(sql) or {"rows": []})
+    result = trino.trino_explain.func("ANALYZE SELECT 1") if hasattr(trino.trino_explain, "func") else trino.trino_explain("ANALYZE SELECT 1")
+    assert result["ok"] is False
+    assert sent == []

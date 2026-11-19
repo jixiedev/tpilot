@@ -64,6 +64,32 @@ def _metric_names(card: dict[str, Any]) -> list[str]:
     return names
 
 
+def staging_cards_reducer(
+    left: list[dict[str, Any]] | None,
+    right: list[dict[str, Any]] | None,
+) -> list[dict[str, Any]]:
+    """LangGraph reducer for ``staging_cards`` in ReAct loop states.
+
+    Retrieval tools return the existing cards plus their new ones. When the
+    model calls two of them in one step (e.g. ``find_models_metrics`` and
+    ``fetch_related_models`` in parallel), both updates land in the same
+    step; a plain value channel rejects that. This keeps ``left`` and appends
+    the cards of ``right`` whose ``staging_id`` is new. An explicit ``[]``
+    still clears the list (gate redraft resets).
+    """
+    if right is None:
+        return list(left or [])
+    if not right:
+        return []
+    merged = list(left or [])
+    seen = {card.get("staging_id") for card in merged if isinstance(card, dict)}
+    for card in right:
+        if isinstance(card, dict) and card.get("staging_id") not in seen:
+            merged.append(card)
+            seen.add(card.get("staging_id"))
+    return merged
+
+
 def compact_staging_refs(staging_cards: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Lightweight refs returned to the LLM after a fetch (saves tokens)."""
     refs: list[dict[str, Any]] = []

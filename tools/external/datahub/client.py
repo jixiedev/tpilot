@@ -21,6 +21,10 @@ class DataHubGraphQLError(RuntimeError):
 def _classify_datahub_graphql_error(exc: BaseException) -> tuple[ToolErrorType, bool, str] | None:
     message = str(exc)
     lower = message.lower()
+    # "connection failed: timed out" means the connection never opened: the
+    # service is unreachable, not slow on this query (rephrasing cannot help).
+    if "connection failed" in lower:
+        return ToolErrorType.CONNECTION, True, message
     if any(token in lower for token in ("timeout", "timed out")):
         return ToolErrorType.TIMEOUT, True, message
     if any(

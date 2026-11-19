@@ -10,20 +10,11 @@ from pydantic import BaseModel
 StateLike = Union[list[AnyMessage], dict[str, Any], BaseModel]
 
 
-class HandoffRunContext(TypedDict, total=False):
-    """Intent orchestrator defaults when constructing delegated specialists."""
-
-    max_tool_calls: int
-    clarification_threshold: float
-    max_clarification_rounds: int
-
-
 class StageRunContext(TypedDict, total=False):
-    """Staged orchestrators (Plan, Databot): per-stage ReAct budgets."""
+    """Staged orchestrator (Databot outer pipeline): per-stage ReAct budgets."""
 
     max_tool_calls: int
     max_idle_reason_rounds: int
-    max_subagent_rounds: int
 
 
 class ReactRunContext(TypedDict, total=False):
@@ -35,6 +26,7 @@ class ReactRunContext(TypedDict, total=False):
     idle_nudge_prompt: str
     tool_budget_exhausted_prompt: str
     refine_user_profile_prompt: str
+    max_delegations: int
     fetch_instruction: str
     sql_instruction: str
 
@@ -60,4 +52,3 @@ class DatabotRunContext(TypedDict, total=False):
 # Backward-compatible alias.
 ReactContext = ReactRunContext
 
-PlanRunContext = StageRunContext

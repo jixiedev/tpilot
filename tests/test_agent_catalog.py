@@ -47,16 +47,16 @@ async def test_catalog_get_or_create_caches(tmp_path) -> None:
     built.build_graph = MagicMock()
 
     factory = AsyncMock(return_value=built)
-    original = AgentCatalog._factories["plan"]
-    AgentCatalog._factories["plan"] = factory
+    original = AgentCatalog._factories["lead"]
+    AgentCatalog._factories["lead"] = factory
     try:
         catalog = AgentCatalog(
-            AgentCatalogSettings.for_agent("plan", profile_store=store)
+            AgentCatalogSettings.for_agent("lead", profile_store=store)
         )
-        first = await catalog.get_or_create("plan")
-        second = await catalog.get_or_create("plan")
+        first = await catalog.get_or_create("lead")
+        second = await catalog.get_or_create("lead")
     finally:
-        AgentCatalog._factories["plan"] = original
+        AgentCatalog._factories["lead"] = original
 
     assert first is second
     assert factory.await_count == 1

@@ -14,7 +14,7 @@ export function useAgentRefresh(agent: AbstractAgent | undefined, isReady: boole
       onMessagesSnapshotEvent: () => bump(),
       onRunStartedEvent: () => bump(),
       onRunFinishedEvent: () => bump(),
-      onRunFailedEvent: () => bump(),
+      onRunFailed: () => bump(),
       onEvent: () => bump(),
     });
     return () => sub.unsubscribe();

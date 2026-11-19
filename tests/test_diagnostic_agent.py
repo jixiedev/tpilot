@@ -21,7 +21,7 @@ def test_diagnostic_agent_registered() -> None:
     config = AgentCatalog.config("diagnostic")
     assert config.name == "diagnostic"
     assert config.accepted_mcp["default"] == ("airflow_tahoe", "airflow_legacy")
-    assert config.intention == "DIAGNOSTIC"
+    assert config.delegate_when.startswith("production troubleshooting")
 
 
 def test_diagnostic_system_prompt_covers_infra_tools() -> None:

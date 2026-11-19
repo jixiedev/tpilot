@@ -38,10 +38,6 @@ export function resetDatabotAgentView(agent: AbstractAgent): void {
   }
 
   agent.setMessages([]);
-  agent.setState({
-    ...preserved,
-    ...EMPTY_DATABOT_STATE,
-    execution_result: undefined,
-  });
+  agent.setState({ ...preserved, ...EMPTY_DATABOT_STATE, execution_result: undefined });
   agent.pendingInterrupts = [];
 }

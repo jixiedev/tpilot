@@ -12,6 +12,7 @@ from tools.external.datahub.operations import (
     get_dataset_queries,
     get_lineage,
     get_lineage_paths_between,
+    get_table_docs,
     list_entities,
     list_schema_fields,
 )
@@ -238,6 +239,21 @@ def datahub_list_groups(
     return list_entities("CORP_GROUP", query=query, start=start, count=count)
 
 
+@tool
+def datahub_get_table_docs(table: str, section: str = "", columns: str = "") -> dict[str, Any]:
+    """Read a table's documentation in DataHub (no glossary terms or tags).
+
+    ``table``: ``name``, ``schema.name`` or a dataset URN. Returns the best
+    match's URN (for the lineage tools), owners, the start of its description
+    with the list of section headings, and its column names and types.
+    ``section``: a heading from ``sections`` to read that part in full.
+    ``columns``: comma-separated keywords; adds descriptions of the matching
+    columns (name or description match).
+    """
+    keywords = [part.strip() for part in (columns or "").split(",") if part.strip()]
+    return get_table_docs(table, section=section, columns=keywords or None)
+
+
 TOOLS = [
     datahub_list_datasets,
     datahub_list_data_jobs,
@@ -252,6 +268,7 @@ TOOLS = [
     datahub_get_lineage,
     datahub_get_lineage_paths_between,
     datahub_list_schema_fields,
+    datahub_get_table_docs,
     datahub_graphql_query,
 ]
 

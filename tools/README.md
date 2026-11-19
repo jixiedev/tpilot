@@ -17,8 +17,8 @@ Related docs:
 |---|---|
 | Tool | A LangChain `BaseTool`, normally built with `@tool` from a typed function. Its docstring and signature become the schema the model sees. |
 | Registry key | The string a tool is stored under in `tools.registry._TOOL_REGISTRY`. Defaults to `tool.name`. Agent configs refer to tools by registry key. |
-| Model-facing name | `tool.name`, the name the model calls. Two tools can share it as long as they have different registry keys: `planning` (`tools/plan.py`) and `plan.planning` (`agent/plan/stage_tools.py`) are both called `planning` by the model. |
-| Tool scope | A named bucket of tools inside one agent, addressed as `"agent,scope"` (for example `databot,sql`). Every agent has `default`; some have more (`knowledge,catalog`, `databot,fetch`, `plan,adjust`). A graph node asks for the scopes it needs. |
+| Model-facing name | `tool.name`, the name the model calls. Two tools can share it as long as they have different registry keys (`@register_tool(key="family.name")`); no built-in tool does this today. |
+| Tool scope | A named bucket of tools inside one agent, addressed as `"agent,scope"` (for example `databot,sql`). Every agent has `default`; some have more (`knowledge,catalog`, `databot,fetch`, `databot,sql`). A graph node asks for the scopes it needs. |
 | Tool group | A named list of registry keys in `config/tool_groups.toml`, referenced as `"@group"` inside an agent's `[tools]` table (for example `@trino`, `@k8s`). Pure config shorthand. |
 | Static tool | A tool registered at import time with `@register_tool` and bound to scopes from config by `ensure_tools_registered()`. |
 | Dynamic (MCP) tool | A tool loaded at runtime from an MCP server in `tools/mcp/mcp.json`, bound to scopes listed in an agent's `[accepted_mcp]` table. Never in the registry. |
@@ -53,10 +53,16 @@ The exceptions are deliberate and local: the `@code` tools (`bash`, `python_exec
 @tool
 def trino_explain(sql: str) -> dict: ...
 
-@register_tool(key="plan.planning")   # same model-facing name as tools.plan.planning
+@register_tool(key="family.planning")   # hypothetical: same model-facing name as tools.plan.planning
 @tool
 def planning(...): ...
+
+@register_tool(offload=False)     # result always stays in context, whatever its size
+@tool
+def trino_desc_table(...): ...
 ```
+
+`offload=False` is for results the agent needs verbatim (table schemas, catalog lookups). Context compression (`memory/compress.py`, layer 1) never moves them to a file, so the agent does not have to call `read_offloaded_file` to see them. Today: `trino_desc_table`, `hive_desc_table`, `search_metric_catalog`, `fetch_related_models`, `read_offloaded_file`. Per-agent exclusions still go in `[compression] never_offload_tools`.
 
 Registering a different object under an existing key raises `ValueError`; re-registering the same object is a no-op. Modules that build a `TOOLS` list (`tools/k8s.py`, `tools/external/datahub/tools.py`) call `register_tool(t)` in a loop instead of decorating.
 
@@ -66,7 +72,7 @@ Registering a different object under an existing key raises `ValueError`; re-reg
 
 `tools.bootstrap.ensure_tools_registered()` runs once per process (guarded by `_REGISTERED`). It:
 
-1. Imports every tool module so their `@register_tool` decorators run: `agent.specialists.databot.stage_tools`, `agent.plan.stage_tools`, `memory.tools`, `tools.code`, `tools.data.hive`, `tools.data.s3`, `tools.data.trino`, `tools.external.datahub`, `tools.k8s`, `tools.plan`, `tools.rag` (optional), `tools.web.search`.
+1. Imports every tool module so their `@register_tool` decorators run: `agent.specialists.databot.stage_tools`, `memory.tools`, `tools.code`, `tools.data.hive`, `tools.data.s3`, `tools.data.trino`, `tools.external.datahub`, `tools.k8s`, `tools.plan`, `tools.rag` (optional), `tools.web.search`.
 2. Calls `AgentCatalog.bind_configured_tools()`.
 3. Calls `AgentCatalog.capture_tools_snapshot()`.
 
@@ -88,7 +94,8 @@ sql = ["hive_desc_table", "propose_sql", "trino_desc_table", "trino_explain", "w
 Agents read their buckets in one of two ways:
 
 - ReAct specialists set a `tool_ids` tuple on the class (for example `knowledge.TOOL_ID_REACT = ("default", "catalog")`); `AgentCatalog._new_agent` flattens those buckets with `flatten_tools`, which de-duplicates by `tool.name`.
-- Multi-stage graphs call `AgentCatalog.tools_for(agent, scope)` per node (Databot `fetch`/`sql`/`execute`, Plan `create`/`subagent`/`adjust`).
+- Multi-stage graphs call `AgentCatalog.tools_for(agent, scope)` per node (Databot `fetch`/`sql`/`execute`).
+- The lead agent's `delegate` and `write_plan` (`agent/lead/tools.py`) are not registered: `LeadAgent` builds them per instance, bound to its specialist catalog, and adds them next to its configured scopes (`@memory`).
 
 `tools_for_scopes(agent, scopes)` returns the de-duplicated union of several buckets.
 
@@ -103,7 +110,7 @@ For tests or one-off wiring, `tools.registry.register_tool_binding("agent,scope"
 `AgentCatalog.create(name)` calls `register_mcp_tools(name)` before building the agent. For each `scope = [servers]` entry in the agent's `[accepted_mcp]` table it calls `tools.dynamic.load_mcp_tools_for_servers`, which:
 
 - expands `"*"` (`config.agent_config.MCP_ALL_SERVERS`) to every server in `mcp.json`;
-- opens a session per server with `tools.mcp.client.get_tools_for_server` and loads its tools via `langchain_mcp_adapters`;
+- loads each server's tools with `tools.mcp.client.get_tools_for_server` (`MultiServerMCPClient.get_tools(server_name=...)`), so every tool call opens its own session. Tools loaded inside `async with client.session(...)` are bound to a session that closes when the block ends, and every call then fails with `ClosedResourceError`;
 - logs and skips a server that fails.
 
 The loaded tools are appended to the scope bucket. If the scope is listed in the agent's `mcp_replace_identifiers` and at least one MCP tool loaded, the bucket is emptied first. `knowledge` uses this: `mcp_replace_identifiers = ["catalog"]` replaces the static `@datahub` tools with the DataHub MCP server's tools when that server is available, and keeps the native tools otherwise.
@@ -117,6 +124,8 @@ Current `[accepted_mcp]` tables:
 | `knowledge` | `default = ["datahub"]`, `catalog = ["datahub"]` (replace) |
 
 MCP loading happens once per agent per process (`_mcp_registered`).
+
+`tools/mcp/mcp.json` expands `${VAR}` from the environment (`.env`). The two Airflow servers run the local checkout `/Users/jixie/wbox/airflow-mcp-server` (`--directory` in `mcp.json`) and need `AIRFLOW_MCP_AUTH_TOKEN` (Tahoe) and `AIRFLOW_LEGACY_MCP_AUTH_TOKEN` (legacy) in `.env`. Both run with `--safe` (read-only tools only; 41 each). `mcp.json` currently defines only the Airflow servers, so `datahub` entries in `[accepted_mcp]` load nothing and those agents use the native `@datahub` tools.
 
 ### 6. Errors, retries and recovery
 
@@ -156,7 +165,7 @@ tool raises
 
 **Node-level retry.** In `graph/builder.py` the `step_action` node also gets `default_tool_retry_policy()` (LangGraph `RetryPolicy`, 2 attempts, `retry_on=transient_retry_on`) and `make_step_action_error_handler()`. This covers exceptions that escape the `ToolNode` itself (a listener hook, a wrapper bug). Once retries are exhausted the handler answers every unanswered tool call of the latest `AIMessage` with a `status="error"` `=== TOOL ERROR ===` `ToolMessage` whose `hint` carries the recovery guidance, adds those tools to `failed_tools`, and routes back to `step_reason`. It does not write a `SystemMessage`: the guidance travels in the tool result the history needs anyway (strict providers reject dangling tool calls), so nothing extra accumulates in the checkpoint. With no pending tool calls it only routes.
 
-**Sync retries and the event loop.** Agents run graphs with `graph.ainvoke`. LangGraph runs sync (`def`) nodes in an executor thread, so the `time.sleep` backoff in `invoke_with_transient_retry` (used by `step_reason` and the Plan, Databot and intent nodes) and in the sync tool wrapper blocks only that worker thread, not the loop (`tests/test_error_recovery_regressions.py::test_sync_node_retry_sleep_runs_off_the_event_loop`). `StepActionNode.ainvoke` uses the async wrapper with `asyncio.sleep`. Code that runs on the loop itself should await `ainvoke_with_transient_retry` instead.
+**Sync retries and the event loop.** Agents run graphs with `graph.ainvoke`. LangGraph runs sync (`def`) nodes in an executor thread, so the `time.sleep` backoff in `invoke_with_transient_retry` (used by `step_reason`, the Databot nodes and profile refinement) and in the sync tool wrapper blocks only that worker thread, not the loop (`tests/test_error_recovery_regressions.py::test_sync_node_retry_sleep_runs_off_the_event_loop`). `StepActionNode.ainvoke` uses the async wrapper with `asyncio.sleep`. Code that runs on the loop itself should await `ainvoke_with_transient_retry` instead.
 
 ## Built-in tool reference
 
@@ -165,11 +174,11 @@ tool raises
 | Registry key | Module | What it does | Read-only | Agents |
 |---|---|---|---|---|
 | `trino_run_query` | `tools/data/trino.py` | Run one guarded SQL statement; rows capped by `limit` (default 100) with `truncated` flag | Yes (`sql_guard`) | data_analysis; databot (default, execute); diagnostic |
-| `trino_explain` | `tools/data/trino.py` | `EXPLAIN` a draft query; returns `{"ok": ...}` instead of raising | Yes | data_analysis; databot (default, sql); diagnostic |
+| `trino_explain` | `tools/data/trino.py` | `EXPLAIN` a draft query; returns `{"ok": ...}` instead of raising | Yes | data_analysis; databot (default, sql); diagnostic; warehouse |
 | `trino_list_catalogs` | `tools/data/trino.py` | `SHOW CATALOGS` | Yes | data_analysis; databot; diagnostic |
-| `trino_list_schemas` | `tools/data/trino.py` | `SHOW SCHEMAS`, catalog defaults to `[trino].catalog` | Yes | data_analysis; databot; diagnostic |
-| `trino_list_tables` | `tools/data/trino.py` | `SHOW TABLES`, defaults from `[trino]`; plan B `hive_list_tables` | Yes | data_analysis; databot; diagnostic |
-| `trino_desc_table` | `tools/data/trino.py` | `DESCRIBE` a table; plan B `hive_desc_table` | Yes | data_analysis; databot (default, sql); diagnostic |
+| `trino_list_schemas` | `tools/data/trino.py` | `SHOW SCHEMAS`, catalog defaults to `[trino].catalog` | Yes | data_analysis; databot; diagnostic; warehouse |
+| `trino_list_tables` | `tools/data/trino.py` | `SHOW TABLES`, defaults from `[trino]`; plan B `hive_list_tables` | Yes | data_analysis; databot; diagnostic; warehouse |
+| `trino_desc_table` | `tools/data/trino.py` | `DESCRIBE` a table; plan B `hive_desc_table` | Yes | data_analysis; databot (default, sql); diagnostic; warehouse |
 | `hive_list_tables` | `tools/data/hive.py` | List tables in a database via HMS; plan B `trino_list_tables` | Yes | data_analysis; databot; diagnostic |
 | `hive_desc_table` | `tools/data/hive.py` | Table metadata via HMS; plan B `trino_desc_table` | Yes | data_analysis; databot (default, sql); diagnostic |
 | `s3_list_objects` | `tools/data/s3.py` | List keys under a prefix (max 1000) | Yes | data_analysis; databot; diagnostic; knowledge |
@@ -185,9 +194,10 @@ tool raises
 | `datahub_list_people` | same | Corp users | Yes | databot; knowledge (catalog) |
 | `datahub_list_groups` | same | Corp groups and members | Yes | databot; knowledge (catalog) |
 | `datahub_get_dataset_queries` | same | SQL queries recorded for a dataset or column | Yes | databot; knowledge (catalog) |
-| `datahub_get_lineage` | same | Upstream/downstream lineage, 1-3 hops | Yes | databot; knowledge (catalog) |
-| `datahub_get_lineage_paths_between` | same | Lineage paths between two entities | Yes | databot; knowledge (catalog) |
+| `datahub_get_lineage` | same | Upstream/downstream lineage, 1-3 hops | Yes | databot; knowledge (catalog); warehouse |
+| `datahub_get_lineage_paths_between` | same | Lineage paths between two entities | Yes | databot; knowledge (catalog); warehouse |
 | `datahub_list_schema_fields` | same | Schema fields with keyword filter | Yes | databot; knowledge (catalog) |
+| `datahub_get_table_docs` | same | A table's documentation only (URN, owners, description head + section list, column names/types; `section` / `columns` for detail); no glossary terms or tags | Yes | warehouse |
 | `datahub_graphql_query` | same | Raw GraphQL escape hatch | Yes (mutation guard) | databot (default, fetch); knowledge (catalog) |
 | `k8s_list_namespaces` | `tools/k8s.py` | Namespaces | Yes | diagnostic; knowledge |
 | `k8s_list_pods` | `tools/k8s.py` | Pods in a namespace (compact) | Yes | diagnostic; knowledge |
@@ -205,19 +215,21 @@ tool raises
 | `web_search` | `tools/web/search.py` | Public web search (Tavily, Brave or DuckDuckGo) | Yes | databot; knowledge; swe |
 | `planning` | `tools/plan.py` | In-memory plans: create, update, list, get, mark_step, delete | In-memory | data_analysis; databot; knowledge; swe |
 | `fetch_related_jira_tickets` | `tools/rag/jira.py` | Semantic search over Jira collections in Qdrant | Yes | knowledge |
-| `fetch_related_models` | `tools/rag/dbt_models.py` | Semantic search over dbt models; stages hits in `staging_cards` | Graph state | databot (default, fetch, rag) |
+| `fetch_related_models` | `tools/rag/dbt_models.py` | Semantic search over dbt models; stages hits in `staging_cards`. Databot's fallback after the metric catalog | Graph state | databot (default, fetch, rag) |
+| `search_metric_catalog` | `tools/data/metrics.py` | Regex search over the curated metric roots / members (`lib/final_root.csv`, `lib/root_member.csv`) | No | databot (default, fetch, rag); warehouse |
+| `find_models_metrics` | `tools/data/metrics.py` | Stage the dbt models the metric catalog maps to a `root_id` + `member_id`, with `related_ratio` and the matched metrics on each card. Databot's prompt falls back to `fetch_related_models` when the catalog has no fit; warehouse has no fallback | Graph state | databot (default, fetch, rag); warehouse |
 | `commit_cards` | `tools/rag/dbt_models.py` | Move staged cards to `committed_cards` | Graph state | databot (default, fetch, rag) |
-| `compact_context` | `memory/tools.py` | Ask the compressor to compact context | Yes | data_analysis; databot; diagnostic; knowledge; plan; swe |
-| `read_offloaded_file` | `memory/tools.py` | Read an offloaded tool result back | Yes | data_analysis; databot; diagnostic; knowledge; plan; swe |
-| `create_plan` | `agent/plan/stage_tools.py` | Create the turn plan in graph state | Graph state | plan (default, create) |
-| `plan.planning` | `agent/plan/stage_tools.py` | Plan agent's own `planning` (update, mark_step, get, list) | Graph state | plan (default, adjust, subagent) |
+| `compact_context` | `memory/tools.py` | Ask the compressor to compact context | Yes | data_analysis; databot; diagnostic; knowledge; lead; swe; warehouse |
+| `read_offloaded_file` | `memory/tools.py` | Read an offloaded tool result back | Yes | data_analysis; databot; diagnostic; knowledge; lead; swe; warehouse |
 | `propose_sql` | `agent/specialists/databot/stage_tools.py` | Write `draft_sql` | Graph state | databot (default, sql) |
 | `write_gate_reasons` | same | Reasons for the human gate options | Graph state | databot (default, sql) |
 | `record_metric_conflict` | same | Flag a dbt metric that disagrees with a glossary term | Graph state | databot (default, fetch) |
 | `update_card_selection` | same | Replace the selected card subset | Graph state | databot |
+| `request_sql_approval` | `agent/specialists/warehouse/tools.py` (bound per agent, not registered) | Ask the user to review one SELECT/WITH query (interrupt); on approval record its fingerprint in `approved_sql` | Graph state | warehouse |
+| `run_sql` | same | Run SQL whose fingerprint was approved; refuses anything else | Yes (`validate_select_sql`) | warehouse |
 | `request_sql_regenerate` | same | Ask the SQL stage to redraft | Graph state | databot |
 
-The memory tools are described in [memory/README.md](../memory/README.md); the Databot and Plan stage tools in their agents' docs.
+The memory tools are described in [memory/README.md](../memory/README.md); the Databot stage tools in its README. The lead's `delegate` and `write_plan` (bound by `LeadAgent`, not registered) are described in [agent/README.md](../agent/README.md).
 
 ### Family notes
 
@@ -345,7 +357,7 @@ The config path is fixed: `tools.mcp.client.mcp_config_path()` returns `tools/mc
 ## Pitfalls
 
 - **Forgetting the bootstrap import.** `@register_tool` only runs when the module is imported. A configured but unimported tool is skipped with a warning at bind time, not an error.
-- **Silent de-duplication by model-facing name.** `AgentCatalog.register_tool` skips a tool whose `name` is already in the bucket, and `flatten_tools` keeps the first tool per name across scopes. Listing both `planning` and `plan.planning` in one scope keeps only the first. An MCP tool with the same name as a static tool in the target scope is dropped unless the scope is in `mcp_replace_identifiers`.
+- **Silent de-duplication by model-facing name.** `AgentCatalog.register_tool` skips a tool whose `name` is already in the bucket, and `flatten_tools` keeps the first tool per name across scopes. Two registry keys with the same model-facing name in one scope keep only the first. An MCP tool with the same name as a static tool in the target scope is dropped unless the scope is in `mcp_replace_identifiers`.
 - **`@alternative_tool` is keyed by the Python function name** (`func.__name__`), not `tool.name`. Apply it below `@tool`, and keep the function name equal to the tool name.
 - **Errors only become structured when the tool raises.** A tool that catches its own failure and returns text or a dict skips classification, retries and `failed_tools`. Raise a registered exception instead. The one exception on purpose is `trino_explain` (its `{"ok": false}` contract feeds the Databot SQL stage).
 - **Retries need a retryable `CONNECTION` or `TIMEOUT`.** `retryable=True` on any other type is normalized to `False` (and rejected for static registrations). Do not classify non-idempotent work (shell, Python snippets) as retryable: the wrapper would run it again.

@@ -1,23 +1,22 @@
 "use client";
 
 import {
+  CopilotChatAssistantMessage,
   CopilotChatMessageView,
   type CopilotChatMessageViewProps,
 } from "@copilotkit/react-core/v2";
 import { DatabotAssistantMessage } from "./DatabotAssistantMessage";
 import { DatabotGateChatBanner } from "./DatabotGateChatNotice";
 
-function HiddenReasoningMessage() {
-  return null;
-}
-
-/** Chat message list with gate banner, no inspector chrome, and no reasoning/thinking rows. */
+/**
+ * Chat message list with the gate banner and no inspector chrome. Reasoning
+ * rows use CopilotKit's built-in view: open while streaming, folded after.
+ */
 export function DatabotMessageView(props: CopilotChatMessageViewProps) {
   return (
     <CopilotChatMessageView
       {...props}
-      assistantMessage={DatabotAssistantMessage}
-      reasoningMessage={HiddenReasoningMessage}
+      assistantMessage={DatabotAssistantMessage as unknown as typeof CopilotChatAssistantMessage}
     >
       {({ messageElements, isRunning, messages, interruptElement }) => {
         const lastMessage = messages[messages.length - 1];

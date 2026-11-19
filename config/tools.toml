@@ -10,6 +10,10 @@ password_env = "TRINO_PASSWORD"
 catalog = "hive"
 schema_name = "default"
 http_scheme = "https"
+# Per HTTP request to the coordinator; one driver attempt (the tool wrapper
+# retries transient errors once).
+request_timeout_seconds = 30
+max_attempts = 1
 
 [datahub]
 # Native GraphQL tools (not MCP). Env names match mcp-server-datahub convention:

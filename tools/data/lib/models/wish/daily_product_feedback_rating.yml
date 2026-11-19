@@ -1,0 +1,618 @@
+models:
+  - name: daily_product_feedback_rating
+    description: >
+      One row per logged product-rating event, from the Hive table
+      `wish.daily_product_feedback_rating` (schema `wish`, partitioned by a
+      single PACIFIC business date `dt`).
+
+      This is an EVENT LOG, not a snapshot of current ratings. The rating API
+      logs one record every time a `ProductRating` document is created or
+      edited, so the same rating identity (`_id`, and logically
+      `(transaction_id, product_id)`) can appear many times over time — for
+      edits, or for `mark_as_fake`. A plain row count therefore over-counts
+      "reviews": use `distinct_ratings` (deduplicated rating documents) or
+      `distinct_rating_identities` (deduplicated `(transaction_id,
+      product_id)` reviews) for review counts, and `MAX_BY(rating, time)`
+      style logic for "current rating per key" questions, which this semantic
+      model cannot express directly.
+
+      `dt` is the PACIFIC business date (America/Los_Angeles), derived at load
+      from the event timestamp, and is the default metric time. The sibling
+      table `sweeper.product_feedback_rating` uses a UTC `dt` instead — do not
+      mix the two. `dt_utc` / `hr_utc` are the UTC lineage keys of the
+      upstream sweeper partition and exist for audit only.
+
+      `time` is the per-event log timestamp in epoch SECONDS, attached by the
+      Tahoe ingestion pipeline rather than by the rating payload, and is the
+      canonical sort key for "most recent logged event".
+
+      Trust filtering mirrors production: keep `likely_fake = 'false'` and,
+      for first-submission metrics, `edit = 'false'`.
+    config:
+      meta:
+        owner: vnaidu
+        team: org_buying-experience
+        hive_table: wish.daily_product_feedback_rating
+        dag: DailyFeedbackRating
+        timezone: America/Los_Angeles
+    semantic_model:
+      enabled: true
+      name: wish_daily_product_feedback_rating
+    agg_time_dimension: dt
+    columns:
+      - name: rating_event_id
+        description: >
+          Surrogate key for one logged rating event, built from `_id`, `time`
+          and `dt`. Unique per row of this event-log table.
+        entity:
+          type: primary
+          name: daily_product_rating_event
+          description: One logged product-rating event (Pacific business day).
+
+      - name: rating_identity
+        description: >
+          Surrogate key for the MongoDB logical rating key
+          `(transaction_id, product_id)`. One distinct value per review, even
+          when the review was logged several times (submission + edits).
+          Referenced by the `distinct_rating_identities` metric.
+        label: Rating identity (transaction + product)
+
+      - name: _id
+        description: >
+          MongoDB `ProductRating` document id (24-character hex ObjectId).
+          Identifies the underlying rating document, which this log table can
+          reference many times (once per logged event).
+        entity:
+          type: foreign
+          name: product_rating_document
+          description: MongoDB ProductRating document.
+
+      - name: product_id
+        description: >
+          MongoDB `ObjectId` of the rated product (24-character hex string).
+        entity:
+          type: foreign
+          name: product
+          description: Rated product.
+
+      - name: variation_id
+        description: >
+          MongoDB `ObjectId` of the purchased variation. Null or empty when
+          the variation could not be resolved from the transaction line item
+          (common for older rows, before variation logging was added).
+        entity:
+          type: foreign
+          name: variation
+          description: Purchased product variation.
+
+      - name: transaction_id
+        description: >
+          MongoDB `ObjectId` of the parent commerce transaction.
+        entity:
+          type: foreign
+          name: transaction
+          description: Parent commerce transaction.
+
+      - name: user_id
+        description: >
+          MongoDB `ObjectId` of the buyer who submitted the rating.
+        entity:
+          type: foreign
+          name: user
+          description: Buyer who submitted the rating.
+
+      - name: merchant_id
+        description: >
+          MongoDB `ObjectId` of the merchant owning the rated product.
+        entity:
+          type: foreign
+          name: merchant
+          description: Merchant owning the rated product.
+
+      - name: dt
+        description: >
+          PACIFIC business date of the rating event (source varchar
+          'YYYY-MM-DD', cast to date), derived at load with
+          `time_format(time, 'yyyy-MM-dd', 'America/Los_Angeles')`. Physical
+          partition key, used for pruning and as the default metric time.
+          Pacific, not UTC.
+        granularity: day
+        dimension:
+          type: time
+          label: Business date (Pacific)
+          is_partition: true
+
+      - name: dt_utc
+        description: >
+          UTC calendar date of the upstream sweeper hourly partition the row
+          was read from. Audit / reconciliation only — it is the ingest
+          bucket, not the business date, and can differ from `dt` for delayed
+          or backfilled events.
+        granularity: day
+        dimension:
+          type: time
+          label: Lineage date (UTC)
+
+      - name: event_day
+        description: >
+          Calendar date of the event instant, derived from the `time` log
+          timestamp. Normally equal to `dt_utc`; differs for delayed or
+          backfilled events.
+        granularity: day
+        dimension:
+          type: time
+          label: Event day
+
+      - name: event_ts
+        description: >
+          Per-event log timestamp derived from `time` (epoch seconds). Kept
+          for ordering and joins. Deliberately not registered as a MetricFlow
+          time dimension because the project time spine is day.
+        label: Event timestamp
+
+      - name: time
+        description: >
+          Raw per-event log timestamp in epoch seconds, attached by the Tahoe
+          ingestion pipeline. Canonical sort key for "most recent logged
+          event" for a given rating identity.
+        label: Event time (epoch seconds)
+
+      - name: hr_utc
+        description: >
+          UTC hour (0-23) of the upstream sweeper hourly partition. Exposed
+          as a categorical, not a time dimension; pair with `dt_utc` to
+          pinpoint the source partition.
+        dimension:
+          type: categorical
+          label: Lineage hour (UTC)
+
+      - name: rating
+        description: >
+          Star rating as an integer. The MongoDB model constrains ratings to
+          1-5. Used as the measure behind the rating sum / average metrics.
+        label: Star rating
+
+      - name: rating_name
+        description: >
+          Star rating as a readable label ('1 star' ... '5 stars').
+        dimension:
+          type: categorical
+          label: Star rating label
+
+      - name: comment
+        description: >
+          UTF-8 review body. Empty string when the user submits stars only.
+          PII-adjacent free text; keep it out of wide BI extracts.
+        dimension:
+          type: categorical
+          label: Review comment
+
+      - name: user_locale
+        description: >
+          Locale / language tag of the user at submit time. No fixed enum in
+          code, so treat it as a free categorical.
+        dimension:
+          type: categorical
+          label: User locale
+
+      - name: client
+        description: >
+          Commerce client channel at submit time, as a raw numeric code.
+          0 WEB, 1 IOS_APP, 2 IPAD_APP, 3 ANDROID_APP, 4 MOBILE_WEB,
+          5 WINDOWS_APP, 6 WINDOWS_PHONE_APP, 7 ANDROID_INSTANT_APP.
+        dimension:
+          type: categorical
+          label: Client code
+
+      - name: client_name
+        description: >
+          Commerce client channel at submit time, as a readable label.
+          See `client` for the code-to-label mapping.
+        dimension:
+          type: categorical
+          label: Client
+
+      - name: edit
+        description: >
+          Raw serialized boolean flag, as written by the logging stack.
+          'True' when a `ProductRating` for the same
+          `(transaction_id, product_id)` already existed before the save, so
+          the row is a revision rather than a first submission.
+        dimension:
+          type: categorical
+          label: Edit flag (raw)
+
+      - name: edit_name
+        description: >
+          Normalized 'True' / 'False' / 'Unknown' form of the `edit` flag.
+          'False' means a first-time rating submission.
+        dimension:
+          type: categorical
+          label: Is edit
+
+      - name: from_native_prompt
+        description: >
+          Raw serialized boolean flag for the native mobile rating prompt
+          path, as written by the logging stack.
+        dimension:
+          type: categorical
+          label: Native prompt flag (raw)
+
+      - name: from_native_prompt_name
+        description: >
+          Normalized 'True' / 'False' / 'Unknown' form of the
+          `from_native_prompt` flag.
+        dimension:
+          type: categorical
+          label: From native prompt
+
+      - name: left_comment
+        description: >
+          Raw serialized boolean flag, as written by the logging stack.
+          'True' when the existing `ProductRating` had a non-empty comment
+          before this update.
+        dimension:
+          type: categorical
+          label: Left comment flag (raw)
+
+      - name: left_comment_name
+        description: >
+          Normalized 'True' / 'False' / 'Unknown' form of the `left_comment`
+          flag. 'True' means the review already had written text before this
+          update — not that the current payload has a comment.
+        dimension:
+          type: categorical
+          label: Left comment
+
+      - name: likely_fake
+        description: >
+          Raw serialized boolean flag mirroring `ProductRating.likely_fake`
+          (fraud / duplicate / geo heuristics and `mark_as_fake`). NULL when
+          the flag was never written.
+        dimension:
+          type: categorical
+          label: Likely fake flag (raw)
+
+      - name: likely_fake_name
+        description: >
+          Normalized 'Likely fake' / 'Not likely fake' / 'Unknown' form of the
+          `likely_fake` flag. Production rating pipelines keep only
+          'Not likely fake' rows.
+        dimension:
+          type: categorical
+          label: Likely fake
+
+    metrics:
+      - name: rating_events
+        type: simple
+        label: Rating events
+        description: >
+          Row count of all logged rating events, including revisions and
+          ratings later marked as fake. Over-counts "reviews" — use
+          `distinct_ratings` or `distinct_rating_identities` for a
+          deduplicated rating count.
+        agg: count
+        expr: 1
+        fill_nulls_with: 0
+
+      - name: distinct_ratings
+        type: simple
+        label: Distinct ratings
+        description: >
+          Distinct `ProductRating` documents (MongoDB `_id`) appearing in the
+          window. This is the deduplicated rating count; a document that was
+          edited several times still counts once.
+        agg: count_distinct
+        expr: _id
+
+      - name: distinct_rating_identities
+        type: simple
+        label: Distinct rating identities
+        description: >
+          Distinct `(transaction_id, product_id)` review identities in the
+          window. This is the review count that survives edits: the same
+          review logged several times (submission plus revisions) counts
+          once. Mirrors the dedup key used by the production
+          `DailyProductRating` DAG.
+        agg: count_distinct
+        expr: rating_identity
+
+      - name: distinct_rated_products
+        type: simple
+        label: Distinct rated products
+        description: >
+          Distinct products that received at least one logged rating event.
+        agg: count_distinct
+        expr: product_id
+
+      - name: distinct_rated_variations
+        type: simple
+        label: Distinct rated variations
+        description: >
+          Distinct purchased variations that received at least one logged
+          rating event. Null variation ids are ignored.
+        agg: count_distinct
+        expr: variation_id
+
+      - name: distinct_rating_users
+        type: simple
+        label: Distinct rating users
+        description: >
+          Distinct buyers that submitted at least one logged rating event.
+        agg: count_distinct
+        expr: user_id
+
+      - name: distinct_rated_transactions
+        type: simple
+        label: Distinct rated transactions
+        description: >
+          Distinct commerce transactions with at least one logged rating event.
+        agg: count_distinct
+        expr: transaction_id
+
+      - name: distinct_rated_merchants
+        type: simple
+        label: Distinct rated merchants
+        description: >
+          Distinct merchants owning products that received at least one logged
+          rating event.
+        agg: count_distinct
+        expr: merchant_id
+
+      - name: sum_rating
+        type: simple
+        label: Sum of star ratings
+        description: >
+          Sum of the star ratings (1-5) across all logged rating events.
+          Because the table is an event log, edits are counted again, so this
+          over-counts relative to the sum over current ratings.
+        agg: sum
+        expr: rating
+        fill_nulls_with: 0
+
+      - name: avg_rating
+        type: simple
+        label: Average star rating
+        description: >
+          Average star rating (1-5) across all logged rating events. Use with
+          `sum_rating` and `rating_events` to understand distribution; for
+          "current" ratings apply latest-row-per-key logic first.
+        agg: average
+        expr: rating
+
+      - name: min_rating
+        type: simple
+        label: Minimum star rating
+        description: >
+          Minimum star rating (1-5) across all logged rating events.
+        agg: min
+        expr: rating
+
+      - name: max_rating
+        type: simple
+        label: Maximum star rating
+        description: >
+          Maximum star rating (1-5) across all logged rating events.
+        agg: max
+        expr: rating
+
+      - name: rating_events_not_likely_fake
+        type: simple
+        label: Rating events (not likely fake)
+        description: >
+          Row count of logged rating events whose `likely_fake` flag is
+          'false'. This mirrors the production filter
+          (`likely_fake = 'false'`) used by the rating pipelines.
+        agg: count
+        expr: 1
+        fill_nulls_with: 0
+        filter: >
+          {{ Dimension('daily_product_rating_event__likely_fake_name') }} = 'Not likely fake'
+
+      - name: rating_events_likely_fake
+        type: simple
+        label: Rating events (likely fake)
+        description: >
+          Row count of logged rating events whose `likely_fake` flag is
+          'true'.
+        agg: count
+        expr: 1
+        fill_nulls_with: 0
+        filter: >
+          {{ Dimension('daily_product_rating_event__likely_fake_name') }} = 'Likely fake'
+
+      - name: distinct_ratings_not_likely_fake
+        type: simple
+        label: Distinct ratings (not likely fake)
+        description: >
+          Distinct rating documents excluding events flagged as likely fake.
+          Use for like-for-like rating counts for products and merchants.
+        agg: count_distinct
+        expr: _id
+        filter: >
+          {{ Dimension('daily_product_rating_event__likely_fake_name') }} = 'Not likely fake'
+
+      - name: avg_rating_not_likely_fake
+        type: simple
+        label: Average star rating (not likely fake)
+        description: >
+          Average star rating (1-5) across logged rating events excluding
+          events flagged as likely fake.
+        agg: average
+        expr: rating
+        filter: >
+          {{ Dimension('daily_product_rating_event__likely_fake_name') }} = 'Not likely fake'
+
+      - name: first_rating_events
+        type: simple
+        label: First-time rating events
+        description: >
+          Row count of logged rating events where no prior rating existed for
+          the same `(transaction_id, product_id)`, that is `edit` is 'False'.
+          These are the original submissions, not revisions.
+        agg: count
+        expr: 1
+        fill_nulls_with: 0
+        filter: >
+          {{ Dimension('daily_product_rating_event__edit_name') }} = 'False'
+
+      - name: rating_edit_events
+        type: simple
+        label: Rating revision events
+        description: >
+          Row count of logged rating events where a rating already existed
+          for the same `(transaction_id, product_id)`, that is `edit` is
+          'True'. These are revisions of an earlier submission.
+        agg: count
+        expr: 1
+        fill_nulls_with: 0
+        filter: >
+          {{ Dimension('daily_product_rating_event__edit_name') }} = 'True'
+
+      - name: rating_events_with_comment
+        type: simple
+        label: Rating events with a comment
+        description: >
+          Row count of logged rating events that carry a non-empty review
+          body. Star-only submissions log an empty comment.
+        agg: count
+        expr: 1
+        fill_nulls_with: 0
+        filter: >
+          {{ Dimension('daily_product_rating_event__comment') }} != ''
+
+      - name: rating_events_left_comment
+        type: simple
+        label: Rating events on a previously reviewed rating
+        description: >
+          Row count of logged rating events where the rating already had a
+          non-empty comment before this update, that is `left_comment` is
+          'True'. Useful to separate edits to written reviews from edits to
+          star-only ratings.
+        agg: count
+        expr: 1
+        fill_nulls_with: 0
+        filter: >
+          {{ Dimension('daily_product_rating_event__left_comment_name') }} = 'True'
+
+      - name: rating_events_from_native_prompt
+        type: simple
+        label: Rating events from the native prompt
+        description: >
+          Row count of logged rating events submitted through the native
+          mobile rating prompt path, that is `from_native_prompt` is 'True'.
+        agg: count
+        expr: 1
+        fill_nulls_with: 0
+        filter: >
+          {{ Dimension('daily_product_rating_event__from_native_prompt_name') }} = 'True'
+
+      - name: rating_1_star_events
+        type: simple
+        label: 1-star rating events
+        description: >
+          Row count of logged rating events with a 1-star rating. Mirrors the
+          `num_1` column produced by the production `DailyProductRating` DAG.
+        agg: count
+        expr: 1
+        fill_nulls_with: 0
+        filter: >
+          {{ Dimension('daily_product_rating_event__rating_name') }} = '1 star'
+
+      - name: rating_2_star_events
+        type: simple
+        label: 2-star rating events
+        description: >
+          Row count of logged rating events with a 2-star rating. Mirrors the
+          `num_2` column produced by the production `DailyProductRating` DAG.
+        agg: count
+        expr: 1
+        fill_nulls_with: 0
+        filter: >
+          {{ Dimension('daily_product_rating_event__rating_name') }} = '2 stars'
+
+      - name: rating_3_star_events
+        type: simple
+        label: 3-star rating events
+        description: >
+          Row count of logged rating events with a 3-star rating. Mirrors the
+          `num_3` column produced by the production `DailyProductRating` DAG.
+        agg: count
+        expr: 1
+        fill_nulls_with: 0
+        filter: >
+          {{ Dimension('daily_product_rating_event__rating_name') }} = '3 stars'
+
+      - name: rating_4_star_events
+        type: simple
+        label: 4-star rating events
+        description: >
+          Row count of logged rating events with a 4-star rating. Mirrors the
+          `num_4` column produced by the production `DailyProductRating` DAG.
+        agg: count
+        expr: 1
+        fill_nulls_with: 0
+        filter: >
+          {{ Dimension('daily_product_rating_event__rating_name') }} = '4 stars'
+
+      - name: rating_5_star_events
+        type: simple
+        label: 5-star rating events
+        description: >
+          Row count of logged rating events with a 5-star rating. Mirrors the
+          `num_5` column produced by the production `DailyProductRating` DAG.
+        agg: count
+        expr: 1
+        fill_nulls_with: 0
+        filter: >
+          {{ Dimension('daily_product_rating_event__rating_name') }} = '5 stars'
+
+      - name: low_rating_events
+        type: derived
+        label: Low rating (1-2 star) events
+        description: >
+          Rating events with 1 or 2 stars. Mirrors the `num_1_2` column
+          produced by the production `DailyProductRating` DAG — the
+          negative-signal share of ratings.
+        expr: rating_1_star_events + rating_2_star_events
+        input_metrics:
+          - name: rating_1_star_events
+          - name: rating_2_star_events
+
+      - name: low_rating_rate
+        type: ratio
+        label: Low rating (1-2 star) rate
+        description: >
+          Share of logged rating events that are 1-2 star, over all logged
+          rating events. Event-level ratio, so revisions of the same rating
+          are counted repeatedly.
+        numerator: low_rating_events
+        denominator: rating_events
+
+      - name: likely_fake_rating_rate
+        type: ratio
+        label: Likely fake rating rate
+        description: >
+          Share of logged rating events flagged as likely fake, over all
+          logged rating events. Event-level ratio, so revisions of the same
+          rating are counted repeatedly.
+        numerator: rating_events_likely_fake
+        denominator: rating_events
+
+      - name: rating_edit_rate
+        type: ratio
+        label: Rating revision rate
+        description: >
+          Share of logged rating events that are revisions of an earlier
+          rating (`edit` is 'True'), over all logged rating events.
+        numerator: rating_edit_events
+        denominator: rating_events
+
+      - name: comment_rate
+        type: ratio
+        label: Comment rate
+        description: >
+          Share of logged rating events that carry a non-empty review body,
+          over all logged rating events.
+        numerator: rating_events_with_comment
+        denominator: rating_events

@@ -345,6 +345,40 @@ def _build_model_base_payload(
     return payload
 
 
+def build_model_payload(
+    *,
+    model: dict[str, Any],
+    yml_path: Path,
+) -> dict[str, Any] | None:
+    """Payload for one dbt model entry: description, meta, columns, metrics, sql.
+
+    Shared by the Qdrant ingest and the metric catalog tool
+    (``tools.data.metrics``) so both produce the same card shape.
+    """
+    name = _as_str(model.get("name"))
+    if not name:
+        return None
+    sql_path = _find_model_sql(yml_path, name)
+    column_records = [
+        rec
+        for column in (model.get("columns") or [])
+        if isinstance(column, dict) and (rec := _column_to_record(column)) is not None
+    ]
+    metric_records = [
+        rec
+        for metric in (model.get("metrics") or [])
+        if isinstance(metric, dict) and (rec := _metric_to_record(metric)) is not None
+    ]
+    return _build_model_base_payload(
+        model=model,
+        sql_text=_read_sql(sql_path),
+        sql_path=str(sql_path) if sql_path else "",
+        yml_path=str(yml_path),
+        column_records=column_records,
+        metric_records=metric_records,
+    )
+
+
 def _model_header_lines(payload_base: dict[str, Any]) -> list[str]:
     """Common model-level lines prepended to both column and metric embed text."""
     parts: list[str] = [f"Model: {payload_base['model_name']}"]
@@ -480,47 +514,20 @@ def _model_to_document(
     if semantic.get("enabled") is False:
         return None, 0, 0
 
-    sql_path = _find_model_sql(yml_path, name)
-    sql_text = _read_sql(sql_path)
-    sql_path_str = str(sql_path) if sql_path else ""
-    yml_path_str = str(yml_path)
-
-    column_records: list[dict[str, Any]] = []
-    for column in (model.get("columns") or []):
-        if not isinstance(column, dict):
-            continue
-        rec = _column_to_record(column)
-        if rec is not None:
-            column_records.append(rec)
-
-    metric_records: list[dict[str, Any]] = []
-    for metric in (model.get("metrics") or []):
-        if not isinstance(metric, dict):
-            continue
-        rec = _metric_to_record(metric)
-        if rec is not None:
-            metric_records.append(rec)
-
-    base_payload = _build_model_base_payload(
-        model=model,
-        sql_text=sql_text,
-        sql_path=sql_path_str,
-        yml_path=yml_path_str,
-        column_records=column_records,
-        metric_records=metric_records,
-    )
+    base_payload = build_model_payload(model=model, yml_path=yml_path)
     if base_payload is None:
         return None, 0, 0
 
     columns_embeds = _build_columns_embeds(
-        base_payload, column_records, max_chars=max_chars
+        base_payload, base_payload["columns"], max_chars=max_chars
     )
     metrics_embeds = _build_metrics_embeds(
-        base_payload, metric_records, max_chars=max_chars
+        base_payload, base_payload["metrics"], max_chars=max_chars
     )
     if not columns_embeds and not metrics_embeds:
         return None, 0, 0
 
+    yml_path_str = str(yml_path)
     doc = ModelDocument(
         doc_id=f"{yml_path_str}::{name}",
         url=yml_path_str,
@@ -532,7 +539,7 @@ def _model_to_document(
         columns_embeds=columns_embeds,
         metrics_embeds=metrics_embeds,
     )
-    return doc, len(column_records), len(metric_records)
+    return doc, base_payload["column_count"], base_payload["metric_count"]
 
 
 def _iter_dbt_yml_files(root: Path) -> Iterable[Path]:

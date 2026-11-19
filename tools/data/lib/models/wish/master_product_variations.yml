@@ -1,0 +1,676 @@
+version: 2
+
+models:
+  - name: master_product_variations
+    description: >
+      Product-variation catalog snapshot for the Wish marketplace: one row per
+      product variation per `dt` daily snapshot partition, carrying pricing,
+      inventory, rating, shipping-time and catalog-state attributes plus the
+      product / merchant / manufacturer keys. Physical source is the Hive view
+      `wish.master_product_variations`, built daily at 02:00 UTC by the
+      Airflow / Spark ETL that lands the MongoDB `CommerceProduct` and
+      `CommerceVariation` collections (`IncrementalProductVariations_Tahoe`,
+      `IncrementalProductVariations_Part2`). This model is a read-only view
+      over that table (materialized in schema `semantic_dw`); the ETL is not
+      reimplemented here.
+
+
+      **Grain** — one row per (`_id`, `dt`). The table documentation names
+      `_id` as the primary key, but the source is a *daily full snapshot* of
+      the catalog, so `_id` is unique only inside a partition. The wrapper
+      therefore exposes the surrogate key `variation_snapshot_id`
+      (`concat_ws('||', _id, dt)`) as the primary entity and keeps `_id`
+      (exposed as `variation_id`) as a join key.
+
+
+      **Snapshot semantics** — every partition repeats the whole catalog, so
+      `sum`-style metrics over `inventory` / `purchase_count` /
+      `rating_count` are *point-in-time snapshot values*, not flows. Do not sum
+      them across `dt` days: read them as-of a single partition. The count
+      metrics describe the catalog of the filtered day(s).
+
+
+      **Time** — `dt` (varchar YYYY-MM-DD) is the Hive partition and the
+      default metric time dimension; it is the snapshot date, not an event
+      date, so always filter it for partition pruning. `time`,
+      `generation_time` and `synced_time` are bigint "timestamp" columns; the
+      raw integers are kept for joins and paired with `*_ts` timestamps and
+      `*_date` day-grain columns. The project time spine is day, so only
+      `dt`, `creation_date`, `generation_date` and `synced_date` are
+      registered as MetricFlow time dimensions — no hour/second-grain time
+      dimension is exposed.
+
+
+      **Enums and flags** — `review_status` keeps its numeric code and gains
+      `review_status_name` (0=PENDING, 1=REJECTED, 2=APPROVED). The
+      boolean-like flags (`enabled`, `halt_sales`, `is_fbw_item`,
+      `product_removed`, `product_removed_by_merchant`, `variation_removed`,
+      `is_unity`) are varchar `'true'` / `'false'` / null in the source; the
+      raw column stays the filter target and each flag gains a `*_name`
+      companion with a human-readable label. `rating_category` is the
+      documented rating bucket (>= 4.0 HIGH, >= 3.0 MEDIUM, else LOW, null
+      UNKNOWN).
+
+
+      **Caveats** — money is multi-currency: `merchant_price` and `cost` are
+      in `merchant_source_currency` (documented default USD), the
+      `localized_*` columns are in the localized currency, and the documented
+      ETL falls back to the localized value when the merchant price is
+      missing. Price / cost metrics are therefore averages over a
+      mixed-currency population, not currency-safe totals. `inventory` is
+      already the ETL-summarized level (the sum of the warehouse inventories
+      when present, otherwise the raw level) and is not recomputed here.
+      `options`, `attribute_name_to_value` and
+      `merchant_warehouse_inventories` are JSON strings;
+      `wish_express_countries` is a comma-separated country list, so
+      country-level filtering on it is exact-match only.
+
+
+      **Dimension joins** (product, merchant, manufacturer) belong in a
+      Tableau datasource model under `semantic_layer/models/tableau/` that
+      `ref()`s this wrapper, not in this Hive model.
+    config:
+      meta:
+        owner: jixie
+        hive_table: wish.master_product_variations
+        upstream_collections: CommerceProduct, CommerceVariation
+        grain: one row per product variation per dt daily snapshot partition
+        primary_key: variation_snapshot_id
+        partition_column: dt
+    semantic_model:
+      enabled: true
+      name: master_product_variations
+      config:
+        meta:
+          usage: >
+            Always filter `dt` for partition pruning. `dt` is the snapshot
+            date and the default metric time, so metrics are "catalog as of
+            the filtered day" and are not additive across days. `variation_id`
+            is the MongoDB CommerceVariation id and is a join key only, not
+            the primary entity, because it repeats in every daily snapshot.
+            Keep the raw `*` flag columns for filtering and the `*_name`
+            companions for display. `merchant_source_currency` is the
+            currency of `merchant_price` / `cost`; the `localized_*` columns
+            are in the localized currency.
+    primary_entity: variation_snapshot
+    agg_time_dimension: dt
+
+    columns:
+      # ------------------------------------------------------------------
+      # entities
+      # ------------------------------------------------------------------
+      - name: variation_snapshot_id
+        description: >
+          Surrogate primary key. `concat_ws('||', _id, dt)` over the
+          documented primary key and the partition date. Unique at the
+          physical grain, because `_id` repeats in every daily snapshot.
+        entity:
+          type: primary
+          name: variation_snapshot
+          description: One product variation in one daily catalog snapshot.
+
+      - name: variation_id
+        description: >
+          The variation identifier — the MongoDB `CommerceVariation` `_id`.
+          Documented as the primary key of the physical table and unique
+          within a `dt` partition, but it repeats across the daily snapshots,
+          so it is exposed as a join key rather than as the primary entity.
+        entity:
+          type: foreign
+          name: variation
+          description: Product variation.
+
+      - name: product_id
+        description: >
+          Product the variation belongs to. Foreign key for product-level
+          rollups; the same id space as `_id` in `wish.dim_all_products`.
+        entity:
+          type: foreign
+          name: product
+          description: Product listing the variation belongs to.
+
+      - name: merchant_id
+        description: >
+          Merchant that owns the variation. Foreign key for merchant-level
+          rollups.
+        entity:
+          type: foreign
+          name: merchant
+          description: Selling merchant.
+
+      - name: manufacturer_id
+        description: >
+          Manufacturer identifier carried on the variation. Null for most
+          non-branded listings.
+        entity:
+          type: foreign
+          name: manufacturer
+          description: Product manufacturer.
+
+      # ------------------------------------------------------------------
+      # time dimensions
+      # ------------------------------------------------------------------
+      - name: dt
+        description: >
+          Hive partition date, cast from the varchar YYYY-MM-DD source value.
+          The snapshot date of the catalog partition, not an event date.
+          Always filter it for partition pruning. Default metric time
+          dimension.
+        granularity: day
+        dimension:
+          type: time
+          label: Partition date
+          is_partition: true
+
+      - name: creation_date
+        description: >
+          Calendar date (UTC) the variation was created, derived from the
+          bigint `time` column.
+        granularity: day
+        dimension:
+          type: time
+          label: Variation creation date
+
+      - name: generation_date
+        description: >
+          Calendar date (UTC) the variation record was generated, derived from
+          the bigint `generation_time` column.
+        granularity: day
+        dimension:
+          type: time
+          label: Variation generation date
+
+      - name: synced_date
+        description: >
+          Calendar date (UTC) the variation was synced from MongoDB, derived
+          from the bigint `synced_time` column.
+        granularity: day
+        dimension:
+          type: time
+          label: MongoDB sync date
+
+      # ------------------------------------------------------------------
+      # raw time columns (kept for joins, not time dimensions)
+      # ------------------------------------------------------------------
+      - name: time
+        description: >
+          Bigint timestamp of the variation creation. The table documentation
+          labels it "Timestamp when variation was created" without stating
+          the unit; the wrapper follows the sibling `wish.dim_all_products`
+          model, built from the same MongoDB collections, and reads it as
+          Unix epoch seconds.
+        data_type: bigint
+
+      - name: creation_ts
+        description: >
+          Timestamp converted from `time`. Not registered as a MetricFlow time
+          dimension — the project time spine is day, so use `creation_date`.
+        data_type: timestamp
+
+      - name: generation_time
+        description: >
+          Bigint timestamp of the variation record generation. Read as Unix
+          epoch seconds, like `time`.
+        data_type: bigint
+
+      - name: generation_ts
+        description: >
+          Timestamp converted from `generation_time`. Not registered as a
+          MetricFlow time dimension — use `generation_date`.
+        data_type: timestamp
+
+      - name: synced_time
+        description: >
+          Bigint timestamp of the MongoDB sync. Read as Unix epoch seconds,
+          like `time`.
+        data_type: bigint
+
+      - name: synced_ts
+        description: >
+          Timestamp converted from `synced_time`. Not registered as a
+          MetricFlow time dimension — use `synced_date`.
+        data_type: timestamp
+
+      # ------------------------------------------------------------------
+      # catalog state flags (raw 'true' / 'false' varchar + readable label)
+      # ------------------------------------------------------------------
+      - name: enabled
+        description: >
+          'true' when the variation is enabled for sale. Raw varchar flag
+          ('true' / 'false' / null) — the filter target.
+        dimension:
+          type: categorical
+          label: Enabled (raw)
+
+      - name: enabled_name
+        description: Human-readable label for `enabled`.
+        dimension:
+          type: categorical
+          label: Enabled
+
+      - name: halt_sales
+        description: >
+          'true' when internal operations have temporarily halted sales for
+          this variation. Raw varchar flag.
+        dimension:
+          type: categorical
+          label: Halt sales (raw)
+
+      - name: halt_sales_name
+        description: Human-readable label for `halt_sales`.
+        dimension:
+          type: categorical
+          label: Halt sales
+
+      - name: is_fbw_item
+        description: >
+          'true' when the item is fulfilled by Wish (FBW). Raw varchar flag.
+        dimension:
+          type: categorical
+          label: FBW item (raw)
+
+      - name: is_fbw_item_name
+        description: Human-readable label for `is_fbw_item`.
+        dimension:
+          type: categorical
+          label: FBW item
+
+      - name: product_removed
+        description: >
+          'true' when the product has been removed by Wish. Raw varchar flag.
+        dimension:
+          type: categorical
+          label: Product removed (raw)
+
+      - name: product_removed_name
+        description: Human-readable label for `product_removed`.
+        dimension:
+          type: categorical
+          label: Product removed
+
+      - name: product_removed_by_merchant
+        description: >
+          'true' when the product has been removed by the merchant. Raw
+          varchar flag.
+        dimension:
+          type: categorical
+          label: Product removed by merchant (raw)
+
+      - name: product_removed_by_merchant_name
+        description: Human-readable label for `product_removed_by_merchant`.
+        dimension:
+          type: categorical
+          label: Product removed by merchant
+
+      - name: variation_removed
+        description: >
+          'true' when the specific variation has been removed. Raw varchar
+          flag.
+        dimension:
+          type: categorical
+          label: Variation removed (raw)
+
+      - name: variation_removed_name
+        description: Human-readable label for `variation_removed`.
+        dimension:
+          type: categorical
+          label: Variation removed
+
+      - name: is_unity
+        description: >
+          'true' when the product is enrolled in the Unity shipping program.
+          The source value is the output of the documented Unity enrollment
+          logic (domestic enabled flags, shipping gate, blacklist, pending
+          standard warehouse, localized domestic shipping estimates) and is
+          not recomputed here. Raw varchar flag.
+        dimension:
+          type: categorical
+          label: Unity shipping (raw)
+
+      - name: is_unity_name
+        description: Human-readable label for `is_unity`.
+        dimension:
+          type: categorical
+          label: Unity shipping
+
+      # ------------------------------------------------------------------
+      # review status (code + label)
+      # ------------------------------------------------------------------
+      - name: review_status
+        description: >
+          Product review status code. 0=PENDING, 1=REJECTED, 2=APPROVED,
+          null=not reviewed.
+        dimension:
+          type: categorical
+          label: Review status code
+
+      - name: review_status_name
+        description: Human-readable label for `review_status`.
+        dimension:
+          type: categorical
+          label: Review status
+
+      # ------------------------------------------------------------------
+      # categorical attributes
+      # ------------------------------------------------------------------
+      - name: rating_category
+        description: >
+          Rating bucket derived from `average_rating`, per the documented
+          Product Rating Analysis example: >= 4.0 HIGH, >= 3.0 MEDIUM, else
+          LOW, and UNKNOWN when the rating is null.
+        dimension:
+          type: categorical
+          label: Rating category
+
+      - name: merchant_source_currency
+        description: >
+          Currency the merchant priced the variation in. The documented field
+          default is applied, so a null source value reads as 'USD'.
+        dimension:
+          type: categorical
+          label: Merchant source currency
+
+      - name: color
+        description: Product color attribute.
+        dimension:
+          type: categorical
+          label: Color
+
+      - name: size
+        description: Product size attribute.
+        dimension:
+          type: categorical
+          label: Size
+
+      - name: parent_sku
+        description: >
+          Parent SKU identifier used for product grouping. The documented
+          hierarchy is `product_id` -> `parent_sku` -> product group.
+        dimension:
+          type: categorical
+          label: Parent SKU
+
+      - name: wish_express_countries
+        description: >
+          Comma-separated list of the countries where Wish Express is
+          available. Exact-match filtering only.
+        dimension:
+          type: categorical
+          label: Wish Express countries
+
+      - name: options
+        description: >
+          JSON string of the product options (color, size, ...). The documented
+          ETL already folds `color` and `size` into this object.
+        dimension:
+          type: categorical
+          label: Options (JSON)
+
+      - name: attribute_name_to_value
+        description: JSON string of the product attributes.
+        dimension:
+          type: categorical
+          label: Attributes (JSON)
+
+      - name: merchant_warehouse_inventories
+        description: >
+          JSON string of the per-warehouse inventory levels. Already folded
+          into `inventory` by the ETL.
+        dimension:
+          type: categorical
+          label: Warehouse inventories (JSON)
+
+      - name: force_reactivate_reasons
+        description: >
+          Comma-separated reasons the product was reactivated.
+        dimension:
+          type: categorical
+          label: Force reactivate reasons
+
+      # ------------------------------------------------------------------
+      # measures (referenced by metrics.expr only)
+      # ------------------------------------------------------------------
+      - name: inventory
+        description: >
+          Current inventory level. The ETL-summarized value: the sum of the
+          warehouse inventories when they exist, otherwise the raw level.
+        data_type: bigint
+
+      - name: purchase_count
+        description: Total number of purchases for this variation.
+        data_type: bigint
+
+      - name: average_rating
+        description: Average product rating, 1-5 stars.
+        data_type: double
+
+      - name: rating_count
+        description: Total number of ratings received.
+        data_type: double
+
+      - name: min_shipping_time
+        description: Minimum shipping time in days.
+        data_type: bigint
+
+      - name: max_shipping_time
+        description: Maximum shipping time in days.
+        data_type: bigint
+
+      - name: merchant_price
+        description: >
+          Price set by the merchant for the variation, in
+          `merchant_source_currency`. The documented ETL falls back to the
+          localized price when the merchant price is missing, so the currency
+          of a row is not always the merchant source currency.
+        data_type: double
+
+      - name: retail_price
+        description: >
+          Retail price (MSRP) used for discount calculations.
+        data_type: double
+
+      - name: cost
+        description: >
+          Cost to Wish for the variation, in `merchant_source_currency`. The
+          documented ETL falls back to the localized cost when the merchant
+          cost is missing.
+        data_type: double
+
+      - name: consignment_supply_cost
+        description: Cost for consignment supply.
+        data_type: double
+
+      - name: localized_merchant_price
+        description: Merchant price in the localized currency.
+        data_type: double
+
+      - name: localized_merchant_cost
+        description: Cost to Wish in the localized currency.
+        data_type: double
+
+      - name: localized_merchant_shipping
+        description: Merchant shipping amount in the localized currency.
+        data_type: double
+
+      - name: localized_merchant_shipping_cost
+        description: Merchant shipping cost in the localized currency.
+        data_type: double
+
+      - name: sequence_id
+        description: Sequence identifier for the variation.
+        data_type: bigint
+
+    metrics:
+      # ------------------------------------------------------------------
+      # catalog counts
+      # ------------------------------------------------------------------
+      - name: variation_count
+        type: simple
+        label: Variation count
+        description: >
+          Number of variation rows in scope, i.e. the size of the catalog
+          snapshot for the filtered `dt`. Matches the documented
+          `COUNT(*) as variation_count` example.
+        agg: count
+        expr: 1
+
+      - name: product_count
+        type: simple
+        label: Product count
+        description: >
+          Distinct products that have at least one variation in scope.
+        agg: count_distinct
+        expr: product_id
+
+      - name: merchants_with_variations
+        type: simple
+        label: Merchant count
+        description: >
+          Distinct merchants with at least one variation in scope.
+        agg: count_distinct
+        expr: merchant_id
+
+      # ------------------------------------------------------------------
+      # snapshot inventory / counts
+      # ------------------------------------------------------------------
+      - name: total_inventory
+        type: simple
+        label: Total inventory (variations)
+        description: >
+          Sum of `inventory` over the variations in scope. This is a
+          point-in-time snapshot value for the filtered `dt` — do not sum it
+          across days, because every partition repeats the whole catalog.
+          Matches the documented `SUM(inventory) as total_inventory` example.
+        agg: sum
+        expr: inventory
+        fill_nulls_with: 0
+
+      - name: total_purchase_count
+        type: simple
+        label: Total variation purchases
+        description: >
+          Sum of the per-variation `purchase_count` over the variations in
+          scope. Cumulative-to-date purchase counts as of the snapshot, not
+          purchases in the filtered period.
+        agg: sum
+        expr: purchase_count
+        fill_nulls_with: 0
+
+      - name: total_rating_count
+        type: simple
+        label: Total ratings
+        description: >
+          Sum of the per-variation `rating_count` over the variations in
+          scope. Cumulative-to-date ratings as of the snapshot.
+        agg: sum
+        expr: rating_count
+        fill_nulls_with: 0
+
+      # ------------------------------------------------------------------
+      # prices and costs (multi-currency averages)
+      # ------------------------------------------------------------------
+      - name: avg_price
+        type: simple
+        label: Average price
+        description: >
+          Average merchant price per variation in scope, matching the
+          documented `AVG(merchant_price) as avg_price` example. The
+          population is multi-currency (`merchant_source_currency`, default
+          USD, with a documented fallback to the localized price), so this is
+          an average over mixed currencies, not a currency-safe figure.
+        agg: average
+        expr: merchant_price
+
+      - name: avg_cost
+        type: simple
+        label: Average cost
+        description: >
+          Average cost to Wish per variation in scope. Multi-currency for the
+          same reason as `avg_price`.
+        agg: average
+        expr: cost
+
+      - name: total_consignment_supply_cost
+        type: simple
+        label: Consignment supply cost
+        description: >
+          Sum of the consignment supply cost over the variations in scope.
+          Multi-currency; the documentation does not name the currency of
+          this column.
+        agg: sum
+        expr: consignment_supply_cost
+        fill_nulls_with: 0
+
+      # ------------------------------------------------------------------
+      # ratings
+      # ------------------------------------------------------------------
+      - name: avg_product_rating
+        type: simple
+        label: Average variation rating
+        description: >
+          Average of the per-variation `average_rating` (1-5 stars) over the
+          variations in scope. Variations without a rating are ignored by
+          the average rather than counted as zero.
+        agg: average
+        expr: average_rating
+
+      # ------------------------------------------------------------------
+      # shipping
+      # ------------------------------------------------------------------
+      - name: avg_min_shipping_time
+        type: simple
+        label: Min shipping time
+        description: >
+          Average of the per-variation minimum shipping time, in days.
+        agg: average
+        expr: min_shipping_time
+
+      - name: avg_max_shipping_time
+        type: simple
+        label: Max shipping time
+        description: >
+          Average of the per-variation maximum shipping time, in days.
+        agg: average
+        expr: max_shipping_time
+
+      # ------------------------------------------------------------------
+      # catalog state counts
+      # ------------------------------------------------------------------
+      - name: enabled_variation_count
+        type: simple
+        label: Enabled variations
+        description: >
+          Variations in scope that are enabled for sale (`enabled` = 'true').
+        agg: count
+        expr: 1
+        filter: "{{ Dimension('variation_snapshot__enabled') }} = 'true'"
+
+      - name: fbw_variation_count
+        type: simple
+        label: FBW variations
+        description: >
+          Variations in scope that are fulfilled by Wish (`is_fbw_item` =
+          'true').
+        agg: count
+        expr: 1
+        filter: "{{ Dimension('variation_snapshot__is_fbw_item') }} = 'true'"
+
+      - name: unity_variation_count
+        type: simple
+        label: Unity variations
+        description: >
+          Variations in scope that are enrolled in the Unity shipping program
+          (`is_unity` = 'true').
+        agg: count
+        expr: 1
+        filter: "{{ Dimension('variation_snapshot__is_unity') }} = 'true'"
+
+      - name: removed_variation_count
+        type: simple
+        label: Removed variations
+        description: >
+          Variations in scope that have been removed (`variation_removed` =
+          'true').
+        agg: count
+        expr: 1
+        filter: "{{ Dimension('variation_snapshot__variation_removed') }} = 'true'"

@@ -1,0 +1,556 @@
+version: 2
+
+models:
+  - name: master_users
+    description: >
+      Wish user master — one row per user, holding the current profile,
+      demographic and account-status attributes for every user on the
+      platform. The physical source is the Hive view `wish.master_users`,
+      produced by the `IncrementalUser_Tahoe` Airflow DAG that extracts
+      MongoDB `User` / `UserMLInfo` / `UserSignupInfo` documents. This model
+      is a read-only view over that table (materialized in schema
+      `semantic_dw`); the ETL is not reimplemented here.
+
+
+      **Grain** — one row per user. `user_id` (the Mongo `ObjectId` hex
+      string) is the primary key and is unique across the table. The
+      underlying object is a Hive *view* that the DAG repoints at a fresh
+      full snapshot every night; the snapshot is built as
+      `(previous snapshot LEFT ANTI JOIN today's changed users) UNION ALL
+      (today's changed users)`, so it always holds every user exactly once
+      with the freshest available profile. There is no row-level history:
+      a user's attributes are overwritten in place on the next refresh.
+
+
+      **`dt` is the registration date, not the snapshot date** — the producer
+      writes `dt = datetime.fromtimestamp(int(str(user.id)[:8], 16))`, i.e.
+      the Mongo `ObjectId` prefix, so `dt` is immutable for a given user. It
+      is nevertheless the physical Hive partition of the view. Practical
+      consequences: `GROUP BY dt` is a *registration cohort* breakdown, not a
+      daily-snapshot breakdown; the total row count of the table is the total
+      user base (every user, forever), not "users as of the last run"; and
+      no column identifies the snapshot date, so point-in-time (as-of)
+      analysis is not possible on this table. `registration_date` is the UTC
+      calendar day of the same registration instant and can differ from `dt`
+      by one day for users registered close to midnight, because `dt` is
+      computed in the producer's local timezone.
+
+
+      **Time** — `dt` is the Hive partition and the default metric time
+      dimension. `registration_date`, `last_active_date` and `birthdate` are
+      additional day-grain time dimensions. The project time spine is day,
+      so no hour/second-grain time dimension is registered; the raw
+      unix-second columns (`time`, `registration_time`, `last_active_day`)
+      and the derived `*_ts` timestamps are kept for joins only.
+      `last_active_date` is null for users who have never been active, and
+      `birthdate` is null for users without a birth date — the two are
+      populated differently, so neither is a drop-in replacement for `dt`.
+
+
+      **Enums** — `gender`, `age_range`, `education_level`,
+      `relationship_status`, `signup_method` and `user_status` keep their
+      raw integer code and gain a human-readable `*_name` column built from
+      the documented code list. `app_name` already exists in the source (the
+      producer maps it from `app_type` via `UserAppType`) and is passed
+      through unchanged.
+
+
+      **Flags** — `is_wish_star`, `likely_bot`, `is_temporary`,
+      `is_verified` and `is_guest_user` are varchar `'true'` / `'false'`
+      strings in the source. The raw column is kept as a categorical
+      dimension and a boolean `*_flag` column is added next to it, so
+      filters can be written as
+      `{% raw %}{{ Dimension }}{% endraw %} = true`. `is_guest_user` is
+      marked "TODO deprecate" in the producing DAG, so it should not be
+      relied on for reporting.
+
+
+      **Caveats** — the table documentation recommends filtering out
+      `likely_bot = 'true'` users for business metrics and
+      `is_temporary = 'true'` users for permanent-user analysis; the
+      `bot_users` and `temporary_users` metrics quantify those populations.
+      `email`, `full_name`, `profile_pic`, `fb_uid` and `google_plus_uid` are
+      PII. `likely_bot` is a model output and is known to mis-flag some
+      legitimate users. `signup_method` is partly inferred by the producer
+      when the user has no explicit signup info, and `app_name` is derived
+      from `app_type` rather than stored independently.
+    config:
+      meta:
+        owner: jixie
+        hive_table: wish.master_users
+        upstream_collection: 'MongoDB User, UserMLInfo, UserSignupInfo'
+        upstream_owners: vbarsaiyan@wish.com, revenue@wish.com, rkwong@wish.com
+        dag_id: IncrementalUser_Tahoe
+        grain: one row per user (user_id)
+        primary_key: user_id
+        partition_column: dt
+    semantic_model:
+      enabled: true
+      name: master_users
+    primary_entity: user
+    agg_time_dimension: dt
+
+    columns:
+      # ------------------------------------------------------------------
+      # entities
+      # ------------------------------------------------------------------
+      - name: user_id
+        description: >
+          Unique user identifier — the Mongo `ObjectId` hex string (24
+          lowercase hex characters). Primary key: one row per user.
+        entity:
+          type: primary
+          name: user
+          description: A Wish user.
+
+      - name: visitor_id
+        description: >
+          Visitor / device identifier of the user's session. Null when the
+          user has no known visitor id. Foreign key to the `visitor` entity
+          used by the anonymous-traffic models.
+        entity:
+          type: foreign
+          name: visitor
+          description: Visitor (device / session) behind the user.
+
+      # ------------------------------------------------------------------
+      # time dimensions (day grain only — the project time spine is day)
+      # ------------------------------------------------------------------
+      - name: dt
+        description: >
+          Hive partition date (YYYY-MM-DD), cast to DATE. It is the user's
+          **registration date** — the producer derives it from the Mongo
+          `ObjectId` prefix — and it is immutable for a given user. It is
+          the default metric time dimension, so `GROUP BY dt` is a
+          registration-cohort breakdown. It is not the pipeline refresh date
+          and there is no column that records the refresh date.
+        granularity: day
+        dimension:
+          type: time
+          label: Registration date (partition)
+          is_partition: true
+
+      - name: registration_date
+        description: >
+          UTC calendar day of the user's registration, derived from the
+          unix-second `registration_time` column. Differs from `dt` by up
+          to one day for users registered near midnight, because `dt` is
+          computed in the producer's local timezone.
+        granularity: day
+        dimension:
+          type: time
+          label: Registration date (UTC)
+
+      - name: last_active_date
+        description: >
+          Calendar day of the user's last active day, derived from the
+          unix-second `last_active_day` column. Null for users who have
+          never been active.
+        granularity: day
+        dimension:
+          type: time
+          label: Last active date
+
+      - name: birthdate
+        description: >
+          Calculated birth date (YYYY-MM-DD), cast to DATE. Computed by the
+          producer as `born_year` + `birthday` (day of year). A static user
+          attribute, not an event time — null for users without a birth
+          date.
+        granularity: day
+        dimension:
+          type: time
+          label: Birth date
+
+      # ------------------------------------------------------------------
+      # demographics
+      # ------------------------------------------------------------------
+      - name: gender
+        description: 'Gender code (0=Unknown, 1=Male, 2=Female, 3=Neutral).'
+        dimension:
+          type: categorical
+          label: Gender (code)
+
+      - name: gender_name
+        description: 'Human-readable gender label derived from `gender`.'
+        dimension:
+          type: categorical
+          label: Gender
+
+      - name: age_range
+        description: >
+          Age range code (1=13-17, 2=18-24, 3=25-29, 4=30-34, 5=35-39,
+          6=40-44, 7=45-49, 8=50-54, 9=55-64, 10=65+).
+        dimension:
+          type: categorical
+          label: Age range (code)
+
+      - name: age_range_name
+        description: 'Human-readable age bracket label derived from `age_range`.'
+        dimension:
+          type: categorical
+          label: Age range
+
+      - name: education_level
+        description: >
+          Education level code (0=Unknown, 1=Junior High School, 2=High
+          School, 3=College, 4=Graduate School).
+        dimension:
+          type: categorical
+          label: Education level (code)
+
+      - name: education_level_name
+        description: 'Human-readable education level label derived from `education_level`.'
+        dimension:
+          type: categorical
+          label: Education level
+
+      - name: relationship_status
+        description: >
+          Relationship status code (0=Unknown, 1=Single, 2=In a
+          relationship, 3=Engaged, 4=Married, 5=It's complicated, 6=In an
+          open relationship, 7=Widowed, 8=Separated, 9=Divorced, 10=In a
+          civil union, 11=In a domestic partnership).
+        dimension:
+          type: categorical
+          label: Relationship status (code)
+
+      - name: relationship_status_name
+        description: 'Human-readable relationship status label derived from `relationship_status`.'
+        dimension:
+          type: categorical
+          label: Relationship status
+
+      - name: born_year
+        description: Year of birth. Null when the user has no birth date on file.
+        dimension:
+          type: categorical
+          label: Born year
+
+      - name: birthday
+        description: >
+          Day of year (1-366) the user was born. Kept for parity with the
+          producer's `birthdate` calculation; prefer `birthdate` for
+          date-based analysis.
+        dimension:
+          type: categorical
+          label: Birthday (day of year)
+
+      - name: country_code
+        description: ISO 3166-1 alpha-2 country code of the user's location. Null when unknown.
+        dimension:
+          type: categorical
+          label: Country code
+
+      - name: locale
+        description: User's locale preference (e.g. `en_US`).
+        dimension:
+          type: categorical
+          label: Locale
+
+      - name: location_name
+        description: Name of the user's city / location. Null when unknown.
+        dimension:
+          type: categorical
+          label: Location
+
+      # ------------------------------------------------------------------
+      # app
+      # ------------------------------------------------------------------
+      - name: app_type
+        description: >
+          Application type code (0=Wish, 1=Lyke, 2=Geek, 3=Mama, 4=Cute,
+          5=ScreamPrice, 6=Home, 7=Wish Local, 8=Joyful Shopping).
+        dimension:
+          type: categorical
+          label: App type (code)
+
+      - name: app_name
+        description: >
+          Human-readable application name. Produced by the ETL as a mapping
+          of `app_type` via `UserAppType`; passed through unchanged here.
+        dimension:
+          type: categorical
+          label: App name
+
+      # ------------------------------------------------------------------
+      # signup
+      # ------------------------------------------------------------------
+      - name: signup_method
+        description: >
+          Signup method code (1=Facebook, 2=Email, 3=Google Plus, 4=Apple,
+          5=Phone Number). Inferred by the producer when the user has no
+          explicit signup info, so it is only partly authoritative.
+        dimension:
+          type: categorical
+          label: Signup method (code)
+
+      - name: signup_method_name
+        description: 'Human-readable signup method label derived from `signup_method`.'
+        dimension:
+          type: categorical
+          label: Signup method
+
+      # ------------------------------------------------------------------
+      # account status
+      # ------------------------------------------------------------------
+      - name: user_status
+        description: >
+          Account status code (1=Unprocessed — newly created email/phone
+          user eligible for verification, 3=Registered — verified or
+          non-verification-eligible user, 6=Deleted — deleted user who can
+          be restored by signing in again).
+        dimension:
+          type: categorical
+          label: User status (code)
+
+      - name: user_status_name
+        description: 'Human-readable account status label derived from `user_status`.'
+        dimension:
+          type: categorical
+          label: User status
+
+      # ------------------------------------------------------------------
+      # flags
+      #
+      # The raw varchar column is the categorical dimension; the `*_flag`
+      # column is the boolean version used by the metric filters.
+      # ------------------------------------------------------------------
+      - name: is_wish_star
+        description: "'true' when the user is a Wish Star. Raw flag column; use `is_wish_star_flag` for filtering."
+        dimension:
+          type: categorical
+          label: Is Wish Star
+
+      - name: is_wish_star_flag
+        description: >
+          Boolean version of `is_wish_star`. Null source values map to false.
+        dimension:
+          type: categorical
+          label: Is Wish Star (flag)
+
+      - name: likely_bot
+        description: >
+          "'true' when the user is likely a bot. Raw flag column; use `likely_bot_flag` for filtering. This is a model output and is known to mis-flag some legitimate users."
+        dimension:
+          type: categorical
+          label: Likely bot
+
+      - name: likely_bot_flag
+        description: >
+          Boolean version of `likely_bot`. Null source values map to false.
+        dimension:
+          type: categorical
+          label: Likely bot (flag)
+
+      - name: is_temporary
+        description: >
+          "'true' when the user account is temporary. Raw flag column; use `is_temporary_flag` for filtering."
+        dimension:
+          type: categorical
+          label: Is temporary
+
+      - name: is_temporary_flag
+        description: >
+          Boolean version of `is_temporary`. Null source values map to false.
+        dimension:
+          type: categorical
+          label: Is temporary (flag)
+
+      - name: is_verified
+        description: >
+          "'true' when the user is verified. Raw flag column; use `is_verified_flag` for filtering."
+        dimension:
+          type: categorical
+          label: Is verified
+
+      - name: is_verified_flag
+        description: >
+          Boolean version of `is_verified`. Null source values map to false.
+        dimension:
+          type: categorical
+          label: Is verified (flag)
+
+      - name: is_guest_user
+        description: >
+          "'true' when the user is a guest. Raw flag column; use `is_guest_user_flag` for filtering. Marked 'TODO deprecate' in the producing DAG — do not rely on it for reporting."
+        dimension:
+          type: categorical
+          label: Is guest user
+
+      - name: is_guest_user_flag
+        description: >
+          Boolean version of `is_guest_user`. Null source values map to false.
+          Deprecated upstream.
+        dimension:
+          type: categorical
+          label: Is guest user (flag)
+
+      # ------------------------------------------------------------------
+      # PII / identity attributes
+      # ------------------------------------------------------------------
+      - name: full_name
+        description: "User's full name. PII."
+        dimension:
+          type: categorical
+          label: Full name
+
+      - name: email
+        description: "User's email address. PII."
+        dimension:
+          type: categorical
+          label: Email
+
+      - name: profile_pic
+        description: URL or identifier of the user's profile picture. PII.
+        dimension:
+          type: categorical
+          label: Profile picture
+
+      - name: fb_uid
+        description: Facebook user id. PII.
+        dimension:
+          type: categorical
+          label: Facebook uid
+
+      - name: google_plus_uid
+        description: Google Plus user id. PII.
+        dimension:
+          type: categorical
+          label: Google Plus uid
+
+      # ------------------------------------------------------------------
+      # raw time columns (kept for joins; not MetricFlow dimensions)
+      # ------------------------------------------------------------------
+      - name: registration_time
+        description: >
+          Raw unix epoch seconds of the user's registration instant, extracted
+          from the Mongo `ObjectId` prefix. Identical to `time`. Use
+          `registration_ts` / `registration_date` for date arithmetic.
+        label: Registration time (unix)
+
+      - name: time
+        description: >
+          Raw unix epoch seconds of the user's registration instant. The
+          producer writes the same value as `registration_time`.
+        label: Registration time (unix, duplicate)
+
+      - name: registration_ts
+        description: Timestamp of the user's registration instant.
+        label: Registration timestamp
+
+      - name: last_active_day
+        description: >
+          Raw last-active-day instant as a *string* of unix epoch seconds
+          (Pacific-adjusted by the producer). Null when the user has never
+          been active.
+        label: Last active day (unix)
+
+      - name: last_active_ts
+        description: Timestamp of the user's last active day.
+        label: Last active timestamp
+
+    metrics:
+      - name: users
+        type: simple
+        label: Users
+        description: >
+          Distinct users in scope. Because the table holds one row per user
+          for the entire user base, this is the total registered user base
+          unless a `dt` (registration cohort) cut is applied.
+        agg: count_distinct
+        expr: user_id
+
+      - name: user_rows
+        type: simple
+        label: User rows
+        description: >
+          Row count in scope. Equal to `users` in practice, since `user_id`
+          is unique across the table; kept for parity with the other
+          dimension models.
+        agg: count
+        expr: 1
+
+      - name: new_users
+        type: simple
+        label: New users
+        description: >
+          Users registered on the day of the time bucket. `dt` is the user's
+          registration date, so this is the documented "Daily New User
+          Registration" count: `COUNT(*)` grouped by `dt`. Because `dt` is
+          the default metric time dimension, the bucket is the registration
+          day; override `agg_time_dimension` to cut by another date.
+        agg: count
+        expr: 1
+        agg_time_dimension: dt
+
+      - name: registered_users
+        type: simple
+        label: Registered users
+        description: >
+          Distinct users whose account status is `Registered` (status 3) —
+          verified users plus Google / Apple / Facebook signups and
+          non-verification-eligible users.
+        agg: count_distinct
+        expr: user_id
+        filter: "{{ Dimension('user__user_status_name') }} = 'Registered'"
+
+      - name: unprocessed_users
+        type: simple
+        label: Unprocessed users
+        description: >
+          Distinct users whose account status is `Unprocessed` (status 1) —
+          newly created email / phone users that are still eligible for
+          verification.
+        agg: count_distinct
+        expr: user_id
+        filter: "{{ Dimension('user__user_status_name') }} = 'Unprocessed'"
+
+      - name: deleted_users
+        type: simple
+        label: Deleted users
+        description: >
+          Distinct users whose account status is `Deleted` (status 6). These
+          users can be restored if they sign in again.
+        agg: count_distinct
+        expr: user_id
+        filter: "{{ Dimension('user__user_status_name') }} = 'Deleted'"
+
+      - name: verified_users
+        type: simple
+        label: Verified users
+        description: Distinct users flagged as verified.
+        agg: count_distinct
+        expr: user_id
+        filter: "{{ Dimension('user__is_verified_flag') }} = true"
+
+      - name: wish_star_users
+        type: simple
+        label: Wish Star users
+        description: Distinct users flagged as Wish Stars.
+        agg: count_distinct
+        expr: user_id
+        filter: "{{ Dimension('user__is_wish_star_flag') }} = true"
+
+      - name: bot_users
+        type: simple
+        label: Bot users
+        description: >
+          Distinct users flagged as likely bots. The table documentation
+          recommends excluding this population from business metrics; it is
+          quantified here so it can be subtracted. The flag is a model output
+          and is known to mis-flag some legitimate users.
+        agg: count_distinct
+        expr: user_id
+        filter: "{{ Dimension('user__likely_bot_flag') }} = true"
+
+      - name: temporary_users
+        type: simple
+        label: Temporary users
+        description: >
+          Distinct users flagged as temporary accounts. The table
+          documentation recommends excluding this population from permanent
+          user analysis; it is quantified here so it can be subtracted.
+        agg: count_distinct
+        expr: user_id
+        filter: "{{ Dimension('user__is_temporary_flag') }} = true"

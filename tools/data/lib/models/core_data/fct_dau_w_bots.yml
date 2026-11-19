@@ -1,0 +1,340 @@
+version: 2
+
+models:
+  - name: fct_dau_w_bots
+    description: >
+      Daily active user fact including registered users, guest users, and
+      (when enabled upstream) bot traffic. Grain is one row per user_id × dt.
+      Combines registered-user activity from core_data.fct_dau with guest-user
+      events and sign-in classification for experiment analysis. Activity counts
+      (impressions, clicks, wishlists, add-to-cart, cart/search impressions) are
+      summed across registered and guest sources per user-day. Bot classification
+      is currently disabled in the upstream pipeline — expect Registered/Guest
+      only in production. Partition dt is the activity calendar day (YYYY-MM-DD
+      string cast to date). Always filter dt for partition pruning. Source:
+      core_data.fct_dau_w_bots (FctDauWithBotsDaily).
+    config:
+      meta:
+        owner: jpearcy@wish.com
+        hive_table: core_data.fct_dau_w_bots
+        dag: FctDauWithBotsDaily
+        timezone: UTC
+    semantic_model:
+      enabled: true
+      name: fct_dau_w_bots
+      config:
+        meta:
+          owner: jpearcy@wish.com
+          usage: >
+            Always filter metric_time / dt first for partition pruning. Join on
+            user_id AND dt for daily grain — never user_id alone. Includes guest
+            and potential bot traffic; use user_type to segment registered vs
+            guest. For registered-only DAU aligned with core_data.fct_dau, filter
+            user_type = Registered. Good DAU = users with num_clicks +
+            num_a2c_actions > 0. Data typically available by 6:00 AM UTC daily.
+    agg_time_dimension: dt
+
+    columns:
+      - name: user_day_id
+        description: Surrogate primary key, user_id|dt.
+        data_tests:
+          - not_null
+        entity:
+          type: primary
+          name: user_day
+          description: One DAU user row for an activity calendar day.
+
+      - name: user_id
+        description: Wish user identifier. Grain key with dt.
+        entity:
+          type: foreign
+          name: user
+          description: User join key to experiment assignments and other user-day facts.
+
+      - name: dt
+        description: >
+          Hive partition and activity calendar day (source string cast to date).
+          Anchors DAU membership and same-day engagement counts.
+        granularity: day
+        dimension:
+          type: time
+          label: Activity day
+          is_partition: true
+
+      - name: user_type
+        description: >
+          DAU registration class raw code: Registered, Guest, Unclassified, or Bot.
+        dimension:
+          type: categorical
+          label: User type code
+
+      - name: user_type_name
+        description: Human-readable user type label.
+        dimension:
+          type: categorical
+          label: User type
+
+      - name: sign_in_name
+        description: Whether the user signed in during the activity day.
+        dimension:
+          type: categorical
+          label: Sign-in status
+
+      - name: client
+        description: >
+          Client / platform code (androidapp, iosapp, ipadapp, mweb, mobileweb, web).
+        dimension:
+          type: categorical
+          label: Client code
+
+      - name: client_name
+        description: Human-readable client / platform label.
+        dimension:
+          type: categorical
+          label: Client
+
+      - name: client_group
+        description: >
+          Platform rollup for reporting (Android, iOS, MWeb, Web, Other).
+        dimension:
+          type: categorical
+          label: Client group
+
+      - name: country_code
+        description: ISO country code for the user on the activity day.
+        dimension:
+          type: categorical
+          label: Country code
+
+      - name: locale
+        description: User locale setting on the activity day.
+        dimension:
+          type: categorical
+          label: Locale
+
+      - name: is_good_dau
+        description: >
+          1 when num_clicks + num_a2c_actions > 0 on the activity day; else 0.
+        dimension:
+          type: categorical
+          label: Is good DAU
+
+      - name: has_impression
+        description: 1 when num_impressions > 0 on the activity day; else 0.
+        dimension:
+          type: categorical
+          label: Has impression flag
+
+      - name: has_click
+        description: 1 when num_clicks > 0 on the activity day; else 0.
+        dimension:
+          type: categorical
+          label: Has click flag
+
+      - name: has_a2c
+        description: 1 when num_a2c_actions > 0 on the activity day; else 0.
+        dimension:
+          type: categorical
+          label: Has add-to-cart flag
+
+      - name: has_wishlist
+        description: 1 when num_wishlists > 0 on the activity day; else 0.
+        dimension:
+          type: categorical
+          label: Has wishlist flag
+
+      - name: has_cart_impression
+        description: 1 when num_cart_impressions > 0 on the activity day; else 0.
+        dimension:
+          type: categorical
+          label: Has cart impression flag
+
+      - name: sign_in
+        description: Binary flag (0 = no sign-in, 1 = signed in during the day).
+
+      - name: num_impressions
+        description: Total product impressions for the user on the activity day.
+
+      - name: num_clicks
+        description: Total in-app clicks for the user on the activity day.
+
+      - name: num_wishlists
+        description: Total wishlist actions for the user on the activity day.
+
+      - name: num_a2c_actions
+        description: Total add-to-cart actions for the user on the activity day.
+
+      - name: num_cart_impressions
+        description: Total cart impressions for the user on the activity day.
+
+      - name: num_search_impressions
+        description: Total search impressions for the user on the activity day.
+
+    metrics:
+      - name: dau
+        type: simple
+        label: DAU
+        description: >
+          Distinct daily active users at user-day grain including registered and
+          guest traffic. Summing across days yields user-days, not unique users
+          over a range.
+        agg: count_distinct
+        expr: user_id
+
+      - name: registered_dau
+        type: simple
+        label: Registered DAU
+        description: Distinct registered-account DAU (user_type = Registered).
+        agg: count_distinct
+        expr: user_id
+        filter: "{{ Dimension('user_day__user_type') }} = 'Registered'"
+
+      - name: guest_dau
+        type: simple
+        label: Guest DAU
+        description: Distinct guest / logged-out DAU (user_type = Guest).
+        agg: count_distinct
+        expr: user_id
+        filter: "{{ Dimension('user_day__user_type') }} = 'Guest'"
+
+      - name: good_dau
+        type: simple
+        label: Good DAU
+        description: >
+          Distinct users with meaningful engagement: num_clicks + num_a2c_actions
+          > 0 on the activity day.
+        agg: count_distinct
+        expr: user_id
+        filter: "{{ Dimension('user_day__is_good_dau') }} = 1"
+
+      - name: signed_in_dau
+        type: simple
+        label: Signed-in DAU
+        description: Distinct users who signed in during the activity day.
+        agg: count_distinct
+        expr: user_id
+        filter: "{{ Dimension('user_day__sign_in_name') }} = 'Signed In'"
+
+      - name: imp_user
+        type: simple
+        label: Impression users
+        description: Distinct users with at least one product impression on dt.
+        agg: count_distinct
+        expr: user_id
+        filter: "{{ Dimension('user_day__has_impression') }} = 1"
+
+      - name: click_user
+        type: simple
+        label: Click users
+        description: Distinct users with at least one click on dt.
+        agg: count_distinct
+        expr: user_id
+        filter: "{{ Dimension('user_day__has_click') }} = 1"
+
+      - name: a2c_user
+        type: simple
+        label: Add-to-cart users
+        description: Distinct users with at least one add-to-cart action on dt.
+        agg: count_distinct
+        expr: user_id
+        filter: "{{ Dimension('user_day__has_a2c') }} = 1"
+
+      - name: wishlist_user
+        type: simple
+        label: Wishlist users
+        description: Distinct users with at least one wishlist action on dt.
+        agg: count_distinct
+        expr: user_id
+        filter: "{{ Dimension('user_day__has_wishlist') }} = 1"
+
+      - name: cart_visits_user
+        type: simple
+        label: Cart visit users
+        description: Distinct users with at least one cart page impression on dt.
+        agg: count_distinct
+        expr: user_id
+        filter: "{{ Dimension('user_day__has_cart_impression') }} = 1"
+
+      - name: num_of_clicks
+        type: simple
+        label: Clicks
+        description: Sum of in-app clicks across users on the activity day.
+        agg: sum
+        expr: num_clicks
+        fill_nulls_with: 0
+
+      - name: num_of_wishlists
+        type: simple
+        label: Wishlists
+        description: Sum of wishlist actions across users on the activity day.
+        agg: sum
+        expr: num_wishlists
+        fill_nulls_with: 0
+
+      - name: num_of_a2c
+        type: simple
+        label: Add-to-cart actions
+        description: Sum of add-to-cart actions across users on the activity day.
+        agg: sum
+        expr: num_a2c_actions
+        fill_nulls_with: 0
+
+      - name: num_impressions
+        type: simple
+        label: Impressions
+        description: Sum of product impressions across users on the activity day.
+        agg: sum
+        expr: num_impressions
+        fill_nulls_with: 0
+
+      - name: num_search_impressions
+        type: simple
+        label: Search impressions
+        description: Sum of search impressions across users on the activity day.
+        agg: sum
+        expr: num_search_impressions
+        fill_nulls_with: 0
+
+      - name: num_cart_impressions
+        type: simple
+        label: Cart impressions
+        description: Sum of cart impressions across users on the activity day.
+        agg: sum
+        expr: num_cart_impressions
+        fill_nulls_with: 0
+
+      - name: fct_dau_w_bots_rows
+        type: simple
+        label: User-day rows
+        description: Row count at user_id × dt grain.
+        agg: count
+        expr: 1
+        fill_nulls_with: 0
+
+      - name: good_dau_rate
+        type: ratio
+        label: Good DAU rate
+        description: Good DAU / total DAU on the activity day.
+        numerator: good_dau
+        denominator: dau
+
+      - name: click_rate
+        type: ratio
+        label: Click rate
+        description: Click users / DAU on the activity day.
+        numerator: click_user
+        denominator: dau
+
+      - name: a2c_rate
+        type: ratio
+        label: A2C rate
+        description: Add-to-cart users / click users on the activity day.
+        numerator: a2c_user
+        denominator: click_user
+
+      - name: click_per_dau
+        type: ratio
+        label: Clicks per DAU
+        description: Total clicks / DAU (events per daily active user).
+        numerator: num_of_clicks
+        denominator: dau

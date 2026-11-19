@@ -103,6 +103,7 @@ def test_databot_layout_lists_extension_sections() -> None:
     spec = _prompt("databot")
     assert spec.layout == (
         "role",
+        "business_context",
         "general_rules",
         "chat_style",
         "data_prohibitions",
@@ -148,3 +149,17 @@ def test_render_tahoe_system_prompt_uses_profile_store(tmp_path: Path) -> None:
     assert "Timezone: UTC" in text
     assert "Data prohibitions:" not in text
     assert "Output:" in text
+
+
+def test_every_agent_knows_wish_is_the_company() -> None:
+    """"Wish's GMV" means the whole marketplace; agents once searched for a "Wish" brand."""
+    from agent.catalog import AgentCatalog
+    from agent.lead.prompt import LeadSystemPrompt
+    from agent.prompt import SystemPromptAssembler
+
+    for name in AgentCatalog.names():
+        config = AgentCatalog.config(name)
+        assembler = LeadSystemPrompt(config) if name == "lead" else SystemPromptAssembler(config)
+        text = assembler.build()
+        assert "Business context" in text, name
+        assert "whole Wish marketplace" in text, name

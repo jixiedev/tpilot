@@ -1,0 +1,395 @@
+version: 2
+
+models:
+  - name: dau_attribution
+    description: >
+      User × calendar-day marketing attribution fact attaching MDE last-touch
+      channel (dau_attribution / touch_event) and same-day purchase metrics to
+      each user in mde.daily_user_attribution for that day. Grain is one row per
+      user_id × dt. Legacy multi-window touch columns (first_touch_1d …
+      last_touch_30d) are identical copies of the single MDE touch_event in the
+      current CDE loader — not independent lookback windows. GMV / txn / order
+      counts exclude LTD products upstream. Partition dt loads with a 2-day lag
+      relative to Airflow execution date (MDE ±2-day attribution window). Source:
+      core_data.dau_attribution (DailyDauAttribution_cde).
+    config:
+      meta:
+        owner: vxu
+        hive_table: core_data.dau_attribution
+        dag: DailyDauAttribution_cde
+        timezone: America/Los_Angeles
+    semantic_model:
+      enabled: true
+      name: dau_attribution
+      config:
+        meta:
+          owner: vxu
+          usage: >
+            Always filter metric_time / dt first for partition pruning. Join on
+            user_id AND dt for daily grain. Prefer dau_attribution /
+            dau_attribution_name over redundant window columns under the current
+            loader. GMV excludes LTD upstream; revenue is not on this table.
+            Expect dt <= current_date - 2 for stable MDE attribution freshness.
+    agg_time_dimension: dt
+
+    columns:
+      - name: user_day_id
+        description: Surrogate primary key, user_id|dt.
+        data_tests:
+          - not_null
+        entity:
+          type: primary
+          name: user_day
+          description: One attributed user row for an activity / attribution calendar day.
+
+      - name: user_id
+        description: Wish user identifier. Grain key with dt.
+        entity:
+          type: foreign
+          name: user
+          description: User join key to fct_dau, fct_transaction_variations, and other user-day facts.
+
+      - name: dt
+        description: >
+          Hive partition and primary business calendar day (source string cast to
+          date). Anchors DAU membership, same-day buyer metrics, and attributed
+          touch_event. Loads with 2-day lag vs Airflow ds.
+        granularity: day
+        dimension:
+          type: time
+          label: Activity / attribution day
+          is_partition: true
+
+      - name: client
+        description: >
+          Client / platform string (web, iosapp, androidapp, mobileweb, unknown, etc.).
+        dimension:
+          type: categorical
+          label: Client code
+
+      - name: client_name
+        description: Human-readable client / platform label.
+        dimension:
+          type: categorical
+          label: Client
+
+      - name: country_code
+        description: ISO 3166-1 alpha-2 country code for the user-day.
+        dimension:
+          type: categorical
+          label: Country code
+
+      - name: flag_buyer
+        description: "Whether the user had attributed purchases on dt: YES or NO."
+        dimension:
+          type: categorical
+          label: Buyer flag code
+
+      - name: flag_buyer_name
+        description: Same-day buyer label (Yes / No).
+        dimension:
+          type: categorical
+          label: Is buyer
+
+      - name: dau_attribution
+        description: >
+          Primary DAU marketing attribution label (raw MDE touch_event:
+          Affiliate, Email, Organic, performance ads, brand ads, etc.).
+        dimension:
+          type: categorical
+          label: DAU attribution code
+
+      - name: dau_attribution_name
+        description: >
+          BI reporting label for dau_attribution (Performance Ads, Brand Ads,
+          Push Noti, Social Event, etc.).
+        dimension:
+          type: categorical
+          label: DAU attribution
+
+      - name: buyer_attribution
+        description: >
+          Buyer marketing attribution label; NULL when flag_buyer = NO.
+        dimension:
+          type: categorical
+          label: Buyer attribution code
+
+      - name: buyer_attribution_name
+        description: >
+          BI reporting label for buyer_attribution; NULL when not a buyer.
+        dimension:
+          type: categorical
+          label: Buyer attribution
+
+      - name: last_touch_1d
+        description: >
+          Legacy last-touch channel label; identical to dau_attribution under
+          current loader (not an independent 1-day window).
+        dimension:
+          type: categorical
+          label: Last touch 1d code
+
+      - name: first_touch_1d
+        description: >
+          Legacy first-touch channel label; identical to dau_attribution under
+          current loader.
+        dimension:
+          type: categorical
+          label: First touch 1d code
+
+      - name: ads_channel_last_touch_1d
+        description: >
+          Ad network / sub-channel for the attributed touch (Facebook, Organic,
+          TikTok Ads, etc.). Identical across window suffixes in current loader.
+        dimension:
+          type: categorical
+          label: Ads channel last touch 1d
+
+      - name: flag_install_ads_30d
+        description: >
+          1 when touch_event = Install_Ads, else 0. Often 0 under current MDE
+          taxonomy (performance ads / brand ads).
+        dimension:
+          type: categorical
+          label: Install ads flag 30d
+
+      - name: time
+        description: >
+          Unix epoch seconds (UTC) for midnight of dt; constant within a partition.
+          Kept for joins; not a MetricFlow time dimension.
+
+      - name: day_anchor_ts
+        description: >
+          Timestamp converted from time (midnight UTC of dt). Not a MetricFlow
+          time dimension (spine is day).
+
+      - name: ds
+        description: Calendar day string YYYY-MM-DD; synonym of source dt string.
+
+      - name: gmv
+        description: >
+          Same-day gross merchandise value for the user on dt (non-LTD upstream).
+
+      - name: num_txn
+        description: Same-day distinct transaction count for the user on dt.
+
+      - name: num_order
+        description: Same-day distinct order count for the user on dt.
+
+      - name: first_touch_3d
+        description: Legacy touch label; copy of touch_event in current loader.
+
+      - name: last_touch_3d
+        description: Legacy touch label; copy of touch_event in current loader.
+
+      - name: first_touch_7d
+        description: Legacy touch label; copy of touch_event in current loader.
+
+      - name: last_touch_7d
+        description: Legacy touch label; copy of touch_event in current loader.
+
+      - name: first_touch_14d
+        description: Legacy touch label; copy of touch_event in current loader.
+
+      - name: last_touch_14d
+        description: Legacy touch label; copy of touch_event in current loader.
+
+      - name: first_touch_30d
+        description: Legacy touch label; copy of touch_event in current loader.
+
+      - name: last_touch_30d
+        description: Legacy touch label; copy of touch_event in current loader.
+
+      - name: flag_install_ads_1d
+        description: Install ads flag (touch_event = Install_Ads).
+
+      - name: flag_install_ads_3d
+        description: Install ads flag; copy of flag_install_ads_1d in current loader.
+
+      - name: flag_install_ads_7d
+        description: Install ads flag; copy of flag_install_ads_1d in current loader.
+
+      - name: flag_install_ads_14d
+        description: Install ads flag; copy of flag_install_ads_1d in current loader.
+
+      - name: ads_channel_first_touch_1d
+        description: Ad network label; copy of channel in current loader.
+
+      - name: ads_channel_first_touch_3d
+        description: Ad network label; copy of channel in current loader.
+
+      - name: ads_channel_last_touch_3d
+        description: Ad network label; copy of channel in current loader.
+
+      - name: ads_channel_first_touch_7d
+        description: Ad network label; copy of channel in current loader.
+
+      - name: ads_channel_last_touch_7d
+        description: Ad network label; copy of channel in current loader.
+
+      - name: ads_channel_first_touch_14d
+        description: Ad network label; copy of channel in current loader.
+
+      - name: ads_channel_last_touch_14d
+        description: Ad network label; copy of channel in current loader.
+
+      - name: ads_channel_first_touch_30d
+        description: Ad network label; copy of channel in current loader.
+
+      - name: ads_channel_last_touch_30d
+        description: Ad network label; copy of channel in current loader.
+
+      - name: first_touch_1d_buyer
+        description: Buyer-only touch label; NULL when not a buyer.
+
+      - name: last_touch_1d_buyer
+        description: Buyer-only touch label; NULL when not a buyer.
+
+      - name: first_touch_3d_buyer
+        description: Buyer-only touch label; NULL when not a buyer.
+
+      - name: last_touch_3d_buyer
+        description: Buyer-only touch label; NULL when not a buyer.
+
+      - name: first_touch_7d_buyer
+        description: Buyer-only touch label; NULL when not a buyer.
+
+      - name: last_touch_7d_buyer
+        description: Buyer-only touch label; NULL when not a buyer.
+
+      - name: first_touch_14d_buyer
+        description: Buyer-only touch label; NULL when not a buyer.
+
+      - name: last_touch_14d_buyer
+        description: Buyer-only touch label; NULL when not a buyer.
+
+      - name: first_touch_30d_buyer
+        description: Buyer-only touch label; NULL when not a buyer.
+
+      - name: last_touch_30d_buyer
+        description: Buyer-only touch label; NULL when not a buyer.
+
+      - name: flag_install_ads_1d_buyer
+        description: Buyer-only install ads flag.
+
+      - name: flag_install_ads_3d_buyer
+        description: Buyer-only install ads flag.
+
+      - name: flag_install_ads_7d_buyer
+        description: Buyer-only install ads flag.
+
+      - name: flag_install_ads_14d_buyer
+        description: Buyer-only install ads flag.
+
+      - name: flag_install_ads_30d_buyer
+        description: Buyer-only install ads flag.
+
+      - name: ads_channel_first_touch_1d_buyer
+        description: Buyer-only ad network label; NULL when not a buyer.
+
+      - name: ads_channel_last_touch_1d_buyer
+        description: Buyer-only ad network label; NULL when not a buyer.
+
+      - name: ads_channel_first_touch_3d_buyer
+        description: Buyer-only ad network label; NULL when not a buyer.
+
+      - name: ads_channel_last_touch_3d_buyer
+        description: Buyer-only ad network label; NULL when not a buyer.
+
+      - name: ads_channel_first_touch_7d_buyer
+        description: Buyer-only ad network label; NULL when not a buyer.
+
+      - name: ads_channel_last_touch_7d_buyer
+        description: Buyer-only ad network label; NULL when not a buyer.
+
+      - name: ads_channel_first_touch_14d_buyer
+        description: Buyer-only ad network label; NULL when not a buyer.
+
+      - name: ads_channel_last_touch_14d_buyer
+        description: Buyer-only ad network label; NULL when not a buyer.
+
+      - name: ads_channel_first_touch_30d_buyer
+        description: Buyer-only ad network label; NULL when not a buyer.
+
+      - name: ads_channel_last_touch_30d_buyer
+        description: Buyer-only ad network label; NULL when not a buyer.
+
+    metrics:
+      - name: dau
+        type: simple
+        label: DAU
+        description: >
+          Distinct users at user-day grain. Each row is one user on one
+          attribution day; summing across days yields user-days, not unique users
+          over a range. Should align with core_data.fct_dau for the same dt.
+        agg: count_distinct
+        expr: user_id
+
+      - name: buyers
+        type: simple
+        label: Buyers
+        description: >
+          Distinct users with same-day attributed purchases on dt (flag_buyer =
+          YES). GMV upstream excludes LTD products.
+        agg: count_distinct
+        expr: user_id
+        filter: "{{ Dimension('user_day__flag_buyer_name') }} = 'Yes'"
+
+      - name: gmv
+        type: simple
+        label: GMV
+        description: >
+          Sum of same-day user-level GMV on dt. Upstream excludes LTD products
+          (is_ltd_product = false on fct_transaction_variations).
+        agg: sum
+        expr: gmv
+        fill_nulls_with: 0
+
+      - name: num_txn
+        type: simple
+        label: Transactions
+        description: >
+          Sum of same-day distinct transaction counts per user on dt.
+        agg: sum
+        expr: num_txn
+        fill_nulls_with: 0
+
+      - name: num_order
+        type: simple
+        label: Orders
+        description: >
+          Sum of same-day distinct order counts per user on dt.
+        agg: sum
+        expr: num_order
+        fill_nulls_with: 0
+
+      - name: user_day_rows
+        type: simple
+        label: User-day rows
+        description: Row count at user_id × dt grain.
+        agg: count
+        expr: 1
+        fill_nulls_with: 0
+
+      - name: install_ads_user_days
+        type: simple
+        label: Install ads user-days
+        description: >
+          User-day rows where flag_install_ads_30d = 1 (touch_event =
+          Install_Ads). Often zero under current MDE taxonomy.
+        agg: sum_boolean
+        expr: flag_install_ads_30d
+
+      - name: buyer_rate
+        type: ratio
+        label: Buyer rate
+        description: Buyers / DAU on the attribution day.
+        numerator: buyers
+        denominator: dau
+
+      - name: gmv_per_buyer
+        type: ratio
+        label: GMV per buyer
+        description: GMV / distinct buyers on dt.
+        numerator: gmv
+        denominator: buyers

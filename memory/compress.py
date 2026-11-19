@@ -28,6 +28,7 @@ from memory.config import CompressionConfig
 from memory.offload import OffloadStore
 from memory.tokens import _content_to_text, context_fill, count_tokens, message_tokens
 from memory.tools import AUTONOMOUS_COMPACT_MARKER, configure_offload_tools
+from tools.registry import never_offload_tool_names
 from graph.state import SessionAgentState
 
 logger = logging.getLogger(__name__)
@@ -51,8 +52,13 @@ Preserve concrete identifiers (table names, SQL, paths, IDs). Omit stale interme
 OFFLOAD_PREFIX = "[OFFLOADED — "
 # Prefix of the note that replaces a folded prior-turn tool trail (Layer 1b).
 PRIOR_TURN_FOLD_PREFIX = "[PRIOR-TURN TOOL OUTPUT ARCHIVED — "
-# Hard cap on preview characters, whatever the threshold.
-_PREVIEW_MAX_CHARS = 2_000
+# Results never offloaded, whatever the config: re-offloading what the reader
+# just recovered sends the model a new path to read, and it loops (seen live:
+# warehouse read the same offloaded schema three times and never saw it).
+ALWAYS_KEEP_TOOL_RESULTS = frozenset({"read_offloaded_file"})
+# Hard cap on preview characters, whatever the threshold (~1.5k tokens, enough
+# for ``preview_lines`` rows of a query result or table schema).
+_PREVIEW_MAX_CHARS = 6_000
 
 
 def _preview_char_budget(threshold_tokens: int) -> int:
@@ -270,7 +276,11 @@ class ContextCompressor:
         for message in messages:
             if not isinstance(message, ToolMessage):
                 continue
-            if message.name in self.config.never_offload_tools:
+            if (
+                message.name in self.config.never_offload_tools
+                or message.name in ALWAYS_KEEP_TOOL_RESULTS
+                or message.name in never_offload_tool_names()
+            ):
                 continue
             raw = _content_to_text(message.content)
             if AUTONOMOUS_COMPACT_MARKER in raw:

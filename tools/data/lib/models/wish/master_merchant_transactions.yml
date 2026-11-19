@@ -1,0 +1,1297 @@
+version: 2
+
+models:
+  - name: master_merchant_transactions
+    description: >
+      Merchant transaction fact table for the Wish platform - one row per
+      merchant transaction (`m_transaction_id`, the MongoDB
+      `MerchantTransaction._id` and the documented primary key). Built daily
+      by the Airflow DAG `dag_mt_incremental_tahoe.py` (01:00 UTC) from the
+      MongoDB `MerchantTransaction` collection, enriched with commerce
+      transaction, order tracking, shipping estimate, merchant warehouse and
+      payment/refund records; `dag_mtri_incremental_tahoe.py` backfills
+      pre-2021 rows into `legacy_master_merchant_transactions`. The physical
+      table is partitioned by `dt` (varchar YYYY-MM-DD) and the wrapper
+      materializes as a view in `semantic_dw`, so
+      `wish.master_merchant_transactions` is never overwritten. `dt` is the
+      default metric time dimension; `order_date`, `transaction_date`,
+      `merchant_payment_date` and `refunded_date` are additional day-
+      granularity time dimensions. The unix-epoch integer timestamp columns
+      are kept as-is and mirrored as `_ts` timestamps for joins. The
+      documented enums `state`, `merchant_payment_status`,
+      `refund_reason_category` and `withhold_reason` are exposed as a raw code
+      dimension plus a human-readable `*_name` dimension. Join to merchant /
+      product / variation / warehouse dimensions in a Tableau datasource model
+      that `ref()`s this wrapper - no dimension joins happen here.
+    config:
+      meta:
+        owner: data-governance
+        hive_table: wish.master_merchant_transactions
+        dag_id: dag_mt_incremental_tahoe.py
+        legacy_table: wish.legacy_master_merchant_transactions
+    semantic_model:
+      enabled: true
+      name: master_merchant_transactions
+      config:
+        meta:
+          usage: >
+            One row per merchant transaction. `dt` is the daily partition and
+            must always be filtered for pruning; it is also the default metric
+            time dimension, so additive metrics are computed per partition
+            day. The upstream ETL is a Magnolia change-data-capture merge over
+            MongoDB, so a merchant transaction that is edited upstream can be
+            re-emitted in a later `dt` partition - deduplicate on
+            `m_transaction_id` if a partition-spanning aggregate must be
+            treated as unique. Use `order_date` / `merchant_payment_date` /
+            `refunded_date` for the business time axis. Amounts are buyer-paid
+            (`gmv` from `paid_amount`) and merchant-side (`merchant_price`,
+            `merchant_shipping`, `merchant_payment_amount`) - they are not
+            interchangeable. `state` / `state_name` slice the order lifecycle;
+            the `_name` variants of the four documented enums are the readable
+            dimension. `refunded_*` metrics are filtered to `state` = 5, the
+            unprefixed ones cover every row.
+    agg_time_dimension: dt
+
+    columns:
+      - name: m_transaction_id
+        description: >
+          Unique merchant transaction identifier (ObjectId). One merchant
+          transaction. The documented primary key of the table.
+        data_tests:
+          - not_null
+        entity:
+          type: primary
+          name: merchant_transaction
+          description: One merchant transaction. The documented primary key of the table.
+      - name: user_id
+        description: >
+          Customer user identifier. Customer who placed the order.
+        entity:
+          type: foreign
+          name: user
+          description: Customer who placed the order.
+      - name: merchant_id
+        description: >
+          Merchant identifier. Merchant selling the ordered product.
+        entity:
+          type: foreign
+          name: merchant
+          description: Merchant selling the ordered product.
+      - name: c_transaction_id
+        description: >
+          Commerce transaction identifier. Commerce (buyer-facing)
+          transaction. One commerce transaction maps to many merchant
+          transactions.
+        entity:
+          type: foreign
+          name: transaction
+          description: Commerce (buyer-facing) transaction. One commerce transaction maps to many merchant transactions.
+      - name: product_id
+        description: >
+          Product identifier. Ordered product.
+        entity:
+          type: foreign
+          name: product
+          description: Ordered product.
+      - name: variation_id
+        description: >
+          Product variation identifier. Ordered product variation (SKU level).
+        entity:
+          type: foreign
+          name: variation
+          description: Ordered product variation (SKU level).
+      - name: merchant_payment_id
+        description: >
+          Merchant payment identifier. Merchant payment record this
+          transaction settled against.
+        entity:
+          type: foreign
+          name: merchant_payment
+          description: Merchant payment record this transaction settled against.
+      - name: merchant_refund_id
+        description: >
+          Merchant refund identifier. Merchant refund record linked to this
+          transaction.
+        entity:
+          type: foreign
+          name: merchant_refund
+          description: Merchant refund record linked to this transaction.
+      - name: wish_fulfill_provider_id
+        description: >
+          Wish fulfillment provider identifier. WishPost fulfillment provider
+          handling the order.
+        entity:
+          type: foreign
+          name: fulfill_provider
+          description: WishPost fulfillment provider handling the order.
+      - name: wish_fulfill_warehouse_id
+        description: >
+          Wish fulfillment warehouse identifier. WishPost fulfillment
+          warehouse handling the order.
+        entity:
+          type: foreign
+          name: fulfill_warehouse
+          description: WishPost fulfillment warehouse handling the order.
+      - name: merchant_warehouse_id
+        description: >
+          Merchant warehouse identifier. Merchant warehouse the order is
+          fulfilled from.
+        entity:
+          type: foreign
+          name: merchant_warehouse
+          description: Merchant warehouse the order is fulfilled from.
+      - name: tracking_id
+        description: >
+          Shipping tracking identifier. Shipment tracking identifier for the
+          parcel.
+        entity:
+          type: foreign
+          name: tracking
+          description: Shipment tracking identifier for the parcel.
+      - name: wps_shipment_id
+        description: >
+          WPS shipment identifier. WishPost shipment identifier.
+        entity:
+          type: foreign
+          name: wps_shipment
+          description: WishPost shipment identifier.
+      - name: store_id
+        description: >
+          Store identifier. Store the order was placed in.
+        entity:
+          type: foreign
+          name: store
+          description: Store the order was placed in.
+      - name: shipping_option_id
+        description: >
+          Shipping option identifier. Shipping option selected for the order.
+        entity:
+          type: foreign
+          name: shipping_option
+          description: Shipping option selected for the order.
+      - name: incentive_program_id
+        description: >
+          Incentive program identifier. Incentive program applied to the
+          order.
+        entity:
+          type: foreign
+          name: incentive_program
+          description: Incentive program applied to the order.
+      - name: combined_order_id
+        description: >
+          Combined order identifier. Combined order identifier when several
+          orders are shipped together.
+        entity:
+          type: foreign
+          name: combined_order
+          description: Combined order identifier when several orders are shipped together.
+      - name: dt
+        description: >
+          Partition date of the record (UTC). Hive partition column, varchar
+          YYYY-MM-DD in the physical table, exposed as a `date`.
+        granularity: day
+        dimension:
+          type: time
+          label: DT
+        is_partition: true
+      - name: order_date
+        description: >
+          Calendar date (UTC) on which the order was placed, derived from
+          `order_time`.
+        granularity: day
+        dimension:
+          type: time
+          label: Order Date
+      - name: transaction_date
+        description: >
+          Calendar date (UTC) of the transaction event, derived from
+          `transaction_time`.
+        granularity: day
+        dimension:
+          type: time
+          label: Transaction Date
+      - name: merchant_payment_date
+        description: >
+          Calendar date (UTC) of the merchant payment event, derived from
+          `merchant_payment_time`.
+        granularity: day
+        dimension:
+          type: time
+          label: Merchant Payment Date
+      - name: refunded_date
+        description: >
+          Calendar date (UTC) of the refund event, derived from
+          `refunded_time`.
+        granularity: day
+        dimension:
+          type: time
+          label: Refunded Date
+      - name: paid_amount
+        description: >
+          Total paid amount
+      - name: merchant_price
+        description: >
+          Merchant price amount
+      - name: merchant_shipping
+        description: >
+          Merchant shipping amount
+      - name: cost
+        description: >
+          Cost amount
+      - name: price
+        description: >
+          Product price
+      - name: original_price
+        description: >
+          Original price amount
+      - name: shipping
+        description: >
+          Shipping amount
+      - name: shipping_cost
+        description: >
+          Shipping cost amount
+      - name: merchant_eat_cost_amount
+        description: >
+          Merchant eat cost amount
+      - name: merchant_eat_cost_ratio
+        description: >
+          Merchant eat cost ratio
+      - name: merchant_payment_amt
+        description: >
+          Merchant payment amount
+      - name: merchant_payment_tax_amount
+        description: >
+          Merchant payment tax amount
+      - name: merchant_tax_amount
+        description: >
+          Merchant tax amount
+      - name: tax_cost
+        description: >
+          Tax cost amount
+      - name: refund_amount
+        description: >
+          Refund amount
+      - name: refund_risk_score
+        description: >
+          Refund risk score
+      - name: client
+        description: >
+          Client amount
+      - name: third_party_pinged
+        description: >
+          Third party pinged flag
+      - name: quantity
+        description: >
+          Order quantity
+      - name: qty_refunded
+        description: >
+          Quantity refunded
+      - name: partial_refunds
+        description: >
+          Number of partial refunds
+      - name: business_days_to_arrival
+        description: >
+          Business days to arrival
+      - name: additional_fulfillment_hours
+        description: >
+          Additional fulfillment hours
+      - name: original_rev_share
+        description: >
+          Original revenue share
+      - name: updated_rev_share
+        description: >
+          Updated revenue share
+      - name: localized_merchant_price
+        description: >
+          Localized merchant price
+      - name: localized_merchant_shipping
+        description: >
+          Localized merchant shipping
+      - name: localized_merchant_shipping_cost
+        description: >
+          Localized merchant shipping cost
+      - name: localized_merchant_cost
+        description: >
+          Localized merchant cost
+      - name: localized_wishpost_shipping
+        description: >
+          Localized WishPost shipping
+      - name: localized_wishpost_shipping_cost
+        description: >
+          Localized WishPost shipping cost
+      - name: localized_wishpost_shipping_price
+        description: >
+          Localized WishPost shipping price
+      - name: localized_unity_wishpost_shipping
+        description: >
+          Localized Unity WishPost shipping
+      - name: localized_initial_wishpost_shipping_amount
+        description: >
+          Localized initial WishPost shipping amount
+      - name: localized_estimated_wishpost_shipping_cost
+        description: >
+          Localized estimated WishPost shipping cost
+      - name: initial_wishpost_tracking_id_item_localized_amount
+        description: >
+          Initial WishPost tracking item localized amount
+      - name: merchant_currency_exchange_rate
+        description: >
+          Merchant currency exchange rate
+      - name: merchant_currency_hedged_exchange_rate
+        description: >
+          Merchant currency hedged exchange rate
+      - name: merchant_currency_daily_exchange_rate
+        description: >
+          Merchant currency daily exchange rate
+      - name: sku
+        description: >
+          Stock Keeping Unit
+        dimension:
+          type: categorical
+          label: Sku
+      - name: routed_merchant_transaction_id
+        description: >
+          Routed merchant transaction identifier
+        dimension:
+          type: categorical
+          label: Routed Merchant Transaction id
+      - name: initial_wishpost_tracking_id_item_currency_conversion_id
+        description: >
+          Initial WishPost tracking item currency conversion ID
+        dimension:
+          type: categorical
+          label: Initial Wishpost Tracking id Item Currency Conversion id
+      - name: initial_wishpost_tracking_id_item_localized_currency
+        description: >
+          Initial WishPost tracking item localized currency
+        dimension:
+          type: categorical
+          label: Initial Wishpost Tracking id Item Localized Currency
+      - name: time
+        description: >
+          Transaction creation timestamp (Unix epoch) Raw Unix epoch seconds
+          (UTC) kept for joins; the `_ts` twin holds the same instant as a
+          timestamp.
+      - name: time_ts
+        description: >
+          Transaction creation timestamp (UTC) derived from the Unix epoch
+          `time` column.
+      - name: order_time
+        description: >
+          Order placement timestamp (Unix epoch) Raw Unix epoch seconds (UTC)
+          kept for joins; the `_ts` twin holds the same instant as a
+          timestamp.
+      - name: order_time_ts
+        description: >
+          Order placement timestamp (UTC) derived from the Unix epoch
+          `order_time` column.
+      - name: transaction_time
+        description: >
+          Transaction timestamp Raw Unix epoch seconds (UTC) kept for joins;
+          the `_ts` twin holds the same instant as a timestamp.
+      - name: transaction_time_ts
+        description: >
+          Transaction timestamp (UTC) derived from the Unix epoch
+          `transaction_time` column.
+      - name: merchant_payment_time
+        description: >
+          Merchant payment timestamp Raw Unix epoch seconds (UTC) kept for
+          joins; the `_ts` twin holds the same instant as a timestamp.
+      - name: merchant_payment_time_ts
+        description: >
+          Merchant payment timestamp (UTC) derived from the Unix epoch
+          `merchant_payment_time` column.
+      - name: refunded_time
+        description: >
+          Refund timestamp Raw Unix epoch seconds (UTC) kept for joins; the
+          `_ts` twin holds the same instant as a timestamp.
+      - name: refunded_time_ts
+        description: >
+          Refund timestamp (UTC) derived from the Unix epoch `refunded_time`
+          column.
+      - name: released_to_merchant_time
+        description: >
+          Time when order was released to merchant Raw Unix epoch seconds
+          (UTC) kept for joins; the `_ts` twin holds the same instant as a
+          timestamp.
+      - name: released_to_merchant_time_ts
+        description: >
+          Timestamp (UTC) at which the order was released to the merchant,
+          derived from the Unix epoch `released_to_merchant_time` column.
+      - name: order_approved_time
+        description: >
+          Order approval timestamp Raw Unix epoch seconds (UTC) kept for
+          joins; the `_ts` twin holds the same instant as a timestamp.
+      - name: order_approved_time_ts
+        description: >
+          Order approval timestamp (UTC) derived from the Unix epoch
+          `order_approved_time` column.
+      - name: user_confirmed_delivered_time
+        description: >
+          User confirmed delivery timestamp Raw Unix epoch seconds (UTC) kept
+          for joins; the `_ts` twin holds the same instant as a timestamp.
+      - name: user_confirmed_delivered_time_ts
+        description: >
+          User delivery-confirmation timestamp (UTC) derived from the Unix
+          epoch `user_confirmed_delivered_time` column.
+      - name: marked_shipped
+        description: >
+          Marked shipped timestamp Raw Unix epoch seconds (UTC) kept for
+          joins; the `_ts` twin holds the same instant as a timestamp.
+      - name: marked_shipped_ts
+        description: >
+          Shipped-marking timestamp (UTC) derived from the Unix epoch
+          `marked_shipped` column.
+      - name: chargeback_time
+        description: >
+          Chargeback timestamp Raw Unix epoch seconds (UTC) kept for joins;
+          the `_ts` twin holds the same instant as a timestamp.
+      - name: chargeback_time_ts
+        description: >
+          Chargeback timestamp (UTC) derived from the Unix epoch
+          `chargeback_time` column.
+      - name: withheld_time
+        description: >
+          Withheld timestamp Raw Unix epoch seconds (UTC) kept for joins; the
+          `_ts` twin holds the same instant as a timestamp.
+      - name: withheld_time_ts
+        description: >
+          Payment-withheld timestamp (UTC) derived from the Unix epoch
+          `withheld_time` column.
+      - name: payment_forfeited_time
+        description: >
+          Payment forfeited timestamp Raw Unix epoch seconds (UTC) kept for
+          joins; the `_ts` twin holds the same instant as a timestamp.
+      - name: payment_forfeited_time_ts
+        description: >
+          Payment-forfeited timestamp (UTC) derived from the Unix epoch
+          `payment_forfeited_time` column.
+      - name: last_update
+        description: >
+          Last update timestamp Raw Unix epoch seconds (UTC) kept for joins;
+          the `_ts` twin holds the same instant as a timestamp.
+      - name: last_update_ts
+        description: >
+          Last-update timestamp (UTC) derived from the Unix epoch
+          `last_update` column.
+      - name: last_changed_time
+        description: >
+          Last changed timestamp Raw Unix epoch seconds (UTC) kept for joins;
+          the `_ts` twin holds the same instant as a timestamp.
+      - name: last_changed_time_ts
+        description: >
+          Last-changed timestamp (UTC) derived from the Unix epoch
+          `last_changed_time` column.
+      - name: initial_wishpost_shipping_saved_time
+        description: >
+          Initial WishPost shipping saved timestamp Raw Unix epoch seconds
+          (UTC) kept for joins; the `_ts` twin holds the same instant as a
+          timestamp.
+      - name: initial_wishpost_shipping_saved_time_ts
+        description: >
+          Initial WishPost shipping-saved timestamp (UTC) derived from the
+          Unix epoch `initial_wishpost_shipping_saved_time` column.
+      - name: state
+        description: >
+          Transaction state
+        dimension:
+          type: categorical
+          label: State
+      - name: state_name
+        description: >
+          Human-readable merchant transaction state derived from `state`
+          (PENDING, APPROVED, SHIPPED, DELIVERED, CANCELLED, REFUNDED).
+      - name: merchant_payment_status
+        description: >
+          Merchant payment status
+        dimension:
+          type: categorical
+          label: Merchant Payment Status
+      - name: merchant_payment_status_name
+        description: >
+          Human-readable merchant payment status derived from
+          `merchant_payment_status` (PENDING, PAID, WITHHELD, FORFEITED).
+      - name: refund_reason_category
+        description: >
+          Refund reason category
+        dimension:
+          type: categorical
+          label: Refund Reason Category
+      - name: refund_reason_category_name
+        description: >
+          Human-readable refund reason category derived from
+          `refund_reason_category` (SHIPMENT_BEYOND_LDD, ITEM_NOT_ARRIVED,
+          ITEM_COUNTERFEIT, ITEM_DAMAGED, ITEM_NOT_WORK,
+          ITEM_NOT_MATCH_DESCRIPTION, OTHER_LOGISTICS_ISSUES).
+      - name: withhold_reason
+        description: >
+          Withhold reason
+        dimension:
+          type: categorical
+          label: Withhold Reason
+      - name: withhold_reason_name
+        description: >
+          Human-readable payment-withhold reason derived from
+          `withhold_reason` (QUALITY_ISSUES, POLICY_VIOLATIONS,
+          FRAUD_DETECTION, WISH_EXPRESS_POLICY_VIOLATION,
+          WAREHOUSE_FULFILLMENT_POLICY_VIOLATION).
+      - name: fbw
+        description: >
+          Fulfilled by Wish indicator
+        dimension:
+          type: categorical
+          label: Fbw
+      - name: is_partial_refund
+        description: >
+          Partial refund flag
+        dimension:
+          type: categorical
+          label: IS Partial Refund
+      - name: is_new_refund
+        description: >
+          New refund flag
+        dimension:
+          type: categorical
+          label: IS New Refund
+      - name: is_wish_express_prefulfillment_cancellation
+        description: >
+          Wish Express prefulfillment cancellation flag
+        dimension:
+          type: categorical
+          label: IS Wish Express Prefulfillment Cancellation
+      - name: wish_x
+        description: >
+          Wish X indicator
+        dimension:
+          type: categorical
+          label: Wish X
+      - name: chargeback
+        description: >
+          Chargeback flag
+        dimension:
+          type: categorical
+          label: Chargeback
+      - name: prefulfill_cancellation
+        description: >
+          Prefulfillment cancellation flag
+        dimension:
+          type: categorical
+          label: Prefulfill Cancellation
+      - name: wish_pays
+        description: >
+          Wish pays flag
+        dimension:
+          type: categorical
+          label: Wish Pays
+      - name: is_wish_express
+        description: >
+          Wish Express flag
+        dimension:
+          type: categorical
+          label: IS Wish Express
+      - name: is_self_serve_fbw
+        description: >
+          Self-serve FBW flag
+        dimension:
+          type: categorical
+          label: IS Self Serve Fbw
+      - name: is_fbw_v2
+        description: >
+          FBW v2 flag
+        dimension:
+          type: categorical
+          label: IS Fbw V2
+      - name: is_fbw
+        description: >
+          FBW flag
+        dimension:
+          type: categorical
+          label: IS Fbw
+      - name: is_wlc
+        description: >
+          WLC flag
+        dimension:
+          type: categorical
+          label: IS Wlc
+      - name: is_wish_express_late_arrival
+        description: >
+          Wish Express late arrival flag
+        dimension:
+          type: categorical
+          label: IS Wish Express Late Arrival
+      - name: wish_express_on_time
+        description: >
+          Wish Express on-time flag
+        dimension:
+          type: categorical
+          label: Wish Express ON Time
+      - name: consistent_channel
+        description: >
+          Consistent channel
+        dimension:
+          type: categorical
+          label: Consistent Channel
+      - name: consistent_registered
+        description: >
+          Consistent registered flag
+        dimension:
+          type: categorical
+          label: Consistent Registered
+      - name: consistent_last_mile
+        description: >
+          Consistent last mile flag
+        dimension:
+          type: categorical
+          label: Consistent Last Mile
+      - name: hide_from_merchant
+        description: >
+          Hide from merchant flag
+        dimension:
+          type: categorical
+          label: Hide From Merchant
+      - name: affected_by_delivery_policy
+        description: >
+          Affected by delivery policy flag
+        dimension:
+          type: categorical
+          label: Affected BY Delivery Policy
+      - name: eligible_for_fast_payment_by_product_list_program
+        description: >
+          Fast payment eligibility flag
+        dimension:
+          type: categorical
+          label: Eligible For Fast Payment BY Product List Program
+      - name: is_wishify_order
+        description: >
+          Wishify order flag
+        dimension:
+          type: categorical
+          label: IS Wishify Order
+      - name: is_aplus
+        description: >
+          A+ flag
+        dimension:
+          type: categorical
+          label: IS Aplus
+      - name: is_unity_order
+        description: >
+          Unity order flag
+        dimension:
+          type: categorical
+          label: IS Unity Order
+      - name: is_ltl
+        description: >
+          LTL flag
+        dimension:
+          type: categorical
+          label: IS Ltl
+      - name: pay_after
+        description: >
+          Pay after flag
+        dimension:
+          type: categorical
+          label: Pay After
+      - name: is_unity_order_and_payment_enabled
+        description: >
+          Unity order and payment enabled flag
+        dimension:
+          type: categorical
+          label: IS Unity Order and Payment Enabled
+      - name: is_payment_forfeited
+        description: >
+          Payment forfeited flag
+        dimension:
+          type: categorical
+          label: IS Payment Forfeited
+      - name: is_express_rev_disqualified
+        description: >
+          Express revenue disqualified flag
+        dimension:
+          type: categorical
+          label: IS Express Rev Disqualified
+      - name: is_eligible_to_ship_with_wps
+        description: >
+          Eligible to ship with WPS flag
+        dimension:
+          type: categorical
+          label: IS Eligible to Ship With Wps
+      - name: uni_inventory_flag
+        description: >
+          Uni inventory flag
+        dimension:
+          type: categorical
+          label: Uni Inventory Flag
+      - name: is_consignment_order
+        description: >
+          Consignment order flag
+        dimension:
+          type: categorical
+          label: IS Consignment Order
+      - name: size
+        description: >
+          Product size
+        dimension:
+          type: categorical
+          label: Size
+      - name: color
+        description: >
+          Product color
+        dimension:
+          type: categorical
+          label: Color
+      - name: wish_express_delivery_deadline
+        description: >
+          Wish Express delivery deadline
+        dimension:
+          type: categorical
+          label: Wish Express Delivery Deadline
+      - name: refund_reason
+        description: >
+          Refund reason text
+        dimension:
+          type: categorical
+          label: Refund Reason
+      - name: declined_reason
+        description: >
+          Declined reason
+        dimension:
+          type: categorical
+          label: Declined Reason
+      - name: provider
+        description: >
+          Shipping provider
+        dimension:
+          type: categorical
+          label: Provider
+      - name: shipping_country
+        description: >
+          Shipping destination country
+        dimension:
+          type: categorical
+          label: Shipping Country
+      - name: shipping_state
+        description: >
+          Shipping destination state
+        dimension:
+          type: categorical
+          label: Shipping State
+      - name: shipping_city
+        description: >
+          Shipping destination city
+        dimension:
+          type: categorical
+          label: Shipping City
+      - name: shipping_zipcode
+        description: >
+          Shipping destination zipcode
+        dimension:
+          type: categorical
+          label: Shipping Zipcode
+      - name: merchant_source_currency
+        description: >
+          Merchant source currency
+        dimension:
+          type: categorical
+          label: Merchant Source Currency
+      - name: refunded_by
+        description: >
+          Refunded by identifier
+        dimension:
+          type: categorical
+          label: Refunded BY
+      - name: consistent_provider
+        description: >
+          Consistent provider flag
+        dimension:
+          type: categorical
+          label: Consistent Provider
+      - name: estimator_used
+        description: >
+          Estimator used flag
+        dimension:
+          type: categorical
+          label: Estimator Used
+      - name: consecutive_carrier_counter
+        description: >
+          Consecutive carrier counter
+        dimension:
+          type: categorical
+          label: Consecutive Carrier Counter
+      - name: consecutive_carrier_provider
+        description: >
+          Consecutive carrier provider
+        dimension:
+          type: categorical
+          label: Consecutive Carrier Provider
+      - name: top_level_channel
+        description: >
+          Top level channel
+        dimension:
+          type: categorical
+          label: Top Level Channel
+      - name: merchant_standing_when_order_released
+        description: >
+          Merchant standing when order released
+        dimension:
+          type: categorical
+          label: Merchant Standing When Order Released
+      - name: limbo_state
+        description: >
+          Limbo state
+        dimension:
+          type: categorical
+          label: Limbo State
+      - name: pickup_now_inventory_type
+        description: >
+          Pickup now inventory type
+        dimension:
+          type: categorical
+          label: Pickup Now Inventory Type
+      - name: merchant_warehouse_shipping_type
+        description: >
+          Merchant warehouse shipping type
+        dimension:
+          type: categorical
+          label: Merchant Warehouse Shipping Type
+      - name: withhold_sub_category
+        description: >
+          Withhold sub-category
+        dimension:
+          type: categorical
+          label: Withhold Sub Category
+      - name: payment_forfeited_reason
+        description: >
+          Payment forfeited reason
+        dimension:
+          type: categorical
+          label: Payment Forfeited Reason
+      - name: original_rev_share_tag
+        description: >
+          Original revenue share tag
+        dimension:
+          type: categorical
+          label: Original Rev Share Tag
+      - name: original_rev_share_shipping_source
+        description: >
+          Original revenue share shipping source
+        dimension:
+          type: categorical
+          label: Original Rev Share Shipping Source
+      - name: original_rev_share_tax_entity
+        description: >
+          Original revenue share tax entity
+        dimension:
+          type: categorical
+          label: Original Rev Share Tax Entity
+      - name: updated_rev_share_tag
+        description: >
+          Updated revenue share tag
+        dimension:
+          type: categorical
+          label: Updated Rev Share Tag
+      - name: rev_disqualified_merchant_warehouse_shipping_type
+        description: >
+          Revenue disqualified merchant warehouse shipping type
+        dimension:
+          type: categorical
+          label: Rev Disqualified Merchant Warehouse Shipping Type
+      - name: sensitivity_selection_reason
+        description: >
+          Sensitivity selection reason
+        dimension:
+          type: categorical
+          label: Sensitivity Selection Reason
+      - name: calculated_shipping_mode
+        description: >
+          Calculated shipping mode
+        dimension:
+          type: categorical
+          label: Calculated Shipping Mode
+      - name: picker_source
+        description: >
+          Picker source
+        dimension:
+          type: categorical
+          label: Picker Source
+      - name: user_confirmed_delivery
+        description: >
+          User confirmed delivery
+        dimension:
+          type: categorical
+          label: User Confirmed Delivery
+
+    metrics:
+      - name: orders
+        description: >
+          Number of merchant transaction rows (the table doc's `total_orders`
+          = COUNT(*)). One row per `m_transaction_id`.
+        type: simple
+        agg: count
+        expr: 1
+        fill_nulls_with: 0
+      - name: merchants
+        description: >
+          Distinct merchants with at least one transaction.
+        type: simple
+        agg: count_distinct
+        expr: merchant_id
+        fill_nulls_with: 0
+      - name: buyers
+        description: >
+          Distinct buyers (customer users) with at least one transaction.
+        type: simple
+        agg: count_distinct
+        expr: user_id
+        fill_nulls_with: 0
+      - name: commerce_transactions
+        description: >
+          Distinct commerce (buyer-facing) transactions. One commerce
+          transaction can expand into many merchant transactions.
+        type: simple
+        agg: count_distinct
+        expr: c_transaction_id
+        fill_nulls_with: 0
+      - name: products
+        description: >
+          Distinct products ordered.
+        type: simple
+        agg: count_distinct
+        expr: product_id
+        fill_nulls_with: 0
+      - name: variations
+        description: >
+          Distinct product variations ordered.
+        type: simple
+        agg: count_distinct
+        expr: variation_id
+        fill_nulls_with: 0
+      - name: merchant_warehouses
+        description: >
+          Distinct merchant warehouses the orders were fulfilled from.
+        type: simple
+        agg: count_distinct
+        expr: merchant_warehouse_id
+        fill_nulls_with: 0
+      - name: shipping_countries
+        description: >
+          Distinct shipping destination countries.
+        type: simple
+        agg: count_distinct
+        expr: shipping_country
+        fill_nulls_with: 0
+      - name: refunded_transactions
+        description: >
+          Number of refunded merchant transactions (`state` = 5).
+        type: simple
+        agg: count_distinct
+        expr: m_transaction_id
+        filter: >
+          {{ Dimension('merchant_transaction__state') }} = 5
+        fill_nulls_with: 0
+      - name: gmv
+        description: >
+          Gross merchandise value: sum of `paid_amount`, the buyer-paid amount
+          (base product price + shipping + tax - discounts + refund
+          adjustments). The table doc's `total_gmv`.
+        type: simple
+        agg: sum
+        expr: paid_amount
+        fill_nulls_with: 0
+      - name: refund_amount
+        description: >
+          Total refund amount across all transactions, regardless of
+          transaction state.
+        type: simple
+        agg: sum
+        expr: refund_amount
+        fill_nulls_with: 0
+      - name: refunded_amount
+        description: >
+          Refund amount on refunded transactions only (`state` = 5). The table
+          doc's `total_refunds`.
+        type: simple
+        agg: sum
+        expr: refund_amount
+        filter: >
+          {{ Dimension('merchant_transaction__state') }} = 5
+        fill_nulls_with: 0
+      - name: avg_refund_amount
+        description: >
+          Average refund amount per transaction that carries a refund amount.
+        type: simple
+        agg: average
+        expr: refund_amount
+      - name: quantity
+        description: >
+          Total ordered quantity.
+        type: simple
+        agg: sum
+        expr: quantity
+        fill_nulls_with: 0
+      - name: refunded_quantity
+        description: >
+          Total refunded quantity.
+        type: simple
+        agg: sum
+        expr: qty_refunded
+        fill_nulls_with: 0
+      - name: merchant_price
+        description: >
+          Total merchant price amount (merchant proceeds from the product).
+        type: simple
+        agg: sum
+        expr: merchant_price
+        fill_nulls_with: 0
+      - name: merchant_shipping
+        description: >
+          Total merchant shipping amount.
+        type: simple
+        agg: sum
+        expr: merchant_shipping
+        fill_nulls_with: 0
+      - name: merchant_cost
+        description: >
+          Total cost amount borne by the merchant.
+        type: simple
+        agg: sum
+        expr: cost
+        fill_nulls_with: 0
+      - name: product_price
+        description: >
+          Total product price amount.
+        type: simple
+        agg: sum
+        expr: price
+        fill_nulls_with: 0
+      - name: original_price
+        description: >
+          Total original price amount before discounts.
+        type: simple
+        agg: sum
+        expr: original_price
+        fill_nulls_with: 0
+      - name: shipping_amount
+        description: >
+          Total shipping amount.
+        type: simple
+        agg: sum
+        expr: shipping
+        fill_nulls_with: 0
+      - name: merchant_shipping_cost
+        description: >
+          Total shipping cost amount.
+        type: simple
+        agg: sum
+        expr: shipping_cost
+        fill_nulls_with: 0
+      - name: merchant_eat_cost_amount
+        description: >
+          Total merchant eat cost amount.
+        type: simple
+        agg: sum
+        expr: merchant_eat_cost_amount
+        fill_nulls_with: 0
+      - name: avg_eat_cost_ratio
+        description: >
+          Average merchant eat cost ratio (`merchant_responsible_amount /
+          merchant_amount`). The table doc's `avg_eat_cost_ratio`.
+        type: simple
+        agg: average
+        expr: merchant_eat_cost_ratio
+      - name: merchant_payment_amount
+        description: >
+          Total merchant payment amount.
+        type: simple
+        agg: sum
+        expr: merchant_payment_amt
+        fill_nulls_with: 0
+      - name: merchant_payment_tax_amount
+        description: >
+          Total tax amount paid out with the merchant payment.
+        type: simple
+        agg: sum
+        expr: merchant_payment_tax_amount
+        fill_nulls_with: 0
+      - name: merchant_tax_amount
+        description: >
+          Total merchant tax amount.
+        type: simple
+        agg: sum
+        expr: merchant_tax_amount
+        fill_nulls_with: 0
+      - name: tax_cost
+        description: >
+          Total tax cost amount.
+        type: simple
+        agg: sum
+        expr: tax_cost
+        fill_nulls_with: 0
+      - name: client_amount
+        description: >
+          Total client amount (the amount charged on the client side).
+        type: simple
+        agg: sum
+        expr: client
+        fill_nulls_with: 0
+      - name: third_party_pinged
+        description: >
+          Number of third-party pings raised on the transaction.
+        type: simple
+        agg: sum
+        expr: third_party_pinged
+        fill_nulls_with: 0
+      - name: partial_refunds
+        description: >
+          Total number of partial refunds.
+        type: simple
+        agg: sum
+        expr: partial_refunds
+        fill_nulls_with: 0
+      - name: avg_refund_risk_score
+        description: >
+          Average refund risk score.
+        type: simple
+        agg: average
+        expr: refund_risk_score
+      - name: avg_business_days_to_arrival
+        description: >
+          Average business days to arrival.
+        type: simple
+        agg: average
+        expr: business_days_to_arrival
+      - name: avg_additional_fulfillment_hours
+        description: >
+          Average additional fulfillment hours.
+        type: simple
+        agg: average
+        expr: additional_fulfillment_hours
+      - name: original_rev_share
+        description: >
+          Total original revenue share amount.
+        type: simple
+        agg: sum
+        expr: original_rev_share
+        fill_nulls_with: 0
+      - name: updated_rev_share
+        description: >
+          Total updated revenue share amount.
+        type: simple
+        agg: sum
+        expr: updated_rev_share
+        fill_nulls_with: 0
+      - name: localized_merchant_price
+        description: >
+          Total merchant price amount localized into the settlement currency.
+        type: simple
+        agg: sum
+        expr: localized_merchant_price
+        fill_nulls_with: 0
+      - name: localized_merchant_shipping
+        description: >
+          Total merchant shipping amount localized into the settlement
+          currency.
+        type: simple
+        agg: sum
+        expr: localized_merchant_shipping
+        fill_nulls_with: 0
+      - name: localized_merchant_shipping_cost
+        description: >
+          Total shipping cost amount localized into the settlement currency.
+        type: simple
+        agg: sum
+        expr: localized_merchant_shipping_cost
+        fill_nulls_with: 0
+      - name: localized_merchant_cost
+        description: >
+          Total cost amount localized into the settlement currency.
+        type: simple
+        agg: sum
+        expr: localized_merchant_cost
+        fill_nulls_with: 0
+      - name: localized_wishpost_shipping
+        description: >
+          Total WishPost shipping amount localized into the settlement
+          currency.
+        type: simple
+        agg: sum
+        expr: localized_wishpost_shipping
+        fill_nulls_with: 0
+      - name: localized_wishpost_shipping_cost
+        description: >
+          Total WishPost shipping cost amount localized into the settlement
+          currency.
+        type: simple
+        agg: sum
+        expr: localized_wishpost_shipping_cost
+        fill_nulls_with: 0
+      - name: localized_wishpost_shipping_price
+        description: >
+          Total WishPost shipping price amount localized into the settlement
+          currency.
+        type: simple
+        agg: sum
+        expr: localized_wishpost_shipping_price
+        fill_nulls_with: 0
+      - name: localized_unity_wishpost_shipping
+        description: >
+          Total Unity WishPost shipping amount localized into the settlement
+          currency.
+        type: simple
+        agg: sum
+        expr: localized_unity_wishpost_shipping
+        fill_nulls_with: 0
+      - name: localized_initial_wishpost_shipping_amount
+        description: >
+          Total initial WishPost shipping amount localized into the settlement
+          currency.
+        type: simple
+        agg: sum
+        expr: localized_initial_wishpost_shipping_amount
+        fill_nulls_with: 0
+      - name: localized_estimated_wishpost_shipping_cost
+        description: >
+          Total estimated WishPost shipping cost amount localized into the
+          settlement currency.
+        type: simple
+        agg: sum
+        expr: localized_estimated_wishpost_shipping_cost
+        fill_nulls_with: 0
+      - name: initial_wishpost_tracking_id_item_localized_amount
+        description: >
+          Total initial WishPost tracking item amount localized into the
+          settlement currency.
+        type: simple
+        agg: sum
+        expr: initial_wishpost_tracking_id_item_localized_amount
+        fill_nulls_with: 0
+      - name: avg_merchant_currency_exchange_rate
+        description: >
+          Average merchant currency exchange rate.
+        type: simple
+        agg: average
+        expr: merchant_currency_exchange_rate
+      - name: avg_merchant_currency_hedged_exchange_rate
+        description: >
+          Average hedged merchant currency exchange rate.
+        type: simple
+        agg: average
+        expr: merchant_currency_hedged_exchange_rate
+      - name: avg_merchant_currency_daily_exchange_rate
+        description: >
+          Average daily merchant currency exchange rate.
+        type: simple
+        agg: average
+        expr: merchant_currency_daily_exchange_rate
+      - name: refund_rate
+        description: >
+          Share of merchant transactions that were refunded: refunded
+          transactions / total orders.
+        type: ratio
+        numerator: refunded_transactions
+        denominator: orders
+      - name: avg_order_value
+        description: >
+          Average GMV per merchant transaction: GMV / total orders.
+        type: ratio
+        numerator: gmv
+        denominator: orders

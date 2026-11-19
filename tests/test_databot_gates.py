@@ -253,3 +253,58 @@ def test_default_dryrun_reasons_match_behavior() -> None:
     assert "run the query" in sql_text
     assert "history" in sql_text and "history" in cards_text
     assert "profile" not in sql_text and "profile" not in cards_text
+
+
+def _lookup_error(error_type: str, message: str) -> "ToolMessage":
+    import json
+
+    from langchain_core.messages import ToolMessage
+
+    body = {"error_type": error_type, "tool": "fetch_related_models", "message": message, "retryable": False}
+    return ToolMessage(
+        content="=== TOOL ERROR ===\n" + json.dumps(body),
+        tool_call_id="c1",
+        name="fetch_related_models",
+    )
+
+
+def test_model_index_outage_is_detected_and_explained() -> None:
+    from langchain_core.messages import ToolMessage
+
+    from agent.specialists.databot.gates import (
+        NOTHING_TO_REVIEW_CARDS,
+        cards_node,
+        model_lookup_outage,
+    )
+
+    down = {"messages": [_lookup_error("connection", "[Errno 61] Connection refused")]}
+    assert model_lookup_outage(down) == "[Errno 61] Connection refused"
+    stopped = cards_node()({**down, "review_cards": []})
+    assert stopped["stage"] == "summary"
+    assert "index (RAG search on Qdrant) is unreachable" in stopped["halt_reason"]
+    assert "Connection refused" in stopped["halt_reason"]
+
+    # A later successful lookup wins; other error types are not outages.
+    recovered = {"messages": [*down["messages"], ToolMessage(content="[]", tool_call_id="c2", name="fetch_related_models")]}
+    assert model_lookup_outage(recovered) == ""
+    assert model_lookup_outage({"messages": [_lookup_error("syntax", "bad chunk_type")]}) == ""
+    assert cards_node()({"messages": [], "review_cards": []})["halt_reason"] == NOTHING_TO_REVIEW_CARDS
+
+
+def test_wrapped_connection_errors_resolve_by_their_cause() -> None:
+    from tools.errors import ToolErrorType, resolve_exception
+
+    class ClientWrapper(Exception):
+        pass
+
+    try:
+        try:
+            raise ConnectionRefusedError(61, "Connection refused")
+        except ConnectionRefusedError as inner:
+            raise ClientWrapper("[Errno 61] Connection refused") from inner
+    except ClientWrapper as exc:
+        error_type, retryable, message = resolve_exception(exc)
+    assert error_type is ToolErrorType.CONNECTION
+    assert retryable is True
+    assert message == "[Errno 61] Connection refused"
+    assert resolve_exception(ValueError("x"))[0] is ToolErrorType.UNKNOWN

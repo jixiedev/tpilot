@@ -6,6 +6,7 @@ normalizes the response via helpers in :mod:`.parsing`.
 
 from __future__ import annotations
 
+import re
 from typing import Any, Literal
 
 from config.tool_config import DataHubToolConfig
@@ -448,3 +449,161 @@ def list_entities(
         "entities": entities,
     }
 
+
+
+#: Size limits for ``get_table_docs``: Wish dataset docs run to 35k+ characters
+#: of Markdown plus long column notes, which would be offloaded to a file.
+TABLE_DOC_HEAD_CHARS = 2_000
+TABLE_DOC_SECTION_CHARS = 6_000
+TABLE_DOC_COLUMN_CHARS = 300
+TABLE_DOC_MAX_COLUMN_MATCHES = 12
+
+_HEADING = re.compile(r"^(#{1,4})\s+(.+?)\s*$|^\*\*(.+?)\*\*\s*$", re.MULTILINE)
+
+
+def _owner_names(entity: dict[str, Any]) -> list[str]:
+    names: list[str] = []
+    for item in ((entity.get("ownership") or {}).get("owners") or []):
+        owner = (item or {}).get("owner") or {}
+        props = owner.get("properties") or {}
+        name = props.get("displayName") or owner.get("username") or owner.get("name") or owner.get("urn")
+        if name:
+            names.append(str(name))
+    return names
+
+
+def doc_sections(text: str) -> list[tuple[str, int, int]]:
+    """``(heading, start, end)`` for each Markdown heading or bold-only line."""
+    marks = [((m.group(2) or m.group(3) or "").strip(), m.start()) for m in _HEADING.finditer(text)]
+    out: list[tuple[str, int, int]] = []
+    for i, (title, begin) in enumerate(marks):
+        end = marks[i + 1][1] if i + 1 < len(marks) else len(text)
+        if title:
+            out.append((title, begin, end))
+    return out
+
+
+def _column_rank(field: dict[str, Any], keys: list[str]) -> int:
+    """0 exact name, 1 name contains a keyword, 2 description contains one (4+ chars), 3 no match."""
+    name = str(field.get("fieldPath") or "").lower()
+    if name in keys:
+        return 0
+    if any(k in name for k in keys):
+        return 1
+    text = str(field.get("description") or "").lower()
+    if any(len(k) >= 4 and k in text for k in keys):
+        return 2
+    return 3
+
+
+def compact_table_docs(
+    entity: dict[str, Any],
+    *,
+    section: str = "",
+    columns: list[str] | None = None,
+) -> dict[str, Any]:
+    """A dataset's documentation only, sized for a model's context.
+
+    The description comes back as its head plus the list of section headings;
+    ``section`` returns that section instead. Columns come back as name and
+    type; ``columns`` (keywords) adds the matching columns' descriptions:
+    exact name first, then name contains, then description contains (keywords
+    of four or more characters only, so ``dt`` does not match every note). Glossary terms, tags, domains and lineage are left
+    out on purpose: callers get table documentation only.
+    """
+    props = entity.get("properties") or {}
+    schema = entity.get("schemaMetadata") or {}
+    description = (props.get("description") or "").strip()
+    sections = doc_sections(description)
+    fields = [f for f in (schema.get("fields") or []) if isinstance(f, dict) and f.get("fieldPath")]
+    deprecation = entity.get("deprecation") or {}
+    out: dict[str, Any] = {
+        "urn": entity.get("urn"),
+        "name": props.get("name") or entity.get("name"),
+        "qualified_name": props.get("qualifiedName") or entity.get("name"),
+        "platform": (entity.get("platform") or {}).get("name"),
+        "owners": _owner_names(entity),
+    }
+    wanted = section.strip().lower()
+    if wanted:
+        match = next((sec for sec in sections if wanted in sec[0].lower()), None)
+        if match is None:
+            out["section_not_found"] = section
+        else:
+            body = description[match[1] : match[2]].strip()
+            out["section"] = {"heading": match[0], "text": body[:TABLE_DOC_SECTION_CHARS]}
+            if len(body) > TABLE_DOC_SECTION_CHARS:
+                out["section"]["truncated"] = True
+    elif not columns:
+        # A follow-up for columns already had the head; send only what it asked for.
+        out["description"] = description[:TABLE_DOC_HEAD_CHARS]
+        if len(description) > TABLE_DOC_HEAD_CHARS:
+            out["description_truncated"] = f"{len(description)} chars; pass section=<heading> for more"
+    if sections:
+        out["sections"] = [title for title, _, _ in sections]
+    out["columns"] = [{"name": f.get("fieldPath"), "type": f.get("nativeDataType")} for f in fields]
+    keys = [k.strip().lower() for k in (columns or []) if k.strip()]
+    if keys:
+        matched = [
+            {
+                "name": f.get("fieldPath"),
+                "type": f.get("nativeDataType"),
+                "description": (f.get("description") or "").strip()[:TABLE_DOC_COLUMN_CHARS],
+            }
+            for f in sorted(fields, key=lambda f: _column_rank(f, keys))
+            if _column_rank(f, keys) < 3
+        ]
+        out["column_docs"] = matched[:TABLE_DOC_MAX_COLUMN_MATCHES]
+        if len(matched) > TABLE_DOC_MAX_COLUMN_MATCHES:
+            out["column_docs_truncated"] = f"{len(matched)} columns matched; use narrower keywords"
+    if deprecation.get("deprecated"):
+        out["deprecated"] = {"note": deprecation.get("note") or ""}
+    return out
+
+
+def get_table_docs(
+    table: str,
+    *,
+    section: str = "",
+    columns: list[str] | None = None,
+    cfg: DataHubToolConfig | None = None,
+) -> dict[str, Any]:
+    """Documentation of the dataset named ``table`` (``name``, ``schema.name`` or a URN).
+
+    The best name match is returned; ``alternatives`` lists other matches by
+    qualified name so the caller can ask for one of them instead.
+    """
+    raw = str(table or "").strip()
+    if not raw:
+        raise ValueError("table must be a table name, schema.table or a dataset URN")
+    if raw.startswith("urn:li:dataset:"):
+        entities = _hydrate_entities("DATASET", [raw], cfg=cfg)
+    else:
+        short = raw.rsplit(".", 1)[-1]
+        entities = list_entities("DATASET", query=short, count=5, cfg=cfg)["entities"]
+
+        def rank(entity: dict[str, Any]) -> int:
+            props = entity.get("properties") or {}
+            names = {
+                str(props.get("qualifiedName") or "").lower(),
+                str(entity.get("name") or "").lower(),
+                str(props.get("name") or "").lower(),
+            }
+            if raw.lower() in names or any(n.endswith("." + raw.lower()) for n in names):
+                return 0
+            if short.lower() in names or any(n.endswith("." + short.lower()) for n in names):
+                return 1
+            return 2
+
+        entities = sorted(entities, key=rank)
+    if not entities:
+        return {"table": raw, "found": False}
+    best, *rest = entities
+    result = {"table": raw, "found": True, **compact_table_docs(best, section=section, columns=columns)}
+    alternatives = [
+        str((e.get("properties") or {}).get("qualifiedName") or e.get("name") or e.get("urn"))
+        for e in rest
+    ]
+    if alternatives:
+        result["alternatives"] = alternatives
+    return result

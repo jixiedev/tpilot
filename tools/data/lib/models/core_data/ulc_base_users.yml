@@ -1,0 +1,208 @@
+version: 2
+
+models:
+  - name: ulc_base_users
+    description: >
+      User lifecycle (ULC) packed activity intervals built from daily active user
+      rows in core_data.fct_dau_w_bots. Each DAU day seeds a 28-day candidate
+      window; overlapping windows merge so intervals can span longer than 28
+      calendar days. Grain is one row per user_id × start_dt (packed interval).
+      Hive partition dt equals end_dt (interval end date). Downstream
+      ulc_active_users consumes these intervals for lifecycle classification.
+      Source: core_data.ulc_base_users (UlcBaseUserDaily / UlcBaseUserOverwrite).
+    config:
+      meta:
+        owner: jpearcy
+        hive_table: core_data.ulc_base_users
+        dag: UlcBaseUserDaily
+        timezone: UTC
+    semantic_model:
+      enabled: true
+      name: ulc_base_users
+      config:
+        meta:
+          usage: >
+            Filter dt (partition = interval end) for partition pruning; use
+            dt >= as_of when searching intervals active on or after a day.
+            Interval membership on calendar day D: start_dt <= D AND end_dt >= D
+            (and dt >= D for pruning). dt alone selects rows whose interval
+            ends on D, not users active on D. Join on user_id to fct_dau_w_bots
+            and ulc_active_users. Dimensions follow earliest start_dt merge rule
+            (daily CASE / overwrite MIN_BY), not last-active platform.
+    agg_time_dimension: dt
+
+    columns:
+      - name: user_interval_id
+        description: Surrogate primary key, user_id|start_dt.
+        data_tests:
+          - not_null
+        entity:
+          type: primary
+          name: user_interval
+          description: One packed ULC activity interval for a user.
+
+      - name: user_id
+        description: Opaque user identifier; join key to DAU and ULC downstream tables.
+        entity:
+          type: foreign
+          name: user
+          description: User join key to fct_dau_w_bots, ulc_active_users, and other user facts.
+
+      - name: dt
+        description: >
+          Hive partition date (cast to date). Always equals end_dt — the inclusive
+          last calendar day of the packed interval. Default metric time dimension.
+        granularity: day
+        dimension:
+          type: time
+          label: Interval end date
+          is_partition: true
+
+      - name: start_dt
+        description: >
+          Inclusive first calendar day of the current packed activity interval.
+        granularity: day
+        dimension:
+          type: time
+          label: Interval start date
+
+      - name: end_dt
+        description: >
+          Inclusive last calendar day of the current packed interval; identical to
+          dt on every row.
+        granularity: day
+        dimension:
+          type: time
+          label: Interval end date (value)
+
+      - name: previous_start_dt
+        description: >
+          Start date of the immediately preceding packed interval for this user;
+          NULL for the user's first interval in history.
+        granularity: day
+        dimension:
+          type: time
+          label: Previous interval start
+
+      - name: previous_end_dt
+        description: >
+          End date of the immediately preceding packed interval; NULL when
+          previous_start_dt is NULL.
+        granularity: day
+        dimension:
+          type: time
+          label: Previous interval end
+
+      - name: country_code
+        description: >
+          ISO 3166-1 alpha-2 country from fct_dau_w_bots; merge prefers earliest
+          start_dt in packed window. Special values include othereuro, otherworld.
+        dimension:
+          type: categorical
+          label: Country code
+
+      - name: client
+        description: >
+          Client platform string (web, iosapp, androidapp, mweb, etc.) from DAU;
+          merge prefers earliest start_dt in packed window.
+        dimension:
+          type: categorical
+          label: Client code
+
+      - name: client_name
+        description: Human-readable client / platform label.
+        dimension:
+          type: categorical
+          label: Client
+
+      - name: locale
+        description: >
+          User locale string (language_region, e.g. en_us) from fct_dau_w_bots.
+        dimension:
+          type: categorical
+          label: Locale
+
+      - name: lifecycle_stage
+        description: >
+          Activity-interval lifecycle derived from previous interval gap: New
+          (no prior interval), Retained (gap = 1 day), Resurrected (gap > 1 day).
+        dimension:
+          type: categorical
+          label: Lifecycle stage
+
+      - name: is_first_interval_name
+        description: Whether this is the user's first packed interval (Yes / No).
+        dimension:
+          type: categorical
+          label: Is first interval
+
+      - name: gap_days
+        description: >
+          Calendar days between previous_end_dt and start_dt; NULL for first
+          intervals. Value 1 indicates contiguous activity windows.
+
+      - name: interval_days
+        description: >
+          Inclusive calendar days from start_dt through end_dt. Raw single-day
+          slices are 28 days; packed rows may exceed 28.
+
+    metrics:
+      - name: interval_users
+        type: simple
+        label: Interval users
+        description: >
+          Distinct users with a packed interval row in the selected dt partition
+          (interval end date). Summing across dt yields interval-ending
+          user-days, not unique users over a range unless each user appears once.
+        agg: count_distinct
+        expr: user_id
+
+      - name: intervals
+        type: simple
+        label: Intervals
+        description: Count of packed activity interval rows at user_id × start_dt grain.
+        agg: count
+        expr: 1
+        fill_nulls_with: 0
+
+      - name: new_intervals
+        type: simple
+        label: New intervals
+        description: >
+          Interval rows where previous_start_dt is NULL (user's first packed
+          interval in history for that merge pass).
+        agg: count
+        expr: 1
+        fill_nulls_with: 0
+        filter: "{{ Dimension('user_interval__is_first_interval_name') }} = 'Yes'"
+
+      - name: retained_intervals
+        type: simple
+        label: Retained intervals
+        description: >
+          Interval rows with a 1-day gap from the prior interval end (contiguous
+          activity windows).
+        agg: count
+        expr: 1
+        fill_nulls_with: 0
+        filter: "{{ Dimension('user_interval__lifecycle_stage') }} = 'Retained'"
+
+      - name: resurrected_intervals
+        type: simple
+        label: Resurrected intervals
+        description: >
+          Interval rows where the user returned after a gap of more than 1 day
+          since the prior interval end.
+        agg: count
+        expr: 1
+        fill_nulls_with: 0
+        filter: "{{ Dimension('user_interval__lifecycle_stage') }} = 'Resurrected'"
+
+      - name: avg_interval_days
+        type: simple
+        label: Average interval days
+        description: >
+          Average inclusive calendar span (start_dt through end_dt) of packed
+          intervals. Packed rows may exceed 28 days.
+        agg: average
+        expr: interval_days

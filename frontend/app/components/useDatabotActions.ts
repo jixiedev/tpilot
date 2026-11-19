@@ -4,6 +4,7 @@ import { useCallback, useState } from "react";
 import type { AbstractAgent } from "@ag-ui/client";
 import { buildResumeArray } from "@ag-ui/client";
 import type { DatabotAgentState } from "./types";
+import { databotStateOf, withDatabotPatch } from "./databotAgent";
 
 type UiAction =
   | {
@@ -55,8 +56,8 @@ function mergeAgentState(
   patch: Partial<DatabotAgentState> | undefined,
 ) {
   if (!patch) return;
-  const current = (agent.state ?? {}) as Record<string, unknown>;
-  agent.setState({ ...current, ...patch });
+  // Databot's fields live under the lead's ``active_subagent``.
+  agent.setState(withDatabotPatch(agent.state, patch));
 }
 
 export function useDatabotActions(agent: AbstractAgent | undefined, isReady: boolean) {
@@ -117,7 +118,7 @@ export function useDatabotActions(agent: AbstractAgent | undefined, isReady: boo
         throw new Error("agent not ready");
       }
 
-      const stage = (agent.state as DatabotAgentState | undefined)?.stage;
+      const stage = databotStateOf(agent.state)?.stage;
       const interrupts = agent.pendingInterrupts ?? [];
 
       if (stage === "prepare_sql" && interrupts.length > 0) {
@@ -148,21 +149,13 @@ export function useDatabotActions(agent: AbstractAgent | undefined, isReady: boo
         return;
       }
 
-      await runPatch({
-        action: "request_sql_regenerate",
-        feedback,
-      });
-
-      if (!agent.isRunning) {
-        setIsPending(true);
-        try {
-          await agent.runAgent({});
-        } finally {
-          setIsPending(false);
-        }
-      }
+      // Databot runs inside the lead's turn, so a redraft is only possible
+      // while its SQL gate is waiting (handled above).
+      const message = "SQL can be regenerated while the SQL review gate is waiting.";
+      setError(message);
+      throw new Error(message);
     },
-    [agent, isReady, runPatch],
+    [agent, isReady],
   );
 
   return {

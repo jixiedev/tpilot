@@ -1,0 +1,151 @@
+version: 2
+
+models:
+  - name: dim_currency_conversion_rate
+    description: >
+      Historical FX dimension from Mongo CurrencyConversionRate. Grain is one
+      row per (conversion_table_id, currency_code) — one currency rate within
+      a conversion-table snapshot. Stored rate is USD → currency_code (units of
+      foreign currency per 1 USD); local→USD uses amount / conversion_rate.
+      dt is the Pacific (America/Los_Angeles) calendar day of ObjectId
+      generation; many conversion_table_id values can share one dt (hourly
+      SPOT). Table is not Hive-partitioned but dt is the main date filter.
+      Join facts on conversion_table_id + trimmed currency_code for point-in-time
+      FX, or filter dt + rate_type and aggregate with MAX(conversion_table_id)
+      for calendar snapshots. Source: core_data.dim_currency_conversion_rate
+      (DAG DailyCurrencyConversionRate_Tahoe, owner raxu).
+    config:
+      meta:
+        owner: raxu
+        hive_table: core_data.dim_currency_conversion_rate
+        dag_id: DailyCurrencyConversionRate_Tahoe
+        sister_table: wish.dim_currency_conversion_rate
+    semantic_model:
+      enabled: true
+      name: dim_currency_conversion_rate
+      config:
+        meta:
+          owner: raxu
+          usage: >
+            Reference FX rates — not a transaction fact. Filter dt and rate_type
+            before joining large facts. SPOT (1) vs DAILY (2) vs MIXED (4/5)
+            are different rate families; do not mix without intent. Prefer
+            conversion_table_id equality when facts store a conversion id.
+            Trim currency_code on joins. conversion_table_created_ts encodes
+            ObjectId creation instant for debugging; use dt for calendar alignment.
+    agg_time_dimension: dt
+
+    columns:
+      - name: currency_conversion_rate_id
+        description: Surrogate primary key, conversion_table_id|trim(currency_code).
+        data_tests:
+          - not_null
+        entity:
+          type: primary
+          name: currency_conversion_rate
+          description: One FX rate row for a currency within a conversion table.
+
+      - name: conversion_table_id
+        description: >
+          MongoDB ObjectId of the CurrencyConversionRate document (24-char hex).
+          Join key for point-in-time FX when facts persist a conversion id.
+          Prefix encodes ObjectId creation Unix seconds (UTC).
+        entity:
+          type: foreign
+          name: conversion_table
+          description: FX conversion-table snapshot referenced by commerce facts.
+
+      - name: currency_code
+        description: >
+          ISO 4217-style currency code (trimmed). Join key alongside
+          conversion_table_id; open set from Mongo conversion_rates map.
+        entity:
+          type: foreign
+          name: currency
+          description: Currency code for FX rate lookup and conversion.
+
+      - name: dt
+        description: >
+          Pacific calendar date (America/Los_Angeles) of conversion-table ObjectId
+          generation, cast from varchar YYYY-MM-DD. Main date filter for sensors
+          and calendar snapshots; not a Hive partition key.
+        granularity: day
+        dimension:
+          type: time
+          label: FX table date
+
+      - name: rate_type
+        description: >
+          FX table type from Mongo (1=SPOT, 2=DAILY, 3=HEDGE, 4=SPOT_MIXED,
+          5=DAILY_MIXED). Producer defaults missing values to 1 (SPOT).
+        dimension:
+          type: categorical
+          label: Rate type code
+
+      - name: rate_type_name
+        description: Human-readable label for rate_type enum values.
+        dimension:
+          type: categorical
+          label: Rate type name
+
+      - name: conversion_rate
+        description: >
+          USD → currency_code rate as varchar (units of foreign currency per
+          1 USD). Cast to double before arithmetic.
+      - name: conversion_rate_numeric
+        description: conversion_rate cast to double for metrics and joins.
+      - name: ex_rate
+        description: >
+          Currency → USD multiplier (1 / conversion_rate). Treasury / waterfall
+          pattern; inverse of the stored USD→currency rate.
+      - name: conversion_table_created_unix
+        description: >
+          Unix epoch seconds from ObjectId prefix (first 8 hex chars). Kept
+          for joins and chronological ordering; not a MetricFlow time dimension.
+      - name: conversion_table_created_ts
+        description: >
+          ObjectId creation instant in America/Los_Angeles. Kept for display and
+          debugging; not a MetricFlow time dimension (project spine is day).
+
+    metrics:
+      - name: currency_conversion_rate_rows
+        type: simple
+        label: Currency conversion rate rows
+        description: >
+          Row count at (conversion_table_id, currency_code) grain. Multiple
+          rows per dt and rate_type are expected for hourly SPOT tables.
+        agg: count
+        expr: 1
+
+      - name: conversion_tables
+        type: simple
+        label: Distinct conversion tables
+        description: Distinct conversion_table_id values in the selected window.
+        agg: count_distinct
+        expr: conversion_table_id
+
+      - name: currencies
+        type: simple
+        label: Distinct currencies
+        description: Distinct currency_code values in the selected window.
+        agg: count_distinct
+        expr: currency_code
+
+      - name: avg_conversion_rate
+        type: simple
+        label: Average USD→currency rate
+        description: >
+          Average stored USD→currency conversion rate (conversion_rate_numeric).
+          At currency-table grain equals the published rate; aggregate carefully
+          when multiple tables share dt.
+        agg: average
+        expr: conversion_rate_numeric
+
+      - name: avg_ex_rate
+        type: simple
+        label: Average currency→USD ex rate
+        description: >
+          Average treasury-style ex_rate (1 / conversion_rate) — currency to
+          USD multiplier.
+        agg: average
+        expr: ex_rate
