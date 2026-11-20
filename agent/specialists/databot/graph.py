@@ -21,7 +21,7 @@ from langgraph.types import StateSnapshot
 
 from agent.catalog import AgentCatalog
 from agent.run_context import DatabotRunContext, ReactRunContext
-from agent.listener import CliListener
+from agent.listener import CliListener, ListenerHub
 from agent.router import CompletionToolRouter, StageCompleteFn
 from agent.specialists.databot.state import (
     DatabotReactState,
@@ -36,7 +36,7 @@ from agent.specialists.databot.state import (
     SqlReactOutput,
 )
 from agent.specialists.databot.state import fetch_react_input, merge_fetch_react_output, merge_sql_react_output, react_turn_init, sql_react_input
-from config.agent_config import AgentConfig, DatabotAgentConfig
+from settings.agent_config import AgentConfig, DatabotAgentConfig
 from agent.specialists.databot.ui_actions import is_gate_redraft_message, user_question_from_messages
 from graph.builder import ReactLoopSpec, ReactStateSpec, build_react_graph
 from graph.error_recovery import invoke_with_transient_retry
@@ -275,10 +275,14 @@ class DatabotTopology:
         *,
         checkpointer: Any | None = None,
         run_context: DatabotRunContext | None = None,
+        listener: ListenerHub | None = None,
     ) -> None:
         self._model = model
         self._checkpointer = checkpointer
         self._run_context = run_context
+        #: Receives every stage layer's ReAct hooks (tool calls, reason steps), so
+        #: secondary listeners (evals, UI) see Databot's tools like any agent's.
+        self._listener = listener
         self._gates = DatabotAgentConfig.gates_from(run_context)
         self._trino_run: BaseTool | None = None
         self._subgraphs: dict[str, CompiledStateGraph] | None = None
@@ -390,6 +394,7 @@ class DatabotTopology:
                 output_schema=output_schema,
                 turn_init=react_turn_init,
             ),
+            listener=self._listener,
         )
         return DatabotTopology.react_layer_node(
             react_graph,
@@ -862,10 +867,12 @@ class DatabotGraphBuilder:
         *,
         checkpointer: BaseCheckpointSaver,
         run_context: DatabotRunContext,
+        listener: ListenerHub | None = None,
     ) -> None:
         self._model = model
         self._checkpointer = checkpointer
         self._run_context = run_context
+        self._listener = listener
 
     def compile(self) -> CompiledStateGraph:
         """Wire phase layers; route exits through ``to_next_layer``."""
@@ -873,6 +880,7 @@ class DatabotGraphBuilder:
             self._model,
             checkpointer=self._checkpointer,
             run_context=self._run_context,
+            listener=self._listener,
         )
         graph = StateGraph(DatabotState)
         for layer in (
@@ -899,12 +907,14 @@ class DatabotGraphBuilder:
         *,
         checkpointer: BaseCheckpointSaver,
         run_context: DatabotRunContext,
+        listener: ListenerHub | None = None,
     ) -> CompiledStateGraph:
         """Compile the outer databot graph for one model and checkpointer."""
         return cls(
             model,
             checkpointer=checkpointer,
             run_context=run_context,
+            listener=listener,
         ).compile()
 
     @staticmethod

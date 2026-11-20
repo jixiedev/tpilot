@@ -1,0 +1,169 @@
+{
+  "description": "Metric definitions come from the metric catalog: root -> member -> the models that carry it. Scores root_id, member_id and an accepted model.",
+  "models": [
+    "MiniMax-M3"
+  ],
+  "defaults": {
+    "expected_tools": [
+      "search_metric_catalog",
+      "describe_metric_models"
+    ],
+    "total_rounds": 4
+  },
+  "cases": [
+    {
+      "name": "gmv_definition",
+      "query": "What's the definition of GMV, and which model carries it? Reply with a single JSON object only. Do not wrap it in markdown fences and do not add any other text. Required shape: {\"root_id\": \"<metric catalog root_id or null>\", \"member_id\": \"<member_id or null>\", \"model\": \"<the dbt model that best carries this metric, or null>\", \"definition\": \"<one sentence>\"}",
+      "answer": {
+        "root_id": "gmv",
+        "member_id": "sum_excl_ltd",
+        "model": [
+          "fct_transaction_variations",
+          "master_commerce_transactions",
+          "fact_trans_detail"
+        ]
+      },
+      "notes": "Default GMV excludes Limited Time Deals; gold models match model_selection/metric/gmv_last_month."
+    },
+    {
+      "name": "gmv_including_ltd",
+      "query": "How is GMV including Limited Time Deal items defined, and which model carries it? Reply with a single JSON object only. Do not wrap it in markdown fences and do not add any other text. Required shape: {\"root_id\": \"<metric catalog root_id or null>\", \"member_id\": \"<member_id or null>\", \"model\": \"<the dbt model that best carries this metric, or null>\", \"definition\": \"<one sentence>\"}",
+      "answer": {
+        "root_id": "gmv",
+        "member_id": "sum_w_ltd",
+        "model": [
+          "fct_transaction_variations",
+          "master_commerce_transactions",
+          "fact_trans_detail"
+        ]
+      },
+      "notes": "Lookalike: the LTD-inclusive member, not the default one."
+    },
+    {
+      "name": "gmv_definition_zh",
+      "query": "成交总额（剔除LTD）是怎么定义的？用哪个模型？ Reply with a single JSON object only. Do not wrap it in markdown fences and do not add any other text. Required shape: {\"root_id\": \"<metric catalog root_id or null>\", \"member_id\": \"<member_id or null>\", \"model\": \"<the dbt model that best carries this metric, or null>\", \"definition\": \"<one sentence>\"}",
+      "answer": {
+        "root_id": "gmv",
+        "member_id": "sum_excl_ltd",
+        "model": [
+          "fct_transaction_variations",
+          "master_commerce_transactions",
+          "fact_trans_detail"
+        ]
+      },
+      "notes": "Chinese query; the catalog's name_zh is GMV合计（剔LTD）."
+    },
+    {
+      "name": "take_rate",
+      "query": "How is take rate calculated, and which model carries it? Reply with a single JSON object only. Do not wrap it in markdown fences and do not add any other text. Required shape: {\"root_id\": \"<metric catalog root_id or null>\", \"member_id\": \"<member_id or null>\", \"model\": \"<the dbt model that best carries this metric, or null>\", \"definition\": \"<one sentence>\"}",
+      "answer": {
+        "root_id": "take_rate",
+        "member_id": "revenue_over_gmv_excl_ltd",
+        "model": [
+          "fct_transaction_variations",
+          "fct_daily_buyer"
+        ]
+      },
+      "notes": "Ratio metric: platform revenue over GMV, LTD excluded."
+    },
+    {
+      "name": "atv",
+      "query": "What does ATV mean, and which model carries it? Reply with a single JSON object only. Do not wrap it in markdown fences and do not add any other text. Required shape: {\"root_id\": \"<metric catalog root_id or null>\", \"member_id\": \"<member_id or null>\", \"model\": \"<the dbt model that best carries this metric, or null>\", \"definition\": \"<one sentence>\"}",
+      "answer": {
+        "root_id": "atv",
+        "member_id": "avg_per_distinct_excl_ltd",
+        "model": [
+          "fct_transaction_variations",
+          "fct_daily_buyer"
+        ]
+      },
+      "notes": "Average transaction value: GMV per distinct order."
+    },
+    {
+      "name": "dau_excluding_bots",
+      "query": "How is DAU (daily active users, bots excluded) defined, and which model carries it? Reply with a single JSON object only. Do not wrap it in markdown fences and do not add any other text. Required shape: {\"root_id\": \"<metric catalog root_id or null>\", \"member_id\": \"<member_id or null>\", \"model\": \"<the dbt model that best carries this metric, or null>\", \"definition\": \"<one sentence>\"}",
+      "answer": {
+        "root_id": "dau",
+        "member_id": "distinct",
+        "model": [
+          "fct_dau"
+        ]
+      },
+      "notes": "Lookalike: fct_dau, not fct_dau_w_bots or the ULC tables (model_selection/lookalike/dau_yesterday_without_bots)."
+    },
+    {
+      "name": "dau_including_guests",
+      "query": "How is DAU including guest (logged-out) visitors defined, and which model carries it? Reply with a single JSON object only. Do not wrap it in markdown fences and do not add any other text. Required shape: {\"root_id\": \"<metric catalog root_id or null>\", \"member_id\": \"<member_id or null>\", \"model\": \"<the dbt model that best carries this metric, or null>\", \"definition\": \"<one sentence>\"}",
+      "answer": {
+        "root_id": "dau",
+        "member_id": "w_guests",
+        "model": [
+          "fct_dau_w_bots"
+        ]
+      },
+      "notes": "Lookalike: the guest-inclusive member lives only on fct_dau_w_bots."
+    },
+    {
+      "name": "ulc_active_buyers",
+      "query": "What are ULC active buyers, and which model carries them? Reply with a single JSON object only. Do not wrap it in markdown fences and do not add any other text. Required shape: {\"root_id\": \"<metric catalog root_id or null>\", \"member_id\": \"<member_id or null>\", \"model\": \"<the dbt model that best carries this metric, or null>\", \"definition\": \"<one sentence>\"}",
+      "answer": {
+        "root_id": "active_buyers",
+        "member_id": "distinct",
+        "model": [
+          "ulc_active_buyers"
+        ]
+      },
+      "notes": "Lifecycle-active buyers, not same-day buyers."
+    },
+    {
+      "name": "refund_amount",
+      "query": "How is refunded amount defined, and which model carries it? Reply with a single JSON object only. Do not wrap it in markdown fences and do not add any other text. Required shape: {\"root_id\": \"<metric catalog root_id or null>\", \"member_id\": \"<member_id or null>\", \"model\": \"<the dbt model that best carries this metric, or null>\", \"definition\": \"<one sentence>\"}",
+      "answer": {
+        "root_id": "refund_amount",
+        "member_id": "sum",
+        "model": [
+          "commerce_transaction_refund_items",
+          "fct_refund"
+        ]
+      },
+      "notes": "Gold matches model_selection/metric/refund_amount_last_week."
+    },
+    {
+      "name": "feed_tile_ctr",
+      "query": "How is the click-through rate of feed product tiles computed, and which model carries it? Reply with a single JSON object only. Do not wrap it in markdown fences and do not add any other text. Required shape: {\"root_id\": \"<metric catalog root_id or null>\", \"member_id\": \"<member_id or null>\", \"model\": \"<the dbt model that best carries this metric, or null>\", \"definition\": \"<one sentence>\"}",
+      "answer": {
+        "root_id": "ctr",
+        "member_id": "clicks_over_impressions",
+        "model": [
+          "feed_tile_interactions_detail"
+        ]
+      },
+      "notes": "Clicks over impressions on feed tiles."
+    },
+    {
+      "name": "wishpost_logistics_profit",
+      "query": "What is WishPost logistics profit, and which model carries it? Reply with a single JSON object only. Do not wrap it in markdown fences and do not add any other text. Required shape: {\"root_id\": \"<metric catalog root_id or null>\", \"member_id\": \"<member_id or null>\", \"model\": \"<the dbt model that best carries this metric, or null>\", \"definition\": \"<one sentence>\"}",
+      "answer": {
+        "root_id": "logistics_profit",
+        "member_id": "sum",
+        "model": [
+          "finance_monthly_profits_1y",
+          "finance_monthly_profits_by_combine_ratio_1y"
+        ]
+      },
+      "notes": "Monthly WishPost finance P&L tables."
+    },
+    {
+      "name": "buyer_rate",
+      "query": "What is buyer rate, and which model carries it? Reply with a single JSON object only. Do not wrap it in markdown fences and do not add any other text. Required shape: {\"root_id\": \"<metric catalog root_id or null>\", \"member_id\": \"<member_id or null>\", \"model\": \"<the dbt model that best carries this metric, or null>\", \"definition\": \"<one sentence>\"}",
+      "answer": {
+        "root_id": "buyer_rate",
+        "member_id": "buyers_over_dau",
+        "model": [
+          "dau_attribution"
+        ]
+      },
+      "notes": "Buyers over DAU; only dau_attribution has both sides."
+    }
+  ]
+}

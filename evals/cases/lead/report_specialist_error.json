@@ -1,0 +1,26 @@
+{
+  "description": "A specialist's infrastructure error is reported to the user, not debugged by other specialists.",
+  "models": [
+    "MiniMax-M3"
+  ],
+  "run": {
+    "stub_specialists": true
+  },
+  "cases": [
+    {
+      "name": "specialist_infra_error_is_reported_not_debugged",
+      "query": "what is gmv of wish in last month",
+      "expected_decision": "delegate",
+      "expected_routes": [
+        "warehouse"
+      ],
+      "max_delegations": 2,
+      "stub_results": {
+        "warehouse": {
+          "status": "failed",
+          "summary": "I couldn't get the GMV: the warehouse query could not run. Exact error: no approved SQL in state"
+        }
+      }
+    }
+  ]
+}

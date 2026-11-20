@@ -9,12 +9,12 @@ A typical flow to find a metric for a user request:
 4. Pick the model with the highest ``related_ratio``, or let the LLM choose
    using each model's description.
 
-Data files live in ``lib/``:
+Locations come from ``config/semantic.toml`` (defaults shown):
 
-- ``final_root.csv``            pipe-delimited metric roots
-- ``root_member.csv``           pipe-delimited members of each root
-- ``root_member_assign.json``   model -> metrics, each tagged with root/member
-- ``models/<db>/<model>.{yml,sql}``  dbt model definitions
+- ``config/metrics/final_root.csv``           pipe-delimited metric roots
+- ``config/metrics/root_member.csv``          pipe-delimited members of each root
+- ``config/metrics/root_member_assign.json``  model -> metrics, tagged with root/member
+- ``semantic_models/<db>/<model>.{yml,sql}``  dbt model definitions
 
 Everything is loaded lazily on first use and cached.
 """
@@ -36,13 +36,24 @@ from langchain_core.tools import tool
 from langgraph.prebuilt import ToolRuntime
 from langgraph.types import Command
 
+from settings.semantic_config import get_semantic_paths
 from tools.registry import alternative_tool, encode_tool_summary, register_tool
 
-LIB_DIR = Path(__file__).parent / "lib"
-MODELS_DIR = LIB_DIR / "models"
-ROOTS_PATH = LIB_DIR / "final_root.csv"
-MEMBERS_PATH = LIB_DIR / "root_member.csv"
-ASSIGN_PATH = LIB_DIR / "root_member_assign.json"
+
+def models_dir() -> Path:
+    return get_semantic_paths().models_dir
+
+
+def roots_path() -> Path:
+    return get_semantic_paths().metric_root
+
+
+def members_path() -> Path:
+    return get_semantic_paths().metric_member
+
+
+def assign_path() -> Path:
+    return get_semantic_paths().metric_assign
 
 
 def _split_list(value: str) -> list[str]:
@@ -124,14 +135,14 @@ def load_roots() -> dict[str, Root]:
             not_a=_split_list(row["not_a"]),
             aliases=_split_list(row["aliases"]),
         )
-        for row in _read_pipe_csv(ROOTS_PATH)
+        for row in _read_pipe_csv(roots_path())
     }
 
 
 @lru_cache(maxsize=1)
 def load_members() -> dict[str, list[Member]]:
     members: dict[str, list[Member]] = defaultdict(list)
-    for row in _read_pipe_csv(MEMBERS_PATH):
+    for row in _read_pipe_csv(members_path()):
         members[row["root_id"]].append(
             Member(
                 root_id=row["root_id"],
@@ -159,7 +170,7 @@ def load_root_member_assign() -> tuple[
     ``by_root_member``: (root_id, member_id) -> assignments, sorted by
     ``related_ratio`` descending.
     """
-    with ASSIGN_PATH.open("r", encoding="utf-8") as f:
+    with assign_path().open("r", encoding="utf-8") as f:
         data = json.load(f)
 
     models: dict[str, tuple[str, list[MetricAssignment]]] = {}
@@ -193,12 +204,12 @@ def load_root_member_assign() -> tuple[
 @lru_cache(maxsize=1)
 def _model_index() -> dict[str, Path]:
     """Model name -> yml path, scanning ``models/<db>/*.yml``."""
-    return {p.stem: p for p in sorted(MODELS_DIR.glob("*/*.yml"))}
+    return {p.stem: p for p in sorted(models_dir().glob("*/*.yml"))}
 
 
 @lru_cache(maxsize=None)
 def load_model(model_name: str) -> Model | None:
-    """Load a dbt model's yml spec (and locate its sql) from ``lib/models``."""
+    """Load a dbt model's yml spec (and locate its sql) from the semantic models dir."""
     yml_path = _model_index().get(model_name)
     if yml_path is None:
         return None
@@ -245,7 +256,7 @@ def lookup_models_metrics(
     """Models assigned to ``(root_id, member_id)``, highest ``related_ratio`` first.
 
     Each item pairs the loaded dbt model (``None`` if its files are missing
-    from ``lib/models``) with the metric assignment that matched.
+    from the semantic models dir) with the metric assignment that matched.
     """
     _, by_root_member = load_root_member_assign()
     return [
@@ -523,4 +534,46 @@ def find_models_metrics(
     )
 
 
-TOOLS = [search_metric_catalog, find_models_metrics]
+def _model_summary(card: dict[str, Any]) -> dict[str, Any]:
+    """A model as a knowledge answer needs it: what it is and how it computes the metric."""
+    ref = _staging_ref(card)
+    ref.pop("staging_id", None)
+    ref["matched_metrics"] = [
+        {k: m.get(k) for k in ("metric", "related_ratio", "agg", "confidence", "description", "evidence")}
+        for m in card.get("matched_metrics", [])
+    ]
+    return ref
+
+
+@register_tool
+@tool(
+    description=(
+        "Read-only: the dbt models that the curated metric catalog maps to a metric "
+        "`root_id` + `member_id` (resolve both with `search_metric_catalog` first), "
+        "and how each computes it: physical table, description, time column, "
+        "dimensions and the matched metric's aggregation, description and evidence. "
+        "For answering what a metric is and where it is calculated; stages nothing "
+        "and runs no SQL."
+    )
+)
+def describe_metric_models(root_id: str, member_id: str, limit: int = 8) -> str:
+    """Catalog lookup for knowledge answers; unlike ``find_models_metrics`` it writes no state."""
+    cards, message = find_models_metrics_cards(root_id, member_id, limit)
+    # Drop the staging pipeline's fallback hints (fetch_related_models).
+    message = re.split(r",? or fall back| Fall back", message)[0].rstrip(".") + "."
+    if cards:
+        message = (
+            f"{len(cards)} model(s) compute {root_id}/{member_id}. related_ratio is the "
+            "catalog's curated preference among them."
+        )
+    return encode_tool_summary(
+        {
+            "root_id": root_id,
+            "member_id": member_id,
+            "models": [_model_summary(c) for c in cards],
+            "message": message,
+        }
+    )
+
+
+TOOLS = [search_metric_catalog, find_models_metrics, describe_metric_models]

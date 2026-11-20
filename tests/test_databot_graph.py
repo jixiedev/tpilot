@@ -17,7 +17,7 @@ from langgraph.types import Command
 
 from agent.specialists.databot.gates import NOTHING_TO_REVIEW_CARDS, NOTHING_TO_REVIEW_SQL
 from agent.specialists.databot.graph import DatabotGraphBuilder
-from config.agent_config import DatabotAgentConfig, agent_config_path
+from settings.agent_config import DatabotAgentConfig, agent_config_path
 from agent.specialists.databot.graph import (
     LAYER_PREPARE_CARDS,
     LAYER_SUMMARY,

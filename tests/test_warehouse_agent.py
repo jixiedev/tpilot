@@ -18,7 +18,7 @@ from agent.specialists.warehouse.tools import (
     sql_fingerprint,
 )
 from agent.subagent import SubagentTask
-from config.agent_config import WarehouseAgentConfig, agent_config_path
+from settings.agent_config import WarehouseAgentConfig, agent_config_path
 from memory.profile_store import FileProfileStore
 from tests.test_lead_agent import _call, _ScriptedModel
 
@@ -309,7 +309,7 @@ def test_datahub_limited_to_table_docs_and_lineage(tmp_path) -> None:
     from langchain_core.tools import tool
 
     from agent.specialists.warehouse.warehouse_agent import WAREHOUSE_DATAHUB_TOOLS
-    from config.agent_config import agent_tool_scopes
+    from settings.agent_config import agent_tool_scopes
 
     def fake(name: str):
         @tool(name)

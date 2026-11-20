@@ -9,7 +9,7 @@ from agent.runtime import (
     TahoeSystemPrompt,
 )
 from agent.prompt import SystemPromptAssembler
-from config.agent_config import AgentConfig, DatabotAgentConfig, agent_config_path
+from settings.agent_config import AgentConfig, DatabotAgentConfig, agent_config_path
 from memory.profile import UserProfile
 
 
@@ -85,8 +85,9 @@ def test_databot_owns_data_and_retrieval_sections() -> None:
     assert "Data retrieval practices:" in text
     assert "candidate tables" in text
     assert "Databot" in text
-    assert "glossary terms" in text
-    assert "entity_type = GLOSSARY_TERM" in text
+    # Metric definitions come from the metric catalog, not the DataHub glossary.
+    assert "search_metric_catalog" in text
+    assert "entity_type = GLOSSARY_TERM" not in text
     assert len(text) > len(TAHOE_SYSTEM_PROMPT)
     fetch_next = (DatabotAgentConfig(agent_config_path("databot")).run_context.get("react") or {})["fetch"]["next_step"]
     assert "commit_cards" in fetch_next

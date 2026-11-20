@@ -153,6 +153,7 @@ export function agentLabel(name: string | undefined): string {
     diagnostic: "Diagnostic",
     data_analysis: "Data analysis",
     swe: "SWE",
+    model_selection: "Model selection",
   };
   if (!name) return "Specialist";
   return labels[name] ?? name;

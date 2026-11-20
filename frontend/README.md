@@ -11,6 +11,8 @@ Related docs:
 | Databot pipeline, gates, UI action semantics | [agent/specialists/databot/README.md](../agent/specialists/databot/README.md) |
 | Local config, paths, checkpoint DB location | [config/README.md](../config/README.md) |
 | System overview | [docs/ARCHITECTURE.md](../docs/ARCHITECTURE.md) |
+| Request path and state per component (browser → Next.js → AG-UI → graph) | [docs/FRONTEND_BACKEND.md](../docs/FRONTEND_BACKEND.md) |
+| Checkpoints, gate interrupts and resume | [docs/INTERRUPTS_AND_CHECKPOINTS.md](../docs/INTERRUPTS_AND_CHECKPOINTS.md) |
 
 ## Basic concepts
 
@@ -46,7 +48,7 @@ Both agents pause for the user with LangGraph `interrupt(...)`. The payload is `
 
 ### Threads
 
-A thread is one conversation. CopilotKit owns the thread id (`agent.threadId`); it is sent as `thread_id` in every AG-UI request and UI action, and it is the LangGraph checkpoint key. Conversation state lives in the SQLite checkpoint DB (`get_local_paths().checkpoint_db`, overridable with `TAHOEPILOT_CHECKPOINT_DB` or `AGUI_CHECKPOINT_DB`). The Next.js side uses `InMemoryAgentRunner`, which holds only UI thread metadata and is lost on restart. "+ New chat" (`DatabotNewChatButton`, given the page's `agentId` and reset function) calls `startNewThread()` to mint a new thread id.
+A thread is one conversation. CopilotKit owns the thread id (`agent.threadId`); it is sent as `thread_id` in every AG-UI request and UI action, and it is the LangGraph checkpoint key. Conversation state lives in the SQLite checkpoint DB (`get_runtime_paths().checkpoint_db`, set by `[paths]` in `config/runtime.toml`). The Next.js side uses `InMemoryAgentRunner`, which holds only UI thread metadata and is lost on restart. "+ New chat" (`DatabotNewChatButton`, given the page's `agentId` and reset function) calls `startNewThread()` to mint a new thread id.
 
 ### CopilotKit agent ids
 
@@ -80,7 +82,7 @@ The databot page receives `DatabotState` at the top level. Databot's gates pause
 
 ## Design philosophy
 
-- **Single backend process.** `langgraph dev` loads `agui_server.py:app` through the `http.app` field of `langgraph.json` and mounts it beside its own LangGraph API routes. There is no separate AG-UI deployment; port 8000 serves both. `python agui_server.py` exists only as a standalone fallback (uvicorn, `AGUI_HOST` / `AGUI_PORT`).
+- **Single backend process.** `langgraph dev` loads `agui_server.py:app` through the `http.app` field of `langgraph.json` and mounts it beside its own LangGraph API routes. There is no separate AG-UI deployment; port 8000 serves both. `python agui_server.py` exists only as a standalone fallback (uvicorn, `[agui].host` / `port` in `config/server.toml`); the Docker image uses it.
 - **Next.js is a thin proxy.** The browser only talks to Next.js (`/api/copilotkit/*`, `/api/databot/actions`). Both route handlers forward server-side to `AGUI_BACKEND_URL`, so the FastAPI app needs no CORS setup.
 - **One graph per front agent, one agent clone per request.** `make_runtimes()` creates one `AguiRuntime` per name in `FRONT_AGENTS` (`app.state.runtimes`). Each builds its compiled graph once (lead wrapped in `LeadGraphView`, databot in `DatabotGraphView`) on the shared `CheckpointStore` (one long-lived `aiosqlite` connection behind `AsyncSqliteSaver`). Each request calls `runtime.agent.clone()`, because `LangGraphAgent` keeps per-run state in `self.active_run` and a shared instance breaks under concurrency.
 - **Every stream ends with a terminal event.** `_stream_events()` guarantees the client sees `RUN_FINISHED` or `RUN_ERROR`, so the chat never hangs on a half-closed stream.
@@ -221,11 +223,11 @@ With no databot run on the thread the endpoint returns 409 `no databot run on th
 ### Backend details
 
 - **`AguiRuntime`.** `make_runtimes()` creates one per front agent at import (`app.state.runtimes`, keyed by name), each with `_make_agent(name)` and its builder from `GRAPH_BUILDERS`. The agent starts with a `_DummyCompiledGraph` placeholder because `langgraph dev` imports the module before an event loop exists. `ensure_built()` builds the real graph once under an `asyncio.Lock` (via `AgentCatalog`, with the shared `CHECKPOINTS` saver and `max_tool_calls=30`) and swaps it into the agent. An unknown agent name returns 404.
-- **Lifespan.** `_lifespan` runs `ensure_local_dirs()`, builds every graph eagerly so a broken setup fails startup, and closes the runtimes and the checkpoint connection on shutdown. `langgraph dev` only accepts a single `lifespan=` (no `on_startup` handlers). The endpoints also call `ensure_built()`, so a request never runs against the placeholder.
+- **Lifespan.** `_lifespan` runs `ensure_runtime_dirs()`, builds every graph eagerly so a broken setup fails startup, and closes the runtimes and the checkpoint connection on shutdown. `langgraph dev` only accepts a single `lifespan=` (no `on_startup` handlers). The endpoints also call `ensure_built()`, so a request never runs against the placeholder.
 - **`LeadGraphView`.** Wraps the compiled lead graph for the adapter: `aget_state` on the root namespace overlays `active_subagent` with the live view of a specialist paused at a review (best effort; errors are logged and the plain snapshot is returned). Everything else is forwarded to the compiled graph. The lead's turn-start node adds the persona and specialist roster on the first web turn, because AG-UI sends only chat messages.
 - **`DatabotGraphView`.** Same idea for databot: on the root namespace (and without `subgraphs`), `aget_state` merges the paused layer's `ui_view` fields over the root snapshot's values.
-- **`subagent_visibility`** (`AGUI_SUBAGENT_VISIBILITY`, default `inline`) controls how a delegated specialist's own stream reaches the lead page. `inline` streams its text and tool calls as the lead's work, so warehouse's tool cards render live; the end-of-run messages snapshot keeps only the lead's messages, so the specialist's work then stays visible through the workspace. `hidden` shows only the `delegate` call and its result. `attributed` adds `SUBAGENT_*` events, which `@ag-ui/client` 0.0.57 rejects.
-- **`emit_raw_events`** (`AGUI_EMIT_RAW_EVENTS`, default off) attaches the adapter's raw LangGraph events to every AG-UI event; it multiplies the stream size and nothing in the frontend reads it.
+- **`subagent_visibility`** (`[agui].subagent_visibility` in `config/server.toml`, default `inline`) controls how a delegated specialist's own stream reaches the lead page. `inline` streams its text and tool calls as the lead's work, so warehouse's tool cards render live; the end-of-run messages snapshot keeps only the lead's messages, so the specialist's work then stays visible through the workspace. `hidden` shows only the `delegate` call and its result. `attributed` adds `SUBAGENT_*` events, which `@ag-ui/client` 0.0.57 rejects.
+- **`emit_raw_events`** (`[agui].emit_raw_events` in `config/server.toml`, default off) attaches the adapter's raw LangGraph events to every AG-UI event; it multiplies the stream size and nothing in the frontend reads it.
 - **`emit_interrupt_outcome=True`** attaches the interrupt outcome to `RUN_FINISHED` so CopilotKit v2 treats a paused run as pending, not finished. `enable_legacy_on_interrupt_event=False` drops the v1 `on_interrupt` custom event, which froze the chat panel.
 - **Why `ag_ui_langgraph.LangGraphAgent`, not `copilotkit.LangGraphAGUIAgent`.** In the pinned versions the latter's `__init__` breaks `agent.clone()`.
 - **Why a hand-rolled endpoint.** `ag_ui_langgraph.add_langgraph_fastapi_endpoint` has no hook for the deferred graph build and its signature changes between versions. `agui_endpoint` (`POST /agui/{agent_name}`) mirrors its body: build, clone, `EventEncoder(accept=...)`, `StreamingResponse`.
@@ -239,33 +241,37 @@ With no databot run on the thread the endpoint returns 409 `no databot run on th
 
 - Python 3.11 virtualenv at `.venv` with project dependencies (including `langgraph-cli`, which provides `.venv/bin/langgraph`).
 - Node.js and npm for the frontend; dependencies installed in `frontend/` (`npm install`, using `package-lock.json`).
-- Model and tool credentials in the repo-root `.env`.
+- Model and tool credentials in `secrets.env` (copy `secrets.env.example`), named by `TAHOEPILOT_SECRETS_FILE` in the repo-root `.env`.
 
 Key frontend dependencies: `next` 16.3.3, `react` 19.2.8, `@copilotkit/react-core` and `@copilotkit/runtime` (v2 APIs imported from `/v2` subpaths), `@ag-ui/client` (`HttpAgent`, `buildResumeArray`), `recharts`. Scripts in `package.json`: `dev`, `build`, `start`, `lint`.
 
 ### Environment
 
-Root `.env` (names only; loaded by `scripts/dev.sh` and by `langgraph dev`):
+Root `.env` (non-secret; loaded by `settings/paths.py`, `scripts/dev.sh` and `langgraph dev`): `TAHOEPILOT_CONFIG_DIR=config`, `TAHOEPILOT_SECRETS_FILE=secrets.env`, `HF_ENDPOINT`, `HF_HUB_DISABLE_XET`.
+
+`secrets.env` (names only; loaded by `settings/paths.py` and `scripts/dev.sh`):
 
 | Group | Keys |
 | --- | --- |
 | LLM providers | `MiniMax_API_KEY`, `GLM_API_KEY`, `OpenRouter_API_KEY`, `SenseNova_API_KEY`, `INTELLIGENCE_API_KEY` |
-| Tools | `TAVILY_API_KEY`, `DATAHUB_GMS_TOKEN`, `TRINO_PASSWORD`, `AIRFLOW_MCP_AUTH_TOKEN`, `AIRFLOW_LEGACY_MCP_AUTH_TOKEN` |
+| Tools | `TAVILY_API_KEY`, `DATAHUB_GMS_TOKEN`, `TRINO_USER`, `TRINO_PASSWORD`, `AIRFLOW_MCP_AUTH_TOKEN`, `AIRFLOW_LEGACY_MCP_AUTH_TOKEN` |
 | Tracing | `LANGSMITH_API_KEY` |
-| Hugging Face | `HF_ENDPOINT`, `HF_HUB_DISABLE_XET` |
 
 `scripts/dev.sh` re-exports `MiniMax_API_KEY GLM_API_KEY OpenRouter_API_KEY SenseNova_API_KEY TAVILY_API_KEY LANGSMITH_API_KEY` before starting `langgraph dev`, because background (`nohup`) children on macOS do not reliably inherit `set -a` exports.
 
-Web-stack variables (all optional):
+Web-stack settings live in `config/server.toml` (see [config/README.md](../config/README.md#servers-configservertoml)):
 
-| Variable | Read by | Default | Purpose |
+| Key | Read by | Default | Purpose |
 | --- | --- | --- | --- |
-| `AGUI_BACKEND_URL` | both Next.js route handlers (server-side) | `http://localhost:8000/agui` | AG-UI base URL: runs go to `<base>/lead` and `<base>/databot`, UI actions to `<base>/databot/actions`. |
-| `AGUI_AGENT_PATH` | `agui_server.py` | `/agui` | Base path; each front agent is mounted at `<base>/<name>`. Change `AGUI_BACKEND_URL` to match. |
-| `AGUI_HOST`, `AGUI_PORT` | `agui_server.py` `main()` only | `127.0.0.1`, `8000` | Bind address for standalone `python agui_server.py`. |
-| `TAHOEPILOT_CHECKPOINT_DB`, `AGUI_CHECKPOINT_DB` | `config/local_config.py` | `<data dir>/checkpoints.sqlite` | Checkpoint DB path. |
-| `AGUI_SUBAGENT_VISIBILITY` | `agui_server.py` | `inline` | How a delegated specialist's stream reaches the client (`inline`, `hidden`, `attributed`); see Backend details. |
-| `AGUI_EMIT_RAW_EVENTS` | `agui_server.py` | off | `1` / `true` / `yes` attaches raw LangGraph events to the stream (debugging only). |
+| `[agui].path` | `agui_server.py` | `/agui` | Base path; each front agent is mounted at `<path>/<name>`. Keep `[frontend].backend_url` in step. |
+| `[agui].host`, `[agui].port` | `agui_server.py` `main()` only | `0.0.0.0`, `8000` | Bind address for standalone `python agui_server.py` (the Docker image). |
+| `[agui].subagent_visibility` | `agui_server.py` | `inline` | How a delegated specialist's stream reaches the client (`inline`, `hidden`, `attributed`); see Backend details. |
+| `[agui].emit_raw_events` | `agui_server.py` | `false` | Attaches raw LangGraph events to the stream (debugging only). |
+| `[agui].user_header` | `agui_server.py` | `X-Tahoepilot-User` | Request header naming the visitor; becomes the run's `user_id`. The ingress must set it (CopilotKit forwards `x-*` headers); without it the thread's stored id, then `[user].default_id`, is used. |
+| `[auth].*` | `agui_auth.py`, `agui_server.py`; `TAHOEPILOT_AUTH_ENABLED` for `proxy.ts` | `enabled = false` | Login page (`/login`): LDAP checks the password, only the username is kept. See [docs/FRONTEND_BACKEND.md](../docs/FRONTEND_BACKEND.md#login-page). |
+| `[frontend].host`, `port`, `backend_url` | `docker/entrypoint.sh` → Next.js `HOSTNAME`, `PORT`, `AGUI_BACKEND_URL` | `0.0.0.0`, `3000`, `http://127.0.0.1:8000/agui` | AG-UI base URL: runs go to `<base>/lead` and `<base>/databot`, UI actions to `<base>/databot/actions`. |
+
+Under `next dev` the route handlers read `AGUI_BACKEND_URL` from the environment (default `http://localhost:8000/agui`). The checkpoint DB path is `[paths].checkpoint_db` in `config/runtime.toml`.
 
 The frontend uses no `NEXT_PUBLIC_*` variables; the browser only calls same-origin `/api/*` routes.
 
@@ -301,7 +307,7 @@ Backend tests for this layer: `.venv/bin/python -m pytest tests/test_agui_server
 | Symptom | Likely cause / where to look |
 | --- | --- |
 | `langgraph dev` fails at startup with a graph/build error | `_lifespan` builds the graph eagerly; check `.run/langgraph.log` for catalog, model or checkpoint errors (missing API key, unwritable data dir). |
-| `/agui/lead` or `/agui/databot` returns 404 | `http.app` in `langgraph.json` not loaded, `AGUI_AGENT_PATH` differs from `AGUI_BACKEND_URL`, or the agent name is not in `FRONT_AGENTS`. |
+| `/agui/lead` or `/agui/databot` returns 404 | `http.app` in `langgraph.json` not loaded, `[agui].path` in `server.toml` differs from `AGUI_BACKEND_URL`, or the agent name is not in `FRONT_AGENTS`. |
 | Chat shows `INCOMPLETE_STREAM` | The agent stream ended without `RUN_FINISHED` / `RUN_ERROR`; look for the run in the backend log. |
 | Chat shows `AGENT_RUNTIME_ERROR: <ExceptionType>: ...` | Exception inside the run (often an LLM provider error); full traceback is logged as `agui_endpoint: unhandled exception`. |
 | Follow-up shows `JSONDecodeError: Extra data` | The resent tool-call `arguments` held two JSON values. `AguiHistoryRepair` rewrites that to one object before the run starts; restart the backend if the log line `Repaired tool-call arguments` is absent (the process is still on the old code). |

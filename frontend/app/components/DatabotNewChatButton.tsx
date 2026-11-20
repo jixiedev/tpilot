@@ -5,6 +5,7 @@ import type { AbstractAgent } from "@ag-ui/client";
 import { resetDatabotAgentView } from "./databotClientReset";
 import { useDatabotSession } from "./DatabotSessionContext";
 import { DATABOT_AGENT_ID } from "./databotAgent";
+import { PlusIcon } from "./icons";
 
 type DatabotNewChatButtonProps = {
   className?: string;
@@ -48,7 +49,8 @@ export function DatabotNewChatButton({
           : "Start a new conversation (new thread)"
       }
     >
-      + New chat
+      <PlusIcon size={15} strokeWidth={2.4} />
+      <span>New chat</span>
     </button>
   );
 }

@@ -153,7 +153,7 @@ def test_databot_history_state_prefers_memory_history_cards(tmp_path) -> None:
 
     from agent.listener import CliReactListener
     from agent.specialists.databot.databot_agent import DatabotAgent
-    from config.agent_config import DatabotAgentConfig, agent_config_path
+    from settings.agent_config import DatabotAgentConfig, agent_config_path
     from memory.profile_store import FileProfileStore
     from memory.session_runtime import SessionRuntime
     from tests.minimal_chat_model import MinimalChatModel

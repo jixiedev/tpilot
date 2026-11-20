@@ -1,22 +1,47 @@
+# Retrieval (RAG) settings, read by rag/config.py: Qdrant, local embedding and
+# rerank models, the model weight cache, and Tika for document ingest.
+
 [qdrant]
+# Qdrant vector database URL (REST port).
 url = "http://localhost:6333"
+# Inline API key fallback; prefer the env variable below. Empty = no auth.
 api_key = ""
+# Env variable holding the Qdrant API key (secret).
 api_key_env = "QDRANT_API_KEY"
+# Client timeout per Qdrant request, in seconds.
 timeout_seconds = 30.0
 
 [embedding]
 # Local BGE-M3 via FlagEmbedding (dense + sparse). Remote embedding APIs are not used.
+# Hugging Face repo id, or a local directory that already holds the weights.
 model = "BAAI/bge-m3"
+# Dense vector dimension; must match the model and existing Qdrant collections.
 vector_size = 1024
-# Optional device override: "", "cpu", "cuda", "mps" (avoid "mps:0" — sparse breaks)
-# On macOS, unset device defaults to mps (not mps:0 — sparse breaks). Use cpu if needed.
+# Device override: "", "cpu", "cuda", "mps" (avoid "mps:0" — sparse breaks).
+# Empty picks automatically (mps on macOS). Use cpu if needed.
 device = ""
-# Keep local encode memory bounded (Jira descriptions can be huge).
-# 512 tokens ≈ safe on CPU/MPS; raise only if you have spare GPU RAM.
+# Token cap per text when encoding; keeps local encode memory bounded (Jira
+# descriptions can be huge). 512 is safe on CPU/MPS; raise only with spare GPU RAM.
 max_seq_length = 512
+# Chunk size in characters at ingest, and the final truncation guard.
 max_chars = 2000
+# Texts per encode / upsert batch (also the reranker batch size).
 batch_size = 8
 
 [rerank]
+# Cross-encoder applied after hybrid retrieval. Empty string disables rerank.
 model = "BAAI/bge-reranker-v2-m3"
+# Candidates fetched per prefetch (dense and sparse) before fusion and rerank.
 prefetch_limit = 50
+
+[local_models]
+# Cache for embedding/rerank weights (`python -m rag download`). Absolute, ~, or
+# relative to the project root.
+dir = "~/.cache/tahoepilot/models"
+# Hugging Face endpoint (e.g. "https://hf-mirror.com"); empty = huggingface.co, then
+# the mirror on failure.
+hf_endpoint = "https://hf-mirror.com"
+
+[tika]
+# Apache Tika server that extracts text from non-markdown documents during ingest.
+endpoint = "http://localhost:9998"

@@ -12,9 +12,9 @@ from pathlib import Path
 from langchain_core.tools import BaseTool
 from langchain_mcp_adapters.client import MultiServerMCPClient
 
-from config.local_config import get_local_paths
+from settings.runtime_config import get_runtime_paths
+from settings.paths import config_file
 
-_CONFIG_PATH = Path(__file__).resolve().parent / "mcp.json"
 _ENV_VAR_RE = re.compile(r"\$\{([^}]+)\}")
 _logger = logging.getLogger(__name__)
 
@@ -48,7 +48,7 @@ def _redirect_stdio_server_stderr(log_file: Path | None = None) -> None:
     if _stdio_stderr_redirected:
         return
 
-    resolved = log_file or get_local_paths().log_file
+    resolved = log_file or get_runtime_paths().log_file
 
     import mcp.client.stdio as mcp_stdio
 
@@ -91,7 +91,7 @@ def _expand_config(value):
 
 
 def mcp_config_path() -> Path:
-    return _CONFIG_PATH
+    return config_file("mcp.json")
 
 
 def load_mcp_config() -> dict:
@@ -152,7 +152,7 @@ def get_client() -> MultiServerMCPClient:
 async def get_mcp_tools() -> list[BaseTool]:
     """Load MCP tools; return an empty list when config is missing or unreachable."""
     if not mcp_config_path().is_file():
-        _logger.info("MCP config not found at %s; skipping MCP tools", _CONFIG_PATH)
+        _logger.info("MCP config not found at %s; skipping MCP tools", mcp_config_path())
         return []
 
     try:

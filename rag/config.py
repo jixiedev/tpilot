@@ -36,8 +36,24 @@ class RerankConfig(BaseModel):
     prefetch_limit: int = 50
 
 
+class LocalModelsConfig(BaseModel):
+    """Where embedding/rerank weights are cached (``python -m rag models``)."""
+
+    dir: str = "~/.cache/tahoepilot/models"
+    # Hugging Face endpoint (e.g. a mirror); empty = huggingface.co, then the mirror on failure.
+    hf_endpoint: str = ""
+
+
+class TikaConfig(BaseModel):
+    """Apache Tika server used to extract text from non-markdown documents."""
+
+    endpoint: str = "http://localhost:9998"
+
+
 class RagConfig(BaseModel):
     qdrant: QdrantConfig = Field(default_factory=QdrantConfig)
+    local_models: LocalModelsConfig = Field(default_factory=LocalModelsConfig)
+    tika: TikaConfig = Field(default_factory=TikaConfig)
     embedding: EmbeddingConfig = Field(default_factory=EmbeddingConfig)
     rerank: RerankConfig = Field(default_factory=RerankConfig)
 
@@ -50,15 +66,6 @@ def _env_or(value: str, env_name: str | None) -> str:
     return value.strip()
 
 
-def _reject_remote_embedding_provider() -> None:
-    raw = os.environ.get("EMBEDDING_PROVIDER", "").strip().lower()
-    if raw and raw not in {"local"}:
-        raise ValueError(
-            "RAG embeddings are local BGE-M3 only (dense + sparse). "
-            f"Unset EMBEDDING_PROVIDER (got {raw!r})."
-        )
-
-
 def resolve_qdrant_api_key(cfg: QdrantConfig | None = None) -> str | None:
     qdrant = cfg or get_rag_config().qdrant
     key = _env_or(qdrant.api_key, qdrant.api_key_env)
@@ -67,51 +74,17 @@ def resolve_qdrant_api_key(cfg: QdrantConfig | None = None) -> str | None:
 
 @lru_cache(maxsize=1)
 def get_rag_config() -> RagConfig:
-    """Load ``config/rag.toml`` when present; otherwise env/defaults only."""
-    from pathlib import Path
+    """Load ``<config dir>/rag.toml``; defaults when the file is missing.
+
+    The file is the only source: only the Qdrant API key may come from the
+    environment (``[qdrant].api_key_env``).
+    """
     import tomllib
 
-    _reject_remote_embedding_provider()
-    path = Path(__file__).resolve().parents[1] / "config" / "rag.toml"
-    if not path.is_file():
-        return RagConfig(
-            qdrant=QdrantConfig(
-                url=os.environ.get("QDRANT_URL", "http://localhost:6333").strip()
-                or "http://localhost:6333",
-            ),
-            embedding=EmbeddingConfig(
-                model=os.environ.get("EMBEDDING_MODEL", "").strip()
-                or EmbeddingConfig().model,
-                vector_size=int(
-                    os.environ.get("EMBEDDING_VECTOR_SIZE", "")
-                    or EmbeddingConfig().vector_size
-                ),
-                device=os.environ.get("EMBEDDING_DEVICE", "").strip()
-                or EmbeddingConfig().device,
-            ),
-        )
+    from settings.paths import config_file
 
+    path = config_file("rag.toml")
+    if not path.is_file():
+        return RagConfig()
     with path.open("rb") as f:
-        raw = tomllib.load(f)
-    cfg = RagConfig.model_validate(raw)
-    # Env overrides for local docker / secrets.
-    url = os.environ.get("QDRANT_URL", "").strip()
-    if url:
-        cfg = cfg.model_copy(
-            update={"qdrant": cfg.qdrant.model_copy(update={"url": url})}
-        )
-    emb_model = os.environ.get("EMBEDDING_MODEL", "").strip()
-    emb_size = os.environ.get("EMBEDDING_VECTOR_SIZE", "").strip()
-    emb_device = os.environ.get("EMBEDDING_DEVICE", "").strip()
-    emb_updates: dict[str, object] = {}
-    if emb_model:
-        emb_updates["model"] = emb_model
-    if emb_size:
-        emb_updates["vector_size"] = int(emb_size)
-    if emb_device:
-        emb_updates["device"] = emb_device
-    if emb_updates:
-        cfg = cfg.model_copy(
-            update={"embedding": cfg.embedding.model_copy(update=emb_updates)}
-        )
-    return cfg
+        return RagConfig.model_validate(tomllib.load(f))

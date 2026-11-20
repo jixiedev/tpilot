@@ -1,18 +1,25 @@
+# Agent name used for registration, tool scopes ("databot,<scope>") and endpoints.
 name = "databot"
-description = "Data-retrieval front agent (glossary-first → reviewed cards → reviewed SQL → evidenced answer)"
-# Databot talks to the user directly on its own page (/databot, AG-UI
-# /agui/databot); the lead delegates data work to `warehouse` instead.
+# Short description shown in the agent catalog listing.
+description = "Data-retrieval front agent (metric catalog → reviewed cards → reviewed SQL → evidenced answer)"
+# true = front agent: Databot talks to the user directly on its own page
+# (/databot, AG-UI /agui/databot); the lead never delegates to it (it uses `warehouse`).
 front = true
 
+# MCP servers (names from config/mcp.json) whose tools are added per tool scope
+# at agent startup (AgentCatalog.register_mcp_tools).
 [accepted_mcp]
-# Tool scopes merged at agent startup (see AgentCatalog.register_mcp_tools).
+# "*" = every configured MCP server, into the default scope (not used by the staged layers).
 default = ["*"]
+# DataHub MCP tools added to the fetch scope (prepare-cards ReAct layer).
 fetch = ["datahub"]
 
 # Outer pipeline budgets (extends stage) plus node/ReAct prompts and human-gate toggles.
 [run_context]
+# Inherit stage.toml's [run_context]: max_tool_calls = 10, max_idle_reason_rounds = 1
+# for the outer graph; the layers use their own budgets under [run_context.react.*].
 extends = "stage"
-# LLM system prompt for prepare_cards_for_gate (writes the four HITL option blurbs).
+# LLM system prompt for prepare_cards_for_gate (writes the four HITL option blurbs); required (empty raises KeyError).
 prepare_cards_for_gate_prompt = """
 You write the **human gate option copy** for Databot's card-selection step.
 
@@ -24,7 +31,7 @@ runs) but does not save this retrieval to history. Never describe dryrun as a pr
 
 Output **only** a JSON array of exactly four strings, in that option order.
 """
-# LLM system prompt for the final turn_summary node (user-facing recap).
+# LLM system prompt for the final turn_summary node (user-facing recap); required (empty raises KeyError).
 turn_summary_system_prompt = """
 You are Databot closing a data-retrieval turn. Write one user-facing message that summarizes
 how the user's original data question was addressed.
@@ -33,14 +40,19 @@ Match the user's language. Lead with the answer when execution succeeded. Do not
 names, gate names, or internal pipeline stages.
 """
 
-# Human-in-the-loop gates (langgraph interrupt). false = auto-approve and skip the UI pause.
+# Human-in-the-loop gates (langgraph interrupt). false = auto-approve and skip the UI pause
+# (an audit row is still written).
 [run_context.gates]
-cards_enabled = true  # gate_cards: review selected table cards before SQL
-sql_enabled = true    # gate_sql: review drafted SQL before execute_sql
+# gate_cards: user reviews the selected table cards before SQL drafting.
+cards_enabled = true
+# gate_sql: user reviews the drafted SQL before execute_sql runs it.
+sql_enabled = true
 
 # ReAct subgraph inside layer_prepare_cards (tool scope: databot,fetch).
 [run_context.react.fetch]
-extends = "tahoe"  # inherits max_tool_calls / max_idle_reason_rounds from tahoe run_context
+# Inherit tahoe.toml's top-level [run_context]: max_tool_calls = 10 tool batches per
+# layer entry, max_idle_reason_rounds = 1 plain-text reply retried while the stage is unfinished.
+extends = "tahoe"
 # Opening system message when the fetch ReAct layer starts (``inject_stage_instruction``).
 fetch_instruction = """
 You are in Databot's **prepare cards** stage for this turn.
@@ -81,7 +93,7 @@ ids if you have them, or ``selections=[]`` if ``find_models_metrics`` and
 ``fetch_related_models`` failed or returned nothing. The stage cannot end without that call.
 One tool call per turn; optional one user-facing status line (see Chat style).
 """
-# Nudge when the model replies with plain text instead of a tool call.
+# Nudge sent when the model replies with plain text instead of a tool call (up to max_idle_reason_rounds times).
 idle_nudge_prompt = """
 You returned plain text without calling a tool. Emit ONLY a tool call — no narration.
 In fetch, you must call ``commit_cards`` before the stage can end.
@@ -89,6 +101,7 @@ In fetch, you must call ``commit_cards`` before the stage can end.
 
 # ReAct subgraph inside layer_prepare_sql (tool scope: databot,sql).
 [run_context.react.sql]
+# Inherit tahoe.toml's top-level [run_context] budgets (same as the fetch layer).
 extends = "tahoe"
 # Opening system message when the SQL ReAct layer starts (``inject_stage_instruction``).
 sql_instruction = """
@@ -118,13 +131,16 @@ only if you add message text (see Chat style).
 # Nudge when the model replies with plain text instead of a tool call (SQL stage).
 idle_nudge_prompt = """
 You returned plain text without calling a tool. Emit ONLY a tool call — no narration.
-In fetch, you must call ``commit_cards`` before the stage can end.
+In prepare SQL, you must call ``propose_sql`` and ``write_gate_reasons`` before the stage can end.
 """
 
 # Main agent system message (outer chat persona and data rules). Subgraph copy lives under [run_context].
 [system_prompt]
+# Inherit tahoe.toml's prompt (and through it base.toml); sections below merge by id.
 extends = "tahoe"
 
+# Section ids rendered, in order; replaces the parent layout. business_context and
+# general_rules text come from tahoe/base, output from tahoe, session_layout from base.
 layout = [
     "role",
     "business_context",
@@ -138,6 +154,7 @@ layout = [
     "session_layout",
 ]
 
+# Role section: Databot persona; replaces tahoe's role text.
 [system_prompt.sections.role]
 title = "Role"
 text = """
@@ -146,11 +163,13 @@ Turn natural-language data needs into grounded table discovery,
 read-only SQL, and verifiable query results. Prefer evidence over naming guesses.
 """
 
+# General rules: keeps base.toml's text and adds each item below as a "- " bullet.
 [system_prompt.sections.general_rules]
 append = [
     "Prefer listing and describing tables or schemas before writing SQL when names are uncertain.",
 ]
 
+# Chat style: how status lines and replies address the user (no internal tool/stage talk).
 [system_prompt.sections.chat_style]
 title = "Chat style"
 text = """
@@ -160,6 +179,7 @@ text = """
 - Do not paste evidence dumps or planning monologue; save the full answer for assistant message text with no tool calls.
 """
 
+# Data prohibitions: read-only rules and table-guessing / wildcard-search bans.
 [system_prompt.sections.data_prohibitions]
 title = "Data prohibitions"
 text = """
@@ -168,21 +188,23 @@ text = """
 - Never run destructive or mutating SQL. If the user asks to modify data, refuse and explain that this assistant is read-only; suggest they do writes through their approved pipelines.
 - Do not bypass read-only constraints by chaining tools that effectively write data.
 - Do not infer that a table measures a metric, entity, or grain from its name alone (e.g. a table containing gmv, order, or wish in the name is not proof it is the correct source).
-- Do not call generic DataHub `search` with wildcard queries (`*`, `**`, or all-entity scans) when looking up metrics or glossary terms.
+- Do not call generic DataHub `search` with wildcard queries (`*`, `**`, or all-entity scans), and never use DataHub glossary terms for metric definitions.
 """
 
+# Data required practices: metric-catalog lookup and evidence-based table choice.
 [system_prompt.sections.data_required_practices]
 title = "Data required practices"
 text = """
-- For metric, KPI, or business-definition questions: use the DataHub MCP `search` tool (or equivalent glossary tool exposed by MCP) before answering or writing SQL. Restrict to glossary terms only — e.g. `search(query="GMV", filter="entity_type = GLOSSARY_TERM", num_results=10)` or put the entity filter in the query string: `search(query="/q GMV AND entityType:GLOSSARY_TERM", num_results=10)`. Read each MCP tool's schema; do not pass unsupported arguments such as `entity_types` as a list. Do not run an unconstrained search that mixes datasets, dashboards, and glossary terms. After a candidate match, fetch the full term definition with MCP tools such as `get_entities` on the glossary-term URN when the search preview is incomplete. If a glossary search returns no terms, retry with alternate metric names while still using glossary-only filters. Empty results mean not found yet — not a broken tool — unless the payload is `=== TOOL ERROR ===`. Quote the exact error text when speaking to the user; do not describe vague "technical issues". After at most one retry with a different metric name, stop glossary lookup and explain that DataHub glossary is unavailable or inconclusive — do not fall back to wildcard search, unconstrained `search`, or warehouse catalog browsing.
-- Do not skip glossary lookup and browse Hive/Trino catalogs when a metric definition is still required.
-- Cite the glossary term name and definition you found. If no glossary term is found, say so explicitly and state any assumptions before continuing.
+- For metric, KPI, or business-definition questions: resolve the metric in the curated metric catalog before answering or writing SQL. Use `search_metric_catalog` (scope="roots", regex of English and Chinese synonyms such as `gmv|成交`; read `not_a`), then scope="members" with that `root_id` for the variant, then `find_models_metrics(root_id, member_id)` for the models that carry it. Do not use DataHub glossary terms. If the catalog has no fitting root after one retry with other synonyms, say so and state your assumptions.
+- Do not skip the metric-catalog lookup and browse Hive/Trino catalogs when a metric definition is still required.
+- Cite the catalog root and member (ids and definition) you used.
 - For data queries and anomaly checks: confirm table/column identity via metadata tools when names are ambiguous, then run only SELECT-style read-only queries. `trino_run_query` rejects mutating SQL. Inspect warehouse files with read-only `s3_list_objects` / `s3_head_object` / `s3_get_object` when a table location is an S3 path.
-- Ground table choice in evidence: glossary-linked datasets, DataHub lineage or documentation, schema fields that match the metric grain, or explicit user confirmation. If you cannot determine the correct table with evidence, do not run aggregating SQL on a guess. Tell the user you cannot determine which table to use, or return a short list of possible candidate tables with why each might or might not fit and what evidence is missing.
+- Ground table choice in evidence: models the metric catalog maps to the metric, DataHub lineage or documentation, schema fields that match the metric grain, or explicit user confirmation. If you cannot determine the correct table with evidence, do not run aggregating SQL on a guess. Tell the user you cannot determine which table to use, or return a short list of possible candidate tables with why each might or might not fit and what evidence is missing.
 - Prefer metadata discovery (Hive / DataHub / MCP) before guessing schemas.
 - After a candidate table is known, prefer native `datahub_list_schema_fields` and `datahub_get_dataset_queries` (or equivalent MCP tools) before writing SQL. Use `datahub_get_lineage` / `datahub_get_lineage_paths_between` when provenance, impact, or table-to-table relationships matter.
 """
 
+# Data answer requirements: evidence every final data answer must state (tables, fields, time range, SQL).
 [system_prompt.sections.data_answer_requirements]
 title = "Data answer requirements"
 text = """
@@ -193,18 +215,20 @@ In every final reply that involves metrics, tables, or query results, explicitly
 Also include the exact SQL executed (or that would be executed), key result excerpts, and how the conclusion was derived. Do not give a bare number without this evidence.
 """
 
+# Data retrieval practices: step-by-step habits for clarifying, discovering and querying.
 [system_prompt.sections.data_retrieval_practices]
 title = "Data retrieval practices"
 text = """
 - Clarify the business question, grains, filters, and time range before writing SQL when the request is ambiguous.
-- Discover candidate tables first; prefer well-documented or glossary-linked sources.
-- Resolve named metrics via DataHub MCP `search` with a GLOSSARY_TERM filter before listing catalogs or schemas.
+- Discover candidate tables first; prefer models the metric catalog maps to the metric, then well-documented sources.
+- Resolve named metrics with `search_metric_catalog` before listing catalogs or schemas.
 - Validate row grain and join keys before aggregating.
 - When multiple tables could answer the question, do not pick one because the name looks relevant. Either obtain evidence for a single source or present the candidate tables to the user with brief pros/cons.
 - Prefer one table and one SQL variant in the final answer unless the user asked for comparisons.
 - In the final reply, always include tables used, fields used, time range, the SQL, and key result excerpts.
 """
 
+# Output section: where the final answer goes; replaces tahoe's output text.
 [system_prompt.sections.output]
 title = "Output"
 text = """
@@ -212,15 +236,18 @@ Deliver the full retrieval answer in assistant message text with no tool calls.
 Status lines during tool use must follow the Chat style rules.
 """
 
-# Built-in tools per tool scope ("agent,scope" in AgentCatalog.tools_for).
-# "@name" expands a set from config/tool_groups.toml. MCP tools: [accepted_mcp].
-# Keep earlier turns' tool results in context: follow-ups ("now break that down
-# by X") reuse prior query output, and folding it made the agent read archives.
+# Context-compression thresholds (memory/README.md#configuration).
 [compression]
+# Start from base.toml's [compression] table and overlay the keys below.
 extends = "base"
+# false = keep earlier turns' tool results in context (layer 1b off): follow-ups
+# ("now break that down by X") reuse prior query output; folding made the agent read archives.
 prior_turns_qa_only = false
 
+# Built-in tools per tool scope ("agent,scope" in AgentCatalog.tools_for).
+# "@name" expands a set from config/tool_groups.toml. MCP tools: [accepted_mcp].
 [tools]
+# Main scope, bound to DatabotAgent but not used by the staged graph's layers.
 default = [
     "@memory",
     "@code",
@@ -233,24 +260,25 @@ default = [
     "find_models_metrics",
     "planning",
     "propose_sql",
-    "record_metric_conflict",
     "request_sql_regenerate",
     "search_metric_catalog",
     "update_card_selection",
     "web_search",
     "write_gate_reasons",
 ]
+# execute_sql layer: runs the approved SQL (capped at 100 rows, DEFAULT_ROW_LIMIT in graph.py).
 execute = ["trino_run_query"]
+# prepare-cards ReAct layer: metric catalog / model search and commit_cards (plus DataHub MCP).
 fetch = [
     "commit_cards",
     "datahub_graphql_query",
-    "datahub_list_glossary_terms",
     "fetch_related_models",
     "find_models_metrics",
-    "record_metric_conflict",
     "search_metric_catalog",
 ]
+# Not read by code (kept for reference).
 rag = ["commit_cards", "fetch_related_models", "find_models_metrics", "search_metric_catalog"]
+# prepare-SQL ReAct layer: drafts and stages SQL plus gate reasons.
 # SQL drafting describes tables through Trino only (`trino_desc_table` takes
 # table, schema.table or catalog.schema.table). Trino reads the Hive metastore
 # server-side; `hive_desc_table` needs a direct metastore connection.

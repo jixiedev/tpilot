@@ -1,0 +1,69 @@
+{
+  "description": "No model answers the question: the agent must answer model null.",
+  "models": [
+    "MiniMax-M3"
+  ],
+  "run": {
+    "variants": {
+      "rag": {
+        "retrieval": "rag"
+      },
+      "catalog": {
+        "retrieval": "catalog"
+      },
+      "hybrid": {
+        "retrieval": "hybrid"
+      }
+    }
+  },
+  "defaults": {
+    "max_tool_calls": 4
+  },
+  "cases": [
+    {
+      "name": "facebook_ad_spend_by_country",
+      "kind": "out_of_corpus",
+      "query": "How much did we spend on Facebook ads per country last month?",
+      "expected_models": [],
+      "notes": "ads.country_spend answers it but is not among the 39 models; with --rag-collection metric_catalog_models every arm should answer null."
+    },
+    {
+      "name": "support_ticket_volume",
+      "kind": "out_of_corpus",
+      "query": "How many customer support tickets did buyers open last week?",
+      "expected_models": [],
+      "notes": "commerce_merchant has merchant ticket response time, not ticket counts."
+    },
+    {
+      "name": "top_search_queries",
+      "kind": "out_of_corpus",
+      "query": "What were the top 20 search queries typed by users yesterday?",
+      "expected_models": []
+    },
+    {
+      "name": "push_notification_open_rate",
+      "kind": "out_of_corpus",
+      "query": "What was the open rate of push notifications sent last week?",
+      "expected_models": []
+    },
+    {
+      "name": "employee_headcount",
+      "kind": "out_of_corpus",
+      "query": "How many employees does Wish have in each department?",
+      "expected_models": []
+    },
+    {
+      "name": "app_page_load_latency",
+      "kind": "out_of_corpus",
+      "query": "What was the p95 page load time of the Wish app yesterday?",
+      "expected_models": []
+    },
+    {
+      "name": "product_boost_campaign_budget",
+      "kind": "out_of_corpus",
+      "query": "What daily budgets did merchants set on their Product Boost campaigns?",
+      "expected_models": [],
+      "notes": "Product Boost revenue is in feed_tile_interactions_detail; campaign budgets are not in any of the 39 models."
+    }
+  ]
+}

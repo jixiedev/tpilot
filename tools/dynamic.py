@@ -6,7 +6,7 @@ import logging
 
 from langchain_core.tools import BaseTool
 
-from config.agent_config import MCP_ALL_SERVERS
+from settings.agent_config import MCP_ALL_SERVERS
 from tools.mcp.client import configured_mcp_server_names, get_tools_for_server
 
 _logger = logging.getLogger(__name__)

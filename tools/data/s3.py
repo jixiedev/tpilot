@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
-import os
 from functools import lru_cache
 from typing import Any
 
 from langchain.tools import tool
 
-from config.tool_config import (
+from settings.tool_config import (
     s3_access_key_id,
     s3_endpoint_url,
     s3_region,
@@ -65,21 +64,18 @@ def _require_key(key: str) -> str:
 
 
 def s3_connection_kwargs() -> dict[str, Any]:
-    """Resolve explicit credentials from tools.toml / AWS_* env vars."""
+    """Credentials from the env vars named in tools.toml [s3]; region/endpoint from tools.toml."""
     access_key = s3_access_key_id()
     secret = s3_secret_access_key()
     region = s3_region()
     if not access_key or not secret or not region:
         raise S3ToolError(
-            "S3 credentials are not configured. Set tools.toml [s3] or environment "
-            "variables AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_REGION "
-            "(optional AWS_ENDPOINT_URL, AWS_S3_PATH_STYLE_ACCESS)."
+            "S3 credentials are not configured. Set AWS_ACCESS_KEY_ID and "
+            "AWS_SECRET_ACCESS_KEY in the environment and [s3].region in tools.toml "
+            "(optional [s3].endpoint_url, [s3].path_style_access)."
         )
     endpoint = s3_endpoint_url()
     path_style = bool(tool_config.s3.path_style_access)
-    env_path_style = os.environ.get("AWS_S3_PATH_STYLE_ACCESS", "").strip().lower()
-    if env_path_style in {"1", "true", "yes", "on"}:
-        path_style = True
     if endpoint and not path_style:
         path_style = True
     return {

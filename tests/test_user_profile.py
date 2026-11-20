@@ -158,16 +158,16 @@ class _FakeGraph:
         return _FakeSnapshot(self._values)
 
 
-def test_resolve_user_id_prefers_explicit_then_prior_then_env(monkeypatch, tmp_path: Path) -> None:
+def test_resolve_user_id_prefers_explicit_then_prior_then_config(monkeypatch, tmp_path: Path) -> None:
     import memory.profile_store as store_mod
 
     monkeypatch.setattr(store_mod.getpass, "getuser", lambda: "os_user")
-    monkeypatch.setenv("TAHOEPILOT_USER_ID", "env_user")
+    monkeypatch.setattr("settings.runtime_config.default_user_id", lambda: "config_user")
     assert store_mod.resolve_user_id("flag_user", prior="checkpoint_user") == "flag_user"
     assert store_mod.resolve_user_id(None, prior="checkpoint_user") == "checkpoint_user"
     assert store_mod.resolve_user_id(None, prior=None, active="active_user") == "active_user"
-    assert store_mod.resolve_user_id() == "env_user"
-    monkeypatch.delenv("TAHOEPILOT_USER_ID")
+    assert store_mod.resolve_user_id() == "config_user"
+    monkeypatch.setattr("settings.runtime_config.default_user_id", lambda: "")
     assert store_mod.resolve_user_id("  ") == "os_user"
 
     store = FileProfileStore(tmp_path)
@@ -180,7 +180,7 @@ async def test_accept_user_request_sets_user_id_only(monkeypatch, tmp_path: Path
     import memory.profile_store as store_mod
     from agent.turn_messages import DefaultTurnMessagePolicy
     from agent.runtime import TahoeSystemPrompt
-    from config.agent_config import AgentConfig, agent_config_path
+    from settings.agent_config import AgentConfig, agent_config_path
 
     from agent.agent import BaseAgent
     from agent.listener import AgentListener

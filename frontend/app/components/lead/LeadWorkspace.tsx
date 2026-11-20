@@ -14,6 +14,7 @@ import {
   type WorkRecordEntry,
 } from "../leadState";
 import { StatusPill } from "./StatusPill";
+import { AgentIcon, CheckIcon, HistoryIcon, PlanIcon, SparkleIcon } from "../icons";
 
 /**
  * Right column of the lead page: what the lead is doing, not what it said.
@@ -79,11 +80,13 @@ function pendingDelegateAgent(messages: unknown[]): string | undefined {
 
 function Panel({
   title,
+  icon,
   aside,
   children,
   testId,
 }: {
   title: string;
+  icon?: React.ReactNode;
   aside?: React.ReactNode;
   children: React.ReactNode;
   testId?: string;
@@ -91,7 +94,10 @@ function Panel({
   return (
     <section className="lead-panel" data-testid={testId}>
       <header className="lead-panel-head">
-        <h2>{title}</h2>
+        <h2>
+          {icon ? <span className="lead-panel-icon">{icon}</span> : null}
+          {title}
+        </h2>
         {aside}
       </header>
       <div className="lead-panel-body">{children}</div>
@@ -104,6 +110,7 @@ function PlanPanel({ plan, running }: { plan: PlanStep[]; running: boolean }) {
   return (
     <Panel
       title="Plan"
+      icon={<PlanIcon size={14} />}
       testId="lead-plan"
       aside={plan.length ? <span className="lead-panel-meta">{done}/{plan.length} done</span> : null}
     >
@@ -118,7 +125,7 @@ function PlanPanel({ plan, running }: { plan: PlanStep[]; running: boolean }) {
           {plan.map((step, i) => (
             <li key={`${i}-${step.text}`} className={`lead-plan-step lead-plan-step--${step.status}`}>
               <span className="lead-plan-index" aria-hidden="true">
-                {step.status === "done" ? "✓" : i + 1}
+                {step.status === "done" ? <CheckIcon size={12} strokeWidth={2.6} /> : i + 1}
               </span>
               <div className="lead-plan-text">
                 <span>{step.text}</span>
@@ -155,7 +162,7 @@ function SpecialistPanel({
 
   if (!name) {
     return (
-      <Panel title="Specialist" testId="lead-specialist">
+      <Panel title="Specialist" icon={<SparkleIcon size={14} />} testId="lead-specialist">
         <p className="lead-empty">
           When the lead hands work to a specialist, its live work shows here. Data questions go
           to <strong>Warehouse</strong>, which asks you to review every query before it runs.
@@ -175,6 +182,7 @@ function SpecialistPanel({
   return (
     <Panel
       title={agentLabel(name)}
+      icon={<AgentIcon name={name} size={14} />}
       testId="lead-specialist"
       aside={status ? <StatusPill status={status} /> : null}
     >
@@ -306,6 +314,7 @@ function WorkRecordPanel({ record }: { record: WorkRecordEntry[] }) {
   return (
     <Panel
       title="Work record"
+      icon={<HistoryIcon size={14} />}
       testId="lead-work-record"
       aside={record.length ? <span className="lead-panel-meta">{record.length}</span> : null}
     >
@@ -334,7 +343,10 @@ function WorkRecordItem({ entry }: { entry: WorkRecordEntry }) {
         onClick={() => setOpen((v) => !v)}
       >
         <span className="fold-chevron" aria-hidden="true" />
-        <span className="lead-record-agent">{agentLabel(entry.agent)}</span>
+        <span className="lead-record-agent">
+          <AgentIcon name={entry.agent} size={13} />
+          {agentLabel(entry.agent)}
+        </span>
         <span className="lead-record-task">{entry.task}</span>
         <StatusPill status={String(entry.status)} />
       </button>

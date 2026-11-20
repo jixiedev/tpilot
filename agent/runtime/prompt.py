@@ -6,11 +6,11 @@ from pathlib import Path
 
 from agent.prompt import SystemPromptAssembler
 from agent.agent import SESSION_TURN_BOUNDARY
-from config.agent_config import AgentConfig, agent_config_path
-from config.local_config import get_local_paths
+from settings.agent_config import AgentConfig, agent_config_path
+from settings.runtime_config import get_runtime_paths
 from memory.profile_store import FileProfileStore
 
-DEFAULT_PROFILE_DIR = get_local_paths().profiles_dir
+DEFAULT_PROFILE_DIR = get_runtime_paths().profiles_dir
 
 
 class TahoeRuntimeHelper:

@@ -27,7 +27,7 @@ from agent.specialists.warehouse.tools import (
     make_run_sql_tool,
 )
 from agent.subagent import SubagentResult, leading_rows
-from config.agent_config import AgentConfig, WarehouseAgentConfig, agent_config_path
+from settings.agent_config import AgentConfig, WarehouseAgentConfig, agent_config_path
 from graph.builder import ReactLoopSpec, ReactStateSpec, build_react_graph
 from graph.state import ReactAgentState
 

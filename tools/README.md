@@ -21,7 +21,7 @@ Related docs:
 | Tool scope | A named bucket of tools inside one agent, addressed as `"agent,scope"` (for example `databot,sql`). Every agent has `default`; some have more (`knowledge,catalog`, `databot,fetch`, `databot,sql`). A graph node asks for the scopes it needs. |
 | Tool group | A named list of registry keys in `config/tool_groups.toml`, referenced as `"@group"` inside an agent's `[tools]` table (for example `@trino`, `@k8s`). Pure config shorthand. |
 | Static tool | A tool registered at import time with `@register_tool` and bound to scopes from config by `ensure_tools_registered()`. |
-| Dynamic (MCP) tool | A tool loaded at runtime from an MCP server in `tools/mcp/mcp.json`, bound to scopes listed in an agent's `[accepted_mcp]` table. Never in the registry. |
+| Dynamic (MCP) tool | A tool loaded at runtime from an MCP server in `config/mcp.json`, bound to scopes listed in an agent's `[accepted_mcp]` table. Never in the registry. |
 | Alternative tool | A "plan B" peer registered with `@alternative_tool`. When a tool fails, the error payload names its alternative in `fallback_tool` so the model can choose to switch. Nothing is called automatically. |
 
 ## Design principles
@@ -36,7 +36,9 @@ Related docs:
 - S3: only `list_objects_v2`, `get_object` (byte-capped) and `head_object`.
 - Hive: only HMS metadata reads (`get_all_tables`, `get_table`).
 
-The exceptions are deliberate and local: the `@code` tools (`bash`, `python_execute`, `str_replace_editor`) run on, and can write to, the machine running the agent. They are assigned only to `swe`, `knowledge`, `databot` and (for `python_execute`) `data_analysis`. Stage tools such as `propose_sql` or `commit_cards` write to graph state, not to external systems.
+The exceptions are deliberate and local: the `@code` tools (`bash`, `python_execute`, `str_replace_editor`) run on, and can write to, the machine running the agent. They are assigned only to `swe`, `knowledge`, `databot` and (for `python_execute`) `data_analysis`.
+
+**Workspace.** The code tools work in `[paths].workspace_dir` of `runtime.toml` (default `<data_dir>/workspace`, see `tools/code/workspace.py`): `bash` and `python_execute` start there, `str_replace_editor` resolves relative paths against it and refuses any path outside it (symlinks are followed before the check), and their subprocesses get a minimal environment (`PATH`, locale, `TERM`, `TZ`; `HOME` and `TMPDIR` set to the workspace), so secrets loaded into the server never reach a command the model writes. This keeps agents out of the project folder by default; it is a guard rail, not a sandbox, because a shell can still `cd` elsewhere. Real isolation needs a separate container or OS user. Stage tools such as `propose_sql` or `commit_cards` write to graph state, not to external systems.
 
 **Errors the model can act on.** A failing tool produces a `StructuredToolError` (type, retryable flag, hint, optional plan-B tool) serialized into the `ToolMessage`, instead of a bare traceback. Transient failures are retried before the model sees them; everything else comes back with guidance such as "list catalogs before retrying".
 
@@ -125,7 +127,7 @@ Current `[accepted_mcp]` tables:
 
 MCP loading happens once per agent per process (`_mcp_registered`).
 
-`tools/mcp/mcp.json` expands `${VAR}` from the environment (`.env`). The two Airflow servers run the local checkout `/Users/jixie/wbox/airflow-mcp-server` (`--directory` in `mcp.json`) and need `AIRFLOW_MCP_AUTH_TOKEN` (Tahoe) and `AIRFLOW_LEGACY_MCP_AUTH_TOKEN` (legacy) in `.env`. Both run with `--safe` (read-only tools only; 41 each). `mcp.json` currently defines only the Airflow servers, so `datahub` entries in `[accepted_mcp]` load nothing and those agents use the native `@datahub` tools.
+`config/mcp.json` expands `${VAR}` from the environment (`.env`). The two Airflow servers run the local checkout `/Users/jixie/wbox/airflow-mcp-server` (`--directory` in `mcp.json`) and need `AIRFLOW_MCP_AUTH_TOKEN` (Tahoe) and `AIRFLOW_LEGACY_MCP_AUTH_TOKEN` (legacy) in `.env`. Both run with `--safe` (read-only tools only; 41 each). `mcp.json` currently defines only the Airflow servers, so `datahub` entries in `[accepted_mcp]` load nothing and those agents use the native `@datahub` tools.
 
 ### 6. Errors, retries and recovery
 
@@ -187,7 +189,7 @@ tool raises
 | `datahub_list_datasets` | `tools/external/datahub/tools.py` | Search datasets with metadata and lineage | Yes | databot; knowledge (catalog) |
 | `datahub_list_data_jobs` | same | Search data jobs with parent flow | Yes | databot; knowledge (catalog) |
 | `datahub_list_data_flows` | same | Search pipelines/DAGs with child jobs | Yes | databot; knowledge (catalog) |
-| `datahub_list_glossary_terms` | same | Glossary terms, compacted | Yes | databot (default, fetch); knowledge (catalog) |
+| `datahub_list_glossary_terms` | same | Glossary terms, compacted | Yes | none: no agent lists it; metric questions use `search_metric_catalog` / `find_models_metrics` |
 | `datahub_list_charts` | same | Charts with ownership, tags, lineage | Yes | databot; knowledge (catalog) |
 | `datahub_list_dashboards` | same | Dashboards with ownership, tags, lineage | Yes | databot; knowledge (catalog) |
 | `datahub_list_tags` | same | Tags | Yes | databot; knowledge (catalog) |
@@ -209,21 +211,22 @@ tool raises
 | `k8s_list_custom_objects` | `tools/k8s.py` | List any CRD objects | Yes | diagnostic; knowledge |
 | `k8s_get_custom_object` | `tools/k8s.py` | One CRD object | Yes | diagnostic; knowledge |
 | `k8s_list_spark_applications` | `tools/k8s.py` | `sparkapplications` (`sparkoperator.k8s.io/v1beta2`) | Yes | diagnostic; knowledge |
-| `bash` | `tools/code/bash.py` | Persistent bash session (120 s per command) | No | databot; knowledge; swe |
-| `python_execute` | `tools/code/python_execute.py` | Run Python in a subprocess, stdout/stderr only (30 s default, 120 s max) | No | data_analysis; databot; knowledge; swe |
-| `str_replace_editor` | `tools/code/str_replace_editor.py` | View/create/str_replace/insert/undo_edit on absolute paths | No | databot; knowledge; swe |
+| `bash` | `tools/code/bash.py` | Persistent bash session in the workspace, no secrets in its env (120 s per command) | No | databot; knowledge; swe |
+| `python_execute` | `tools/code/python_execute.py` | Run Python in a subprocess in the workspace, no secrets in its env, stdout/stderr only (30 s default, 120 s max) | No | data_analysis; databot; knowledge; swe |
+| `str_replace_editor` | `tools/code/str_replace_editor.py` | View/create/str_replace/insert/undo_edit on paths inside the workspace (relative or absolute) | No | databot; knowledge; swe |
 | `web_search` | `tools/web/search.py` | Public web search (Tavily, Brave or DuckDuckGo) | Yes | databot; knowledge; swe |
 | `planning` | `tools/plan.py` | In-memory plans: create, update, list, get, mark_step, delete | In-memory | data_analysis; databot; knowledge; swe |
 | `fetch_related_jira_tickets` | `tools/rag/jira.py` | Semantic search over Jira collections in Qdrant | Yes | knowledge |
 | `fetch_related_models` | `tools/rag/dbt_models.py` | Semantic search over dbt models; stages hits in `staging_cards`. Databot's fallback after the metric catalog | Graph state | databot (default, fetch, rag) |
-| `search_metric_catalog` | `tools/data/metrics.py` | Regex search over the curated metric roots / members (`lib/final_root.csv`, `lib/root_member.csv`) | No | databot (default, fetch, rag); warehouse |
+| `search_metric_catalog` | `tools/data/metrics.py` | Regex search over the curated metric roots / members (`lib/final_root.csv`, `lib/root_member.csv`) | No | databot (default, fetch, rag); warehouse; knowledge |
 | `find_models_metrics` | `tools/data/metrics.py` | Stage the dbt models the metric catalog maps to a `root_id` + `member_id`, with `related_ratio` and the matched metrics on each card. Databot's prompt falls back to `fetch_related_models` when the catalog has no fit; warehouse has no fallback | Graph state | databot (default, fetch, rag); warehouse |
+| `describe_metric_models` | `tools/data/metrics.py` | Read-only twin of `find_models_metrics`: the models the metric catalog maps to a `root_id` + `member_id` and how each computes the metric (table, description, time column, dimensions, matched metric agg / description / evidence). Stages nothing, runs no SQL | No | knowledge |
 | `commit_cards` | `tools/rag/dbt_models.py` | Move staged cards to `committed_cards` | Graph state | databot (default, fetch, rag) |
 | `compact_context` | `memory/tools.py` | Ask the compressor to compact context | Yes | data_analysis; databot; diagnostic; knowledge; lead; swe; warehouse |
 | `read_offloaded_file` | `memory/tools.py` | Read an offloaded tool result back | Yes | data_analysis; databot; diagnostic; knowledge; lead; swe; warehouse |
 | `propose_sql` | `agent/specialists/databot/stage_tools.py` | Write `draft_sql` | Graph state | databot (default, sql) |
 | `write_gate_reasons` | same | Reasons for the human gate options | Graph state | databot (default, sql) |
-| `record_metric_conflict` | same | Flag a dbt metric that disagrees with a glossary term | Graph state | databot (default, fetch) |
+| `record_metric_conflict` | same | Flag a dbt metric that disagrees with a glossary term | Graph state | none (glossary lookups were dropped) |
 | `update_card_selection` | same | Replace the selected card subset | Graph state | databot |
 | `request_sql_approval` | `agent/specialists/warehouse/tools.py` (bound per agent, not registered) | Ask the user to review one SELECT/WITH query (interrupt); on approval record its fingerprint in `approved_sql` | Graph state | warehouse |
 | `run_sql` | same | Run SQL whose fingerprint was approved; refuses anything else | Yes (`validate_select_sql`) | warehouse |
@@ -233,7 +236,7 @@ The memory tools are described in [memory/README.md](../memory/README.md); the D
 
 ### Family notes
 
-- **Trino** keeps one DB-API connection per thread (`get_connection`), with basic auth from `trino_password()`.
+- **Trino** keeps DB-API connections per thread and query user (`get_connection`, at most 32 per thread). The service account always authenticates (basic auth, `trino_user()` / `trino_password()`). With `[trino].user_identity = "impersonate"` in `tools.toml` the session user is the run's user (`run_user_id()`: web login username or CLI `-u`), so queries run with that user's Trino permissions; Trino must allow the service user to impersonate. Outside a run, or with `"service"`, queries run as the service user. `source` (default `tahoepilot`) labels the queries in Trino's history.
 - **Hive** keeps one `HMSClient` per thread; it has no exception mapping, so HMS failures surface as `unknown`.
 - **DataHub** is a package: `client` (HTTP, bearer auth, mutation guard, `DataHubGraphQLError`), `queries` (GraphQL documents), `parsing` (count limits, URN helpers, compaction), `operations` (reads built on `execute_graphql`), `tools` (the `@tool` wrappers, registered on import). In tests, patch `tools.external.datahub.operations.execute_graphql`.
 - **Kubernetes** loads kubeconfig once (`_api_bundle` is `lru_cache`d) on the first call, not at import. Every API error is wrapped in `K8sToolError`.
@@ -247,16 +250,16 @@ The memory tools are described in [memory/README.md](../memory/README.md); the D
 
 ### Connections
 
-Settings live in `config/tools.toml`, validated by `config/tool_config.py` (`ToolConfig`). For every credential there is an `*_env` key naming an environment variable; a non-empty environment variable wins over the inline value. `cli.py` and `main.py` load `.env` from the repo root with `python-dotenv`, so secrets belong in `.env`, not in `tools.toml`.
+Settings live in `config/tools.toml`, validated by `settings/tool_config.py` (`ToolConfig`). For every credential there is an `*_env` key naming an environment variable; a non-empty environment variable wins over the inline value. `cli.py` and `main.py` load `.env` from the repo root with `python-dotenv`, so secrets belong in `.env`, not in `tools.toml`.
 
 | Table | Keys | Env vars (defaults) |
 |---|---|---|
 | `[hive]` | `hms_host`, `hms_port` | none |
-| `[trino]` | `host`, `port`, `user`, `password`, `password_env`, `catalog`, `schema_name`, `http_scheme` | value of `password_env` (`TRINO_PASSWORD` in the shipped file) |
-| `[datahub]` | `gms_url`, `gms_url_env`, `token`, `token_env`, `timeout_seconds` | `DATAHUB_GMS_URL`, `DATAHUB_GMS_TOKEN` |
-| `[k8s]` | `config_file`, `config_file_env`, `default_namespace` | `KUBECONFIG` (empty means default kubeconfig discovery) |
+| `[trino]` | `host`, `port`, `user`, `user_env`, `password`, `password_env`, `catalog`, `schema_name`, `http_scheme` | values of `user_env` / `password_env` (`TRINO_USER` / `TRINO_PASSWORD` in the shipped file) |
+| `[datahub]` | `gms_url`, `token`, `token_env`, `timeout_seconds` | `DATAHUB_GMS_TOKEN` |
+| `[k8s]` | `config_file`, `default_namespace` | – (empty `config_file` means the client's default discovery) |
 | `[web_search]` | `enabled`, `provider`, `max_results`, `tavily_api_key(_env)`, `brave_api_key(_env)` | `TAVILY_API_KEY`, `BRAVE_API_KEY` |
-| `[s3]` | `access_key_id(_env)`, `secret_access_key(_env)`, `region(_env)`, `endpoint_url(_env)`, `path_style_access` | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION` (falls back to `AWS_DEFAULT_REGION`), `AWS_ENDPOINT_URL`, `AWS_S3_PATH_STYLE_ACCESS` |
+| `[s3]` | `access_key_id(_env)`, `secret_access_key(_env)`, `region`, `endpoint_url`, `path_style_access` | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` |
 
 `[hive]` and `[trino]` are required; the other tables have defaults. `tool_config` is loaded once at import of `config.tool_config`. See [config/README.md](../config/README.md) for the full file reference.
 
@@ -267,7 +270,7 @@ Optional dependencies: `pip install -e '.[k8s]'` for the Kubernetes tools, `pip 
 1. Copy the example and add servers. Both Cursor-style `{"mcpServers": {...}}` and a flat map are accepted; `${VAR}` in any string is expanded from the environment.
 
    ```bash
-   cp tools/mcp/mcp.json.example tools/mcp/mcp.json
+   cp config/mcp.json.example config/mcp.json
    ```
 
    ```json
@@ -292,9 +295,9 @@ Optional dependencies: `pip install -e '.[k8s]'` for the Kubernetes tools, `pip 
 
    Add `mcp_replace_identifiers = ["<scope>"]` (top level) if the MCP tools should replace that scope's static tools when they load.
 
-3. Start the CLI. `cli.py` runs `check_mcp_servers()` and prints `format_mcp_startup_lines(...)`, for example `datahub: ok (12 tools)` or `datahub: unavailable (...)`. Stdio server stderr goes to the log file from `config.local_config.get_local_paths()`, not the terminal.
+3. Start the CLI. `cli.py` runs `check_mcp_servers()` and prints `format_mcp_startup_lines(...)`, for example `datahub: ok (12 tools)` or `datahub: unavailable (...)`. Stdio server stderr goes to the log file from `config.runtime_config.get_runtime_paths()`, not the terminal.
 
-The config path is fixed: `tools.mcp.client.mcp_config_path()` returns `tools/mcp/mcp.json`. If the file is missing, MCP is skipped.
+The config path is fixed: `tools.mcp.client.mcp_config_path()` returns `config/mcp.json`. If the file is missing, MCP is skipped.
 
 ## Adding a tool
 
@@ -344,7 +347,7 @@ The config path is fixed: `tools.mcp.client.mcp_config_path()` returns `tools/mc
 
 4. **Optionally add a group** in `config/tool_groups.toml` when several agents share a set, then reference it as `"@airflow"`.
 
-5. **Configuration.** If it needs connection settings, add a pydantic model and field to `ToolConfig` in `config/tool_config.py`, an `*_env` key for each secret, and a table in `config/tools.toml`.
+5. **Configuration.** If it needs connection settings, add a pydantic model and field to `ToolConfig` in `settings/tool_config.py`, an `*_env` key for each secret, and a table in `config/tools.toml`.
 
 6. **Test.** Add `tests/test_tools_<family>.py` that calls the tool with the client patched, plus an error-mapping test (`StructuredToolError.from_exception("airflow_get_dag_run", AirflowToolError("timed out"))`). Run:
 
@@ -364,6 +367,6 @@ The config path is fixed: `tools.mcp.client.mcp_config_path()` returns `tools/mc
 - **Do not `time.sleep` in `async def` code.** Sync nodes are fine (they run in executor threads under `ainvoke`); on the event loop use `ainvoke_with_transient_retry` / `asyncio.sleep`.
 - **MCP loads once per agent per process.** A server that was down when the agent was first created stays missing until restart (or `reset_mcp_tools()` in tests).
 - **Runtime bindings after the snapshot are temporary.** `register_tool_binding` changes are wiped by `restore_tools_snapshot()`.
-- **Cached clients.** The Kubernetes API bundle and S3 client are built once; the Trino connection and HMS client are cached per thread. Changing `KUBECONFIG` or AWS variables after first use has no effect.
+- **Cached clients.** The Kubernetes API bundle and S3 client are built once; the Trino connection and HMS client are cached per thread. Changing `tools.toml` or the AWS key variables after first use has no effect.
 - **Strict providers and schemas.** Some OpenAI-compatible providers reject `Literal`/`Union` parameter schemas; `fetch_related_models` takes plain strings and validates in the body for that reason.
 - **The SQL guard is keyword-based, not a parser.** It checks the leading keyword (and the statement inside `EXPLAIN`) and blocks multi-statement input and DML/DDL, but treat it as a guard against mistakes, not a security boundary; rely on Trino user permissions for enforcement.

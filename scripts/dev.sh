@@ -23,9 +23,13 @@ set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$HERE/.." && pwd)"
 
-# Load .env so API keys reach the python processes.
+# Load .env (non-secret: config dir, secrets file path), then the secrets file it
+# names, so API keys reach the python processes. Relative paths are from the repo root.
 set -a
 [ -f "$ROOT/.env" ] && . "$ROOT/.env"
+SECRETS_FILE="${TAHOEPILOT_SECRETS_FILE:-/tahoepilot/secrets/secrets.env}"
+case "$SECRETS_FILE" in /*) ;; *) SECRETS_FILE="$ROOT/$SECRETS_FILE" ;; esac
+[ -f "$SECRETS_FILE" ] && . "$SECRETS_FILE"
 set +a
 
 cmd="${1:-help}"
@@ -52,8 +56,18 @@ start_langgraph_bg() {
   echo $! > "$ROOT/.run/langgraph.pid"
 }
 
+# Login on/off for Next.js proxy.ts, from [auth].enabled in server.toml. Host,
+# port and backend URL keep next dev's own defaults.
+export_frontend_auth() {
+  TAHOEPILOT_AUTH_ENABLED="$(cd "$ROOT" && .venv/bin/python -c \
+    'from settings.server_config import frontend_env; print(frontend_env()["TAHOEPILOT_AUTH_ENABLED"])' \
+    2>/dev/null || echo false)"
+  export TAHOEPILOT_AUTH_ENABLED
+}
+
 start_next_bg() {
   mkdir -p "$ROOT/.run"
+  export_frontend_auth
   cd "$ROOT/frontend"
   set -m
   nohup npm run dev > "$ROOT/.run/next.log" 2>&1 &
@@ -138,6 +152,7 @@ case "$cmd" in
     exec .venv/bin/langgraph dev "${LANGGRAPH_DEV_ARGS[@]}"
     ;;
   frontend)
+    export_frontend_auth
     cd "$ROOT/frontend"
     exec npm run dev
     ;;

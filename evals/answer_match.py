@@ -80,9 +80,30 @@ def extract_json_object(reply: str) -> tuple[dict[str, Any] | None, str | None]:
     return None, last_error
 
 
+_NULL_TEXTS = {"", "null", "none"}
+
+
 def values_equal(actual: Any, expected: Any) -> bool:
+    """Whether a reply value satisfies an expected value.
+
+    - ``None`` expected: the reply must be ``null`` (or empty / "null" / "none").
+    - A list expected and a list in the reply: every expected item must be in the
+      reply (order-free; extra items are allowed, e.g. more upstream tables).
+    - A list expected and a scalar in the reply: the scalar must be one of the
+      items (several answers are acceptable, e.g. any of three models).
+    - Otherwise numbers compare as floats and the rest as stripped, case-folded
+      strings; an empty expected string matches any value.
+    """
+    if expected is None:
+        return actual is None or str(actual).strip().casefold() in _NULL_TEXTS
+    if isinstance(expected, list):
+        if isinstance(actual, list):
+            return all(any(values_equal(a, e) for a in actual) for e in expected)
+        return any(values_equal(actual, e) for e in expected)
     if isinstance(expected, (int, float)) and isinstance(actual, (int, float)):
         return float(actual) == float(expected)
+    if actual is None:
+        return not str(expected).strip()
     expected_text = str(expected).strip()
     if not expected_text:
         return True

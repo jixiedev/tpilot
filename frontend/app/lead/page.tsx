@@ -6,6 +6,7 @@ import {
   CopilotChatMessageView,
 } from "@copilotkit/react-core/v2";
 import { ColorSchemeToggle } from "../providers";
+import { AgentIcon, TahoeMark } from "../components/icons";
 import { AppNav } from "../components/AppNav";
 import { DatabotNewChatButton } from "../components/DatabotNewChatButton";
 import { DatabotSessionProvider, useDatabotSession } from "../components/DatabotSessionContext";
@@ -17,11 +18,11 @@ import { SqlReviewGate } from "../components/lead/SqlReviewGate";
 import { resetLeadAgentView } from "../components/lead/leadClientReset";
 
 const SPECIALISTS = [
-  { name: "Warehouse", text: "data questions, with every query reviewed by you" },
-  { name: "Knowledge", text: "metric definitions, docs, code and Jira" },
-  { name: "Diagnostic", text: "failing jobs, DAGs and pods" },
-  { name: "Data analysis", text: "trends, comparisons and charts" },
-  { name: "SWE", text: "code and config changes" },
+  { id: "warehouse", name: "Warehouse", text: "data questions, with every query reviewed by you" },
+  { id: "knowledge", name: "Knowledge", text: "metric definitions, docs, code and Jira" },
+  { id: "diagnostic", name: "Diagnostic", text: "failing jobs, DAGs and pods" },
+  { id: "data_analysis", name: "Data analysis", text: "trends, comparisons and charts" },
+  { id: "swe", name: "SWE", text: "code and config changes" },
 ];
 
 function LeadWorkspaceColumn() {
@@ -36,9 +37,7 @@ export default function LeadPage() {
         <main className="lead-shell">
           <header className="lead-topbar">
             <div className="lead-brand">
-              <span className="lead-logo" aria-hidden="true">
-                TP
-              </span>
+              <TahoeMark size={36} />
               <div>
                 <h1>TahoePilot</h1>
                 <p className="lead-tagline">Lead agent · answers, plans and delegates to specialists</p>
@@ -65,8 +64,10 @@ export default function LeadPage() {
               />
               <ul className="lead-roster" aria-label="Specialists">
                 {SPECIALISTS.map((s) => (
-                  <li key={s.name}>
-                    <strong>{s.name}</strong> {s.text}
+                  <li key={s.name} className={`agent-chip agent-chip--${s.id}`} title={s.text}>
+                    <AgentIcon name={s.id} size={13} />
+                    <strong>{s.name}</strong>
+                    <span className="lead-roster-text">{s.text}</span>
                   </li>
                 ))}
               </ul>

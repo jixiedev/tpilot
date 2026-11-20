@@ -1,0 +1,146 @@
+(globalThis["TURBOPACK"] || (globalThis["TURBOPACK"] = [])).push([typeof document === "object" ? document.currentScript : undefined,
+"[project]/frontend/node_modules/@mermaid-js/parser/dist/chunks/mermaid-parser.core/chunk-6K3QC6MW.mjs [app-client] (ecmascript)", ((__turbopack_context__) => {
+"use strict";
+
+__turbopack_context__.s([
+    "TreemapModule",
+    ()=>TreemapModule,
+    "createTreemapServices",
+    ()=>createTreemapServices
+]);
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f40$mermaid$2d$js$2f$parser$2f$dist$2f$chunks$2f$mermaid$2d$parser$2e$core$2f$chunk$2d$FOHPRMQF$2e$mjs__$5b$app$2d$client$5d$__$28$ecmascript$29$__ = __turbopack_context__.i("[project]/frontend/node_modules/@mermaid-js/parser/dist/chunks/mermaid-parser.core/chunk-FOHPRMQF.mjs [app-client] (ecmascript)");
+;
+// src/language/treemap/tokenBuilder.ts
+var TreemapTokenBuilder = class extends __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f40$mermaid$2d$js$2f$parser$2f$dist$2f$chunks$2f$mermaid$2d$parser$2e$core$2f$chunk$2d$FOHPRMQF$2e$mjs__$5b$app$2d$client$5d$__$28$ecmascript$29$__["AbstractMermaidTokenBuilder"] {
+    static{
+        (0, __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f40$mermaid$2d$js$2f$parser$2f$dist$2f$chunks$2f$mermaid$2d$parser$2e$core$2f$chunk$2d$FOHPRMQF$2e$mjs__$5b$app$2d$client$5d$__$28$ecmascript$29$__["__name"])(this, "TreemapTokenBuilder");
+    }
+    constructor(){
+        super([
+            "treemap"
+        ]);
+    }
+};
+// src/language/treemap/valueConverter.ts
+var classDefRegex = /classDef\s+([A-Z_a-z]\w+)(?:\s+([^\n\r;]*))?;?/;
+var TreemapValueConverter = class extends __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f40$mermaid$2d$js$2f$parser$2f$dist$2f$chunks$2f$mermaid$2d$parser$2e$core$2f$chunk$2d$FOHPRMQF$2e$mjs__$5b$app$2d$client$5d$__$28$ecmascript$29$__["AbstractMermaidValueConverter"] {
+    static{
+        (0, __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f40$mermaid$2d$js$2f$parser$2f$dist$2f$chunks$2f$mermaid$2d$parser$2e$core$2f$chunk$2d$FOHPRMQF$2e$mjs__$5b$app$2d$client$5d$__$28$ecmascript$29$__["__name"])(this, "TreemapValueConverter");
+    }
+    runCustomConverter(rule, input, _cstNode) {
+        if (rule.name === "NUMBER2") {
+            return parseFloat(input.replace(/,/g, ""));
+        } else if (rule.name === "SEPARATOR") {
+            return input.substring(1, input.length - 1);
+        } else if (rule.name === "STRING2") {
+            return input.substring(1, input.length - 1);
+        } else if (rule.name === "INDENTATION") {
+            return input.length;
+        } else if (rule.name === "ClassDef") {
+            if (typeof input !== "string") {
+                return input;
+            }
+            const match = classDefRegex.exec(input);
+            if (match) {
+                return {
+                    $type: "ClassDefStatement",
+                    className: match[1],
+                    styleText: match[2] || void 0
+                };
+            }
+        }
+        return void 0;
+    }
+};
+// src/language/treemap/treemap-validator.ts
+function registerValidationChecks(services) {
+    const validator = services.validation.TreemapValidator;
+    const registry = services.validation.ValidationRegistry;
+    if (registry) {
+        const checks = {
+            Treemap: validator.checkSingleRoot.bind(validator)
+        };
+        registry.register(checks, validator);
+    }
+}
+(0, __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f40$mermaid$2d$js$2f$parser$2f$dist$2f$chunks$2f$mermaid$2d$parser$2e$core$2f$chunk$2d$FOHPRMQF$2e$mjs__$5b$app$2d$client$5d$__$28$ecmascript$29$__["__name"])(registerValidationChecks, "registerValidationChecks");
+var TreemapValidator = class {
+    static{
+        (0, __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f40$mermaid$2d$js$2f$parser$2f$dist$2f$chunks$2f$mermaid$2d$parser$2e$core$2f$chunk$2d$FOHPRMQF$2e$mjs__$5b$app$2d$client$5d$__$28$ecmascript$29$__["__name"])(this, "TreemapValidator");
+    }
+    /**
+   * Validates that a treemap has only one root node.
+   * A root node is defined as a node that has no indentation.
+   */ checkSingleRoot(doc, accept) {
+        let rootNodeIndentation;
+        for (const row of doc.TreemapRows){
+            if (!row.item) {
+                continue;
+            }
+            if (rootNodeIndentation === void 0 && // Check if this is a root node (no indentation)
+            row.indent === void 0) {
+                rootNodeIndentation = 0;
+            } else if (row.indent === void 0) {
+                accept("error", "Multiple root nodes are not allowed in a treemap.", {
+                    node: row,
+                    property: "item"
+                });
+            } else if (rootNodeIndentation !== void 0 && rootNodeIndentation >= parseInt(row.indent, 10)) {
+                accept("error", "Multiple root nodes are not allowed in a treemap.", {
+                    node: row,
+                    property: "item"
+                });
+            }
+        }
+    }
+};
+// src/language/treemap/module.ts
+var TreemapModule = {
+    parser: {
+        TokenBuilder: /* @__PURE__ */ (0, __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f40$mermaid$2d$js$2f$parser$2f$dist$2f$chunks$2f$mermaid$2d$parser$2e$core$2f$chunk$2d$FOHPRMQF$2e$mjs__$5b$app$2d$client$5d$__$28$ecmascript$29$__["__name"])(()=>new TreemapTokenBuilder(), "TokenBuilder"),
+        ValueConverter: /* @__PURE__ */ (0, __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f40$mermaid$2d$js$2f$parser$2f$dist$2f$chunks$2f$mermaid$2d$parser$2e$core$2f$chunk$2d$FOHPRMQF$2e$mjs__$5b$app$2d$client$5d$__$28$ecmascript$29$__["__name"])(()=>new TreemapValueConverter(), "ValueConverter")
+    },
+    validation: {
+        TreemapValidator: /* @__PURE__ */ (0, __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f40$mermaid$2d$js$2f$parser$2f$dist$2f$chunks$2f$mermaid$2d$parser$2e$core$2f$chunk$2d$FOHPRMQF$2e$mjs__$5b$app$2d$client$5d$__$28$ecmascript$29$__["__name"])(()=>new TreemapValidator(), "TreemapValidator")
+    }
+};
+function createTreemapServices(context = __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f40$mermaid$2d$js$2f$parser$2f$dist$2f$chunks$2f$mermaid$2d$parser$2e$core$2f$chunk$2d$FOHPRMQF$2e$mjs__$5b$app$2d$client$5d$__$28$ecmascript$29$__["EmptyFileSystem"]) {
+    const shared = (0, __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f40$mermaid$2d$js$2f$parser$2f$dist$2f$chunks$2f$mermaid$2d$parser$2e$core$2f$chunk$2d$FOHPRMQF$2e$mjs__$5b$app$2d$client$5d$__$28$ecmascript$29$__["inject"])((0, __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f40$mermaid$2d$js$2f$parser$2f$dist$2f$chunks$2f$mermaid$2d$parser$2e$core$2f$chunk$2d$FOHPRMQF$2e$mjs__$5b$app$2d$client$5d$__$28$ecmascript$29$__["createDefaultSharedCoreModule"])(context), __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f40$mermaid$2d$js$2f$parser$2f$dist$2f$chunks$2f$mermaid$2d$parser$2e$core$2f$chunk$2d$FOHPRMQF$2e$mjs__$5b$app$2d$client$5d$__$28$ecmascript$29$__["MermaidGeneratedSharedModule"]);
+    const Treemap = (0, __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f40$mermaid$2d$js$2f$parser$2f$dist$2f$chunks$2f$mermaid$2d$parser$2e$core$2f$chunk$2d$FOHPRMQF$2e$mjs__$5b$app$2d$client$5d$__$28$ecmascript$29$__["inject"])((0, __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f40$mermaid$2d$js$2f$parser$2f$dist$2f$chunks$2f$mermaid$2d$parser$2e$core$2f$chunk$2d$FOHPRMQF$2e$mjs__$5b$app$2d$client$5d$__$28$ecmascript$29$__["createDefaultCoreModule"])({
+        shared
+    }), __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f40$mermaid$2d$js$2f$parser$2f$dist$2f$chunks$2f$mermaid$2d$parser$2e$core$2f$chunk$2d$FOHPRMQF$2e$mjs__$5b$app$2d$client$5d$__$28$ecmascript$29$__["TreemapGrammarGeneratedModule"], TreemapModule);
+    shared.ServiceRegistry.register(Treemap);
+    registerValidationChecks(Treemap);
+    return {
+        shared,
+        Treemap
+    };
+}
+(0, __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f40$mermaid$2d$js$2f$parser$2f$dist$2f$chunks$2f$mermaid$2d$parser$2e$core$2f$chunk$2d$FOHPRMQF$2e$mjs__$5b$app$2d$client$5d$__$28$ecmascript$29$__["__name"])(createTreemapServices, "createTreemapServices");
+;
+}),
+"[project]/frontend/node_modules/@mermaid-js/parser/dist/chunks/mermaid-parser.core/treemap-WGGIJYW6.mjs [app-client] (ecmascript)", ((__turbopack_context__) => {
+"use strict";
+
+__turbopack_context__.s([
+    "TreemapModule",
+    ()=>__TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f40$mermaid$2d$js$2f$parser$2f$dist$2f$chunks$2f$mermaid$2d$parser$2e$core$2f$chunk$2d$6K3QC6MW$2e$mjs__$5b$app$2d$client$5d$__$28$ecmascript$29$__["TreemapModule"],
+    "createTreemapServices",
+    ()=>__TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f40$mermaid$2d$js$2f$parser$2f$dist$2f$chunks$2f$mermaid$2d$parser$2e$core$2f$chunk$2d$6K3QC6MW$2e$mjs__$5b$app$2d$client$5d$__$28$ecmascript$29$__["createTreemapServices"]
+]);
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f40$mermaid$2d$js$2f$parser$2f$dist$2f$chunks$2f$mermaid$2d$parser$2e$core$2f$treemap$2d$WGGIJYW6$2e$mjs__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$locals$3e$__ = __turbopack_context__.i("[project]/frontend/node_modules/@mermaid-js/parser/dist/chunks/mermaid-parser.core/treemap-WGGIJYW6.mjs [app-client] (ecmascript) <locals>");
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f40$mermaid$2d$js$2f$parser$2f$dist$2f$chunks$2f$mermaid$2d$parser$2e$core$2f$chunk$2d$6K3QC6MW$2e$mjs__$5b$app$2d$client$5d$__$28$ecmascript$29$__ = __turbopack_context__.i("[project]/frontend/node_modules/@mermaid-js/parser/dist/chunks/mermaid-parser.core/chunk-6K3QC6MW.mjs [app-client] (ecmascript)");
+}),
+"[project]/frontend/node_modules/@mermaid-js/parser/dist/chunks/mermaid-parser.core/treemap-WGGIJYW6.mjs [app-client] (ecmascript) <locals>", ((__turbopack_context__) => {
+"use strict";
+
+__turbopack_context__.s([]);
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f40$mermaid$2d$js$2f$parser$2f$dist$2f$chunks$2f$mermaid$2d$parser$2e$core$2f$chunk$2d$6K3QC6MW$2e$mjs__$5b$app$2d$client$5d$__$28$ecmascript$29$__ = __turbopack_context__.i("[project]/frontend/node_modules/@mermaid-js/parser/dist/chunks/mermaid-parser.core/chunk-6K3QC6MW.mjs [app-client] (ecmascript)");
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f40$mermaid$2d$js$2f$parser$2f$dist$2f$chunks$2f$mermaid$2d$parser$2e$core$2f$chunk$2d$FOHPRMQF$2e$mjs__$5b$app$2d$client$5d$__$28$ecmascript$29$__ = __turbopack_context__.i("[project]/frontend/node_modules/@mermaid-js/parser/dist/chunks/mermaid-parser.core/chunk-FOHPRMQF.mjs [app-client] (ecmascript)");
+;
+;
+;
+}),
+]);
+
+//# sourceMappingURL=19xk_%40mermaid-js_parser_dist_chunks_mermaid-parser_core_0fyfglx._.js.map

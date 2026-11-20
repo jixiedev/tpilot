@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from agent.prompt import SystemPromptAssembler
-from config.agent_config import (
+from settings.agent_config import (
     AgentConfig,
     DatabotAgentConfig,
     LeadAgentConfig,

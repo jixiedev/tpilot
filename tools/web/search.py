@@ -16,7 +16,7 @@ from urllib.parse import parse_qs, unquote, urlparse
 
 from langchain.tools import tool
 
-from config.tool_config import tool_config, web_search_api_key
+from settings.tool_config import tool_config, web_search_api_key
 from tools.errors import ToolErrorType, register_exception, resolve_exception
 from tools.registry import register_tool
 

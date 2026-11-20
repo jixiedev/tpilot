@@ -1,0 +1,29 @@
+{
+  "description": "A request that needs several specialists in sequence starts with a plan.",
+  "models": [
+    "MiniMax-M3"
+  ],
+  "run": {
+    "stub_specialists": true
+  },
+  "cases": [
+    {
+      "name": "composite_gmv_definition_then_query",
+      "query": "Look up the GMV metric definition in team docs, then query yesterday's GMV from the warehouse.",
+      "expected_decision": "plan",
+      "expected_routes": [
+        "knowledge",
+        "warehouse"
+      ]
+    },
+    {
+      "name": "plan_diagnose_then_fix",
+      "query": "Find out why the orders_daily Trino query started failing today, then fix the SQL in our dbt model file.",
+      "expected_decision": "plan",
+      "expected_routes": [
+        "diagnostic",
+        "swe"
+      ]
+    }
+  ]
+}

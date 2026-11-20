@@ -8,7 +8,7 @@ import urllib.error
 import urllib.request
 from typing import Any
 
-from config.tool_config import DataHubToolConfig, datahub_graphql_url, datahub_token, tool_config
+from settings.tool_config import DataHubToolConfig, datahub_graphql_url, datahub_token, tool_config
 from tools.errors import ToolErrorType, register_exception
 
 _MUTATION_RE = re.compile(r"\b(mutation|subscription)\b", re.IGNORECASE)

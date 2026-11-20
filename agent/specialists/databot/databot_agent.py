@@ -27,7 +27,7 @@ from agent.specialists.databot.history import DataRetrievalRecord, DataRetrieval
 from agent.specialists.databot.state import DatabotState
 from agent.specialists.databot.ui_actions import databot_state_subset
 from agent.subagent import SubagentResult, SubagentTask, leading_rows
-from config.agent_config import AgentConfig, DatabotAgentConfig, agent_config_path
+from settings.agent_config import AgentConfig, DatabotAgentConfig, agent_config_path
 from memory.session_runtime import SessionRuntime
 
 
@@ -215,6 +215,7 @@ class DatabotAgent(BaseAgent):
             self.model,
             checkpointer=self.checkpointer,
             run_context=self.run_context,
+            listener=self.listener,
         )
         self.graph = compiled
         return compiled

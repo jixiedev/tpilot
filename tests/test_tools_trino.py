@@ -188,3 +188,71 @@ def test_trino_desc_table_rejects_malformed_names(mock_execute: MagicMock) -> No
         with pytest.raises(Exception):
             trino_desc_table.invoke({"table": bad, "catalog": "hive", "schema_name": "x"})
     mock_execute.assert_not_called()
+
+
+# ------------------------------------------------------------- impersonation
+
+import pytest  # noqa: E402
+from langchain_core.runnables import RunnableLambda  # noqa: E402
+
+from settings.tool_config import TrinoToolConfig  # noqa: E402
+from tools.data import trino as trino_mod  # noqa: E402
+
+
+@pytest.fixture
+def trino_cfg(monkeypatch):
+    monkeypatch.setenv("TRINO_USER", "svc")
+    monkeypatch.setenv("TRINO_PASSWORD", "pw")
+    cfg = TrinoToolConfig(
+        host="trino.test", port=8443, user_env="TRINO_USER", password_env="TRINO_PASSWORD",
+        user_identity="impersonate",
+    )
+    monkeypatch.setattr(trino_mod.tool_config, "trino", cfg)
+    calls: list[dict] = []
+    monkeypatch.setattr(trino_mod, "connect", lambda **kw: calls.append(kw) or MagicMock(name=kw["user"]))
+    return cfg, calls
+
+
+def _in_run(user: str, fn):
+    return RunnableLambda(lambda _: fn()).invoke(None, {"configurable": {"user_id": user}})
+
+
+def test_impersonates_the_run_user(trino_cfg):
+    _, calls = trino_cfg
+    _in_run("alice", trino_mod.get_connection)
+    assert calls[-1]["user"] == "alice"
+    auth = calls[-1]["auth"]
+    assert (auth._username, auth._password) == ("svc", "pw")  # service account authenticates
+    assert calls[-1]["source"] == "tahoepilot"
+
+
+def test_service_user_outside_a_run(trino_cfg):
+    _, calls = trino_cfg
+    trino_mod.get_connection()
+    assert calls[-1]["user"] == "svc"
+
+
+def test_one_connection_per_user(trino_cfg):
+    _, calls = trino_cfg
+    a1 = _in_run("alice", trino_mod.get_connection)
+    b = _in_run("bob", trino_mod.get_connection)
+    a2 = _in_run("alice", trino_mod.get_connection)
+    assert a1 is a2 and a1 is not b
+    assert [c["user"] for c in calls] == ["alice", "bob"]
+
+
+def test_service_mode_ignores_the_run_user(trino_cfg, monkeypatch):
+    cfg, calls = trino_cfg
+    monkeypatch.setattr(trino_mod.tool_config, "trino", cfg.model_copy(update={"user_identity": "service"}))
+    _in_run("alice", trino_mod.get_connection)
+    assert calls[-1]["user"] == "svc"
+
+
+def test_connection_cache_is_bounded(trino_cfg, monkeypatch):
+    _, calls = trino_cfg
+    monkeypatch.setattr(trino_mod, "MAX_CONNECTIONS_PER_THREAD", 2)
+    first = _in_run("u1", trino_mod.get_connection)
+    _in_run("u2", trino_mod.get_connection)
+    _in_run("u3", trino_mod.get_connection)
+    first.close.assert_called_once()
+    assert list(trino_mod._thread_local.conns) == ["u2", "u3"]

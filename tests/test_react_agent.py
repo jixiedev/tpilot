@@ -8,7 +8,7 @@ from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from agent.listener import CliListener, AgentListener
 from agent.react import BaseReactAgent
 from agent.runtime.prompt import SESSION_TURN_BOUNDARY
-from config.agent_config import ReactAgentConfig, agent_config_path
+from settings.agent_config import ReactAgentConfig, agent_config_path
 from langgraph.checkpoint.memory import MemorySaver
 from memory.profile_store import FileProfileStore
 from memory.session_runtime import SessionRuntime

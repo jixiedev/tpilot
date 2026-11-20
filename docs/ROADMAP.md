@@ -37,7 +37,7 @@ An AI Agent platform for data teams: chatbot, intelligent data retrieval, team k
 | F12 | Model Routing | Dynamic model selection by task complexity and cost | P2 | Not started |
 | F13 | Procedural Memory | Distill reusable tool-call sequences and workflows from successful interactions | P3 | Not started |
 | F14 | Error Handling | Classify, retry, and degrade on LLM/tool failures; friendly errors and recoverable interrupts | P1 | Done — TOOL ERROR, transient retries, Hive↔Trino anti-oscillation, CLI-friendly errors |
-| F15 | RAG | Local Qdrant vector store; ingest and semantic search over Jira / Google Drive (and later Wiki) for Knowledge Agent | P1 | Done (Jira + dbt main path) — Docker Qdrant, ingest CLI (Jira CSV / Drive zip / dbt semantic model), `fetch_related_jira_tickets` and `fetch_related_models` (Databot card candidates; now the fallback after the metric catalog). dbt retrieval eval done: `model_selection` agent, 69 cases, see [evals/MODEL_SELECTION_EVAL.md](../evals/MODEL_SELECTION_EVAL.md). Drive/Wiki search tools still open |
+| F15 | RAG | Local Qdrant vector store; ingest and semantic search over Jira / Google Drive (and later Wiki) for Knowledge Agent | P1 | Done (Jira + dbt main path) — Docker Qdrant, ingest CLI (Jira CSV / Drive zip / dbt semantic model), `fetch_related_jira_tickets` and `fetch_related_models` (Databot card candidates; now the fallback after the metric catalog). dbt retrieval eval done: `model_selection` agent, 69 cases, see [evals/results/model_selection/README.md](../evals/results/model_selection/README.md). Drive/Wiki search tools still open |
 | F16 | A2A Multi-Agent Composition | Compose multiple specialist agents via the [Agent-to-Agent (A2A)](https://google.github.io/A2A/) protocol to solve complex cross-domain problems; standardized task delegation, artifact handoff, status streaming, and Agent Card discovery | P1 | Not started — M4 today is in-process `AgentChain`; target is A2A endpoints for Databot / Knowledge / future diagnostic agents, orchestrated via A2A tasks |
 | F17 | Databot runtime | Make Databot an embeddable specialist: layered graph, in-process responsibility objects, nodes that advance by operating on the Agent; leveled HITL defaulting to off; a retrieval turn ends with a summary and a cleared working state | P1 | Not started — see **F17 Databot runtime** below |
 
@@ -104,7 +104,7 @@ Items marked **Done** mean the main path works. The list below is optional deepe
 
 | Case type | Scores |
 |-----------|--------|
-| ReAct (`ToolCallCase`) | Tool order (subsequence), ReAct round budget, JSON answer fields (shape in case `query`; empty `answer` skips) |
+| One `EvalCase` for every agent (`evals/cases/<agent>/<objective>.json`) | Checks picked by expectation keys: tool order, round budget, JSON answer fields, lead decision and routes, model selection, recall, economy |
 | Intent (`IntentRouterCase`) | Router status, intention labels, specialist route order (`execute_plan=False`) |
 
 **Strengths** — simple, git-versioned, no SaaS; fits ReAct + Intent wiring; deterministic scorers are unit-testable; checks process (tools/router), not just final text.

@@ -9,7 +9,7 @@ from __future__ import annotations
 import re
 from typing import Any, Literal
 
-from config.tool_config import DataHubToolConfig
+from settings.tool_config import DataHubToolConfig
 from tools.external.datahub.client import execute_graphql
 from tools.external.datahub.parsing import (
     DEFAULT_LINEAGE_TOOL_COUNT,

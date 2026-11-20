@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import OrderedDict
 from threading import local
 from typing import Any
 
@@ -7,7 +8,8 @@ from langchain.tools import tool
 from trino.auth import BasicAuthentication
 from trino.dbapi import connect
 
-from config.tool_config import tool_config, trino_password
+from memory.profile_store import run_user_id
+from settings.tool_config import TrinoToolConfig, tool_config, trino_password, trino_user
 from tools.registry import alternative_tool, register_tool
 from tools.data.sql_guard import validate_plan_only_sql, validate_read_only_sql
 from tools.data.trino_errors import register_trino_exception_mappings
@@ -16,24 +18,60 @@ register_trino_exception_mappings()
 
 _thread_local = local()
 DEFAULT_ROW_LIMIT = 100
+#: Connections kept per thread (one per query user); the oldest is dropped beyond this.
+MAX_CONNECTIONS_PER_THREAD = 32
+
+
+def query_user(cfg: TrinoToolConfig | None = None) -> str:
+    """The Trino user queries run as.
+
+    ``[trino].user_identity = "impersonate"``: the run's signed-in user
+    (``configurable.user_id``, set by the web login or CLI ``-u``), else the
+    service user. ``"service"``: always the service user.
+    """
+    cfg = cfg or tool_config.trino
+    if cfg.user_identity == "impersonate":
+        return run_user_id() or trino_user(cfg)
+    return trino_user(cfg)
 
 
 def get_connection():
-    conn = getattr(_thread_local, "conn", None)
-    if conn is None:
-        cfg = tool_config.trino
-        conn = connect(
-            host=cfg.host,
-            port=cfg.port,
-            user=cfg.user,
-            auth=BasicAuthentication(cfg.user, trino_password(cfg)),
-            catalog=cfg.catalog,
-            schema=cfg.schema_name,
-            http_scheme=cfg.http_scheme,
-            request_timeout=cfg.request_timeout_seconds,
-            max_attempts=cfg.max_attempts,
-        )
-        _thread_local.conn = conn
+    """This thread's connection for the current query user.
+
+    The service account always authenticates (``TRINO_USER`` / ``TRINO_PASSWORD``);
+    the session ``user`` is :func:`query_user`. When the two differ Trino checks
+    that the service user may impersonate that user, and applies the
+    impersonated user's permissions.
+    """
+    cfg = tool_config.trino
+    user = query_user(cfg)
+    conns: OrderedDict[str, Any] | None = getattr(_thread_local, "conns", None)
+    if conns is None:
+        conns = _thread_local.conns = OrderedDict()
+    conn = conns.get(user)
+    if conn is not None:
+        conns.move_to_end(user)
+        return conn
+    service = trino_user(cfg)
+    conn = connect(
+        host=cfg.host,
+        port=cfg.port,
+        user=user,
+        auth=BasicAuthentication(service, trino_password(cfg)),
+        source=cfg.source,
+        catalog=cfg.catalog,
+        schema=cfg.schema_name,
+        http_scheme=cfg.http_scheme,
+        request_timeout=cfg.request_timeout_seconds,
+        max_attempts=cfg.max_attempts,
+    )
+    conns[user] = conn
+    while len(conns) > MAX_CONNECTIONS_PER_THREAD:
+        _, oldest = conns.popitem(last=False)
+        try:
+            oldest.close()
+        except Exception:  # noqa: BLE001 - closing is best effort
+            pass
     return conn
 
 

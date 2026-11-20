@@ -1,0 +1,23 @@
+{
+  "description": "An ambiguous request gets a clarifying question, not a delegation.",
+  "models": [
+    "MiniMax-M3"
+  ],
+  "run": {
+    "stub_specialists": true
+  },
+  "cases": [
+    {
+      "name": "clarify_ambiguous_revenue",
+      "query": "Show me revenue.",
+      "expected_decision": "clarify",
+      "expected_routes": []
+    },
+    {
+      "name": "clarify_unclear_fix",
+      "query": "It broke again, can you fix it?",
+      "expected_decision": "clarify",
+      "expected_routes": []
+    }
+  ]
+}

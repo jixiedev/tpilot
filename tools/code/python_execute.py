@@ -8,6 +8,7 @@ from typing import Any
 
 from langchain.tools import tool
 
+from tools.code.workspace import subprocess_env, workspace_dir
 from tools.errors import ToolErrorType, register_exception
 from tools.registry import register_tool
 
@@ -67,6 +68,9 @@ def run_python(code: str, timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS) -> dic
             text=True,
             timeout=limit,
             check=False,
+            # Run in the workspace with a minimal env (no secrets).
+            cwd=str(workspace_dir()),
+            env=subprocess_env(),
         )
     except subprocess.TimeoutExpired as exc:
         raise PythonExecuteError(
@@ -89,7 +93,8 @@ def run_python(code: str, timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS) -> dic
 @tool
 def python_execute(code: str, timeout_seconds: int = DEFAULT_TIMEOUT_SECONDS) -> dict[str, Any]:
     """Executes Python code string. Note: Only print outputs are visible, function return values
-    are not captured. Use print statements to see results.
+    are not captured. Use print statements to see results. Runs in your workspace folder (save
+    files there, e.g. charts); secrets are not in its environment.
     """
     return run_python(code, timeout_seconds)
 

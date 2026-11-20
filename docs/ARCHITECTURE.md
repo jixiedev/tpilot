@@ -70,8 +70,10 @@ This page is the map. Each subsystem has its own README with the details:
 | `graph/` | Generic LangGraph pieces: ReAct graph builder, step nodes, state schemas, message sanitizing, error recovery |
 | `tools/` | Tool registry and every tool the agents can call, plus MCP loading |
 | `memory/` | Context compression, offloaded payloads, user profiles, per-process session cache |
-| `config/` | Loaders for agent TOMLs, tool connections, local paths, logging |
-| `models/` | LLM definitions (`models.toml`) and the chat-model factory |
+| `config/` | Every configuration file (agent TOMLs, tool connections, local paths, models, RAG, MCP, metric catalog); data only, mountable as one volume |
+| `settings/` | Loaders that parse `config/` into typed objects; `paths.config_dir()` locates it |
+| `semantic_models/` | dbt semantic models read by the metric catalog (git-sync mount point in k8s) |
+| `models/` | The chat-model factory (definitions in `config/models.toml`) |
 | `rag/` | Document readers, chunking, embeddings, Qdrant access, ingest jobs |
 | `evals/` | Eval case types, scoring, eval listeners, CLI |
 | `frontend/` | Next.js web UI |
@@ -154,14 +156,14 @@ The web UI has one page per front agent (`/lead`, `/databot`), each with its own
 
 | Data | Where | Written by |
 |------|-------|-----------|
-| Conversation and graph state | `.local/checkpoints.sqlite` (`TAHOEPILOT_CHECKPOINT_DB`) | LangGraph checkpointer (CLI, AG-UI server) |
-| User profiles | `.local/profiles/<user>.json` (`TAHOEPILOT_PROFILE_DIR`) | End-of-turn profile refinement (user-facing turns only; skipped for delegated specialist runs) |
-| Offloaded tool output and conversation archives | `.local/offload_store/` (`TAHOEPILOT_OFFLOAD_DIR`) | Context compression |
+| Conversation and graph state | `.local/checkpoints.sqlite` (`checkpoint_db`) | LangGraph checkpointer (CLI, AG-UI server) |
+| User profiles | `.local/profiles/<user>.json` (`profiles_dir`) | End-of-turn profile refinement (user-facing turns only; skipped for delegated specialist runs) |
+| Offloaded tool output and conversation archives | `.local/offload_store/` (`offload_dir`) | Context compression |
 | Databot retrieval history | `.local/profiles/<user>.databot_turns.jsonl` | Databot turn commit (CLI turns; the web page drives the graph directly and does not write it) |
-| Logs | `.local/logs/tahoepilot.log` (`TAHOEPILOT_LOGS_DIR`, `TAHOEPILOT_LOG_FILE`) | `config/logging_config.py` |
+| Logs | `.local/logs/tahoepilot.log` (`logs_dir`, `log_file`) | `settings/logging_config.py` |
 | Knowledge base | Qdrant collections (`aug_jira_*`, `aug_dbt_models`) | `python -m rag run` |
 
-All local paths come from `config/local.toml` with the env overrides shown; the whole tree moves with `TAHOEPILOT_LOCAL_DIR`. `.local/` is git-ignored.
+All local paths come from `[paths]` in `config/runtime.toml` (keys shown); the whole tree moves with `data_dir`. `.local/` is git-ignored.
 
 ## Quality
 
@@ -178,6 +180,6 @@ All local paths come from `config/local.toml` with the env overrides shown; the 
 | The lead and delegation | `agent/lead/lead_agent.py`, `agent/lead/tools.py`, `agent/subagent.py` |
 | Warehouse's SQL review | `agent/specialists/warehouse/tools.py` |
 | Databot's pipeline | `agent/specialists/databot/graph.py` `DatabotGraphBuilder` |
-| Prompt and config merging | `config/agent_config.py` |
+| Prompt and config merging | `settings/agent_config.py` |
 | Tool registration | `tools/registry.py`, `tools/bootstrap.py` |
 | Context compression | `memory/compress.py` `ContextCompressor` |

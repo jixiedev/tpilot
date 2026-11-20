@@ -42,7 +42,7 @@ from agent.lead.state import LeadState, turn_finish, turn_start
 from agent.lead.tools import DELEGATE_TOOL_NAME, make_delegate_tool, make_write_plan_tool
 from agent.listener import AgentListener, CliListener, ListenerHub
 from agent.react import BaseReactAgent
-from config.agent_config import AgentConfig, LeadAgentConfig
+from settings.agent_config import AgentConfig, LeadAgentConfig
 from graph.builder import ReactLoopSpec, ReactStateSpec, build_react_graph
 from memory.session_runtime import SessionRuntime
 

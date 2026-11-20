@@ -40,7 +40,7 @@ A **table card** is a dict shaped like `TableCard` (`tools/rag/dbt_models.py`): 
 
 ### Metric conflicts
 
-When a dbt metric disagrees with a DataHub glossary term, the fetch stage calls `record_metric_conflict(card_name, metric, glossary_term, reason)`. Conflicts accumulate in `metric_conflicts`, are included in the cards-gate brief and the turn summary, and are never "fixed" — Databot does not edit dbt models.
+Metric definitions come from the curated metric catalog (`search_metric_catalog`, `find_models_metrics`); DataHub glossary terms are no longer used, so `record_metric_conflict` is not in any tool list. When it was, a dbt metric that disagreed with a DataHub glossary term was flagged with `record_metric_conflict(card_name, metric, glossary_term, reason)`. Conflicts accumulate in `metric_conflicts`, are included in the cards-gate brief and the turn summary, and are never "fixed" — Databot does not edit dbt models.
 
 ### Draft vs approved SQL
 
@@ -277,12 +277,12 @@ See [config/README.md](../../../config/README.md) for `extends`, prompt layout a
 | `[run_context.react.fetch]` / `[run_context.react.sql]` | Per-layer ReAct settings; both `extends = "tahoe"`, so `max_tool_calls = 10`, `max_idle_reason_rounds = 1` unless overridden |
 | `fetch_instruction`, `sql_instruction` | Opening system message for each layer |
 | `next_step`, `tool_budget_exhausted_prompt`, `idle_nudge_prompt` | Per-layer ReAct prompts |
-| `[tools] fetch` | `commit_cards`, `datahub_graphql_query`, `datahub_list_glossary_terms`, `fetch_related_models`, `find_models_metrics`, `record_metric_conflict`, `search_metric_catalog`. `fetch_instruction` has the agent try the metric catalog first and use `fetch_related_models` only when the catalog has no fitting root or member |
+| `[tools] fetch` | `commit_cards`, `datahub_graphql_query`, `fetch_related_models`, `find_models_metrics`, `search_metric_catalog`. `fetch_instruction` has the agent try the metric catalog first and use `fetch_related_models` only when the catalog has no fitting root or member |
 | `[tools] sql` | `propose_sql`, `trino_desc_table` (accepts `table`, `schema.table` or `catalog.schema.table`; Trino only, no local metastore connection), `trino_explain` (plan only: SELECT/WITH), `write_gate_reasons` |
 | `[tools] execute` | `trino_run_query` |
 | `[tools] default`, `rag` | Scopes not used by the staged graph's layers |
 | `[accepted_mcp] fetch = ["datahub"]` | DataHub MCP tools added to the fetch scope |
-| `[system_prompt]` | Databot persona and data rules (read-only, glossary-first, answer requirements) |
+| `[system_prompt]` | Databot persona and data rules (read-only, metric-catalog-first, answer requirements) |
 
 ## Extension notes
 

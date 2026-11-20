@@ -7,7 +7,7 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Self
 
-from config.local_config import get_local_paths
+from settings.runtime_config import get_runtime_paths
 
 # Tools whose large arguments are safe to evict after the write has persisted.
 DEFAULT_WRITE_TOOLS: frozenset[str] = frozenset(
@@ -42,7 +42,7 @@ class CompressionConfig:
     preview_lines: int = 30
     # Delete offload files older than this when a store is created; 0 disables.
     offload_max_age_days: float = 30.0
-    offload_dir: Path = field(default_factory=lambda: get_local_paths().offload_dir)
+    offload_dir: Path = field(default_factory=lambda: get_runtime_paths().offload_dir)
     write_tools: frozenset[str] = DEFAULT_WRITE_TOOLS
     never_offload_tools: frozenset[str] = DEFAULT_NEVER_OFFLOAD_TOOLS
     # Drop prior-turn tool trajectories; keep Human + final assistant text.

@@ -8,7 +8,7 @@ import pytest
 from langchain_core.tools import tool
 
 from agent.catalog import AgentCatalog
-from config.agent_config import agent_tool_scopes, tool_groups
+from settings.agent_config import agent_tool_scopes, tool_groups
 from tools.bootstrap import ensure_tools_registered
 from tools.registry import register_tool, registered_tools
 
@@ -69,7 +69,7 @@ def test_group_expansion_dedupes_in_order(tmp_path, monkeypatch):
     agents = tmp_path / "agents"
     agents.mkdir()
     _write(agents / "demo.toml", '[tools]\ndefault = ["a", "@g", "b"]\n')
-    monkeypatch.setattr("config.agent_config._DEFAULT_AGENTS_DIR", agents)
+    monkeypatch.setenv("TAHOEPILOT_CONFIG_DIR", str(agents.parent))
     assert agent_tool_scopes("demo", groups={"g": ["b", "c"]}) == {"default": ["a", "b", "c"]}
 
 
@@ -77,7 +77,7 @@ def test_unknown_group_is_an_error(tmp_path, monkeypatch):
     agents = tmp_path / "agents"
     agents.mkdir()
     _write(agents / "demo.toml", '[tools]\ndefault = ["@nope"]\n')
-    monkeypatch.setattr("config.agent_config._DEFAULT_AGENTS_DIR", agents)
+    monkeypatch.setenv("TAHOEPILOT_CONFIG_DIR", str(agents.parent))
     with pytest.raises(ValueError, match="unknown tool group"):
         agent_tool_scopes("demo", groups={})
 

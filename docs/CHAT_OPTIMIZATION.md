@@ -451,7 +451,7 @@ Implementation notes (behavior only): detect emits intentions + plan steps; publ
 | Optimization | Before | After |
 |--------------|--------|-------|
 | Endpoint | Separate `graphql_url` + `DATAHUB_TOKEN` in `tools.toml` | `gms_url` / `DATAHUB_GMS_URL` + `DATAHUB_GMS_TOKEN`, GraphQL = `{gms}/api/graphql` |
-| Config drift | MCP and HTTP tools could point at different hosts/tokens | Same env vars as `tools/mcp/mcp.json` datahub server |
+| Config drift | MCP and HTTP tools could point at different hosts/tokens | Same env vars as `config/mcp.json` datahub server |
 
 ---
 
@@ -820,7 +820,7 @@ Implementation notes (behavior only): detect emits intentions + plan steps; publ
 
 ## 2026-08-30 — `models.models` is lazy; missing API keys no longer kill `langgraph dev`
 
-**Goal**: Stop `langgraph dev` from hanging silently when any single registered chat model has a missing API key. The previous behaviour eagerly instantiated every model in `models/models.toml` at import time, so a single missing `MiniMax_API_KEY` (the `default_model_name`) raised `ValueError` before the dev server could `bind()` a socket.
+**Goal**: Stop `langgraph dev` from hanging silently when any single registered chat model has a missing API key. The previous behaviour eagerly instantiated every model in `config/models.toml` at import time, so a single missing `MiniMax_API_KEY` (the `default_model_name`) raised `ValueError` before the dev server could `bind()` a socket.
 
 | Optimization | Before | After |
 |--------------|--------|-------|
@@ -970,7 +970,7 @@ Implementation notes (behavior only): detect emits intentions + plan steps; publ
 | Default `pip install` | Pulled torch, Qdrant client, K8s client, CopilotKit stack, and ingest parsers | Core CLI + Hive/Trino/MCP only; opt-in `tahoepilot[web]`, `[k8s]`, `[rag]` |
 | Local Qdrant binary | Unclear whether `docker/qdrant/bin/` ships with the package | Documented as dev-only; PyPI wheel excludes it; Docker Compose is the supported path |
 | Local data layout | `checkpoints.sqlite`, `profiles/`, `logs/`, `offload_store/` at repo root | Single `.local/` tree; paths in `config/local.toml` `[paths]` with `TAHOEPILOT_*` / `AGUI_CHECKPOINT_DB` env overrides |
-| Path resolution | Scattered per entry point; CLI used repo-root `profiles/` while some agents used `agent/profiles/` | `config/local_config.py` builds one `LocalPaths` snapshot for CLI, AG-UI, agents, and compression |
+| Path resolution | Scattered per entry point; CLI used repo-root `profiles/` while some agents used `agent/profiles/` | `settings/local_config.py` builds one `LocalPaths` snapshot for CLI, AG-UI, agents, and compression |
 
 ---
 
@@ -1533,7 +1533,7 @@ Implementation notes (behavior only): detect emits intentions + plan steps; publ
 
 | Optimization | Before | After |
 |--------------|--------|-------|
-| Module | `config/prompt_config.py` held identity, MCP, run context, and system prompt | `config/agent_config.py` loads `config/agents/<name>.toml` |
+| Module | `config/prompt_config.py` held identity, MCP, run context, and system prompt | `settings/agent_config.py` loads `config/agents/<name>.toml` |
 
 ## 2026-11-04 — Agent creation and tools live on AgentCatalog
 
@@ -1583,7 +1583,7 @@ Implementation notes (behavior only): detect emits intentions + plan steps; publ
 |--------|-------|-----|
 | `observability/` (`observe.py`, `case.py`) | `evals/` (`listeners.py`, `tool_case.py`) | Holds eval suites, scoring and eval listeners; CLI is now `python -m evals` |
 | `state/state.py` + `graph/edge.py` | `graph/state.py` | LangGraph state schemas and the readers ReAct routing uses |
-| `agent/config.py` | `agent/run_context.py` | Run-context TypedDicts; distinct from `config/agent_config.py` |
+| `agent/config.py` | `agent/run_context.py` | Run-context TypedDicts; distinct from `settings/agent_config.py` |
 | `agent/prompt.py` (turn classes) | `agent/turn_messages.py` | `TurnMessagePolicy` / `SessionTurnProcessor` build and commit turn messages; `agent/prompt.py` keeps `SystemPromptAssembler` |
 | `models/models.py` | `models/llm.py` | LLM config and factory |
 | `rag/models.py` | `rag/local_models.py` | Downloads local BGE weights |
@@ -2054,7 +2054,7 @@ The repo now has a curated metric catalog (`tools/data/lib/`): 75 metric roots
 with/without LTD or distinct vs. row count (`root_member.csv`), and a mapping
 from 39 dbt models' metrics to `(root_id, member_id)` with a `related_ratio`
 (`root_member_assign.json`). The model files are copied into
-`tools/data/lib/models/<db>/` from data-governance.
+`semantic_models/<db>/` from data-governance.
 
 The user's position: the catalog lookup should perform better but has lower
 coverage, so use it first and fall back to semantic search when it cannot
@@ -2221,7 +2221,7 @@ User direction after the eval: warehouse finds models with
   This also gives it an explicit exit for the "nothing fits" case where the
   eval agents ran out of budget without answering.
 - Consequence: warehouse can now only answer questions whose metric maps to
-  one of the 39 catalog models (`tools/data/lib/models`); column or entity
+  one of the 39 catalog models (`semantic_models`); column or entity
   questions and metrics outside the catalog get a "not covered" answer.
 
 ## Fewer `read_offloaded_file` round trips (2026-11-18)
@@ -2285,3 +2285,314 @@ last resort (no fitting root, or nothing staged), not a second opinion.
 Out-of-corpus questions cost every arm about 8 tool calls before the `null`
 answer: a cap on catalog retries is a candidate change for warehouse. Reviewing
 every miss also found two wrong gold labels, both of which had penalised `rag`.
+
+## One config directory for deployment (2026-11-19)
+
+### Why (design discussion)
+
+The image is going to k8s with its working directory at `/tahoepilot`. The
+user wants configuration handled the way the Flink deployment does it: one
+ConfigMap whose keys are the config files, mounted as a volume at
+`/tahoepilot/config`. Settings were scattered: loaders read files next to
+their own code (`models/models.toml`, `tools/mcp/mcp.json`,
+`tools/data/lib/*`), many non-secret values had env overrides
+(`TAHOEPILOT_LOCAL_DIR`, `QDRANT_URL`, `AGUI_PORT`, `DATAHUB_GMS_URL`, ...), and
+the CLI took `--checkpoint-db` / `--profile-dir`. The user's rule: every module
+reads configuration from that directory; the directory itself is set by an env
+var (from `.env`), default `/tahoepilot/config`; no module accepts its own
+directory or path override.
+
+Options weighed:
+
+- *Env var per path* (`SEMANTIC_MODEL_PATH`, `AGENT_CONFIG_PATH`, ...): built
+  first, then dropped; it adds more scattered knobs instead of one mount.
+- *Keep the `config` Python package and copy code elsewhere in the image*:
+  rejected, dev and image layouts would differ. `config/` was both a package and
+  the data folder, so a mount there would hide the loaders.
+- *Rename the package* (chosen): loaders moved to `settings/`; `config/` holds
+  data only.
+
+### Decision
+
+- `settings/paths.py` owns the location: `config_dir()` is
+  `$TAHOEPILOT_CONFIG_DIR` (relative → project root), default
+  `/tahoepilot/config`. It loads `<root>/.env` on import, so every entry point
+  sees the variable and secrets first. A checkout sets
+  `TAHOEPILOT_CONFIG_DIR=config` in `.env`; tests pin it in `tests/conftest.py`.
+- Every config file lives in `config/`: `agents/`, `tools.toml`, `runtime.toml`, `semantic.toml`,
+  `models.toml`, `rag.toml`, `server.toml` (new), `tool_groups.toml`,
+  `mcp.json`, `metrics/` (metric catalog CSV/JSON, ~650 KB).
+- Non-secret env overrides and CLI path flags are gone: `[paths]` and `[user]`
+  in `runtime.toml`; metric catalog paths in `semantic.toml`; Qdrant URL, embedding settings, weight cache
+  dir, HF endpoint and Tika endpoint in `rag.toml`; AG-UI host/port/path/stream
+  options and the Next.js host/port/backend URL in `server.toml`; DataHub URL,
+  kubeconfig path, S3 region/endpoint in `tools.toml`.
+- Secrets stay in the environment (`.env` locally, a k8s Secret in a cluster),
+  named by `*_env` keys or `${VAR}` in `mcp.json`.
+- The semantic models (`<db>/<model>.{yml,sql}`, 1.2 MB) are data, not config:
+  `semantic_models/` at the project root, where the user mounts a git-sync
+  volume; `models_dir` in `semantic.toml` points there.
+
+### Guardrails
+
+- A ConfigMap mount replaces the whole directory: it must carry every file,
+  including `agents/base.toml`, `tahoe.toml`, `stage.toml` (other agents
+  `extends` them). Subdirectories need `items[].path` (`agents/lead.toml`).
+- ConfigMaps cap at 1 MiB; `config/` is ~740 KB, mostly
+  `metrics/root_member_assign.json`.
+- `test_copied_config_dir_is_self_contained` loads agent configs from a copy of
+  `config/` alone.
+- Left as inputs, not config: `python -m rag` job arguments (`--path`,
+  `--tasks`, `--checkpoint`) and `python -m evals --cases-dir/--out`.
+
+### Naming follow-up (2026-11-19)
+
+`local.toml` / `LocalConfig` / `LocalPaths` dated from "machine-local data under
+`.local/`" and no longer fit: the file had gained metric catalog paths and the
+default user id, and `LocalPaths` read like a config class although it is the
+resolved output. Renamed to `runtime.toml`, `settings/runtime_config.py`,
+`RuntimeConfig` (file schema) and `RuntimePaths` (resolved paths), with
+`get_runtime_paths()` / `ensure_runtime_dirs()`. The metric catalog paths moved
+to their own `semantic.toml` (`settings/semantic_config.py`: `SemanticConfig` →
+`SemanticPaths`), since they belong to `tools/data/metrics.py`, not runtime
+state. Convention: `*Config` mirrors a file as written; `*Paths` is what
+callers use.
+
+### Secrets file (2026-11-19)
+
+`.env` mixed the config-location variable with API keys. Secrets now live in
+their own file: `TAHOEPILOT_SECRETS_FILE` (set in `.env`, default
+`/tahoepilot/secrets/secrets.env`, where a k8s Secret is mounted like the
+config ConfigMap) names a `KEY=value` file that `settings/paths.py` loads after
+`.env`, never overriding real env vars, so `envFrom` still works. `.env` keeps
+only `TAHOEPILOT_CONFIG_DIR`, `TAHOEPILOT_SECRETS_FILE` and `HF_*` library
+flags; `secrets.env` is git-ignored and `secrets.env.example` lists every
+name. Entry points no longer call `load_dotenv` themselves; importing
+`settings.paths` does it once.
+
+### Code-tool workspace (2026-11-19)
+
+The user saw agents use `bash` to browse the TahoePilot repo. The code tools
+ran in the server's working directory (the repo root, `/tahoepilot` in the
+image), the editor accepted any absolute path, and every subprocess inherited
+the full environment, secrets included. Options weighed: removing `@code` from
+agents that do not need it (databot, knowledge), a workspace folder, or a real
+sandbox (separate container/user). The user chose the workspace folder:
+`[paths].workspace_dir` in `runtime.toml` (default `<data_dir>/workspace`);
+`bash` and `python_execute` start there, `str_replace_editor` refuses paths
+outside it after resolving symlinks, and subprocesses get a minimal env
+(`tools/code/workspace.py`). `base.toml` tells the model about the folder. It
+is a guard rail: an explicit `cd` still leaves the folder, and the dev default
+`.local/workspace` sits inside the checkout.
+
+
+### One user id per run, CLI and web (2026-11-19)
+
+The CLI resolved `user_id` in `accept_user_request` and put it only in state;
+the web path set none, so web turns fell back to `[user].default_id` / the OS
+user, and tools (which see no state) had no way to know the visitor. Agreed
+design: one resolver (`memory.profile_store.resolve_user_id`), run once per
+request, result in two places. State `user_id` drives the profile, persona and
+`delegate`; run config `configurable.user_id` serves tools
+(`run_user_id()` via `langgraph.config.get_config()`), is inherited by nested
+specialists, and survives gate resumes (the AG-UI adapter ignores client state
+on resume). The CLI passes it through `session_graph_config(session, user_id)`;
+the web server takes it from the `[agui].user_header` request header
+(`X-Tahoepilot-User`), else the thread's checkpointed id, else the default, and
+overwrites the client's `state.user_id`. Config over LangGraph's context API:
+no graph changes, and nested `ainvoke` already inherits config. The Next.js
+route needs no change because CopilotKit forwards `x-*` headers; the ingress
+must set the header and strip the browser's copy. Using it in the Trino tool
+(tag vs impersonate) is still open.
+
+### Login page with LDAP (2026-11-19)
+
+The user asked for a basic login page: username and password, only the
+username kept as identity, password checked against the company directory
+(LDAP), chosen over a users file, Trino credentials or no check. Design:
+`[auth]` in `server.toml` (off by default). The backend binds to LDAP as the
+user (`user_dn_template`, DN-escaped; empty passwords refused because an empty
+password is an anonymous bind) and returns a token, `base64(json{u, exp})`
+signed with HMAC-SHA256 under `TAHOEPILOT_SESSION_SECRET` (secrets file), so the
+key never reaches Next.js. Next.js keeps the token in an httpOnly cookie and
+sends it as `Authorization: Bearer` from per-request CopilotKit agents and the
+databot actions route; `proxy.ts` redirects to `/login` without a cookie.
+With login on, the token's username is the run's `user_id` and the
+`user_header` is ignored; without a valid token AG-UI runs and databot actions
+are 401. No server-side sessions: sign-out drops the cookie, rotating the key
+signs everyone out.
+
+Follow-up: the directory is Active Directory, configured for Trino as
+search-then-bind (service account searches `OU=WishUsers,...` by
+`sAMAccountName`). A DN template cannot express that, so `[auth]` gained
+`user_base_dn`, `user_search_filter`, `bind_user` and `bind_password_env`
+(`LDAP_BIND_PASSWORD` in the secrets file); when the filter is set, the service
+account finds exactly one DN and the user then binds as it. A rejected service
+account is reported as a server problem (503), not as bad user credentials.
+
+Follow-up: the developer's Mac reaches the AD server by ping but not on TCP
+389/636/3268 (filtered from the VPN; Trino in the data center can reach it).
+As a workaround the user asked to always pass the LDAP check, so `[auth]`
+gained `skip_password_check` (default false): any password is accepted, the
+username is still validated and becomes the identity, and the backend warns at
+startup and on each login. The repo's `server.toml` has it on for local use; a
+deployment's ConfigMap must set it to false.
+
+### Trino runs queries as the signed-in user (2026-11-19)
+
+The user chose impersonation over tagging. `[trino].user_identity` in
+`tools.toml` (`"service"` | `"impersonate"`, repo set to `"impersonate"`): the
+service account (`TRINO_USER` / `TRINO_PASSWORD`) still authenticates, and the
+session user is the run's `configurable.user_id` (`run_user_id()`), so Trino
+applies that user's permissions after checking its impersonation rule. No run
+user (tests, direct calls) means the service user. Connections are cached per
+thread and user (bounded at 32) instead of one per thread, so one visitor's
+connection is never reused for another. Caveat: the identity is only as
+strong as the login; with `skip_password_check` anyone can query as anyone.
+
+### Metric questions use the metric catalog, not the DataHub glossary (2026-11-19)
+
+"What's the definition of GMV" went to Knowledge, which only had the DataHub
+glossary; the curated definitions live in `config/metrics/` and are searched
+by `tools/data/metrics.py`. The user asked to stop using the glossary and to
+answer every metric/model question with the metrics.py tools. Changes:
+`datahub_list_glossary_terms` left the `@datahub` group and databot's fetch
+scope, `record_metric_conflict` (dbt metric vs glossary term) left databot's
+lists, prompts for knowledge, databot, warehouse and the lead's routing rule
+now point to `search_metric_catalog` → members → `find_models_metrics`, and
+Knowledge gained both tools plus a `KnowledgeState` with `staging_cards`
+(`find_models_metrics` writes staged cards; `BaseReactAgent.state_class` is
+the new hook). Knowledge's roster line now covers "how it is calculated and
+which models carry it". The glossary tool code stays registered but unused;
+`tests/test_no_glossary_tools.py` keeps it out of every agent's lists.
+
+Follow-up: the user objected that Knowledge should not hold data-pipeline
+state for a knowledge question. `find_models_metrics` stages cards into
+`staging_cards` for Databot's `commit_cards` (and Warehouse), which is why it
+needed `KnowledgeState`. Replaced for Knowledge by `describe_metric_models` in
+metrics.py: same catalog lookup (`find_models_metrics_cards`), returned as a
+plain read-only summary (no staging ids, no state, no SQL). `KnowledgeState`
+and the `BaseReactAgent.state_class` hook were removed.
+
+### Knowledge evals for metric and lineage questions (2026-11-19)
+
+The user asked for evals of data questions answered by Knowledge, in two
+classes, designed first. Agreed design: each class is checked twice with the
+existing case types. Routing (lead, specialists stubbed): `routing.json` suites
+`metric` (definitions, formulas, which-model → knowledge; numbers → warehouse;
+define-then-query → plan) and `lineage` (upstream, downstream, DAG-of-table,
+tables-of-DAG → knowledge; a failed DAG → diagnostic). Answers (Knowledge
+alone): `knowledge_metrics.json` (catalog `root_id`/`member_id`/`model`, with
+lookalike members, a Chinese query and a not-in-catalog case expecting nulls)
+and `knowledge_lineage.json`. For lineage the user chose DataHub lineage over a
+new `describe_model` tool. DataHub was unreachable from the dev Mac, so the
+gold comes from `semantic_models` `config.meta` (`dag`, `task`,
+`upstream_table`) and each case says to verify it against DataHub;
+`downstream` cases have no gold yet and score tools and rounds only. The answer
+matcher gained list semantics (scalar in list = one of; list vs list = every
+expected item present) and `null` = must be null. First smoke run: GMV
+definition 1.0, both routing cases 1.0, not-in-catalog (NPS) 0.33 — the agent
+searched 10 rounds, including Jira, and replied with two JSON objects.
+
+Follow-up: the not-in-catalog eval (NPS) scored 0.33 — Knowledge searched 10
+rounds (catalog, DataHub, Jira) and replied with two JSON objects. Knowledge's
+prompt now has a stop rule (at most two root searches with different
+synonyms; no fit means "not in the catalog", no lookups elsewhere, catalog
+fields null when JSON is asked) and a one-JSON-object rule. Re-run: NPS 1.0 in
+2 rounds; GMV and DAU-with-guests stay 1.0.
+
+### One eval framework, cases by agent and objective (2026-11-19)
+
+The user asked to group eval cases by agent and objective (e.g.
+`knowledge/not_in_catalog.json`, one file per batch) and to stop adding a case
+class per kind of evaluation. Before: three case types (`ToolCallCase`,
+`LeadRoutingCase`, `ModelSelectionCase`) with their own loaders, results,
+aggregates, runners and printers, and group files with suites inside. Now:
+`evals/cases/<agent>/<objective>.json` (folder = agent under test, file =
+batch); one `EvalCase` whose expectation keys switch on checks in
+`evals/checks.py` (tools, rounds, answer, decision, routes, delegations,
+selection, recall, economy; score = mean of the case's checks); one runner
+(`evals/runner.py`) with batch-level run options instead of subclasses —
+`stub_specialists` for the lead, `variants` (run_context overrides) for the
+model-selection arms; one report (`evals/report.py`) whose `--out` JSON stays
+readable by `selection_report.py`. A new kind of evaluation is a new check,
+not a class. The 130 existing cases moved into 21 batches unchanged; `answer:
+{}` no longer adds a free 1.0. A crashed run is now recorded as 0 for every
+agent (before, only model selection did that).
+
+### Eval results live next to the cases (2026-11-20)
+
+The user asked to write up finished evals and move their results into the
+matching eval folder. Layout: `evals/results/<agent>/` mirrors
+`evals/cases/<agent>/` and holds the `--out` JSON (`<date>_<label>.json` plus
+`.partial.jsonl`) and a `README.md` write-up (what ran, scores per batch,
+failures and why, next steps). `evals/MODEL_SELECTION_EVAL.md` moved to
+`evals/results/model_selection/README.md` with its runs. First knowledge/lead
+write-ups (2026-11-20): metric questions 0.963, not-in-catalog 1.0, lead
+routing 0.949; the lineage batches are not a valid measurement yet because
+DataHub calls failed TLS verification (company CA missing from Python's
+bundle), which also showed Knowledge has no lineage rule and no stop rule
+after a tool failure.
+
+### Golden queries and eval features from ci-add-golden-query-benchmark (2026-11-20)
+
+The user asked to bring the useful golden queries and eval code from branch
+`ci-add-golden-query-benchmark` (3 commits on an old base, eval harness under
+`observability/` with one case subclass per workload) into this branch. Kept:
+the 71 DataBot golden queries, now `evals/cases/databot/find_table.json` (52)
+and `find_metric.json` (19) — two gold fixes (`fct_dau` card without db, the
+`wish__dim_all_merchants` reply → Hive table `wish.dim_all_merchants`); the
+reference SQL is kept as unscored `reference_sql` for the 54 that still compile
+on Trino (17 used semantic-layer columns). Its performance set (same 71 with a
+3-call budget) became `max_tool_calls: 12` on the same cases (today's pipeline
+makes 8–10 calls). Its eval ideas became checks/options of the one framework,
+not classes: `tool_policy` (allowed/forbidden tools), `cards`, exact `reply`,
+`sql_runs`, batch `run.gate_reply`, `EvalTimer` timing (reported, not scored),
+CLI `--models`/`--user-id`/`--list-cases`. Also ported its fix of passing the
+agent's listener into DataBot's stage layers, without which evals saw no
+DataBot tool calls. Dropped: `PerformanceMiddleware` (old agent design; the
+timer covers it), intent cases (agent gone), knowledge/harness duplicates,
+`draft_tools`, glossary tools in the gold.
+
+Follow-up: the user pointed out the golden queries should evaluate the
+Warehouse agent, not Databot — they ask which table/metric answers a data
+question, which is Warehouse's "find the tables for a data need" job and where
+the lead routes data questions. They moved to `evals/cases/warehouse/`
+(`gate_reply: approve`, Warehouse's tool set as `allowed_tools`, budget 12).
+`commit_cards` and `expect_sql_runs` were dropped (a table-identity answer needs
+no SQL); the `cards` check became `tables` (Databot cards, else Warehouse's
+reviewed-SQL tables, else its staged models) and `sql_runs` reads Warehouse's
+`execution` too. The runner now strips `<think>` blocks from the recorded reply
+(Warehouse's reply kept them, failing every exact-reply check). Smoke run: 3 of
+3 at 1.0.
+
+Follow-up: the golden batches now ask Warehouse for one JSON answer,
+`{"models_selected": [...], "proposed_sql": [...]}`, and tell it not to use the
+SQL review gate and to leave both lists empty when it cannot answer. The gate
+tools are `forbidden_tools` (and `gate_reply: stop` is a safety net, so no SQL
+runs). The SQL is scored without running it: `sql_tables` (the proposed SQL
+reads the expected table) and `sql_compiles` (Trino EXPLAIN plans it). The
+user's point: the SQL matters, but it need not run. Smoke run 3/3 at 1.0; the
+SQL shapes still differ from `reference_sql` (latest snapshot vs date range,
+extra breakdowns), which no check compares yet.
+
+Golden queries, first full run (2026-11-20, MiniMax-M3, 71 cases): average
+0.981. Table/metric choice and `sql_tables` were 1.0 on every case. Six SQL
+replies did not plan (`sql_compiles` 0.915), and none of those runs had called
+`trino_explain`, while all 29 runs that did call it planned. Six runs went over
+the 12-call budget, four of them on `fact_trans_detail` grain questions.
+`datahub_get_table_docs` is 79% of tool time. Proposed next changes: an
+"EXPLAIN before answering" rule, caching table docs, and scoring SQL shape
+against `reference_sql`. Write-up: `evals/results/warehouse/README.md`.
+
+Golden queries, optimization step 1: Warehouse's workflow step 3 changed from
+"optionally EXPLAIN" to "always EXPLAIN the final SQL before approval or
+answer; fix and re-check at most twice". This was the only change, re-run
+into a new file and the baseline kept. Results: average 0.981 → 0.995,
+`sql_compiles` 0.915 → 1.000 (all 6 failures fixed through EXPLAIN-and-repair),
+other checks unchanged. The cost was about 0.9 more tool calls per run, with the
+same mean wall time; 6 runs were still over budget (a different set). 67 of 71
+runs followed the rule. Kept. Next candidates: Trino notes for the error types
+seen (fewer repair loops), and caching table docs. The log is in
+`evals/results/warehouse/README.md`, under "Optimization log", which is the
+place to record each later step.

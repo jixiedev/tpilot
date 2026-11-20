@@ -194,7 +194,7 @@ Both are registered with `register_tool` and exported as `COMPRESSION_TOOLS`.
 Agents get them through the `@memory` group in `config/tool_groups.toml`.
 `ContextCompressor.__init__` calls `configure_offload_tools(store)`, which
 registers the store (keyed by resolved root) alongside the default
-`LocalPaths.offload_dir` store. Registration is additive, so agents with
+`RuntimePaths.offload_dir` store. Registration is additive, so agents with
 different `offload_dir` values in one process can all read their own files.
 
 ### Offload store (`memory/offload.py`)
@@ -202,8 +202,8 @@ different `offload_dir` values in one process can all read their own files.
 `OffloadStore(root)` creates `root` and writes `<label>_<8 hex>.txt` files
 (labels are sanitized to `[A-Za-z0-9_-]`, max 64 chars). `read` resolves the path
 and rejects anything outside `root`. The default root is
-`LocalPaths.offload_dir` (`.local/offload_store`, override with
-`TAHOEPILOT_OFFLOAD_DIR`; see [config/README.md](../config/README.md#local-paths-configlocaltoml)).
+`RuntimePaths.offload_dir` (`.local/offload_store`, override with
+`[paths].offload_dir` in `runtime.toml`; see [config/README.md](../config/README.md#runtime-paths-configruntimetoml)).
 
 Retention: `OffloadStore(root, max_age_days=N)` prunes on creation. The
 compressor (and `make_compressor`) passes `offload_max_age_days` (default 30),
@@ -239,7 +239,7 @@ set in an agent file's `[compression]` table:
 | `prior_turns_qa_only` | `true` | Layer 1b on/off (`false` in `warehouse` and `databot`) |
 | `write_tools` | see layer 2 | Layer 2 |
 | `never_offload_tools` | `[]` | Layer 1 exclusions, added to the tools registered with `offload=False` |
-| `offload_dir` | `LocalPaths.offload_dir` | Code only |
+| `offload_dir` | `RuntimePaths.offload_dir` | Code only |
 | `turn_boundary_marker` | `--- Session turn boundary ---` | Code only (layer 1b) |
 
 `CompressionConfig.from_mapping` overlays known keys and ignores invalid values
@@ -292,12 +292,21 @@ Tests: `.venv/bin/python -m pytest -q tests/test_memory_compress.py tests/test_m
 `FileProfileStore(root)` stores one `<user_id>.json` per user (characters
 outside `[\w.\-@+]` become `_`; an empty id becomes `anonymous`). `load` returns
 an empty profile with the id filled when no file exists. The root is
-`LocalPaths.profiles_dir` (`.local/profiles`, `TAHOEPILOT_PROFILE_DIR`, or
-`--profile-dir` on the CLI).
+`RuntimePaths.profiles_dir` (`.local/profiles`, or `[paths].profiles_dir` in
+`runtime.toml`).
 
-User id resolution (`resolve_user_id`): explicit value (`-u/--user-id`), then
-the `user_id` stored in the session checkpoint, then the store's active user,
-then `TAHOEPILOT_USER_ID`, then the OS login (`getpass.getuser()`).
+User id resolution (`resolve_user_id`): explicit value (`-u/--user-id` on the
+CLI, the `[agui].user_header` request header on the web, a delegated task's
+id), then the current run's `configurable.user_id` (`run_user_id()`), then the
+`user_id` stored in the session checkpoint, then the store's active user, then
+`[user].default_id` in `runtime.toml`, then the OS login (`getpass.getuser()`).
+
+The CLI (`accept_user_request`) and the web server (`agui_endpoint`) both
+resolve once per run and put the result in two places: `state["user_id"]`
+(profile, persona, `delegate` → specialists) and `configurable.user_id` of the
+run config (tools, which see no state; nested specialists inherit it, and it is
+present on gate resumes, where the web client's state is not merged). Code
+inside a run reads it with `memory.profile_store.run_user_id()`.
 
 ### Refinement (`agent/refine_profile.py`)
 
@@ -331,7 +340,7 @@ when constructing agents.
   wired into the graph and `compact_context` / `read_offloaded_file` stay
   available; the node simply returns no message updates.
 - **Match `context_window` to the model.** The default is 128,000. With a
-  smaller model (for example the 40k Ollama entries in `models/models.toml`)
+  smaller model (for example the 40k Ollama entries in `config/models.toml`)
   the request overflows before `fill_trigger` is reached.
 - **Retention deletes archives referenced by old sessions.** A checkpoint
   resumed after `offload_max_age_days` may point at pruned files;

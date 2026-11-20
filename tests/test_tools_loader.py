@@ -48,7 +48,12 @@ async def test_load_knowledge_tools_falls_back_to_native_datahub() -> None:
         tools = await loader_mod.load_knowledge_tools()
 
     names = [t.name for t in tools]
-    assert "datahub_list_glossary_terms" in names
+    assert "datahub_list_datasets" in names
+    assert "datahub_list_glossary_terms" not in names
+    # Metric and model questions use the metric catalog tools (tools/data/metrics.py).
+    assert "search_metric_catalog" in names
+    assert "describe_metric_models" in names
+    assert "find_models_metrics" not in names  # staging tool: databot / warehouse only
     assert "fetch_related_jira_tickets" in names
     assert not any(name == "search" for name in names)
 

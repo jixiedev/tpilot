@@ -9,11 +9,12 @@ wheels/
 # Virtual environments
 .venv
 
-# Local secrets
+# Local env (non-secret) and secrets
 .env
+secrets.env
 
 # Local MCP server config (may contain secrets)
-tools/mcp/mcp.json
+config/mcp.json
 
 # Local dev process logs / pids (langgraph dev, next dev)
 .run/

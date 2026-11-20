@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from config.agent_config import (
+from settings.agent_config import (
     AgentConfig,
     DatabotAgentConfig,
     ReactAgentConfig,

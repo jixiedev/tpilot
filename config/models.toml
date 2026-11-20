@@ -1,0 +1,118 @@
+# Chat model registry, read by models/llm.py. Each [model."<name>"] table is one
+# model the agents can use; <name> is passed to the provider as the model id.
+# Every model is built with langchain's init_chat_model(...).
+
+[basic]
+# Model used when nothing asks for a specific one. If it cannot be built (e.g. its
+# API key is missing) the others are tried in file order.
+default_model_name = "MiniMax-M3"
+
+[model."MiniMax-M3"]
+# OpenAI-compatible endpoint of the provider.
+base_url = "https://api.minimaxi.com/v1"
+# Env variable holding the API key (secret). An inline `api_key = "..."` is the fallback.
+api_key_env = "MiniMax_API_KEY"
+# langchain provider; "openai" = any OpenAI-compatible API.
+provider = "openai"
+# Sampling temperature (0 = deterministic). Default 0.5 when omitted.
+temperature = 0.3
+# Max tokens the model may generate per call. Default 8192 when omitted.
+max_tokens = 81920
+# Per-request HTTP timeout. Default 120 when omitted.
+timeout_seconds = 120
+# Client-side retries on transient errors. Default 3 when omitted.
+max_retries = 3
+# Optional: [model."<name>".kwargs] passes extra keyword arguments to
+# init_chat_model (see the qwen3 entries below).
+
+# The entries below use the same keys as MiniMax-M3; only differences are noted.
+
+# MiniMax high-speed variant (same endpoint and key).
+[model."MiniMax-M2.7-highspeed"]
+base_url = "https://api.minimaxi.com/v1"
+api_key_env = "MiniMax_API_KEY"
+provider = "openai"
+temperature = 0.3
+max_tokens = 81920
+timeout_seconds = 120
+max_retries = 3
+
+# Zhipu GLM flash model.
+[model."glm-4.7-flash"]
+base_url = "https://open.bigmodel.cn/api/paas/v4/"
+api_key_env = "GLM_API_KEY"
+provider = "openai"
+temperature = 0.3
+max_tokens = 81920
+timeout_seconds = 120
+max_retries = 3
+
+# OpenRouter's free router (picks a free model per request).
+[model."openrouter/free"]
+base_url = "https://openrouter.ai/api/v1/"
+api_key_env = "OpenRouter_API_KEY"
+provider = "openai"
+temperature = 0.3
+max_tokens = 81920
+timeout_seconds = 120
+max_retries = 3
+
+# SenseNova flash-lite; smaller output cap than the others.
+[model."sensenova-6.7-flash-lite"]
+base_url = "https://token.sensenova.cn/v1"
+api_key_env = "SenseNova_API_KEY"
+provider = "openai"
+temperature = 0.3
+max_tokens = 65536
+timeout_seconds = 120
+max_retries = 3
+
+# Local Ollama Qwen3 8B with baked-in 40k context (model max).
+# Create: printf 'FROM qwen3:8b\nPARAMETER num_ctx 40960\n' | ollama create qwen3-ctx40k -f /dev/stdin
+# (or: ollama create qwen3-ctx40k -f Modelfile)
+# OpenAI-compatible /v1 ignores per-request options.num_ctx; stock qwen3:8b loads at 4096.
+[model."qwen3-ctx40k"]
+# Local Ollama server's OpenAI-compatible API.
+base_url = "http://127.0.0.1:11434/v1"
+# Inline key: Ollama ignores it but the client requires one. Not a secret.
+api_key = "ollama"
+provider = "openai"
+temperature = 0.3
+# Short output cap keeps local generation fast.
+max_tokens = 2048
+# Local models are slow; allow 5 minutes per request.
+timeout_seconds = 300
+max_retries = 2
+
+# Extra request body sent with every call.
+[model."qwen3-ctx40k".kwargs.extra_body]
+# Turn off Qwen3 thinking output.
+reasoning_effort = "none"
+
+# 16k-context variant (optional; create like qwen3-ctx40k with num_ctx 16384).
+[model."qwen3-ctx16k"]
+base_url = "http://127.0.0.1:11434/v1"
+api_key = "ollama"
+provider = "openai"
+temperature = 0.3
+max_tokens = 2048
+timeout_seconds = 300
+max_retries = 2
+
+# Extra request body: turn off Qwen3 thinking output.
+[model."qwen3-ctx16k".kwargs.extra_body]
+reasoning_effort = "none"
+
+# Stock tag (4k default context unless recreated with num_ctx).
+[model."qwen3:8b"]
+base_url = "http://127.0.0.1:11434/v1"
+api_key = "ollama"
+provider = "openai"
+temperature = 0.3
+max_tokens = 2048
+timeout_seconds = 300
+max_retries = 2
+
+# Extra request body: turn off Qwen3 thinking output.
+[model."qwen3:8b".kwargs.extra_body]
+reasoning_effort = "none"

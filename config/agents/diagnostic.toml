@@ -1,15 +1,22 @@
+# Agent name (catalog key and `delegate` target); defaults to the file stem.
 name = "diagnostic"
+# One-line summary for the catalog; the lead roster falls back to it without delegate_when.
 description = "Production diagnostics specialist (K8s, S3, Hive/Trino, Airflow MCP, and other infra tools)"
+# Lead roster line: when the lead should delegate to this agent.
 delegate_when = """
 production troubleshooting — why a job, DAG, pod, query or pipeline is failing, slow or stuck; inspect Kubernetes, S3, Hive/Trino and Airflow state, logs and errors
 """
 
+# MCP servers (from config/mcp.json) loaded per tool scope.
 [accepted_mcp]
+# Both Airflow MCP servers (Tahoe and legacy) in the main scope.
 default = ["airflow_tahoe", "airflow_legacy"]
 
 [system_prompt]
+# Inherit tahoe.toml's layout and sections; only the tables below differ.
 extends = "tahoe"
 
+# Replaces tahoe's role: production-incident specialist.
 [system_prompt.sections.role]
 title = "Role"
 text = """
@@ -19,6 +26,7 @@ missing data files, workflow failures — using read-only infra tools,
 then explain root cause and next steps with evidence from tool results.
 """
 
+# Adds bullets after the inherited general rules: tool choice per layer and evidence-based reporting.
 [system_prompt.sections.general_rules]
 append = [
     """
@@ -66,6 +74,7 @@ append = [
 # Built-in tools per tool scope ("agent,scope" in AgentCatalog.tools_for).
 # "@name" expands a set from config/tool_groups.toml. MCP tools: [accepted_mcp].
 [tools]
+# Main scope: tools bound to this agent's ReAct loop.
 default = [
     "@memory",
     "@hive",

@@ -10,7 +10,7 @@ from langchain.chat_models import init_chat_model
 from langchain_core.language_models import BaseChatModel
 from pydantic import BaseModel, Field
 
-_CONFIG_PATH = Path(__file__).resolve().parent / "models.toml"
+from settings.paths import config_file
 
 DEFAULT_TEMPERATURE = 0.5
 DEFAULT_MAX_TOKENS = 8192
@@ -84,7 +84,7 @@ def _load_registry() -> tuple[str, dict[str, ModelConfig]]:
     ``langgraph dev`` even when the user had a *different* model with a
     valid key. Now ``default_model`` is built lazily on first access.
     """
-    with _CONFIG_PATH.open("rb") as f:
+    with config_file("models.toml").open("rb") as f:
         config = tomllib.load(f)
 
     default_name = config["basic"]["default_model_name"].strip()

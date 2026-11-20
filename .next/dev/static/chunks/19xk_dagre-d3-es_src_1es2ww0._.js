@@ -1,0 +1,4831 @@
+(globalThis["TURBOPACK"] || (globalThis["TURBOPACK"] = [])).push([typeof document === "object" ? document.currentScript : undefined,
+"[project]/frontend/node_modules/dagre-d3-es/src/dagre/acyclic.js [app-client] (ecmascript)", ((__turbopack_context__) => {
+"use strict";
+
+__turbopack_context__.s([
+    "run",
+    ()=>run,
+    "undo",
+    ()=>undo
+]);
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$forEach$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__forEach$3e$__ = __turbopack_context__.i("[project]/frontend/node_modules/lodash-es/forEach.js [app-client] (ecmascript) <export default as forEach>");
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$uniqueId$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__uniqueId$3e$__ = __turbopack_context__.i("[project]/frontend/node_modules/lodash-es/uniqueId.js [app-client] (ecmascript) <export default as uniqueId>");
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$dagre$2d$d3$2d$es$2f$src$2f$dagre$2f$greedy$2d$fas$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__ = __turbopack_context__.i("[project]/frontend/node_modules/dagre-d3-es/src/dagre/greedy-fas.js [app-client] (ecmascript)");
+;
+;
+;
+function run(g) {
+    var fas = g.graph().acyclicer === 'greedy' ? (0, __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$dagre$2d$d3$2d$es$2f$src$2f$dagre$2f$greedy$2d$fas$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["greedyFAS"])(g, weightFn(g)) : dfsFAS(g);
+    __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$forEach$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__forEach$3e$__["forEach"](fas, function(e) {
+        var label = g.edge(e);
+        g.removeEdge(e);
+        label.forwardName = e.name;
+        label.reversed = true;
+        g.setEdge(e.w, e.v, label, __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$uniqueId$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__uniqueId$3e$__["uniqueId"]('rev'));
+    });
+    function weightFn(g) {
+        return function(e) {
+            return g.edge(e).weight;
+        };
+    }
+}
+function dfsFAS(g) {
+    var fas = [];
+    var stack = {};
+    var visited = {};
+    function dfs(v) {
+        if (Object.prototype.hasOwnProperty.call(visited, v)) {
+            return;
+        }
+        visited[v] = true;
+        stack[v] = true;
+        __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$forEach$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__forEach$3e$__["forEach"](g.outEdges(v), function(e) {
+            if (Object.prototype.hasOwnProperty.call(stack, e.w)) {
+                fas.push(e);
+            } else {
+                dfs(e.w);
+            }
+        });
+        delete stack[v];
+    }
+    __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$forEach$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__forEach$3e$__["forEach"](g.nodes(), dfs);
+    return fas;
+}
+function undo(g) {
+    __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$forEach$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__forEach$3e$__["forEach"](g.edges(), function(e) {
+        var label = g.edge(e);
+        if (label.reversed) {
+            g.removeEdge(e);
+            var forwardName = label.forwardName;
+            delete label.reversed;
+            delete label.forwardName;
+            g.setEdge(e.w, e.v, label, forwardName);
+        }
+    });
+}
+}),
+"[project]/frontend/node_modules/dagre-d3-es/src/dagre/add-border-segments.js [app-client] (ecmascript)", ((__turbopack_context__) => {
+"use strict";
+
+__turbopack_context__.s([
+    "addBorderSegments",
+    ()=>addBorderSegments
+]);
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$forEach$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__forEach$3e$__ = __turbopack_context__.i("[project]/frontend/node_modules/lodash-es/forEach.js [app-client] (ecmascript) <export default as forEach>");
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$dagre$2d$d3$2d$es$2f$src$2f$dagre$2f$util$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__ = __turbopack_context__.i("[project]/frontend/node_modules/dagre-d3-es/src/dagre/util.js [app-client] (ecmascript)");
+;
+;
+;
+function addBorderSegments(g) {
+    function dfs(v) {
+        var children = g.children(v);
+        var node = g.node(v);
+        if (children.length) {
+            __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$forEach$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__forEach$3e$__["forEach"](children, dfs);
+        }
+        if (Object.prototype.hasOwnProperty.call(node, 'minRank')) {
+            node.borderLeft = [];
+            node.borderRight = [];
+            for(var rank = node.minRank, maxRank = node.maxRank + 1; rank < maxRank; ++rank){
+                addBorderNode(g, 'borderLeft', '_bl', v, node, rank);
+                addBorderNode(g, 'borderRight', '_br', v, node, rank);
+            }
+        }
+    }
+    __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$forEach$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__forEach$3e$__["forEach"](g.children(), dfs);
+}
+function addBorderNode(g, prop, prefix, sg, sgNode, rank) {
+    var label = {
+        width: 0,
+        height: 0,
+        rank: rank,
+        borderType: prop
+    };
+    var prev = sgNode[prop][rank - 1];
+    var curr = __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$dagre$2d$d3$2d$es$2f$src$2f$dagre$2f$util$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["addDummyNode"](g, 'border', label, prefix);
+    sgNode[prop][rank] = curr;
+    g.setParent(curr, sg);
+    if (prev) {
+        g.setEdge(prev, curr, {
+            weight: 1
+        });
+    }
+}
+}),
+"[project]/frontend/node_modules/dagre-d3-es/src/dagre/coordinate-system.js [app-client] (ecmascript)", ((__turbopack_context__) => {
+"use strict";
+
+__turbopack_context__.s([
+    "adjust",
+    ()=>adjust,
+    "undo",
+    ()=>undo
+]);
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$forEach$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__forEach$3e$__ = __turbopack_context__.i("[project]/frontend/node_modules/lodash-es/forEach.js [app-client] (ecmascript) <export default as forEach>");
+;
+;
+function adjust(g) {
+    var rankDir = g.graph().rankdir.toLowerCase();
+    if (rankDir === 'lr' || rankDir === 'rl') {
+        swapWidthHeight(g);
+    }
+}
+function undo(g) {
+    var rankDir = g.graph().rankdir.toLowerCase();
+    if (rankDir === 'bt' || rankDir === 'rl') {
+        reverseY(g);
+    }
+    if (rankDir === 'lr' || rankDir === 'rl') {
+        swapXY(g);
+        swapWidthHeight(g);
+    }
+}
+function swapWidthHeight(g) {
+    __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$forEach$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__forEach$3e$__["forEach"](g.nodes(), function(v) {
+        swapWidthHeightOne(g.node(v));
+    });
+    __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$forEach$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__forEach$3e$__["forEach"](g.edges(), function(e) {
+        swapWidthHeightOne(g.edge(e));
+    });
+}
+function swapWidthHeightOne(attrs) {
+    var w = attrs.width;
+    attrs.width = attrs.height;
+    attrs.height = w;
+}
+function reverseY(g) {
+    __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$forEach$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__forEach$3e$__["forEach"](g.nodes(), function(v) {
+        reverseYOne(g.node(v));
+    });
+    __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$forEach$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__forEach$3e$__["forEach"](g.edges(), function(e) {
+        var edge = g.edge(e);
+        __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$forEach$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__forEach$3e$__["forEach"](edge.points, reverseYOne);
+        if (Object.prototype.hasOwnProperty.call(edge, 'y')) {
+            reverseYOne(edge);
+        }
+    });
+}
+function reverseYOne(attrs) {
+    attrs.y = -attrs.y;
+}
+function swapXY(g) {
+    __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$forEach$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__forEach$3e$__["forEach"](g.nodes(), function(v) {
+        swapXYOne(g.node(v));
+    });
+    __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$forEach$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__forEach$3e$__["forEach"](g.edges(), function(e) {
+        var edge = g.edge(e);
+        __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$forEach$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__forEach$3e$__["forEach"](edge.points, swapXYOne);
+        if (Object.prototype.hasOwnProperty.call(edge, 'x')) {
+            swapXYOne(edge);
+        }
+    });
+}
+function swapXYOne(attrs) {
+    var x = attrs.x;
+    attrs.x = attrs.y;
+    attrs.y = x;
+}
+}),
+"[project]/frontend/node_modules/dagre-d3-es/src/dagre/data/list.js [app-client] (ecmascript)", ((__turbopack_context__) => {
+"use strict";
+
+/*
+ * Simple doubly linked list implementation derived from Cormen, et al.,
+ * "Introduction to Algorithms".
+ */ __turbopack_context__.s([
+    "List",
+    ()=>List
+]);
+;
+class List {
+    constructor(){
+        var sentinel = {};
+        sentinel._next = sentinel._prev = sentinel;
+        this._sentinel = sentinel;
+    }
+    dequeue() {
+        var sentinel = this._sentinel;
+        var entry = sentinel._prev;
+        if (entry !== sentinel) {
+            unlink(entry);
+            return entry;
+        }
+    }
+    enqueue(entry) {
+        var sentinel = this._sentinel;
+        if (entry._prev && entry._next) {
+            unlink(entry);
+        }
+        entry._next = sentinel._next;
+        sentinel._next._prev = entry;
+        sentinel._next = entry;
+        entry._prev = sentinel;
+    }
+    toString() {
+        var strs = [];
+        var sentinel = this._sentinel;
+        var curr = sentinel._prev;
+        while(curr !== sentinel){
+            strs.push(JSON.stringify(curr, filterOutLinks));
+            curr = curr._prev;
+        }
+        return '[' + strs.join(', ') + ']';
+    }
+}
+function unlink(entry) {
+    entry._prev._next = entry._next;
+    entry._next._prev = entry._prev;
+    delete entry._next;
+    delete entry._prev;
+}
+function filterOutLinks(k, v) {
+    if (k !== '_next' && k !== '_prev') {
+        return v;
+    }
+}
+}),
+"[project]/frontend/node_modules/dagre-d3-es/src/dagre/greedy-fas.js [app-client] (ecmascript)", ((__turbopack_context__) => {
+"use strict";
+
+__turbopack_context__.s([
+    "greedyFAS",
+    ()=>greedyFAS
+]);
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$constant$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__constant$3e$__ = __turbopack_context__.i("[project]/frontend/node_modules/lodash-es/constant.js [app-client] (ecmascript) <export default as constant>");
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$flatten$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__flatten$3e$__ = __turbopack_context__.i("[project]/frontend/node_modules/lodash-es/flatten.js [app-client] (ecmascript) <export default as flatten>");
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$map$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__map$3e$__ = __turbopack_context__.i("[project]/frontend/node_modules/lodash-es/map.js [app-client] (ecmascript) <export default as map>");
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$forEach$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__forEach$3e$__ = __turbopack_context__.i("[project]/frontend/node_modules/lodash-es/forEach.js [app-client] (ecmascript) <export default as forEach>");
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$range$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__range$3e$__ = __turbopack_context__.i("[project]/frontend/node_modules/lodash-es/range.js [app-client] (ecmascript) <export default as range>");
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$dagre$2d$d3$2d$es$2f$src$2f$graphlib$2f$index$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$locals$3e$__ = __turbopack_context__.i("[project]/frontend/node_modules/dagre-d3-es/src/graphlib/index.js [app-client] (ecmascript) <locals>");
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$dagre$2d$d3$2d$es$2f$src$2f$graphlib$2f$graph$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__ = __turbopack_context__.i("[project]/frontend/node_modules/dagre-d3-es/src/graphlib/graph.js [app-client] (ecmascript)");
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$dagre$2d$d3$2d$es$2f$src$2f$dagre$2f$data$2f$list$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__ = __turbopack_context__.i("[project]/frontend/node_modules/dagre-d3-es/src/dagre/data/list.js [app-client] (ecmascript)");
+;
+;
+;
+;
+var DEFAULT_WEIGHT_FN = __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$constant$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__constant$3e$__["constant"](1);
+function greedyFAS(g, weightFn) {
+    if (g.nodeCount() <= 1) {
+        return [];
+    }
+    var state = buildState(g, weightFn || DEFAULT_WEIGHT_FN);
+    var results = doGreedyFAS(state.graph, state.buckets, state.zeroIdx);
+    // Expand multi-edges
+    return __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$flatten$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__flatten$3e$__["flatten"](__TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$map$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__map$3e$__["map"](results, function(e) {
+        return g.outEdges(e.v, e.w);
+    }));
+}
+function doGreedyFAS(g, buckets, zeroIdx) {
+    var results = [];
+    var sources = buckets[buckets.length - 1];
+    var sinks = buckets[0];
+    var entry;
+    while(g.nodeCount()){
+        while(entry = sinks.dequeue()){
+            removeNode(g, buckets, zeroIdx, entry);
+        }
+        while(entry = sources.dequeue()){
+            removeNode(g, buckets, zeroIdx, entry);
+        }
+        if (g.nodeCount()) {
+            for(var i = buckets.length - 2; i > 0; --i){
+                entry = buckets[i].dequeue();
+                if (entry) {
+                    results = results.concat(removeNode(g, buckets, zeroIdx, entry, true));
+                    break;
+                }
+            }
+        }
+    }
+    return results;
+}
+function removeNode(g, buckets, zeroIdx, entry, collectPredecessors) {
+    var results = collectPredecessors ? [] : undefined;
+    __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$forEach$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__forEach$3e$__["forEach"](g.inEdges(entry.v), function(edge) {
+        var weight = g.edge(edge);
+        var uEntry = g.node(edge.v);
+        if (collectPredecessors) {
+            results.push({
+                v: edge.v,
+                w: edge.w
+            });
+        }
+        uEntry.out -= weight;
+        assignBucket(buckets, zeroIdx, uEntry);
+    });
+    __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$forEach$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__forEach$3e$__["forEach"](g.outEdges(entry.v), function(edge) {
+        var weight = g.edge(edge);
+        var w = edge.w;
+        var wEntry = g.node(w);
+        wEntry['in'] -= weight;
+        assignBucket(buckets, zeroIdx, wEntry);
+    });
+    g.removeNode(entry.v);
+    return results;
+}
+function buildState(g, weightFn) {
+    var fasGraph = new __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$dagre$2d$d3$2d$es$2f$src$2f$graphlib$2f$graph$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["Graph"]();
+    var maxIn = 0;
+    var maxOut = 0;
+    __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$forEach$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__forEach$3e$__["forEach"](g.nodes(), function(v) {
+        fasGraph.setNode(v, {
+            v: v,
+            in: 0,
+            out: 0
+        });
+    });
+    // Aggregate weights on nodes, but also sum the weights across multi-edges
+    // into a single edge for the fasGraph.
+    __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$forEach$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__forEach$3e$__["forEach"](g.edges(), function(e) {
+        var prevWeight = fasGraph.edge(e.v, e.w) || 0;
+        var weight = weightFn(e);
+        var edgeWeight = prevWeight + weight;
+        fasGraph.setEdge(e.v, e.w, edgeWeight);
+        maxOut = Math.max(maxOut, fasGraph.node(e.v).out += weight);
+        maxIn = Math.max(maxIn, fasGraph.node(e.w)['in'] += weight);
+    });
+    var buckets = __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$range$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__range$3e$__["range"](maxOut + maxIn + 3).map(function() {
+        return new __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$dagre$2d$d3$2d$es$2f$src$2f$dagre$2f$data$2f$list$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["List"]();
+    });
+    var zeroIdx = maxIn + 1;
+    __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$forEach$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__forEach$3e$__["forEach"](fasGraph.nodes(), function(v) {
+        assignBucket(buckets, zeroIdx, fasGraph.node(v));
+    });
+    return {
+        graph: fasGraph,
+        buckets: buckets,
+        zeroIdx: zeroIdx
+    };
+}
+function assignBucket(buckets, zeroIdx, entry) {
+    if (!entry.out) {
+        buckets[0].enqueue(entry);
+    } else if (!entry['in']) {
+        buckets[buckets.length - 1].enqueue(entry);
+    } else {
+        buckets[entry.out - entry['in'] + zeroIdx].enqueue(entry);
+    }
+}
+}),
+"[project]/frontend/node_modules/dagre-d3-es/src/dagre/index.js [app-client] (ecmascript) <locals>", ((__turbopack_context__) => {
+"use strict";
+
+__turbopack_context__.s([]);
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$dagre$2d$d3$2d$es$2f$src$2f$dagre$2f$acyclic$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__ = __turbopack_context__.i("[project]/frontend/node_modules/dagre-d3-es/src/dagre/acyclic.js [app-client] (ecmascript)");
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$dagre$2d$d3$2d$es$2f$src$2f$dagre$2f$layout$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__ = __turbopack_context__.i("[project]/frontend/node_modules/dagre-d3-es/src/dagre/layout.js [app-client] (ecmascript)");
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$dagre$2d$d3$2d$es$2f$src$2f$dagre$2f$normalize$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__ = __turbopack_context__.i("[project]/frontend/node_modules/dagre-d3-es/src/dagre/normalize.js [app-client] (ecmascript)");
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$dagre$2d$d3$2d$es$2f$src$2f$dagre$2f$rank$2f$index$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__ = __turbopack_context__.i("[project]/frontend/node_modules/dagre-d3-es/src/dagre/rank/index.js [app-client] (ecmascript)");
+;
+;
+;
+;
+;
+}),
+"[project]/frontend/node_modules/dagre-d3-es/src/dagre/layout.js [app-client] (ecmascript)", ((__turbopack_context__) => {
+"use strict";
+
+__turbopack_context__.s([
+    "layout",
+    ()=>layout
+]);
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$forEach$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__forEach$3e$__ = __turbopack_context__.i("[project]/frontend/node_modules/lodash-es/forEach.js [app-client] (ecmascript) <export default as forEach>");
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$merge$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__merge$3e$__ = __turbopack_context__.i("[project]/frontend/node_modules/lodash-es/merge.js [app-client] (ecmascript) <export default as merge>");
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$pick$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__pick$3e$__ = __turbopack_context__.i("[project]/frontend/node_modules/lodash-es/pick.js [app-client] (ecmascript) <export default as pick>");
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$defaults$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__defaults$3e$__ = __turbopack_context__.i("[project]/frontend/node_modules/lodash-es/defaults.js [app-client] (ecmascript) <export default as defaults>");
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$max$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__max$3e$__ = __turbopack_context__.i("[project]/frontend/node_modules/lodash-es/max.js [app-client] (ecmascript) <export default as max>");
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$last$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__last$3e$__ = __turbopack_context__.i("[project]/frontend/node_modules/lodash-es/last.js [app-client] (ecmascript) <export default as last>");
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$mapValues$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__mapValues$3e$__ = __turbopack_context__.i("[project]/frontend/node_modules/lodash-es/mapValues.js [app-client] (ecmascript) <export default as mapValues>");
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$dagre$2d$d3$2d$es$2f$src$2f$graphlib$2f$index$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$locals$3e$__ = __turbopack_context__.i("[project]/frontend/node_modules/dagre-d3-es/src/graphlib/index.js [app-client] (ecmascript) <locals>");
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$dagre$2d$d3$2d$es$2f$src$2f$graphlib$2f$graph$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__ = __turbopack_context__.i("[project]/frontend/node_modules/dagre-d3-es/src/graphlib/graph.js [app-client] (ecmascript)");
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$dagre$2d$d3$2d$es$2f$src$2f$dagre$2f$add$2d$border$2d$segments$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__ = __turbopack_context__.i("[project]/frontend/node_modules/dagre-d3-es/src/dagre/add-border-segments.js [app-client] (ecmascript)");
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$dagre$2d$d3$2d$es$2f$src$2f$dagre$2f$coordinate$2d$system$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__ = __turbopack_context__.i("[project]/frontend/node_modules/dagre-d3-es/src/dagre/coordinate-system.js [app-client] (ecmascript)");
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$dagre$2d$d3$2d$es$2f$src$2f$dagre$2f$acyclic$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__ = __turbopack_context__.i("[project]/frontend/node_modules/dagre-d3-es/src/dagre/acyclic.js [app-client] (ecmascript)");
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$dagre$2d$d3$2d$es$2f$src$2f$dagre$2f$normalize$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__ = __turbopack_context__.i("[project]/frontend/node_modules/dagre-d3-es/src/dagre/normalize.js [app-client] (ecmascript)");
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$dagre$2d$d3$2d$es$2f$src$2f$dagre$2f$rank$2f$index$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__ = __turbopack_context__.i("[project]/frontend/node_modules/dagre-d3-es/src/dagre/rank/index.js [app-client] (ecmascript)");
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$dagre$2d$d3$2d$es$2f$src$2f$dagre$2f$nesting$2d$graph$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__ = __turbopack_context__.i("[project]/frontend/node_modules/dagre-d3-es/src/dagre/nesting-graph.js [app-client] (ecmascript)");
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$dagre$2d$d3$2d$es$2f$src$2f$dagre$2f$order$2f$index$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__ = __turbopack_context__.i("[project]/frontend/node_modules/dagre-d3-es/src/dagre/order/index.js [app-client] (ecmascript)");
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$dagre$2d$d3$2d$es$2f$src$2f$dagre$2f$parent$2d$dummy$2d$chains$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__ = __turbopack_context__.i("[project]/frontend/node_modules/dagre-d3-es/src/dagre/parent-dummy-chains.js [app-client] (ecmascript)");
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$dagre$2d$d3$2d$es$2f$src$2f$dagre$2f$position$2f$index$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__ = __turbopack_context__.i("[project]/frontend/node_modules/dagre-d3-es/src/dagre/position/index.js [app-client] (ecmascript)");
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$dagre$2d$d3$2d$es$2f$src$2f$dagre$2f$util$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__ = __turbopack_context__.i("[project]/frontend/node_modules/dagre-d3-es/src/dagre/util.js [app-client] (ecmascript)");
+;
+;
+;
+;
+;
+;
+;
+;
+;
+;
+;
+;
+;
+function layout(g, opts) {
+    var time = opts && opts.debugTiming ? __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$dagre$2d$d3$2d$es$2f$src$2f$dagre$2f$util$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["time"] : __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$dagre$2d$d3$2d$es$2f$src$2f$dagre$2f$util$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["notime"];
+    time('layout', ()=>{
+        var layoutGraph = time('  buildLayoutGraph', ()=>buildLayoutGraph(g));
+        time('  runLayout', ()=>runLayout(layoutGraph, time));
+        time('  updateInputGraph', ()=>updateInputGraph(g, layoutGraph));
+    });
+}
+function runLayout(g, time) {
+    time('    makeSpaceForEdgeLabels', ()=>makeSpaceForEdgeLabels(g));
+    time('    removeSelfEdges', ()=>removeSelfEdges(g));
+    time('    acyclic', ()=>__TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$dagre$2d$d3$2d$es$2f$src$2f$dagre$2f$acyclic$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["run"](g));
+    time('    nestingGraph.run', ()=>__TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$dagre$2d$d3$2d$es$2f$src$2f$dagre$2f$nesting$2d$graph$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["run"](g));
+    time('    rank', ()=>(0, __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$dagre$2d$d3$2d$es$2f$src$2f$dagre$2f$rank$2f$index$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["rank"])(__TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$dagre$2d$d3$2d$es$2f$src$2f$dagre$2f$util$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["asNonCompoundGraph"](g)));
+    time('    injectEdgeLabelProxies', ()=>injectEdgeLabelProxies(g));
+    time('    removeEmptyRanks', ()=>__TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$dagre$2d$d3$2d$es$2f$src$2f$dagre$2f$util$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["removeEmptyRanks"](g));
+    time('    nestingGraph.cleanup', ()=>__TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$dagre$2d$d3$2d$es$2f$src$2f$dagre$2f$nesting$2d$graph$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["cleanup"](g));
+    time('    normalizeRanks', ()=>__TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$dagre$2d$d3$2d$es$2f$src$2f$dagre$2f$util$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["normalizeRanks"](g));
+    time('    assignRankMinMax', ()=>assignRankMinMax(g));
+    time('    removeEdgeLabelProxies', ()=>removeEdgeLabelProxies(g));
+    time('    normalize.run', ()=>__TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$dagre$2d$d3$2d$es$2f$src$2f$dagre$2f$normalize$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["run"](g));
+    time('    parentDummyChains', ()=>(0, __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$dagre$2d$d3$2d$es$2f$src$2f$dagre$2f$parent$2d$dummy$2d$chains$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["parentDummyChains"])(g));
+    time('    addBorderSegments', ()=>(0, __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$dagre$2d$d3$2d$es$2f$src$2f$dagre$2f$add$2d$border$2d$segments$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["addBorderSegments"])(g));
+    time('    order', ()=>(0, __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$dagre$2d$d3$2d$es$2f$src$2f$dagre$2f$order$2f$index$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["order"])(g));
+    time('    insertSelfEdges', ()=>insertSelfEdges(g));
+    time('    adjustCoordinateSystem', ()=>__TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$dagre$2d$d3$2d$es$2f$src$2f$dagre$2f$coordinate$2d$system$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["adjust"](g));
+    time('    position', ()=>(0, __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$dagre$2d$d3$2d$es$2f$src$2f$dagre$2f$position$2f$index$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["position"])(g));
+    time('    positionSelfEdges', ()=>positionSelfEdges(g));
+    time('    removeBorderNodes', ()=>removeBorderNodes(g));
+    time('    normalize.undo', ()=>__TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$dagre$2d$d3$2d$es$2f$src$2f$dagre$2f$normalize$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["undo"](g));
+    time('    fixupEdgeLabelCoords', ()=>fixupEdgeLabelCoords(g));
+    time('    undoCoordinateSystem', ()=>__TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$dagre$2d$d3$2d$es$2f$src$2f$dagre$2f$coordinate$2d$system$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["undo"](g));
+    time('    translateGraph', ()=>translateGraph(g));
+    time('    assignNodeIntersects', ()=>assignNodeIntersects(g));
+    time('    reversePoints', ()=>reversePointsForReversedEdges(g));
+    time('    acyclic.undo', ()=>__TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$dagre$2d$d3$2d$es$2f$src$2f$dagre$2f$acyclic$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["undo"](g));
+}
+/*
+ * Copies final layout information from the layout graph back to the input
+ * graph. This process only copies whitelisted attributes from the layout graph
+ * to the input graph, so it serves as a good place to determine what
+ * attributes can influence layout.
+ */ function updateInputGraph(inputGraph, layoutGraph) {
+    __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$forEach$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__forEach$3e$__["forEach"](inputGraph.nodes(), function(v) {
+        var inputLabel = inputGraph.node(v);
+        var layoutLabel = layoutGraph.node(v);
+        if (inputLabel) {
+            inputLabel.x = layoutLabel.x;
+            inputLabel.y = layoutLabel.y;
+            if (layoutGraph.children(v).length) {
+                inputLabel.width = layoutLabel.width;
+                inputLabel.height = layoutLabel.height;
+            }
+        }
+    });
+    __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$forEach$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__forEach$3e$__["forEach"](inputGraph.edges(), function(e) {
+        var inputLabel = inputGraph.edge(e);
+        var layoutLabel = layoutGraph.edge(e);
+        inputLabel.points = layoutLabel.points;
+        if (Object.prototype.hasOwnProperty.call(layoutLabel, 'x')) {
+            inputLabel.x = layoutLabel.x;
+            inputLabel.y = layoutLabel.y;
+        }
+    });
+    inputGraph.graph().width = layoutGraph.graph().width;
+    inputGraph.graph().height = layoutGraph.graph().height;
+}
+var graphNumAttrs = [
+    'nodesep',
+    'edgesep',
+    'ranksep',
+    'marginx',
+    'marginy'
+];
+var graphDefaults = {
+    ranksep: 50,
+    edgesep: 20,
+    nodesep: 50,
+    rankdir: 'tb'
+};
+var graphAttrs = [
+    'acyclicer',
+    'ranker',
+    'rankdir',
+    'align'
+];
+var nodeNumAttrs = [
+    'width',
+    'height'
+];
+var nodeDefaults = {
+    width: 0,
+    height: 0
+};
+var edgeNumAttrs = [
+    'minlen',
+    'weight',
+    'width',
+    'height',
+    'labeloffset'
+];
+var edgeDefaults = {
+    minlen: 1,
+    weight: 1,
+    width: 0,
+    height: 0,
+    labeloffset: 10,
+    labelpos: 'r'
+};
+var edgeAttrs = [
+    'labelpos'
+];
+/*
+ * Constructs a new graph from the input graph, which can be used for layout.
+ * This process copies only whitelisted attributes from the input graph to the
+ * layout graph. Thus this function serves as a good place to determine what
+ * attributes can influence layout.
+ */ function buildLayoutGraph(inputGraph) {
+    var g = new __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$dagre$2d$d3$2d$es$2f$src$2f$graphlib$2f$graph$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["Graph"]({
+        multigraph: true,
+        compound: true
+    });
+    var graph = canonicalize(inputGraph.graph());
+    g.setGraph(__TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$merge$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__merge$3e$__["merge"]({}, graphDefaults, selectNumberAttrs(graph, graphNumAttrs), __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$pick$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__pick$3e$__["pick"](graph, graphAttrs)));
+    __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$forEach$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__forEach$3e$__["forEach"](inputGraph.nodes(), function(v) {
+        var node = canonicalize(inputGraph.node(v));
+        g.setNode(v, __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$defaults$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__defaults$3e$__["defaults"](selectNumberAttrs(node, nodeNumAttrs), nodeDefaults));
+        g.setParent(v, inputGraph.parent(v));
+    });
+    __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$forEach$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__forEach$3e$__["forEach"](inputGraph.edges(), function(e) {
+        var edge = canonicalize(inputGraph.edge(e));
+        g.setEdge(e, __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$merge$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__merge$3e$__["merge"]({}, edgeDefaults, selectNumberAttrs(edge, edgeNumAttrs), __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$pick$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__pick$3e$__["pick"](edge, edgeAttrs)));
+    });
+    return g;
+}
+/*
+ * This idea comes from the Gansner paper: to account for edge labels in our
+ * layout we split each rank in half by doubling minlen and halving ranksep.
+ * Then we can place labels at these mid-points between nodes.
+ *
+ * We also add some minimal padding to the width to push the label for the edge
+ * away from the edge itself a bit.
+ */ function makeSpaceForEdgeLabels(g) {
+    var graph = g.graph();
+    graph.ranksep /= 2;
+    __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$forEach$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__forEach$3e$__["forEach"](g.edges(), function(e) {
+        var edge = g.edge(e);
+        edge.minlen *= 2;
+        if (edge.labelpos.toLowerCase() !== 'c') {
+            if (graph.rankdir === 'TB' || graph.rankdir === 'BT') {
+                edge.width += edge.labeloffset;
+            } else {
+                edge.height += edge.labeloffset;
+            }
+        }
+    });
+}
+/*
+ * Creates temporary dummy nodes that capture the rank in which each edge's
+ * label is going to, if it has one of non-zero width and height. We do this
+ * so that we can safely remove empty ranks while preserving balance for the
+ * label's position.
+ */ function injectEdgeLabelProxies(g) {
+    __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$forEach$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__forEach$3e$__["forEach"](g.edges(), function(e) {
+        var edge = g.edge(e);
+        if (edge.width && edge.height) {
+            var v = g.node(e.v);
+            var w = g.node(e.w);
+            var label = {
+                rank: (w.rank - v.rank) / 2 + v.rank,
+                e: e
+            };
+            __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$dagre$2d$d3$2d$es$2f$src$2f$dagre$2f$util$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["addDummyNode"](g, 'edge-proxy', label, '_ep');
+        }
+    });
+}
+function assignRankMinMax(g) {
+    var maxRank = 0;
+    __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$forEach$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__forEach$3e$__["forEach"](g.nodes(), function(v) {
+        var node = g.node(v);
+        if (node.borderTop) {
+            node.minRank = g.node(node.borderTop).rank;
+            node.maxRank = g.node(node.borderBottom).rank;
+            // @ts-expect-error
+            maxRank = __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$max$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__max$3e$__["max"](maxRank, node.maxRank);
+        }
+    });
+    g.graph().maxRank = maxRank;
+}
+function removeEdgeLabelProxies(g) {
+    __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$forEach$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__forEach$3e$__["forEach"](g.nodes(), function(v) {
+        var node = g.node(v);
+        if (node.dummy === 'edge-proxy') {
+            g.edge(node.e).labelRank = node.rank;
+            g.removeNode(v);
+        }
+    });
+}
+function translateGraph(g) {
+    var minX = Number.POSITIVE_INFINITY;
+    var maxX = 0;
+    var minY = Number.POSITIVE_INFINITY;
+    var maxY = 0;
+    var graphLabel = g.graph();
+    var marginX = graphLabel.marginx || 0;
+    var marginY = graphLabel.marginy || 0;
+    function getExtremes(attrs) {
+        var x = attrs.x;
+        var y = attrs.y;
+        var w = attrs.width;
+        var h = attrs.height;
+        minX = Math.min(minX, x - w / 2);
+        maxX = Math.max(maxX, x + w / 2);
+        minY = Math.min(minY, y - h / 2);
+        maxY = Math.max(maxY, y + h / 2);
+    }
+    __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$forEach$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__forEach$3e$__["forEach"](g.nodes(), function(v) {
+        getExtremes(g.node(v));
+    });
+    __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$forEach$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__forEach$3e$__["forEach"](g.edges(), function(e) {
+        var edge = g.edge(e);
+        if (Object.prototype.hasOwnProperty.call(edge, 'x')) {
+            getExtremes(edge);
+        }
+    });
+    minX -= marginX;
+    minY -= marginY;
+    __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$forEach$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__forEach$3e$__["forEach"](g.nodes(), function(v) {
+        var node = g.node(v);
+        node.x -= minX;
+        node.y -= minY;
+    });
+    __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$forEach$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__forEach$3e$__["forEach"](g.edges(), function(e) {
+        var edge = g.edge(e);
+        __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$forEach$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__forEach$3e$__["forEach"](edge.points, function(p) {
+            p.x -= minX;
+            p.y -= minY;
+        });
+        if (Object.prototype.hasOwnProperty.call(edge, 'x')) {
+            edge.x -= minX;
+        }
+        if (Object.prototype.hasOwnProperty.call(edge, 'y')) {
+            edge.y -= minY;
+        }
+    });
+    graphLabel.width = maxX - minX + marginX;
+    graphLabel.height = maxY - minY + marginY;
+}
+function assignNodeIntersects(g) {
+    __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$forEach$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__forEach$3e$__["forEach"](g.edges(), function(e) {
+        var edge = g.edge(e);
+        var nodeV = g.node(e.v);
+        var nodeW = g.node(e.w);
+        var p1, p2;
+        if (!edge.points) {
+            edge.points = [];
+            p1 = nodeW;
+            p2 = nodeV;
+        } else {
+            p1 = edge.points[0];
+            p2 = edge.points[edge.points.length - 1];
+        }
+        edge.points.unshift(__TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$dagre$2d$d3$2d$es$2f$src$2f$dagre$2f$util$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["intersectRect"](nodeV, p1));
+        edge.points.push(__TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$dagre$2d$d3$2d$es$2f$src$2f$dagre$2f$util$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["intersectRect"](nodeW, p2));
+    });
+}
+function fixupEdgeLabelCoords(g) {
+    __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$forEach$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__forEach$3e$__["forEach"](g.edges(), function(e) {
+        var edge = g.edge(e);
+        if (Object.prototype.hasOwnProperty.call(edge, 'x')) {
+            if (edge.labelpos === 'l' || edge.labelpos === 'r') {
+                edge.width -= edge.labeloffset;
+            }
+            switch(edge.labelpos){
+                case 'l':
+                    edge.x -= edge.width / 2 + edge.labeloffset;
+                    break;
+                case 'r':
+                    edge.x += edge.width / 2 + edge.labeloffset;
+                    break;
+            }
+        }
+    });
+}
+function reversePointsForReversedEdges(g) {
+    __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$forEach$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__forEach$3e$__["forEach"](g.edges(), function(e) {
+        var edge = g.edge(e);
+        if (edge.reversed) {
+            edge.points.reverse();
+        }
+    });
+}
+function removeBorderNodes(g) {
+    __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$forEach$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__forEach$3e$__["forEach"](g.nodes(), function(v) {
+        if (g.children(v).length) {
+            var node = g.node(v);
+            var t = g.node(node.borderTop);
+            var b = g.node(node.borderBottom);
+            var l = g.node(__TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$last$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__last$3e$__["last"](node.borderLeft));
+            var r = g.node(__TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$last$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__last$3e$__["last"](node.borderRight));
+            node.width = Math.abs(r.x - l.x);
+            node.height = Math.abs(b.y - t.y);
+            node.x = l.x + node.width / 2;
+            node.y = t.y + node.height / 2;
+        }
+    });
+    __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$forEach$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__forEach$3e$__["forEach"](g.nodes(), function(v) {
+        if (g.node(v).dummy === 'border') {
+            g.removeNode(v);
+        }
+    });
+}
+function removeSelfEdges(g) {
+    __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$forEach$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__forEach$3e$__["forEach"](g.edges(), function(e) {
+        if (e.v === e.w) {
+            var node = g.node(e.v);
+            if (!node.selfEdges) {
+                node.selfEdges = [];
+            }
+            node.selfEdges.push({
+                e: e,
+                label: g.edge(e)
+            });
+            g.removeEdge(e);
+        }
+    });
+}
+function insertSelfEdges(g) {
+    var layers = __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$dagre$2d$d3$2d$es$2f$src$2f$dagre$2f$util$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["buildLayerMatrix"](g);
+    __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$forEach$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__forEach$3e$__["forEach"](layers, function(layer) {
+        var orderShift = 0;
+        __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$forEach$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__forEach$3e$__["forEach"](layer, function(v, i) {
+            var node = g.node(v);
+            node.order = i + orderShift;
+            __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$forEach$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__forEach$3e$__["forEach"](node.selfEdges, function(selfEdge) {
+                __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$dagre$2d$d3$2d$es$2f$src$2f$dagre$2f$util$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["addDummyNode"](g, 'selfedge', {
+                    width: selfEdge.label.width,
+                    height: selfEdge.label.height,
+                    rank: node.rank,
+                    order: i + ++orderShift,
+                    e: selfEdge.e,
+                    label: selfEdge.label
+                }, '_se');
+            });
+            delete node.selfEdges;
+        });
+    });
+}
+function positionSelfEdges(g) {
+    __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$forEach$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__forEach$3e$__["forEach"](g.nodes(), function(v) {
+        var node = g.node(v);
+        if (node.dummy === 'selfedge') {
+            var selfNode = g.node(node.e.v);
+            var x = selfNode.x + selfNode.width / 2;
+            var y = selfNode.y;
+            var dx = node.x - x;
+            var dy = selfNode.height / 2;
+            g.setEdge(node.e, node.label);
+            g.removeNode(v);
+            node.label.points = [
+                {
+                    x: x + 2 * dx / 3,
+                    y: y - dy
+                },
+                {
+                    x: x + 5 * dx / 6,
+                    y: y - dy
+                },
+                {
+                    x: x + dx,
+                    y: y
+                },
+                {
+                    x: x + 5 * dx / 6,
+                    y: y + dy
+                },
+                {
+                    x: x + 2 * dx / 3,
+                    y: y + dy
+                }
+            ];
+            node.label.x = node.x;
+            node.label.y = node.y;
+        }
+    });
+}
+function selectNumberAttrs(obj, attrs) {
+    return __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$mapValues$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__mapValues$3e$__["mapValues"](__TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$pick$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__pick$3e$__["pick"](obj, attrs), Number);
+}
+function canonicalize(attrs) {
+    var newAttrs = {};
+    __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$forEach$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__forEach$3e$__["forEach"](attrs, function(v, k) {
+        newAttrs[k.toLowerCase()] = v;
+    });
+    return newAttrs;
+}
+}),
+"[project]/frontend/node_modules/dagre-d3-es/src/dagre/nesting-graph.js [app-client] (ecmascript)", ((__turbopack_context__) => {
+"use strict";
+
+__turbopack_context__.s([
+    "cleanup",
+    ()=>cleanup,
+    "run",
+    ()=>run
+]);
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$max$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__max$3e$__ = __turbopack_context__.i("[project]/frontend/node_modules/lodash-es/max.js [app-client] (ecmascript) <export default as max>");
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$values$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__values$3e$__ = __turbopack_context__.i("[project]/frontend/node_modules/lodash-es/values.js [app-client] (ecmascript) <export default as values>");
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$forEach$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__forEach$3e$__ = __turbopack_context__.i("[project]/frontend/node_modules/lodash-es/forEach.js [app-client] (ecmascript) <export default as forEach>");
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$reduce$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__reduce$3e$__ = __turbopack_context__.i("[project]/frontend/node_modules/lodash-es/reduce.js [app-client] (ecmascript) <export default as reduce>");
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$dagre$2d$d3$2d$es$2f$src$2f$dagre$2f$util$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__ = __turbopack_context__.i("[project]/frontend/node_modules/dagre-d3-es/src/dagre/util.js [app-client] (ecmascript)");
+;
+;
+;
+/*
+ * A nesting graph creates dummy nodes for the tops and bottoms of subgraphs,
+ * adds appropriate edges to ensure that all cluster nodes are placed between
+ * these boundries, and ensures that the graph is connected.
+ *
+ * In addition we ensure, through the use of the minlen property, that nodes
+ * and subgraph border nodes to not end up on the same rank.
+ *
+ * Preconditions:
+ *
+ *    1. Input graph is a DAG
+ *    2. Nodes in the input graph has a minlen attribute
+ *
+ * Postconditions:
+ *
+ *    1. Input graph is connected.
+ *    2. Dummy nodes are added for the tops and bottoms of subgraphs.
+ *    3. The minlen attribute for nodes is adjusted to ensure nodes do not
+ *       get placed on the same rank as subgraph border nodes.
+ *
+ * The nesting graph idea comes from Sander, "Layout of Compound Directed
+ * Graphs."
+ */ function run(g) {
+    var root = __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$dagre$2d$d3$2d$es$2f$src$2f$dagre$2f$util$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["addDummyNode"](g, 'root', {}, '_root');
+    var depths = treeDepths(g);
+    var height = __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$max$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__max$3e$__["max"](__TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$values$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__values$3e$__["values"](depths)) - 1; // Note: depths is an Object not an array
+    var nodeSep = 2 * height + 1;
+    g.graph().nestingRoot = root;
+    // Multiply minlen by nodeSep to align nodes on non-border ranks.
+    __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$forEach$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__forEach$3e$__["forEach"](g.edges(), function(e) {
+        g.edge(e).minlen *= nodeSep;
+    });
+    // Calculate a weight that is sufficient to keep subgraphs vertically compact
+    var weight = sumWeights(g) + 1;
+    // Create border nodes and link them up
+    __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$forEach$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__forEach$3e$__["forEach"](g.children(), function(child) {
+        dfs(g, root, nodeSep, weight, height, depths, child);
+    });
+    // Save the multiplier for node layers for later removal of empty border
+    // layers.
+    g.graph().nodeRankFactor = nodeSep;
+}
+function dfs(g, root, nodeSep, weight, height, depths, v) {
+    var children = g.children(v);
+    if (!children.length) {
+        if (v !== root) {
+            g.setEdge(root, v, {
+                weight: 0,
+                minlen: nodeSep
+            });
+        }
+        return;
+    }
+    var top = __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$dagre$2d$d3$2d$es$2f$src$2f$dagre$2f$util$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["addBorderNode"](g, '_bt');
+    var bottom = __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$dagre$2d$d3$2d$es$2f$src$2f$dagre$2f$util$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["addBorderNode"](g, '_bb');
+    var label = g.node(v);
+    g.setParent(top, v);
+    label.borderTop = top;
+    g.setParent(bottom, v);
+    label.borderBottom = bottom;
+    __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$forEach$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__forEach$3e$__["forEach"](children, function(child) {
+        dfs(g, root, nodeSep, weight, height, depths, child);
+        var childNode = g.node(child);
+        var childTop = childNode.borderTop ? childNode.borderTop : child;
+        var childBottom = childNode.borderBottom ? childNode.borderBottom : child;
+        var thisWeight = childNode.borderTop ? weight : 2 * weight;
+        var minlen = childTop !== childBottom ? 1 : height - depths[v] + 1;
+        g.setEdge(top, childTop, {
+            weight: thisWeight,
+            minlen: minlen,
+            nestingEdge: true
+        });
+        g.setEdge(childBottom, bottom, {
+            weight: thisWeight,
+            minlen: minlen,
+            nestingEdge: true
+        });
+    });
+    if (!g.parent(v)) {
+        g.setEdge(root, top, {
+            weight: 0,
+            minlen: height + depths[v]
+        });
+    }
+}
+function treeDepths(g) {
+    var depths = {};
+    function dfs(v, depth) {
+        var children = g.children(v);
+        if (children && children.length) {
+            __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$forEach$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__forEach$3e$__["forEach"](children, function(child) {
+                dfs(child, depth + 1);
+            });
+        }
+        depths[v] = depth;
+    }
+    __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$forEach$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__forEach$3e$__["forEach"](g.children(), function(v) {
+        dfs(v, 1);
+    });
+    return depths;
+}
+function sumWeights(g) {
+    return __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$reduce$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__reduce$3e$__["reduce"](g.edges(), function(acc, e) {
+        return acc + g.edge(e).weight;
+    }, 0);
+}
+function cleanup(g) {
+    var graphLabel = g.graph();
+    g.removeNode(graphLabel.nestingRoot);
+    delete graphLabel.nestingRoot;
+    __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$forEach$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__forEach$3e$__["forEach"](g.edges(), function(e) {
+        var edge = g.edge(e);
+        if (edge.nestingEdge) {
+            g.removeEdge(e);
+        }
+    });
+}
+}),
+"[project]/frontend/node_modules/dagre-d3-es/src/dagre/normalize.js [app-client] (ecmascript)", ((__turbopack_context__) => {
+"use strict";
+
+__turbopack_context__.s([
+    "run",
+    ()=>run,
+    "undo",
+    ()=>undo
+]);
+/**
+ * TypeScript type imports:
+ *
+ * @import { Graph } from '../graphlib/graph.js';
+ */ var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$forEach$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__forEach$3e$__ = __turbopack_context__.i("[project]/frontend/node_modules/lodash-es/forEach.js [app-client] (ecmascript) <export default as forEach>");
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$dagre$2d$d3$2d$es$2f$src$2f$dagre$2f$util$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__ = __turbopack_context__.i("[project]/frontend/node_modules/dagre-d3-es/src/dagre/util.js [app-client] (ecmascript)");
+;
+;
+;
+/*
+ * Breaks any long edges in the graph into short segments that span 1 layer
+ * each. This operation is undoable with the denormalize function.
+ *
+ * Pre-conditions:
+ *
+ *    1. The input graph is a DAG.
+ *    2. Each node in the graph has a "rank" property.
+ *
+ * Post-condition:
+ *
+ *    1. All edges in the graph have a length of 1.
+ *    2. Dummy nodes are added where edges have been split into segments.
+ *    3. The graph is augmented with a "dummyChains" attribute which contains
+ *       the first dummy in each chain of dummy nodes produced.
+ */ function run(g) {
+    g.graph().dummyChains = [];
+    __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$forEach$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__forEach$3e$__["forEach"](g.edges(), function(edge) {
+        normalizeEdge(g, edge);
+    });
+}
+/**
+ * @param {Graph} g
+ */ function normalizeEdge(g, e) {
+    var v = e.v;
+    var vRank = g.node(v).rank;
+    var w = e.w;
+    var wRank = g.node(w).rank;
+    var name = e.name;
+    var edgeLabel = g.edge(e);
+    var labelRank = edgeLabel.labelRank;
+    if (wRank === vRank + 1) return;
+    g.removeEdge(e);
+    /**
+   * @typedef {Object} Attrs
+   * @property {number} width
+   * @property {number} height
+   * @property {ReturnType<Graph["node"]>} edgeLabel
+   * @property {any} edgeObj
+   * @property {ReturnType<Graph["node"]>["rank"]} rank
+   * @property {string} [dummy]
+   * @property {ReturnType<Graph["node"]>["labelpos"]} [labelpos]
+   */ /** @type {Attrs | undefined} */ var attrs = undefined;
+    var dummy, i;
+    for(i = 0, ++vRank; vRank < wRank; ++i, ++vRank){
+        edgeLabel.points = [];
+        attrs = {
+            width: 0,
+            height: 0,
+            edgeLabel: edgeLabel,
+            edgeObj: e,
+            rank: vRank
+        };
+        dummy = __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$dagre$2d$d3$2d$es$2f$src$2f$dagre$2f$util$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["addDummyNode"](g, 'edge', attrs, '_d');
+        if (vRank === labelRank) {
+            attrs.width = edgeLabel.width;
+            attrs.height = edgeLabel.height;
+            attrs.dummy = 'edge-label';
+            attrs.labelpos = edgeLabel.labelpos;
+        }
+        g.setEdge(v, dummy, {
+            weight: edgeLabel.weight
+        }, name);
+        if (i === 0) {
+            g.graph().dummyChains.push(dummy);
+        }
+        v = dummy;
+    }
+    g.setEdge(v, w, {
+        weight: edgeLabel.weight
+    }, name);
+}
+function undo(g) {
+    __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$forEach$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__forEach$3e$__["forEach"](g.graph().dummyChains, function(v) {
+        var node = g.node(v);
+        var origLabel = node.edgeLabel;
+        var w;
+        g.setEdge(node.edgeObj, origLabel);
+        while(node.dummy){
+            w = g.successors(v)[0];
+            g.removeNode(v);
+            origLabel.points.push({
+                x: node.x,
+                y: node.y
+            });
+            if (node.dummy === 'edge-label') {
+                origLabel.x = node.x;
+                origLabel.y = node.y;
+                origLabel.width = node.width;
+                origLabel.height = node.height;
+            }
+            v = w;
+            node = g.node(v);
+        }
+    });
+}
+}),
+"[project]/frontend/node_modules/dagre-d3-es/src/dagre/order/add-subgraph-constraints.js [app-client] (ecmascript)", ((__turbopack_context__) => {
+"use strict";
+
+__turbopack_context__.s([
+    "addSubgraphConstraints",
+    ()=>addSubgraphConstraints
+]);
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$forEach$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__forEach$3e$__ = __turbopack_context__.i("[project]/frontend/node_modules/lodash-es/forEach.js [app-client] (ecmascript) <export default as forEach>");
+;
+;
+function addSubgraphConstraints(g, cg, vs) {
+    var prev = {}, rootPrev;
+    __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$forEach$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__forEach$3e$__["forEach"](vs, function(v) {
+        var child = g.parent(v), parent, prevChild;
+        while(child){
+            parent = g.parent(child);
+            if (parent) {
+                prevChild = prev[parent];
+                prev[parent] = child;
+            } else {
+                prevChild = rootPrev;
+                rootPrev = child;
+            }
+            if (prevChild && prevChild !== child) {
+                cg.setEdge(prevChild, child);
+                return;
+            }
+            child = parent;
+        }
+    });
+/*
+  function dfs(v) {
+    var children = v ? g.children(v) : g.children();
+    if (children.length) {
+      var min = Number.POSITIVE_INFINITY,
+          subgraphs = [];
+      _.each(children, function(child) {
+        var childMin = dfs(child);
+        if (g.children(child).length) {
+          subgraphs.push({ v: child, order: childMin });
+        }
+        min = Math.min(min, childMin);
+      });
+      _.reduce(_.sortBy(subgraphs, "order"), function(prev, curr) {
+        cg.setEdge(prev.v, curr.v);
+        return curr;
+      });
+      return min;
+    }
+    return g.node(v).order;
+  }
+  dfs(undefined);
+  */ }
+}),
+"[project]/frontend/node_modules/dagre-d3-es/src/dagre/order/barycenter.js [app-client] (ecmascript)", ((__turbopack_context__) => {
+"use strict";
+
+__turbopack_context__.s([
+    "barycenter",
+    ()=>barycenter
+]);
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$map$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__map$3e$__ = __turbopack_context__.i("[project]/frontend/node_modules/lodash-es/map.js [app-client] (ecmascript) <export default as map>");
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$reduce$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__reduce$3e$__ = __turbopack_context__.i("[project]/frontend/node_modules/lodash-es/reduce.js [app-client] (ecmascript) <export default as reduce>");
+;
+;
+function barycenter(g, movable) {
+    return __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$map$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__map$3e$__["map"](movable, function(v) {
+        var inV = g.inEdges(v);
+        if (!inV.length) {
+            return {
+                v: v
+            };
+        } else {
+            var result = __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$reduce$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__reduce$3e$__["reduce"](inV, function(acc, e) {
+                var edge = g.edge(e), nodeU = g.node(e.v);
+                return {
+                    sum: acc.sum + edge.weight * nodeU.order,
+                    weight: acc.weight + edge.weight
+                };
+            }, {
+                sum: 0,
+                weight: 0
+            });
+            return {
+                v: v,
+                barycenter: result.sum / result.weight,
+                weight: result.weight
+            };
+        }
+    });
+}
+}),
+"[project]/frontend/node_modules/dagre-d3-es/src/dagre/order/build-layer-graph.js [app-client] (ecmascript)", ((__turbopack_context__) => {
+"use strict";
+
+__turbopack_context__.s([
+    "buildLayerGraph",
+    ()=>buildLayerGraph
+]);
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$forEach$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__forEach$3e$__ = __turbopack_context__.i("[project]/frontend/node_modules/lodash-es/forEach.js [app-client] (ecmascript) <export default as forEach>");
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$isUndefined$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__isUndefined$3e$__ = __turbopack_context__.i("[project]/frontend/node_modules/lodash-es/isUndefined.js [app-client] (ecmascript) <export default as isUndefined>");
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$uniqueId$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__uniqueId$3e$__ = __turbopack_context__.i("[project]/frontend/node_modules/lodash-es/uniqueId.js [app-client] (ecmascript) <export default as uniqueId>");
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$dagre$2d$d3$2d$es$2f$src$2f$graphlib$2f$index$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$locals$3e$__ = __turbopack_context__.i("[project]/frontend/node_modules/dagre-d3-es/src/graphlib/index.js [app-client] (ecmascript) <locals>");
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$dagre$2d$d3$2d$es$2f$src$2f$graphlib$2f$graph$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__ = __turbopack_context__.i("[project]/frontend/node_modules/dagre-d3-es/src/graphlib/graph.js [app-client] (ecmascript)");
+;
+;
+;
+/*
+ * Constructs a graph that can be used to sort a layer of nodes. The graph will
+ * contain all base and subgraph nodes from the request layer in their original
+ * hierarchy and any edges that are incident on these nodes and are of the type
+ * requested by the "relationship" parameter.
+ *
+ * Nodes from the requested rank that do not have parents are assigned a root
+ * node in the output graph, which is set in the root graph attribute. This
+ * makes it easy to walk the hierarchy of movable nodes during ordering.
+ *
+ * Pre-conditions:
+ *
+ *    1. Input graph is a DAG
+ *    2. Base nodes in the input graph have a rank attribute
+ *    3. Subgraph nodes in the input graph has minRank and maxRank attributes
+ *    4. Edges have an assigned weight
+ *
+ * Post-conditions:
+ *
+ *    1. Output graph has all nodes in the movable rank with preserved
+ *       hierarchy.
+ *    2. Root nodes in the movable layer are made children of the node
+ *       indicated by the root attribute of the graph.
+ *    3. Non-movable nodes incident on movable nodes, selected by the
+ *       relationship parameter, are included in the graph (without hierarchy).
+ *    4. Edges incident on movable nodes, selected by the relationship
+ *       parameter, are added to the output graph.
+ *    5. The weights for copied edges are aggregated as need, since the output
+ *       graph is not a multi-graph.
+ */ function buildLayerGraph(g, rank, relationship) {
+    var root = createRootNode(g), result = new __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$dagre$2d$d3$2d$es$2f$src$2f$graphlib$2f$graph$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["Graph"]({
+        compound: true
+    }).setGraph({
+        root: root
+    }).setDefaultNodeLabel(function(v) {
+        return g.node(v);
+    });
+    __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$forEach$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__forEach$3e$__["forEach"](g.nodes(), function(v) {
+        var node = g.node(v), parent = g.parent(v);
+        if (node.rank === rank || node.minRank <= rank && rank <= node.maxRank) {
+            result.setNode(v);
+            result.setParent(v, parent || root);
+            // This assumes we have only short edges!
+            __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$forEach$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__forEach$3e$__["forEach"](g[relationship](v), function(e) {
+                var u = e.v === v ? e.w : e.v, edge = result.edge(u, v), weight = !__TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$isUndefined$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__isUndefined$3e$__["isUndefined"](edge) ? edge.weight : 0;
+                result.setEdge(u, v, {
+                    weight: g.edge(e).weight + weight
+                });
+            });
+            if (Object.prototype.hasOwnProperty.call(node, 'minRank')) {
+                result.setNode(v, {
+                    borderLeft: node.borderLeft[rank],
+                    borderRight: node.borderRight[rank]
+                });
+            }
+        }
+    });
+    return result;
+}
+function createRootNode(g) {
+    var v;
+    while(g.hasNode(v = __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$uniqueId$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__uniqueId$3e$__["uniqueId"]('_root')));
+    return v;
+}
+}),
+"[project]/frontend/node_modules/dagre-d3-es/src/dagre/order/cross-count.js [app-client] (ecmascript)", ((__turbopack_context__) => {
+"use strict";
+
+__turbopack_context__.s([
+    "crossCount",
+    ()=>crossCount
+]);
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$zipObject$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__zipObject$3e$__ = __turbopack_context__.i("[project]/frontend/node_modules/lodash-es/zipObject.js [app-client] (ecmascript) <export default as zipObject>");
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$map$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__map$3e$__ = __turbopack_context__.i("[project]/frontend/node_modules/lodash-es/map.js [app-client] (ecmascript) <export default as map>");
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$flatten$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__flatten$3e$__ = __turbopack_context__.i("[project]/frontend/node_modules/lodash-es/flatten.js [app-client] (ecmascript) <export default as flatten>");
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$sortBy$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__sortBy$3e$__ = __turbopack_context__.i("[project]/frontend/node_modules/lodash-es/sortBy.js [app-client] (ecmascript) <export default as sortBy>");
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$forEach$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__forEach$3e$__ = __turbopack_context__.i("[project]/frontend/node_modules/lodash-es/forEach.js [app-client] (ecmascript) <export default as forEach>");
+;
+;
+/*
+ * A function that takes a layering (an array of layers, each with an array of
+ * ordererd nodes) and a graph and returns a weighted crossing count.
+ *
+ * Pre-conditions:
+ *
+ *    1. Input graph must be simple (not a multigraph), directed, and include
+ *       only simple edges.
+ *    2. Edges in the input graph must have assigned weights.
+ *
+ * Post-conditions:
+ *
+ *    1. The graph and layering matrix are left unchanged.
+ *
+ * This algorithm is derived from Barth, et al., "Bilayer Cross Counting."
+ */ function crossCount(g, layering) {
+    var cc = 0;
+    for(var i = 1; i < layering.length; ++i){
+        cc += twoLayerCrossCount(g, layering[i - 1], layering[i]);
+    }
+    return cc;
+}
+function twoLayerCrossCount(g, northLayer, southLayer) {
+    // Sort all of the edges between the north and south layers by their position
+    // in the north layer and then the south. Map these edges to the position of
+    // their head in the south layer.
+    var southPos = __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$zipObject$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__zipObject$3e$__["zipObject"](southLayer, __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$map$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__map$3e$__["map"](southLayer, function(v, i) {
+        return i;
+    }));
+    var southEntries = __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$flatten$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__flatten$3e$__["flatten"](__TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$map$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__map$3e$__["map"](northLayer, function(v) {
+        return __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$sortBy$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__sortBy$3e$__["sortBy"](__TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$map$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__map$3e$__["map"](g.outEdges(v), function(e) {
+            return {
+                pos: southPos[e.w],
+                weight: g.edge(e).weight
+            };
+        }), 'pos');
+    }));
+    // Build the accumulator tree
+    var firstIndex = 1;
+    while(firstIndex < southLayer.length)firstIndex <<= 1;
+    var treeSize = 2 * firstIndex - 1;
+    firstIndex -= 1;
+    var tree = __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$map$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__map$3e$__["map"](new Array(treeSize), function() {
+        return 0;
+    });
+    // Calculate the weighted crossings
+    var cc = 0;
+    __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$forEach$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__forEach$3e$__["forEach"](// @ts-expect-error
+    southEntries.forEach(function(entry) {
+        var index = entry.pos + firstIndex;
+        tree[index] += entry.weight;
+        var weightSum = 0;
+        while(index > 0){
+            if (index % 2) {
+                weightSum += tree[index + 1];
+            }
+            index = index - 1 >> 1;
+            tree[index] += entry.weight;
+        }
+        cc += entry.weight * weightSum;
+    }));
+    return cc;
+}
+}),
+"[project]/frontend/node_modules/dagre-d3-es/src/dagre/order/index.js [app-client] (ecmascript)", ((__turbopack_context__) => {
+"use strict";
+
+__turbopack_context__.s([
+    "order",
+    ()=>order
+]);
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$range$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__range$3e$__ = __turbopack_context__.i("[project]/frontend/node_modules/lodash-es/range.js [app-client] (ecmascript) <export default as range>");
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$cloneDeep$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__cloneDeep$3e$__ = __turbopack_context__.i("[project]/frontend/node_modules/lodash-es/cloneDeep.js [app-client] (ecmascript) <export default as cloneDeep>");
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$map$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__map$3e$__ = __turbopack_context__.i("[project]/frontend/node_modules/lodash-es/map.js [app-client] (ecmascript) <export default as map>");
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$forEach$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__forEach$3e$__ = __turbopack_context__.i("[project]/frontend/node_modules/lodash-es/forEach.js [app-client] (ecmascript) <export default as forEach>");
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$dagre$2d$d3$2d$es$2f$src$2f$graphlib$2f$index$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$locals$3e$__ = __turbopack_context__.i("[project]/frontend/node_modules/dagre-d3-es/src/graphlib/index.js [app-client] (ecmascript) <locals>");
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$dagre$2d$d3$2d$es$2f$src$2f$graphlib$2f$graph$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__ = __turbopack_context__.i("[project]/frontend/node_modules/dagre-d3-es/src/graphlib/graph.js [app-client] (ecmascript)");
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$dagre$2d$d3$2d$es$2f$src$2f$dagre$2f$util$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__ = __turbopack_context__.i("[project]/frontend/node_modules/dagre-d3-es/src/dagre/util.js [app-client] (ecmascript)");
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$dagre$2d$d3$2d$es$2f$src$2f$dagre$2f$order$2f$add$2d$subgraph$2d$constraints$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__ = __turbopack_context__.i("[project]/frontend/node_modules/dagre-d3-es/src/dagre/order/add-subgraph-constraints.js [app-client] (ecmascript)");
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$dagre$2d$d3$2d$es$2f$src$2f$dagre$2f$order$2f$build$2d$layer$2d$graph$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__ = __turbopack_context__.i("[project]/frontend/node_modules/dagre-d3-es/src/dagre/order/build-layer-graph.js [app-client] (ecmascript)");
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$dagre$2d$d3$2d$es$2f$src$2f$dagre$2f$order$2f$cross$2d$count$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__ = __turbopack_context__.i("[project]/frontend/node_modules/dagre-d3-es/src/dagre/order/cross-count.js [app-client] (ecmascript)");
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$dagre$2d$d3$2d$es$2f$src$2f$dagre$2f$order$2f$init$2d$order$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__ = __turbopack_context__.i("[project]/frontend/node_modules/dagre-d3-es/src/dagre/order/init-order.js [app-client] (ecmascript)");
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$dagre$2d$d3$2d$es$2f$src$2f$dagre$2f$order$2f$sort$2d$subgraph$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__ = __turbopack_context__.i("[project]/frontend/node_modules/dagre-d3-es/src/dagre/order/sort-subgraph.js [app-client] (ecmascript)");
+;
+;
+;
+;
+;
+;
+;
+;
+;
+/*
+ * Applies heuristics to minimize edge crossings in the graph and sets the best
+ * order solution as an order attribute on each node.
+ *
+ * Pre-conditions:
+ *
+ *    1. Graph must be DAG
+ *    2. Graph nodes must be objects with a "rank" attribute
+ *    3. Graph edges must have the "weight" attribute
+ *
+ * Post-conditions:
+ *
+ *    1. Graph nodes will have an "order" attribute based on the results of the
+ *       algorithm.
+ */ function order(g) {
+    var maxRank = __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$dagre$2d$d3$2d$es$2f$src$2f$dagre$2f$util$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["maxRank"](g), downLayerGraphs = buildLayerGraphs(g, __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$range$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__range$3e$__["range"](1, maxRank + 1), 'inEdges'), upLayerGraphs = buildLayerGraphs(g, __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$range$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__range$3e$__["range"](maxRank - 1, -1, -1), 'outEdges');
+    var layering = (0, __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$dagre$2d$d3$2d$es$2f$src$2f$dagre$2f$order$2f$init$2d$order$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["initOrder"])(g);
+    assignOrder(g, layering);
+    var bestCC = Number.POSITIVE_INFINITY, best;
+    for(var i = 0, lastBest = 0; lastBest < 4; ++i, ++lastBest){
+        sweepLayerGraphs(i % 2 ? downLayerGraphs : upLayerGraphs, i % 4 >= 2);
+        layering = __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$dagre$2d$d3$2d$es$2f$src$2f$dagre$2f$util$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["buildLayerMatrix"](g);
+        var cc = (0, __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$dagre$2d$d3$2d$es$2f$src$2f$dagre$2f$order$2f$cross$2d$count$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["crossCount"])(g, layering);
+        if (cc < bestCC) {
+            lastBest = 0;
+            best = __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$cloneDeep$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__cloneDeep$3e$__["cloneDeep"](layering);
+            bestCC = cc;
+        }
+    }
+    assignOrder(g, best);
+}
+function buildLayerGraphs(g, ranks, relationship) {
+    return __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$map$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__map$3e$__["map"](ranks, function(rank) {
+        return (0, __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$dagre$2d$d3$2d$es$2f$src$2f$dagre$2f$order$2f$build$2d$layer$2d$graph$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["buildLayerGraph"])(g, rank, relationship);
+    });
+}
+function sweepLayerGraphs(layerGraphs, biasRight) {
+    var cg = new __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$dagre$2d$d3$2d$es$2f$src$2f$graphlib$2f$graph$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["Graph"]();
+    __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$forEach$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__forEach$3e$__["forEach"](layerGraphs, function(lg) {
+        var root = lg.graph().root;
+        var sorted = (0, __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$dagre$2d$d3$2d$es$2f$src$2f$dagre$2f$order$2f$sort$2d$subgraph$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["sortSubgraph"])(lg, root, cg, biasRight);
+        __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$forEach$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__forEach$3e$__["forEach"](sorted.vs, function(v, i) {
+            lg.node(v).order = i;
+        });
+        (0, __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$dagre$2d$d3$2d$es$2f$src$2f$dagre$2f$order$2f$add$2d$subgraph$2d$constraints$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["addSubgraphConstraints"])(lg, cg, sorted.vs);
+    });
+}
+function assignOrder(g, layering) {
+    __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$forEach$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__forEach$3e$__["forEach"](layering, function(layer) {
+        __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$forEach$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__forEach$3e$__["forEach"](layer, function(v, i) {
+            g.node(v).order = i;
+        });
+    });
+}
+}),
+"[project]/frontend/node_modules/dagre-d3-es/src/dagre/order/init-order.js [app-client] (ecmascript)", ((__turbopack_context__) => {
+"use strict";
+
+__turbopack_context__.s([
+    "initOrder",
+    ()=>initOrder
+]);
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$sortBy$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__sortBy$3e$__ = __turbopack_context__.i("[project]/frontend/node_modules/lodash-es/sortBy.js [app-client] (ecmascript) <export default as sortBy>");
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$forEach$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__forEach$3e$__ = __turbopack_context__.i("[project]/frontend/node_modules/lodash-es/forEach.js [app-client] (ecmascript) <export default as forEach>");
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$filter$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__filter$3e$__ = __turbopack_context__.i("[project]/frontend/node_modules/lodash-es/filter.js [app-client] (ecmascript) <export default as filter>");
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$max$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__max$3e$__ = __turbopack_context__.i("[project]/frontend/node_modules/lodash-es/max.js [app-client] (ecmascript) <export default as max>");
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$map$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__map$3e$__ = __turbopack_context__.i("[project]/frontend/node_modules/lodash-es/map.js [app-client] (ecmascript) <export default as map>");
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$range$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__range$3e$__ = __turbopack_context__.i("[project]/frontend/node_modules/lodash-es/range.js [app-client] (ecmascript) <export default as range>");
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$has$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__has$3e$__ = __turbopack_context__.i("[project]/frontend/node_modules/lodash-es/has.js [app-client] (ecmascript) <export default as has>");
+;
+function initOrder(g) {
+    var visited = {};
+    var simpleNodes = __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$filter$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__filter$3e$__["filter"](g.nodes(), function(v) {
+        return !g.children(v).length;
+    });
+    var maxRank = __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$max$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__max$3e$__["max"](__TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$map$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__map$3e$__["map"](simpleNodes, function(v) {
+        return g.node(v).rank;
+    }));
+    var layers = __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$map$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__map$3e$__["map"](__TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$range$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__range$3e$__["range"](maxRank + 1), function() {
+        return [];
+    });
+    function dfs(v) {
+        if (__TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$has$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__has$3e$__["has"](visited, v)) return;
+        visited[v] = true;
+        var node = g.node(v);
+        layers[node.rank].push(v);
+        __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$forEach$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__forEach$3e$__["forEach"](g.successors(v), dfs);
+    }
+    var orderedVs = __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$sortBy$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__sortBy$3e$__["sortBy"](simpleNodes, function(v) {
+        return g.node(v).rank;
+    });
+    __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$forEach$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__forEach$3e$__["forEach"](orderedVs, dfs);
+    return layers;
+}
+}),
+"[project]/frontend/node_modules/dagre-d3-es/src/dagre/order/resolve-conflicts.js [app-client] (ecmascript)", ((__turbopack_context__) => {
+"use strict";
+
+__turbopack_context__.s([
+    "resolveConflicts",
+    ()=>resolveConflicts
+]);
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$forEach$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__forEach$3e$__ = __turbopack_context__.i("[project]/frontend/node_modules/lodash-es/forEach.js [app-client] (ecmascript) <export default as forEach>");
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$isUndefined$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__isUndefined$3e$__ = __turbopack_context__.i("[project]/frontend/node_modules/lodash-es/isUndefined.js [app-client] (ecmascript) <export default as isUndefined>");
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$filter$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__filter$3e$__ = __turbopack_context__.i("[project]/frontend/node_modules/lodash-es/filter.js [app-client] (ecmascript) <export default as filter>");
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$map$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__map$3e$__ = __turbopack_context__.i("[project]/frontend/node_modules/lodash-es/map.js [app-client] (ecmascript) <export default as map>");
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$pick$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__pick$3e$__ = __turbopack_context__.i("[project]/frontend/node_modules/lodash-es/pick.js [app-client] (ecmascript) <export default as pick>");
+;
+;
+/*
+ * Given a list of entries of the form {v, barycenter, weight} and a
+ * constraint graph this function will resolve any conflicts between the
+ * constraint graph and the barycenters for the entries. If the barycenters for
+ * an entry would violate a constraint in the constraint graph then we coalesce
+ * the nodes in the conflict into a new node that respects the contraint and
+ * aggregates barycenter and weight information.
+ *
+ * This implementation is based on the description in Forster, "A Fast and
+ * Simple Hueristic for Constrained Two-Level Crossing Reduction," thought it
+ * differs in some specific details.
+ *
+ * Pre-conditions:
+ *
+ *    1. Each entry has the form {v, barycenter, weight}, or if the node has
+ *       no barycenter, then {v}.
+ *
+ * Returns:
+ *
+ *    A new list of entries of the form {vs, i, barycenter, weight}. The list
+ *    `vs` may either be a singleton or it may be an aggregation of nodes
+ *    ordered such that they do not violate constraints from the constraint
+ *    graph. The property `i` is the lowest original index of any of the
+ *    elements in `vs`.
+ */ function resolveConflicts(entries, cg) {
+    var mappedEntries = {};
+    __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$forEach$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__forEach$3e$__["forEach"](entries, function(entry, i) {
+        var tmp = mappedEntries[entry.v] = {
+            indegree: 0,
+            in: [],
+            out: [],
+            vs: [
+                entry.v
+            ],
+            i: i
+        };
+        if (!__TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$isUndefined$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__isUndefined$3e$__["isUndefined"](entry.barycenter)) {
+            // @ts-expect-error
+            tmp.barycenter = entry.barycenter;
+            // @ts-expect-error
+            tmp.weight = entry.weight;
+        }
+    });
+    __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$forEach$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__forEach$3e$__["forEach"](cg.edges(), function(e) {
+        var entryV = mappedEntries[e.v];
+        var entryW = mappedEntries[e.w];
+        if (!__TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$isUndefined$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__isUndefined$3e$__["isUndefined"](entryV) && !__TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$isUndefined$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__isUndefined$3e$__["isUndefined"](entryW)) {
+            entryW.indegree++;
+            entryV.out.push(mappedEntries[e.w]);
+        }
+    });
+    var sourceSet = __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$filter$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__filter$3e$__["filter"](mappedEntries, function(entry) {
+        // @ts-expect-error
+        return !entry.indegree;
+    });
+    return doResolveConflicts(sourceSet);
+}
+function doResolveConflicts(sourceSet) {
+    var entries = [];
+    function handleIn(vEntry) {
+        return function(uEntry) {
+            if (uEntry.merged) {
+                return;
+            }
+            if (__TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$isUndefined$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__isUndefined$3e$__["isUndefined"](uEntry.barycenter) || __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$isUndefined$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__isUndefined$3e$__["isUndefined"](vEntry.barycenter) || uEntry.barycenter >= vEntry.barycenter) {
+                mergeEntries(vEntry, uEntry);
+            }
+        };
+    }
+    function handleOut(vEntry) {
+        return function(wEntry) {
+            wEntry['in'].push(vEntry);
+            if (--wEntry.indegree === 0) {
+                sourceSet.push(wEntry);
+            }
+        };
+    }
+    while(sourceSet.length){
+        var entry = sourceSet.pop();
+        entries.push(entry);
+        __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$forEach$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__forEach$3e$__["forEach"](entry['in'].reverse(), handleIn(entry));
+        __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$forEach$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__forEach$3e$__["forEach"](entry.out, handleOut(entry));
+    }
+    return __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$map$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__map$3e$__["map"](__TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$filter$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__filter$3e$__["filter"](entries, function(entry) {
+        return !entry.merged;
+    }), function(entry) {
+        return __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$pick$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__pick$3e$__["pick"](entry, [
+            'vs',
+            'i',
+            'barycenter',
+            'weight'
+        ]);
+    });
+}
+function mergeEntries(target, source) {
+    var sum = 0;
+    var weight = 0;
+    if (target.weight) {
+        sum += target.barycenter * target.weight;
+        weight += target.weight;
+    }
+    if (source.weight) {
+        sum += source.barycenter * source.weight;
+        weight += source.weight;
+    }
+    target.vs = source.vs.concat(target.vs);
+    target.barycenter = sum / weight;
+    target.weight = weight;
+    target.i = Math.min(source.i, target.i);
+    source.merged = true;
+}
+}),
+"[project]/frontend/node_modules/dagre-d3-es/src/dagre/order/sort-subgraph.js [app-client] (ecmascript)", ((__turbopack_context__) => {
+"use strict";
+
+__turbopack_context__.s([
+    "sortSubgraph",
+    ()=>sortSubgraph
+]);
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$filter$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__filter$3e$__ = __turbopack_context__.i("[project]/frontend/node_modules/lodash-es/filter.js [app-client] (ecmascript) <export default as filter>");
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$forEach$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__forEach$3e$__ = __turbopack_context__.i("[project]/frontend/node_modules/lodash-es/forEach.js [app-client] (ecmascript) <export default as forEach>");
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$flatten$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__flatten$3e$__ = __turbopack_context__.i("[project]/frontend/node_modules/lodash-es/flatten.js [app-client] (ecmascript) <export default as flatten>");
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$isUndefined$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__isUndefined$3e$__ = __turbopack_context__.i("[project]/frontend/node_modules/lodash-es/isUndefined.js [app-client] (ecmascript) <export default as isUndefined>");
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$dagre$2d$d3$2d$es$2f$src$2f$dagre$2f$order$2f$barycenter$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__ = __turbopack_context__.i("[project]/frontend/node_modules/dagre-d3-es/src/dagre/order/barycenter.js [app-client] (ecmascript)");
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$dagre$2d$d3$2d$es$2f$src$2f$dagre$2f$order$2f$resolve$2d$conflicts$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__ = __turbopack_context__.i("[project]/frontend/node_modules/dagre-d3-es/src/dagre/order/resolve-conflicts.js [app-client] (ecmascript)");
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$dagre$2d$d3$2d$es$2f$src$2f$dagre$2f$order$2f$sort$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__ = __turbopack_context__.i("[project]/frontend/node_modules/dagre-d3-es/src/dagre/order/sort.js [app-client] (ecmascript)");
+;
+;
+;
+;
+;
+function sortSubgraph(g, v, cg, biasRight) {
+    var movable = g.children(v);
+    var node = g.node(v);
+    var bl = node ? node.borderLeft : undefined;
+    var br = node ? node.borderRight : undefined;
+    var subgraphs = {};
+    if (bl) {
+        movable = __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$filter$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__filter$3e$__["filter"](movable, function(w) {
+            return w !== bl && w !== br;
+        });
+    }
+    var barycenters = (0, __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$dagre$2d$d3$2d$es$2f$src$2f$dagre$2f$order$2f$barycenter$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["barycenter"])(g, movable);
+    __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$forEach$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__forEach$3e$__["forEach"](barycenters, function(entry) {
+        if (g.children(entry.v).length) {
+            var subgraphResult = sortSubgraph(g, entry.v, cg, biasRight);
+            subgraphs[entry.v] = subgraphResult;
+            if (Object.prototype.hasOwnProperty.call(subgraphResult, 'barycenter')) {
+                mergeBarycenters(entry, subgraphResult);
+            }
+        }
+    });
+    var entries = (0, __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$dagre$2d$d3$2d$es$2f$src$2f$dagre$2f$order$2f$resolve$2d$conflicts$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["resolveConflicts"])(barycenters, cg);
+    expandSubgraphs(entries, subgraphs);
+    var result = (0, __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$dagre$2d$d3$2d$es$2f$src$2f$dagre$2f$order$2f$sort$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["sort"])(entries, biasRight);
+    if (bl) {
+        result.vs = __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$flatten$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__flatten$3e$__["flatten"]([
+            bl,
+            result.vs,
+            br
+        ]);
+        if (g.predecessors(bl).length) {
+            var blPred = g.node(g.predecessors(bl)[0]), brPred = g.node(g.predecessors(br)[0]);
+            if (!Object.prototype.hasOwnProperty.call(result, 'barycenter')) {
+                result.barycenter = 0;
+                result.weight = 0;
+            }
+            result.barycenter = (result.barycenter * result.weight + blPred.order + brPred.order) / (result.weight + 2);
+            result.weight += 2;
+        }
+    }
+    return result;
+}
+function expandSubgraphs(entries, subgraphs) {
+    __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$forEach$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__forEach$3e$__["forEach"](entries, function(entry) {
+        entry.vs = __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$flatten$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__flatten$3e$__["flatten"](entry.vs.map(function(v) {
+            if (subgraphs[v]) {
+                return subgraphs[v].vs;
+            }
+            return v;
+        }));
+    });
+}
+function mergeBarycenters(target, other) {
+    if (!__TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$isUndefined$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__isUndefined$3e$__["isUndefined"](target.barycenter)) {
+        target.barycenter = (target.barycenter * target.weight + other.barycenter * other.weight) / (target.weight + other.weight);
+        target.weight += other.weight;
+    } else {
+        target.barycenter = other.barycenter;
+        target.weight = other.weight;
+    }
+}
+}),
+"[project]/frontend/node_modules/dagre-d3-es/src/dagre/order/sort.js [app-client] (ecmascript)", ((__turbopack_context__) => {
+"use strict";
+
+__turbopack_context__.s([
+    "sort",
+    ()=>sort
+]);
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$sortBy$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__sortBy$3e$__ = __turbopack_context__.i("[project]/frontend/node_modules/lodash-es/sortBy.js [app-client] (ecmascript) <export default as sortBy>");
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$forEach$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__forEach$3e$__ = __turbopack_context__.i("[project]/frontend/node_modules/lodash-es/forEach.js [app-client] (ecmascript) <export default as forEach>");
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$flatten$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__flatten$3e$__ = __turbopack_context__.i("[project]/frontend/node_modules/lodash-es/flatten.js [app-client] (ecmascript) <export default as flatten>");
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$last$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__last$3e$__ = __turbopack_context__.i("[project]/frontend/node_modules/lodash-es/last.js [app-client] (ecmascript) <export default as last>");
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$dagre$2d$d3$2d$es$2f$src$2f$dagre$2f$util$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__ = __turbopack_context__.i("[project]/frontend/node_modules/dagre-d3-es/src/dagre/util.js [app-client] (ecmascript)");
+;
+;
+;
+function sort(entries, biasRight) {
+    var parts = __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$dagre$2d$d3$2d$es$2f$src$2f$dagre$2f$util$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["partition"](entries, function(entry) {
+        return Object.prototype.hasOwnProperty.call(entry, 'barycenter');
+    });
+    var sortable = parts.lhs, unsortable = __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$sortBy$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__sortBy$3e$__["sortBy"](parts.rhs, function(entry) {
+        return -entry.i;
+    }), vs = [], sum = 0, weight = 0, vsIndex = 0;
+    sortable.sort(compareWithBias(!!biasRight));
+    vsIndex = consumeUnsortable(vs, unsortable, vsIndex);
+    __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$forEach$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__forEach$3e$__["forEach"](sortable, function(entry) {
+        vsIndex += entry.vs.length;
+        vs.push(entry.vs);
+        sum += entry.barycenter * entry.weight;
+        weight += entry.weight;
+        vsIndex = consumeUnsortable(vs, unsortable, vsIndex);
+    });
+    var result = {
+        vs: __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$flatten$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__flatten$3e$__["flatten"](vs)
+    };
+    if (weight) {
+        result.barycenter = sum / weight;
+        result.weight = weight;
+    }
+    return result;
+}
+function consumeUnsortable(vs, unsortable, index) {
+    var last;
+    while(unsortable.length && (last = __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$last$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__last$3e$__["last"](unsortable)).i <= index){
+        unsortable.pop();
+        vs.push(last.vs);
+        index++;
+    }
+    return index;
+}
+function compareWithBias(bias) {
+    return function(entryV, entryW) {
+        if (entryV.barycenter < entryW.barycenter) {
+            return -1;
+        } else if (entryV.barycenter > entryW.barycenter) {
+            return 1;
+        }
+        return !bias ? entryV.i - entryW.i : entryW.i - entryV.i;
+    };
+}
+}),
+"[project]/frontend/node_modules/dagre-d3-es/src/dagre/parent-dummy-chains.js [app-client] (ecmascript)", ((__turbopack_context__) => {
+"use strict";
+
+__turbopack_context__.s([
+    "parentDummyChains",
+    ()=>parentDummyChains
+]);
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$forEach$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__forEach$3e$__ = __turbopack_context__.i("[project]/frontend/node_modules/lodash-es/forEach.js [app-client] (ecmascript) <export default as forEach>");
+;
+;
+function parentDummyChains(g) {
+    var postorderNums = postorder(g);
+    __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$forEach$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__forEach$3e$__["forEach"](g.graph().dummyChains, function(v) {
+        var node = g.node(v);
+        var edgeObj = node.edgeObj;
+        var pathData = findPath(g, postorderNums, edgeObj.v, edgeObj.w);
+        var path = pathData.path;
+        var lca = pathData.lca;
+        var pathIdx = 0;
+        var pathV = path[pathIdx];
+        var ascending = true;
+        while(v !== edgeObj.w){
+            node = g.node(v);
+            if (ascending) {
+                while((pathV = path[pathIdx]) !== lca && g.node(pathV).maxRank < node.rank){
+                    pathIdx++;
+                }
+                if (pathV === lca) {
+                    ascending = false;
+                }
+            }
+            if (!ascending) {
+                while(pathIdx < path.length - 1 && g.node(pathV = path[pathIdx + 1]).minRank <= node.rank){
+                    pathIdx++;
+                }
+                pathV = path[pathIdx];
+            }
+            g.setParent(v, pathV);
+            v = g.successors(v)[0];
+        }
+    });
+}
+// Find a path from v to w through the lowest common ancestor (LCA). Return the
+// full path and the LCA.
+function findPath(g, postorderNums, v, w) {
+    var vPath = [];
+    var wPath = [];
+    var low = Math.min(postorderNums[v].low, postorderNums[w].low);
+    var lim = Math.max(postorderNums[v].lim, postorderNums[w].lim);
+    var parent;
+    var lca;
+    // Traverse up from v to find the LCA
+    parent = v;
+    do {
+        parent = g.parent(parent);
+        vPath.push(parent);
+    }while (parent && (postorderNums[parent].low > low || lim > postorderNums[parent].lim))
+    lca = parent;
+    // Traverse from w to LCA
+    parent = w;
+    while((parent = g.parent(parent)) !== lca){
+        wPath.push(parent);
+    }
+    return {
+        path: vPath.concat(wPath.reverse()),
+        lca: lca
+    };
+}
+function postorder(g) {
+    var result = {};
+    var lim = 0;
+    function dfs(v) {
+        var low = lim;
+        __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$forEach$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__forEach$3e$__["forEach"](g.children(v), dfs);
+        result[v] = {
+            low: low,
+            lim: lim++
+        };
+    }
+    __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$forEach$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__forEach$3e$__["forEach"](g.children(), dfs);
+    return result;
+}
+}),
+"[project]/frontend/node_modules/dagre-d3-es/src/dagre/position/bk.js [app-client] (ecmascript)", ((__turbopack_context__) => {
+"use strict";
+
+__turbopack_context__.s([
+    "addConflict",
+    ()=>addConflict,
+    "alignCoordinates",
+    ()=>alignCoordinates,
+    "balance",
+    ()=>balance,
+    "findSmallestWidthAlignment",
+    ()=>findSmallestWidthAlignment,
+    "findType1Conflicts",
+    ()=>findType1Conflicts,
+    "findType2Conflicts",
+    ()=>findType2Conflicts,
+    "hasConflict",
+    ()=>hasConflict,
+    "horizontalCompaction",
+    ()=>horizontalCompaction,
+    "positionX",
+    ()=>positionX,
+    "verticalAlignment",
+    ()=>verticalAlignment
+]);
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$reduce$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__reduce$3e$__ = __turbopack_context__.i("[project]/frontend/node_modules/lodash-es/reduce.js [app-client] (ecmascript) <export default as reduce>");
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$last$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__last$3e$__ = __turbopack_context__.i("[project]/frontend/node_modules/lodash-es/last.js [app-client] (ecmascript) <export default as last>");
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$forEach$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__forEach$3e$__ = __turbopack_context__.i("[project]/frontend/node_modules/lodash-es/forEach.js [app-client] (ecmascript) <export default as forEach>");
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$range$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__range$3e$__ = __turbopack_context__.i("[project]/frontend/node_modules/lodash-es/range.js [app-client] (ecmascript) <export default as range>");
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$find$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__find$3e$__ = __turbopack_context__.i("[project]/frontend/node_modules/lodash-es/find.js [app-client] (ecmascript) <export default as find>");
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$sortBy$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__sortBy$3e$__ = __turbopack_context__.i("[project]/frontend/node_modules/lodash-es/sortBy.js [app-client] (ecmascript) <export default as sortBy>");
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$minBy$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__minBy$3e$__ = __turbopack_context__.i("[project]/frontend/node_modules/lodash-es/minBy.js [app-client] (ecmascript) <export default as minBy>");
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$values$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__values$3e$__ = __turbopack_context__.i("[project]/frontend/node_modules/lodash-es/values.js [app-client] (ecmascript) <export default as values>");
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$forIn$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__forIn$3e$__ = __turbopack_context__.i("[project]/frontend/node_modules/lodash-es/forIn.js [app-client] (ecmascript) <export default as forIn>");
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$min$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__min$3e$__ = __turbopack_context__.i("[project]/frontend/node_modules/lodash-es/min.js [app-client] (ecmascript) <export default as min>");
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$max$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__max$3e$__ = __turbopack_context__.i("[project]/frontend/node_modules/lodash-es/max.js [app-client] (ecmascript) <export default as max>");
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$mapValues$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__mapValues$3e$__ = __turbopack_context__.i("[project]/frontend/node_modules/lodash-es/mapValues.js [app-client] (ecmascript) <export default as mapValues>");
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$map$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__map$3e$__ = __turbopack_context__.i("[project]/frontend/node_modules/lodash-es/map.js [app-client] (ecmascript) <export default as map>");
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$merge$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__merge$3e$__ = __turbopack_context__.i("[project]/frontend/node_modules/lodash-es/merge.js [app-client] (ecmascript) <export default as merge>");
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$dagre$2d$d3$2d$es$2f$src$2f$graphlib$2f$index$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$locals$3e$__ = __turbopack_context__.i("[project]/frontend/node_modules/dagre-d3-es/src/graphlib/index.js [app-client] (ecmascript) <locals>");
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$dagre$2d$d3$2d$es$2f$src$2f$graphlib$2f$graph$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__ = __turbopack_context__.i("[project]/frontend/node_modules/dagre-d3-es/src/graphlib/graph.js [app-client] (ecmascript)");
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$dagre$2d$d3$2d$es$2f$src$2f$dagre$2f$util$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__ = __turbopack_context__.i("[project]/frontend/node_modules/dagre-d3-es/src/dagre/util.js [app-client] (ecmascript)");
+;
+;
+;
+;
+/*
+ * Marks all edges in the graph with a type-1 conflict with the "type1Conflict"
+ * property. A type-1 conflict is one where a non-inner segment crosses an
+ * inner segment. An inner segment is an edge with both incident nodes marked
+ * with the "dummy" property.
+ *
+ * This algorithm scans layer by layer, starting with the second, for type-1
+ * conflicts between the current layer and the previous layer. For each layer
+ * it scans the nodes from left to right until it reaches one that is incident
+ * on an inner segment. It then scans predecessors to determine if they have
+ * edges that cross that inner segment. At the end a final scan is done for all
+ * nodes on the current rank to see if they cross the last visited inner
+ * segment.
+ *
+ * This algorithm (safely) assumes that a dummy node will only be incident on a
+ * single node in the layers being scanned.
+ */ function findType1Conflicts(g, layering) {
+    /** @type {{[nodeId: string | number]: {[nodeId: string | number]: true}}} */ var conflicts = {};
+    function visitLayer(prevLayer, layer) {
+        var // segment.
+        k0 = 0, // Tracks the last node in this layer scanned for crossings with a type-1
+        // segment.
+        scanPos = 0, prevLayerLength = prevLayer.length, lastNode = __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$last$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__last$3e$__["last"](layer);
+        __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$forEach$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__forEach$3e$__["forEach"](layer, function(v, i) {
+            var w = findOtherInnerSegmentNode(g, v), k1 = w ? g.node(w).order : prevLayerLength;
+            if (w || v === lastNode) {
+                __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$forEach$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__forEach$3e$__["forEach"](layer.slice(scanPos, i + 1), function(scanNode) {
+                    __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$forEach$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__forEach$3e$__["forEach"](g.predecessors(scanNode), function(u) {
+                        var uLabel = g.node(u), uPos = uLabel.order;
+                        if ((uPos < k0 || k1 < uPos) && !(uLabel.dummy && g.node(scanNode).dummy)) {
+                            addConflict(conflicts, u, scanNode);
+                        }
+                    });
+                });
+                // @ts-expect-error
+                scanPos = i + 1;
+                k0 = k1;
+            }
+        });
+        return layer;
+    }
+    __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$reduce$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__reduce$3e$__["reduce"](layering, visitLayer);
+    return conflicts;
+}
+function findType2Conflicts(g, layering) {
+    /** @type {{[nodeId: string | number]: {[nodeId: string | number]: true}}} */ var conflicts = {};
+    function scan(south, southPos, southEnd, prevNorthBorder, nextNorthBorder) {
+        var v;
+        __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$forEach$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__forEach$3e$__["forEach"](__TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$range$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__range$3e$__["range"](southPos, southEnd), function(i) {
+            v = south[i];
+            if (g.node(v).dummy) {
+                __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$forEach$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__forEach$3e$__["forEach"](g.predecessors(v), function(u) {
+                    var uNode = g.node(u);
+                    if (uNode.dummy && (uNode.order < prevNorthBorder || uNode.order > nextNorthBorder)) {
+                        addConflict(conflicts, u, v);
+                    }
+                });
+            }
+        });
+    }
+    function visitLayer(north, south) {
+        var prevNorthPos = -1, nextNorthPos, southPos = 0;
+        __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$forEach$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__forEach$3e$__["forEach"](south, function(v, southLookahead) {
+            if (g.node(v).dummy === 'border') {
+                var predecessors = g.predecessors(v);
+                if (predecessors.length) {
+                    nextNorthPos = g.node(predecessors[0]).order;
+                    scan(south, southPos, southLookahead, prevNorthPos, nextNorthPos);
+                    // @ts-expect-error
+                    southPos = southLookahead;
+                    prevNorthPos = nextNorthPos;
+                }
+            }
+            scan(south, southPos, south.length, nextNorthPos, north.length);
+        });
+        return south;
+    }
+    __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$reduce$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__reduce$3e$__["reduce"](layering, visitLayer);
+    return conflicts;
+}
+function findOtherInnerSegmentNode(g, v) {
+    if (g.node(v).dummy) {
+        return __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$find$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__find$3e$__["find"](g.predecessors(v), function(u) {
+            return g.node(u).dummy;
+        });
+    }
+}
+/**
+ * Sets `conflicts[v][w] = true`, creating objects if needed.
+ *
+ * @param {{[nodeId: string | number]: {[nodeId: string | number]: true}}} conflicts - Object to set.
+ * @param {string | number} v - First Node ID
+ * @param {string | number} w - Second Node ID
+ */ function addConflict(conflicts, v, w) {
+    if (v > w) {
+        var tmp = v;
+        v = w;
+        w = tmp;
+    }
+    if (!Object.prototype.hasOwnProperty.call(conflicts, v)) {
+        // can't use conflicts[v] = {} since it's unsafe if v = `__proto__`
+        Object.defineProperty(conflicts, v, {
+            enumerable: true,
+            configurable: true,
+            value: {},
+            writable: true
+        });
+    }
+    var conflictsV = conflicts[v];
+    Object.defineProperty(conflictsV, w, {
+        enumerable: true,
+        configurable: true,
+        value: true,
+        writable: true
+    });
+}
+function hasConflict(conflicts, v, w) {
+    if (v > w) {
+        var tmp = v;
+        v = w;
+        w = tmp;
+    }
+    return !!conflicts[v] && Object.prototype.hasOwnProperty.call(conflicts[v], w);
+}
+/*
+ * Try to align nodes into vertical "blocks" where possible. This algorithm
+ * attempts to align a node with one of its median neighbors. If the edge
+ * connecting a neighbor is a type-1 conflict then we ignore that possibility.
+ * If a previous node has already formed a block with a node after the node
+ * we're trying to form a block with, we also ignore that possibility - our
+ * blocks would be split in that scenario.
+ */ function verticalAlignment(g, layering, conflicts, neighborFn) {
+    var root = {}, align = {}, pos = {};
+    // We cache the position here based on the layering because the graph and
+    // layering may be out of sync. The layering matrix is manipulated to
+    // generate different extreme alignments.
+    __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$forEach$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__forEach$3e$__["forEach"](layering, function(layer) {
+        __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$forEach$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__forEach$3e$__["forEach"](layer, function(v, order) {
+            root[v] = v;
+            align[v] = v;
+            pos[v] = order;
+        });
+    });
+    __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$forEach$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__forEach$3e$__["forEach"](layering, function(layer) {
+        var prevIdx = -1;
+        __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$forEach$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__forEach$3e$__["forEach"](layer, function(v) {
+            var ws = neighborFn(v);
+            if (ws.length) {
+                ws = __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$sortBy$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__sortBy$3e$__["sortBy"](ws, function(w) {
+                    return pos[w];
+                });
+                var mp = (ws.length - 1) / 2;
+                for(var i = Math.floor(mp), il = Math.ceil(mp); i <= il; ++i){
+                    var w = ws[i];
+                    if (align[v] === v && prevIdx < pos[w] && !hasConflict(conflicts, v, w)) {
+                        align[w] = v;
+                        align[v] = root[v] = root[w];
+                        prevIdx = pos[w];
+                    }
+                }
+            }
+        });
+    });
+    return {
+        root: root,
+        align: align
+    };
+}
+function horizontalCompaction(g, layering, root, align, reverseSep) {
+    // This portion of the algorithm differs from BK due to a number of problems.
+    // Instead of their algorithm we construct a new block graph and do two
+    // sweeps. The first sweep places blocks with the smallest possible
+    // coordinates. The second sweep removes unused space by moving blocks to the
+    // greatest coordinates without violating separation.
+    /** @type {Record<import('../../graphlib/graph.js').NodeID, number>} */ var xs = {}, blockG = buildBlockGraph(g, layering, root, reverseSep), borderType = reverseSep ? 'borderLeft' : 'borderRight';
+    function iterate(setXsFunc, nextNodesFunc) {
+        var stack = blockG.nodes();
+        var elem = stack.pop();
+        var visited = {};
+        while(elem){
+            if (visited[elem]) {
+                setXsFunc(elem);
+            } else {
+                visited[elem] = true;
+                stack.push(elem);
+                stack = stack.concat(nextNodesFunc(elem));
+            }
+            elem = stack.pop();
+        }
+    }
+    // First pass, assign smallest coordinates
+    function pass1(elem) {
+        xs[elem] = blockG.inEdges(elem).reduce(function(acc, e) {
+            return Math.max(acc, xs[e.v] + blockG.edge(e));
+        }, 0);
+    }
+    // Second pass, assign greatest coordinates
+    function pass2(elem) {
+        var min = blockG.outEdges(elem).reduce(function(acc, e) {
+            return Math.min(acc, xs[e.w] - blockG.edge(e));
+        }, Number.POSITIVE_INFINITY);
+        var node = g.node(elem);
+        if (min !== Number.POSITIVE_INFINITY && node.borderType !== borderType) {
+            xs[elem] = Math.max(xs[elem], min);
+        }
+    }
+    iterate(pass1, blockG.predecessors.bind(blockG));
+    iterate(pass2, blockG.successors.bind(blockG));
+    // Assign x coordinates to all nodes
+    __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$forEach$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__forEach$3e$__["forEach"](align, function(v) {
+        xs[v] = xs[root[v]];
+    });
+    return xs;
+}
+function buildBlockGraph(g, layering, root, reverseSep) {
+    var blockGraph = new __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$dagre$2d$d3$2d$es$2f$src$2f$graphlib$2f$graph$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["Graph"](), graphLabel = g.graph(), sepFn = sep(graphLabel.nodesep, graphLabel.edgesep, reverseSep);
+    __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$forEach$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__forEach$3e$__["forEach"](layering, function(layer) {
+        var u;
+        __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$forEach$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__forEach$3e$__["forEach"](layer, function(v) {
+            var vRoot = root[v];
+            blockGraph.setNode(vRoot);
+            if (u) {
+                var uRoot = root[u], prevMax = blockGraph.edge(uRoot, vRoot);
+                blockGraph.setEdge(uRoot, vRoot, Math.max(sepFn(g, v, u), prevMax || 0));
+            }
+            u = v;
+        });
+    });
+    return blockGraph;
+}
+/*
+ * Returns the alignment that has the smallest width of the given alignments.
+ */ function findSmallestWidthAlignment(g, xss) {
+    return __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$minBy$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__minBy$3e$__["minBy"](__TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$values$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__values$3e$__["values"](xss), function(xs) {
+        var max = Number.NEGATIVE_INFINITY;
+        var min = Number.POSITIVE_INFINITY;
+        __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$forIn$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__forIn$3e$__["forIn"](xs, function(x, v) {
+            var halfWidth = width(g, v) / 2;
+            max = Math.max(x + halfWidth, max);
+            min = Math.min(x - halfWidth, min);
+        });
+        return max - min;
+    });
+}
+/*
+ * Align the coordinates of each of the layout alignments such that
+ * left-biased alignments have their minimum coordinate at the same point as
+ * the minimum coordinate of the smallest width alignment and right-biased
+ * alignments have their maximum coordinate at the same point as the maximum
+ * coordinate of the smallest width alignment.
+ */ function alignCoordinates(xss, alignTo) {
+    var alignToVals = __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$values$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__values$3e$__["values"](alignTo), alignToMin = __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$min$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__min$3e$__["min"](alignToVals), alignToMax = __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$max$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__max$3e$__["max"](alignToVals);
+    __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$forEach$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__forEach$3e$__["forEach"]([
+        'u',
+        'd'
+    ], function(vert) {
+        __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$forEach$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__forEach$3e$__["forEach"]([
+            'l',
+            'r'
+        ], function(horiz) {
+            var alignment = vert + horiz, xs = xss[alignment], delta;
+            if (xs === alignTo) return;
+            var xsVals = __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$values$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__values$3e$__["values"](xs);
+            delta = horiz === 'l' ? alignToMin - __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$min$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__min$3e$__["min"](xsVals) : alignToMax - __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$max$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__max$3e$__["max"](xsVals);
+            if (delta) {
+                xss[alignment] = __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$mapValues$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__mapValues$3e$__["mapValues"](xs, function(x) {
+                    return x + delta;
+                });
+            }
+        });
+    });
+}
+function balance(xss, align) {
+    return __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$mapValues$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__mapValues$3e$__["mapValues"](xss.ul, function(ignore, v) {
+        if (align) {
+            return xss[align.toLowerCase()][v];
+        } else {
+            var xs = __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$sortBy$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__sortBy$3e$__["sortBy"](__TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$map$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__map$3e$__["map"](xss, v));
+            return (xs[1] + xs[2]) / 2;
+        }
+    });
+}
+function positionX(g) {
+    var layering = __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$dagre$2d$d3$2d$es$2f$src$2f$dagre$2f$util$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["buildLayerMatrix"](g);
+    var conflicts = __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$merge$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__merge$3e$__["merge"](findType1Conflicts(g, layering), findType2Conflicts(g, layering));
+    var xss = {};
+    var adjustedLayering;
+    __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$forEach$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__forEach$3e$__["forEach"]([
+        'u',
+        'd'
+    ], function(vert) {
+        adjustedLayering = vert === 'u' ? layering : __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$values$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__values$3e$__["values"](layering).reverse();
+        __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$forEach$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__forEach$3e$__["forEach"]([
+            'l',
+            'r'
+        ], function(horiz) {
+            if (horiz === 'r') {
+                adjustedLayering = __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$map$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__map$3e$__["map"](adjustedLayering, function(inner) {
+                    return __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$values$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__values$3e$__["values"](inner).reverse();
+                });
+            }
+            var neighborFn = (vert === 'u' ? g.predecessors : g.successors).bind(g);
+            var align = verticalAlignment(g, adjustedLayering, conflicts, neighborFn);
+            var xs = horizontalCompaction(g, adjustedLayering, align.root, align.align, horiz === 'r');
+            if (horiz === 'r') {
+                xs = __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$mapValues$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__mapValues$3e$__["mapValues"](xs, function(x) {
+                    return -x;
+                });
+            }
+            xss[vert + horiz] = xs;
+        });
+    });
+    var smallestWidth = findSmallestWidthAlignment(g, xss);
+    alignCoordinates(xss, smallestWidth);
+    return balance(xss, g.graph().align);
+}
+function sep(nodeSep, edgeSep, reverseSep) {
+    return function(g, v, w) {
+        var vLabel = g.node(v);
+        var wLabel = g.node(w);
+        var sum = 0;
+        var delta;
+        sum += vLabel.width / 2;
+        if (Object.prototype.hasOwnProperty.call(vLabel, 'labelpos')) {
+            switch(vLabel.labelpos.toLowerCase()){
+                case 'l':
+                    delta = -vLabel.width / 2;
+                    break;
+                case 'r':
+                    delta = vLabel.width / 2;
+                    break;
+            }
+        }
+        if (delta) {
+            sum += reverseSep ? delta : -delta;
+        }
+        delta = 0;
+        sum += (vLabel.dummy ? edgeSep : nodeSep) / 2;
+        sum += (wLabel.dummy ? edgeSep : nodeSep) / 2;
+        sum += wLabel.width / 2;
+        if (Object.prototype.hasOwnProperty.call(wLabel, 'labelpos')) {
+            switch(wLabel.labelpos.toLowerCase()){
+                case 'l':
+                    delta = wLabel.width / 2;
+                    break;
+                case 'r':
+                    delta = -wLabel.width / 2;
+                    break;
+            }
+        }
+        if (delta) {
+            sum += reverseSep ? delta : -delta;
+        }
+        delta = 0;
+        return sum;
+    };
+}
+function width(g, v) {
+    return g.node(v).width;
+}
+}),
+"[project]/frontend/node_modules/dagre-d3-es/src/dagre/position/index.js [app-client] (ecmascript)", ((__turbopack_context__) => {
+"use strict";
+
+__turbopack_context__.s([
+    "position",
+    ()=>position
+]);
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$forOwn$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__forOwn$3e$__ = __turbopack_context__.i("[project]/frontend/node_modules/lodash-es/forOwn.js [app-client] (ecmascript) <export default as forOwn>");
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$forEach$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__forEach$3e$__ = __turbopack_context__.i("[project]/frontend/node_modules/lodash-es/forEach.js [app-client] (ecmascript) <export default as forEach>");
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$max$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__max$3e$__ = __turbopack_context__.i("[project]/frontend/node_modules/lodash-es/max.js [app-client] (ecmascript) <export default as max>");
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$map$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__map$3e$__ = __turbopack_context__.i("[project]/frontend/node_modules/lodash-es/map.js [app-client] (ecmascript) <export default as map>");
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$dagre$2d$d3$2d$es$2f$src$2f$dagre$2f$util$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__ = __turbopack_context__.i("[project]/frontend/node_modules/dagre-d3-es/src/dagre/util.js [app-client] (ecmascript)");
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$dagre$2d$d3$2d$es$2f$src$2f$dagre$2f$position$2f$bk$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__ = __turbopack_context__.i("[project]/frontend/node_modules/dagre-d3-es/src/dagre/position/bk.js [app-client] (ecmascript)");
+;
+;
+;
+;
+function position(g) {
+    g = __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$dagre$2d$d3$2d$es$2f$src$2f$dagre$2f$util$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["asNonCompoundGraph"](g);
+    positionY(g);
+    __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$forOwn$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__forOwn$3e$__["forOwn"]((0, __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$dagre$2d$d3$2d$es$2f$src$2f$dagre$2f$position$2f$bk$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["positionX"])(g), function(x, v) {
+        g.node(v).x = x;
+    });
+}
+function positionY(g) {
+    var layering = __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$dagre$2d$d3$2d$es$2f$src$2f$dagre$2f$util$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["buildLayerMatrix"](g);
+    var rankSep = g.graph().ranksep;
+    var prevY = 0;
+    __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$forEach$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__forEach$3e$__["forEach"](layering, function(layer) {
+        var maxHeight = __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$max$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__max$3e$__["max"](__TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$map$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__map$3e$__["map"](layer, function(v) {
+            return g.node(v).height;
+        }));
+        __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$forEach$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__forEach$3e$__["forEach"](layer, function(v) {
+            g.node(v).y = prevY + maxHeight / 2;
+        });
+        prevY += maxHeight + rankSep;
+    });
+}
+}),
+"[project]/frontend/node_modules/dagre-d3-es/src/dagre/rank/feasible-tree.js [app-client] (ecmascript)", ((__turbopack_context__) => {
+"use strict";
+
+__turbopack_context__.s([
+    "feasibleTree",
+    ()=>feasibleTree
+]);
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$forEach$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__forEach$3e$__ = __turbopack_context__.i("[project]/frontend/node_modules/lodash-es/forEach.js [app-client] (ecmascript) <export default as forEach>");
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$minBy$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__minBy$3e$__ = __turbopack_context__.i("[project]/frontend/node_modules/lodash-es/minBy.js [app-client] (ecmascript) <export default as minBy>");
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$dagre$2d$d3$2d$es$2f$src$2f$graphlib$2f$index$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$locals$3e$__ = __turbopack_context__.i("[project]/frontend/node_modules/dagre-d3-es/src/graphlib/index.js [app-client] (ecmascript) <locals>");
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$dagre$2d$d3$2d$es$2f$src$2f$graphlib$2f$graph$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__ = __turbopack_context__.i("[project]/frontend/node_modules/dagre-d3-es/src/graphlib/graph.js [app-client] (ecmascript)");
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$dagre$2d$d3$2d$es$2f$src$2f$dagre$2f$rank$2f$util$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__ = __turbopack_context__.i("[project]/frontend/node_modules/dagre-d3-es/src/dagre/rank/util.js [app-client] (ecmascript)");
+;
+;
+;
+;
+/*
+ * Constructs a spanning tree with tight edges and adjusted the input node's
+ * ranks to achieve this. A tight edge is one that is has a length that matches
+ * its "minlen" attribute.
+ *
+ * The basic structure for this function is derived from Gansner, et al., "A
+ * Technique for Drawing Directed Graphs."
+ *
+ * Pre-conditions:
+ *
+ *    1. Graph must be a DAG.
+ *    2. Graph must be connected.
+ *    3. Graph must have at least one node.
+ *    5. Graph nodes must have been previously assigned a "rank" property that
+ *       respects the "minlen" property of incident edges.
+ *    6. Graph edges must have a "minlen" property.
+ *
+ * Post-conditions:
+ *
+ *    - Graph nodes will have their rank adjusted to ensure that all edges are
+ *      tight.
+ *
+ * Returns a tree (undirected graph) that is constructed using only "tight"
+ * edges.
+ */ function feasibleTree(g) {
+    var t = new __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$dagre$2d$d3$2d$es$2f$src$2f$graphlib$2f$graph$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["Graph"]({
+        directed: false
+    });
+    // Choose arbitrary node from which to start our tree
+    var start = g.nodes()[0];
+    var size = g.nodeCount();
+    t.setNode(start, {});
+    var edge, delta;
+    while(tightTree(t, g) < size){
+        edge = findMinSlackEdge(t, g);
+        delta = t.hasNode(edge.v) ? (0, __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$dagre$2d$d3$2d$es$2f$src$2f$dagre$2f$rank$2f$util$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["slack"])(g, edge) : -(0, __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$dagre$2d$d3$2d$es$2f$src$2f$dagre$2f$rank$2f$util$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["slack"])(g, edge);
+        shiftRanks(t, g, delta);
+    }
+    return t;
+}
+/*
+ * Finds a maximal tree of tight edges and returns the number of nodes in the
+ * tree.
+ */ function tightTree(t, g) {
+    function dfs(v) {
+        __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$forEach$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__forEach$3e$__["forEach"](g.nodeEdges(v), function(e) {
+            var edgeV = e.v, w = v === edgeV ? e.w : edgeV;
+            if (!t.hasNode(w) && !(0, __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$dagre$2d$d3$2d$es$2f$src$2f$dagre$2f$rank$2f$util$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["slack"])(g, e)) {
+                t.setNode(w, {});
+                t.setEdge(v, w, {});
+                dfs(w);
+            }
+        });
+    }
+    __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$forEach$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__forEach$3e$__["forEach"](t.nodes(), dfs);
+    return t.nodeCount();
+}
+/*
+ * Finds the edge with the smallest slack that is incident on tree and returns
+ * it.
+ */ function findMinSlackEdge(t, g) {
+    return __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$minBy$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__minBy$3e$__["minBy"](g.edges(), function(e) {
+        if (t.hasNode(e.v) !== t.hasNode(e.w)) {
+            return (0, __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$dagre$2d$d3$2d$es$2f$src$2f$dagre$2f$rank$2f$util$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["slack"])(g, e);
+        }
+    });
+}
+function shiftRanks(t, g, delta) {
+    __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$forEach$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__forEach$3e$__["forEach"](t.nodes(), function(v) {
+        g.node(v).rank += delta;
+    });
+}
+}),
+"[project]/frontend/node_modules/dagre-d3-es/src/dagre/rank/index.js [app-client] (ecmascript)", ((__turbopack_context__) => {
+"use strict";
+
+__turbopack_context__.s([
+    "rank",
+    ()=>rank
+]);
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$dagre$2d$d3$2d$es$2f$src$2f$dagre$2f$rank$2f$feasible$2d$tree$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__ = __turbopack_context__.i("[project]/frontend/node_modules/dagre-d3-es/src/dagre/rank/feasible-tree.js [app-client] (ecmascript)");
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$dagre$2d$d3$2d$es$2f$src$2f$dagre$2f$rank$2f$network$2d$simplex$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__ = __turbopack_context__.i("[project]/frontend/node_modules/dagre-d3-es/src/dagre/rank/network-simplex.js [app-client] (ecmascript)");
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$dagre$2d$d3$2d$es$2f$src$2f$dagre$2f$rank$2f$util$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__ = __turbopack_context__.i("[project]/frontend/node_modules/dagre-d3-es/src/dagre/rank/util.js [app-client] (ecmascript)");
+;
+;
+;
+;
+/*
+ * Assigns a rank to each node in the input graph that respects the "minlen"
+ * constraint specified on edges between nodes.
+ *
+ * This basic structure is derived from Gansner, et al., "A Technique for
+ * Drawing Directed Graphs."
+ *
+ * Pre-conditions:
+ *
+ *    1. Graph must be a connected DAG
+ *    2. Graph nodes must be objects
+ *    3. Graph edges must have "weight" and "minlen" attributes
+ *
+ * Post-conditions:
+ *
+ *    1. Graph nodes will have a "rank" attribute based on the results of the
+ *       algorithm. Ranks can start at any index (including negative), we'll
+ *       fix them up later.
+ */ function rank(g) {
+    switch(g.graph().ranker){
+        case 'network-simplex':
+            networkSimplexRanker(g);
+            break;
+        case 'tight-tree':
+            tightTreeRanker(g);
+            break;
+        case 'longest-path':
+            longestPathRanker(g);
+            break;
+        default:
+            networkSimplexRanker(g);
+    }
+}
+// A fast and simple ranker, but results are far from optimal.
+var longestPathRanker = __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$dagre$2d$d3$2d$es$2f$src$2f$dagre$2f$rank$2f$util$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["longestPath"];
+function tightTreeRanker(g) {
+    (0, __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$dagre$2d$d3$2d$es$2f$src$2f$dagre$2f$rank$2f$util$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["longestPath"])(g);
+    (0, __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$dagre$2d$d3$2d$es$2f$src$2f$dagre$2f$rank$2f$feasible$2d$tree$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["feasibleTree"])(g);
+}
+function networkSimplexRanker(g) {
+    (0, __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$dagre$2d$d3$2d$es$2f$src$2f$dagre$2f$rank$2f$network$2d$simplex$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["networkSimplex"])(g);
+}
+}),
+"[project]/frontend/node_modules/dagre-d3-es/src/dagre/rank/network-simplex.js [app-client] (ecmascript)", ((__turbopack_context__) => {
+"use strict";
+
+__turbopack_context__.s([
+    "networkSimplex",
+    ()=>networkSimplex
+]);
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$forEach$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__forEach$3e$__ = __turbopack_context__.i("[project]/frontend/node_modules/lodash-es/forEach.js [app-client] (ecmascript) <export default as forEach>");
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$find$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__find$3e$__ = __turbopack_context__.i("[project]/frontend/node_modules/lodash-es/find.js [app-client] (ecmascript) <export default as find>");
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$filter$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__filter$3e$__ = __turbopack_context__.i("[project]/frontend/node_modules/lodash-es/filter.js [app-client] (ecmascript) <export default as filter>");
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$minBy$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__minBy$3e$__ = __turbopack_context__.i("[project]/frontend/node_modules/lodash-es/minBy.js [app-client] (ecmascript) <export default as minBy>");
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$dagre$2d$d3$2d$es$2f$src$2f$graphlib$2f$alg$2f$index$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$locals$3e$__ = __turbopack_context__.i("[project]/frontend/node_modules/dagre-d3-es/src/graphlib/alg/index.js [app-client] (ecmascript) <locals>");
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$dagre$2d$d3$2d$es$2f$src$2f$graphlib$2f$alg$2f$postorder$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__ = __turbopack_context__.i("[project]/frontend/node_modules/dagre-d3-es/src/graphlib/alg/postorder.js [app-client] (ecmascript)");
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$dagre$2d$d3$2d$es$2f$src$2f$graphlib$2f$alg$2f$preorder$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__ = __turbopack_context__.i("[project]/frontend/node_modules/dagre-d3-es/src/graphlib/alg/preorder.js [app-client] (ecmascript)");
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$dagre$2d$d3$2d$es$2f$src$2f$dagre$2f$util$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__ = __turbopack_context__.i("[project]/frontend/node_modules/dagre-d3-es/src/dagre/util.js [app-client] (ecmascript)");
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$dagre$2d$d3$2d$es$2f$src$2f$dagre$2f$rank$2f$feasible$2d$tree$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__ = __turbopack_context__.i("[project]/frontend/node_modules/dagre-d3-es/src/dagre/rank/feasible-tree.js [app-client] (ecmascript)");
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$dagre$2d$d3$2d$es$2f$src$2f$dagre$2f$rank$2f$util$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__ = __turbopack_context__.i("[project]/frontend/node_modules/dagre-d3-es/src/dagre/rank/util.js [app-client] (ecmascript)");
+;
+;
+;
+;
+;
+;
+// Expose some internals for testing purposes
+networkSimplex.initLowLimValues = initLowLimValues;
+networkSimplex.initCutValues = initCutValues;
+networkSimplex.calcCutValue = calcCutValue;
+networkSimplex.leaveEdge = leaveEdge;
+networkSimplex.enterEdge = enterEdge;
+networkSimplex.exchangeEdges = exchangeEdges;
+/*
+ * The network simplex algorithm assigns ranks to each node in the input graph
+ * and iteratively improves the ranking to reduce the length of edges.
+ *
+ * Preconditions:
+ *
+ *    1. The input graph must be a DAG.
+ *    2. All nodes in the graph must have an object value.
+ *    3. All edges in the graph must have "minlen" and "weight" attributes.
+ *
+ * Postconditions:
+ *
+ *    1. All nodes in the graph will have an assigned "rank" attribute that has
+ *       been optimized by the network simplex algorithm. Ranks start at 0.
+ *
+ *
+ * A rough sketch of the algorithm is as follows:
+ *
+ *    1. Assign initial ranks to each node. We use the longest path algorithm,
+ *       which assigns ranks to the lowest position possible. In general this
+ *       leads to very wide bottom ranks and unnecessarily long edges.
+ *    2. Construct a feasible tight tree. A tight tree is one such that all
+ *       edges in the tree have no slack (difference between length of edge
+ *       and minlen for the edge). This by itself greatly improves the assigned
+ *       rankings by shorting edges.
+ *    3. Iteratively find edges that have negative cut values. Generally a
+ *       negative cut value indicates that the edge could be removed and a new
+ *       tree edge could be added to produce a more compact graph.
+ *
+ * Much of the algorithms here are derived from Gansner, et al., "A Technique
+ * for Drawing Directed Graphs." The structure of the file roughly follows the
+ * structure of the overall algorithm.
+ */ function networkSimplex(g) {
+    g = (0, __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$dagre$2d$d3$2d$es$2f$src$2f$dagre$2f$util$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["simplify"])(g);
+    (0, __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$dagre$2d$d3$2d$es$2f$src$2f$dagre$2f$rank$2f$util$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["longestPath"])(g);
+    var t = (0, __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$dagre$2d$d3$2d$es$2f$src$2f$dagre$2f$rank$2f$feasible$2d$tree$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["feasibleTree"])(g);
+    initLowLimValues(t);
+    initCutValues(t, g);
+    var e, f;
+    while(e = leaveEdge(t)){
+        f = enterEdge(t, g, e);
+        exchangeEdges(t, g, e, f);
+    }
+}
+/*
+ * Initializes cut values for all edges in the tree.
+ */ function initCutValues(t, g) {
+    var vs = __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$dagre$2d$d3$2d$es$2f$src$2f$graphlib$2f$alg$2f$postorder$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["postorder"](t, t.nodes());
+    vs = vs.slice(0, vs.length - 1);
+    __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$forEach$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__forEach$3e$__["forEach"](vs, function(v) {
+        assignCutValue(t, g, v);
+    });
+}
+function assignCutValue(t, g, child) {
+    var childLab = t.node(child);
+    var parent = childLab.parent;
+    t.edge(child, parent).cutvalue = calcCutValue(t, g, child);
+}
+/*
+ * Given the tight tree, its graph, and a child in the graph calculate and
+ * return the cut value for the edge between the child and its parent.
+ */ function calcCutValue(t, g, child) {
+    var childLab = t.node(child);
+    var parent = childLab.parent;
+    // True if the child is on the tail end of the edge in the directed graph
+    var childIsTail = true;
+    // The graph's view of the tree edge we're inspecting
+    var graphEdge = g.edge(child, parent);
+    // The accumulated cut value for the edge between this node and its parent
+    var cutValue = 0;
+    if (!graphEdge) {
+        childIsTail = false;
+        graphEdge = g.edge(parent, child);
+    }
+    cutValue = graphEdge.weight;
+    __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$forEach$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__forEach$3e$__["forEach"](g.nodeEdges(child), function(e) {
+        var isOutEdge = e.v === child, other = isOutEdge ? e.w : e.v;
+        if (other !== parent) {
+            var pointsToHead = isOutEdge === childIsTail, otherWeight = g.edge(e).weight;
+            cutValue += pointsToHead ? otherWeight : -otherWeight;
+            if (isTreeEdge(t, child, other)) {
+                var otherCutValue = t.edge(child, other).cutvalue;
+                cutValue += pointsToHead ? -otherCutValue : otherCutValue;
+            }
+        }
+    });
+    return cutValue;
+}
+function initLowLimValues(tree, root) {
+    if (arguments.length < 2) {
+        root = tree.nodes()[0];
+    }
+    dfsAssignLowLim(tree, {}, 1, root);
+}
+function dfsAssignLowLim(tree, visited, nextLim, v, parent) {
+    var low = nextLim;
+    var label = tree.node(v);
+    visited[v] = true;
+    __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$forEach$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__forEach$3e$__["forEach"](tree.neighbors(v), function(w) {
+        if (!Object.prototype.hasOwnProperty.call(visited, w)) {
+            nextLim = dfsAssignLowLim(tree, visited, nextLim, w, v);
+        }
+    });
+    label.low = low;
+    label.lim = nextLim++;
+    if (parent) {
+        label.parent = parent;
+    } else {
+        // TODO should be able to remove this when we incrementally update low lim
+        delete label.parent;
+    }
+    return nextLim;
+}
+function leaveEdge(tree) {
+    return __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$find$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__find$3e$__["find"](tree.edges(), function(e) {
+        return tree.edge(e).cutvalue < 0;
+    });
+}
+function enterEdge(t, g, edge) {
+    var v = edge.v;
+    var w = edge.w;
+    // For the rest of this function we assume that v is the tail and w is the
+    // head, so if we don't have this edge in the graph we should flip it to
+    // match the correct orientation.
+    if (!g.hasEdge(v, w)) {
+        v = edge.w;
+        w = edge.v;
+    }
+    var vLabel = t.node(v);
+    var wLabel = t.node(w);
+    var tailLabel = vLabel;
+    var flip = false;
+    // If the root is in the tail of the edge then we need to flip the logic that
+    // checks for the head and tail nodes in the candidates function below.
+    if (vLabel.lim > wLabel.lim) {
+        tailLabel = wLabel;
+        flip = true;
+    }
+    var candidates = __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$filter$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__filter$3e$__["filter"](g.edges(), function(edge) {
+        return flip === isDescendant(t, t.node(edge.v), tailLabel) && flip !== isDescendant(t, t.node(edge.w), tailLabel);
+    });
+    return __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$minBy$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__minBy$3e$__["minBy"](candidates, function(edge) {
+        return (0, __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$dagre$2d$d3$2d$es$2f$src$2f$dagre$2f$rank$2f$util$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["slack"])(g, edge);
+    });
+}
+function exchangeEdges(t, g, e, f) {
+    var v = e.v;
+    var w = e.w;
+    t.removeEdge(v, w);
+    t.setEdge(f.v, f.w, {});
+    initLowLimValues(t);
+    initCutValues(t, g);
+    updateRanks(t, g);
+}
+function updateRanks(t, g) {
+    var root = __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$find$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__find$3e$__["find"](t.nodes(), function(v) {
+        return !g.node(v).parent;
+    });
+    var vs = __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$dagre$2d$d3$2d$es$2f$src$2f$graphlib$2f$alg$2f$preorder$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["preorder"](t, root);
+    vs = vs.slice(1);
+    __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$forEach$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__forEach$3e$__["forEach"](vs, function(v) {
+        var parent = t.node(v).parent, edge = g.edge(v, parent), flipped = false;
+        if (!edge) {
+            edge = g.edge(parent, v);
+            flipped = true;
+        }
+        g.node(v).rank = g.node(parent).rank + (flipped ? edge.minlen : -edge.minlen);
+    });
+}
+/*
+ * Returns true if the edge is in the tree.
+ */ function isTreeEdge(tree, u, v) {
+    return tree.hasEdge(u, v);
+}
+/*
+ * Returns true if the specified node is descendant of the root node per the
+ * assigned low and lim attributes in the tree.
+ */ function isDescendant(tree, vLabel, rootLabel) {
+    return rootLabel.low <= vLabel.lim && vLabel.lim <= rootLabel.lim;
+}
+}),
+"[project]/frontend/node_modules/dagre-d3-es/src/dagre/rank/util.js [app-client] (ecmascript)", ((__turbopack_context__) => {
+"use strict";
+
+__turbopack_context__.s([
+    "longestPath",
+    ()=>longestPath,
+    "slack",
+    ()=>slack
+]);
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$forEach$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__forEach$3e$__ = __turbopack_context__.i("[project]/frontend/node_modules/lodash-es/forEach.js [app-client] (ecmascript) <export default as forEach>");
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$min$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__min$3e$__ = __turbopack_context__.i("[project]/frontend/node_modules/lodash-es/min.js [app-client] (ecmascript) <export default as min>");
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$map$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__map$3e$__ = __turbopack_context__.i("[project]/frontend/node_modules/lodash-es/map.js [app-client] (ecmascript) <export default as map>");
+;
+;
+/*
+ * Initializes ranks for the input graph using the longest path algorithm. This
+ * algorithm scales well and is fast in practice, it yields rather poor
+ * solutions. Nodes are pushed to the lowest layer possible, leaving the bottom
+ * ranks wide and leaving edges longer than necessary. However, due to its
+ * speed, this algorithm is good for getting an initial ranking that can be fed
+ * into other algorithms.
+ *
+ * This algorithm does not normalize layers because it will be used by other
+ * algorithms in most cases. If using this algorithm directly, be sure to
+ * run normalize at the end.
+ *
+ * Pre-conditions:
+ *
+ *    1. Input graph is a DAG.
+ *    2. Input graph node labels can be assigned properties.
+ *
+ * Post-conditions:
+ *
+ *    1. Each node will be assign an (unnormalized) "rank" property.
+ */ function longestPath(g) {
+    var visited = {};
+    function dfs(v) {
+        var label = g.node(v);
+        if (Object.prototype.hasOwnProperty.call(visited, v)) {
+            return label.rank;
+        }
+        visited[v] = true;
+        var rank = __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$min$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__min$3e$__["min"](__TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$map$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__map$3e$__["map"](g.outEdges(v), function(e) {
+            return dfs(e.w) - g.edge(e).minlen;
+        }));
+        if (rank === Number.POSITIVE_INFINITY || // return value of _.map([]) for Lodash 3
+        rank === undefined || // return value of _.map([]) for Lodash 4
+        rank === null) {
+            // return value of _.map([null])
+            rank = 0;
+        }
+        return label.rank = rank;
+    }
+    __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$forEach$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__forEach$3e$__["forEach"](g.sources(), dfs);
+}
+/*
+ * Returns the amount of slack for the given edge. The slack is defined as the
+ * difference between the length of the edge and its minimum length.
+ */ function slack(g, e) {
+    return g.node(e.w).rank - g.node(e.v).rank - g.edge(e).minlen;
+}
+}),
+"[project]/frontend/node_modules/dagre-d3-es/src/dagre/util.js [app-client] (ecmascript)", ((__turbopack_context__) => {
+"use strict";
+
+__turbopack_context__.s([
+    "addBorderNode",
+    ()=>addBorderNode,
+    "addDummyNode",
+    ()=>addDummyNode,
+    "asNonCompoundGraph",
+    ()=>asNonCompoundGraph,
+    "buildLayerMatrix",
+    ()=>buildLayerMatrix,
+    "intersectRect",
+    ()=>intersectRect,
+    "maxRank",
+    ()=>maxRank,
+    "normalizeRanks",
+    ()=>normalizeRanks,
+    "notime",
+    ()=>notime,
+    "partition",
+    ()=>partition,
+    "predecessorWeights",
+    ()=>predecessorWeights,
+    "removeEmptyRanks",
+    ()=>removeEmptyRanks,
+    "simplify",
+    ()=>simplify,
+    "successorWeights",
+    ()=>successorWeights,
+    "time",
+    ()=>time
+]);
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$uniqueId$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__uniqueId$3e$__ = __turbopack_context__.i("[project]/frontend/node_modules/lodash-es/uniqueId.js [app-client] (ecmascript) <export default as uniqueId>");
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$forEach$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__forEach$3e$__ = __turbopack_context__.i("[project]/frontend/node_modules/lodash-es/forEach.js [app-client] (ecmascript) <export default as forEach>");
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$map$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__map$3e$__ = __turbopack_context__.i("[project]/frontend/node_modules/lodash-es/map.js [app-client] (ecmascript) <export default as map>");
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$zipObject$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__zipObject$3e$__ = __turbopack_context__.i("[project]/frontend/node_modules/lodash-es/zipObject.js [app-client] (ecmascript) <export default as zipObject>");
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$range$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__range$3e$__ = __turbopack_context__.i("[project]/frontend/node_modules/lodash-es/range.js [app-client] (ecmascript) <export default as range>");
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$isUndefined$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__isUndefined$3e$__ = __turbopack_context__.i("[project]/frontend/node_modules/lodash-es/isUndefined.js [app-client] (ecmascript) <export default as isUndefined>");
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$min$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__min$3e$__ = __turbopack_context__.i("[project]/frontend/node_modules/lodash-es/min.js [app-client] (ecmascript) <export default as min>");
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$has$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__has$3e$__ = __turbopack_context__.i("[project]/frontend/node_modules/lodash-es/has.js [app-client] (ecmascript) <export default as has>");
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$max$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__max$3e$__ = __turbopack_context__.i("[project]/frontend/node_modules/lodash-es/max.js [app-client] (ecmascript) <export default as max>");
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$now$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__now$3e$__ = __turbopack_context__.i("[project]/frontend/node_modules/lodash-es/now.js [app-client] (ecmascript) <export default as now>");
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$dagre$2d$d3$2d$es$2f$src$2f$graphlib$2f$index$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$locals$3e$__ = __turbopack_context__.i("[project]/frontend/node_modules/dagre-d3-es/src/graphlib/index.js [app-client] (ecmascript) <locals>");
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$dagre$2d$d3$2d$es$2f$src$2f$graphlib$2f$graph$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__ = __turbopack_context__.i("[project]/frontend/node_modules/dagre-d3-es/src/graphlib/graph.js [app-client] (ecmascript)");
+;
+;
+;
+/*
+ * Adds a dummy node to the graph and return v.
+ */ function addDummyNode(g, type, attrs, name) {
+    var v;
+    do {
+        v = __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$uniqueId$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__uniqueId$3e$__["uniqueId"](name);
+    }while (g.hasNode(v))
+    attrs.dummy = type;
+    g.setNode(v, attrs);
+    return v;
+}
+/*
+ * Returns a new graph with only simple edges. Handles aggregation of data
+ * associated with multi-edges.
+ */ function simplify(g) {
+    var simplified = new __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$dagre$2d$d3$2d$es$2f$src$2f$graphlib$2f$graph$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["Graph"]().setGraph(g.graph());
+    __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$forEach$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__forEach$3e$__["forEach"](g.nodes(), function(v) {
+        simplified.setNode(v, g.node(v));
+    });
+    __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$forEach$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__forEach$3e$__["forEach"](g.edges(), function(e) {
+        var simpleLabel = simplified.edge(e.v, e.w) || {
+            weight: 0,
+            minlen: 1
+        };
+        var label = g.edge(e);
+        simplified.setEdge(e.v, e.w, {
+            weight: simpleLabel.weight + label.weight,
+            minlen: Math.max(simpleLabel.minlen, label.minlen)
+        });
+    });
+    return simplified;
+}
+function asNonCompoundGraph(g) {
+    var simplified = new __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$dagre$2d$d3$2d$es$2f$src$2f$graphlib$2f$graph$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["Graph"]({
+        multigraph: g.isMultigraph()
+    }).setGraph(g.graph());
+    __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$forEach$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__forEach$3e$__["forEach"](g.nodes(), function(v) {
+        if (!g.children(v).length) {
+            simplified.setNode(v, g.node(v));
+        }
+    });
+    __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$forEach$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__forEach$3e$__["forEach"](g.edges(), function(e) {
+        simplified.setEdge(e, g.edge(e));
+    });
+    return simplified;
+}
+function successorWeights(g) {
+    var weightMap = __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$map$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__map$3e$__["map"](g.nodes(), function(v) {
+        var sucs = {};
+        __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$forEach$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__forEach$3e$__["forEach"](g.outEdges(v), function(e) {
+            sucs[e.w] = (sucs[e.w] || 0) + g.edge(e).weight;
+        });
+        return sucs;
+    });
+    return __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$zipObject$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__zipObject$3e$__["zipObject"](g.nodes(), weightMap);
+}
+function predecessorWeights(g) {
+    var weightMap = __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$map$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__map$3e$__["map"](g.nodes(), function(v) {
+        var preds = {};
+        __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$forEach$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__forEach$3e$__["forEach"](g.inEdges(v), function(e) {
+            preds[e.v] = (preds[e.v] || 0) + g.edge(e).weight;
+        });
+        return preds;
+    });
+    return __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$zipObject$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__zipObject$3e$__["zipObject"](g.nodes(), weightMap);
+}
+/*
+ * Finds where a line starting at point ({x, y}) would intersect a rectangle
+ * ({x, y, width, height}) if it were pointing at the rectangle's center.
+ */ function intersectRect(rect, point) {
+    var x = rect.x;
+    var y = rect.y;
+    // Rectangle intersection algorithm from:
+    // http://math.stackexchange.com/questions/108113/find-edge-between-two-boxes
+    var dx = point.x - x;
+    var dy = point.y - y;
+    var w = rect.width / 2;
+    var h = rect.height / 2;
+    if (!dx && !dy) {
+        throw new Error('Not possible to find intersection inside of the rectangle');
+    }
+    var sx, sy;
+    if (Math.abs(dy) * w > Math.abs(dx) * h) {
+        // Intersection is top or bottom of rect.
+        if (dy < 0) {
+            h = -h;
+        }
+        sx = h * dx / dy;
+        sy = h;
+    } else {
+        // Intersection is left or right of rect.
+        if (dx < 0) {
+            w = -w;
+        }
+        sx = w;
+        sy = w * dy / dx;
+    }
+    return {
+        x: x + sx,
+        y: y + sy
+    };
+}
+/*
+ * Given a DAG with each node assigned "rank" and "order" properties, this
+ * function will produce a matrix with the ids of each node.
+ */ function buildLayerMatrix(g) {
+    var layering = __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$map$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__map$3e$__["map"](__TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$range$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__range$3e$__["range"](maxRank(g) + 1), function() {
+        return [];
+    });
+    __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$forEach$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__forEach$3e$__["forEach"](g.nodes(), function(v) {
+        var node = g.node(v);
+        var rank = node.rank;
+        if (!__TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$isUndefined$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__isUndefined$3e$__["isUndefined"](rank)) {
+            layering[rank][node.order] = v;
+        }
+    });
+    return layering;
+}
+/*
+ * Adjusts the ranks for all nodes in the graph such that all nodes v have
+ * rank(v) >= 0 and at least one node w has rank(w) = 0.
+ */ function normalizeRanks(g) {
+    var min = __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$min$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__min$3e$__["min"](__TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$map$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__map$3e$__["map"](g.nodes(), function(v) {
+        return g.node(v).rank;
+    }));
+    __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$forEach$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__forEach$3e$__["forEach"](g.nodes(), function(v) {
+        var node = g.node(v);
+        if (__TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$has$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__has$3e$__["has"](node, 'rank')) {
+            node.rank -= min;
+        }
+    });
+}
+function removeEmptyRanks(g) {
+    // Ranks may not start at 0, so we need to offset them
+    var offset = __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$min$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__min$3e$__["min"](__TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$map$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__map$3e$__["map"](g.nodes(), function(v) {
+        return g.node(v).rank;
+    }));
+    var layers = [];
+    __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$forEach$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__forEach$3e$__["forEach"](g.nodes(), function(v) {
+        var rank = g.node(v).rank - offset;
+        if (!layers[rank]) {
+            layers[rank] = [];
+        }
+        layers[rank].push(v);
+    });
+    var delta = 0;
+    var nodeRankFactor = g.graph().nodeRankFactor;
+    __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$forEach$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__forEach$3e$__["forEach"](layers, function(vs, i) {
+        if (__TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$isUndefined$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__isUndefined$3e$__["isUndefined"](vs) && i % nodeRankFactor !== 0) {
+            --delta;
+        } else if (delta) {
+            __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$forEach$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__forEach$3e$__["forEach"](vs, function(v) {
+                g.node(v).rank += delta;
+            });
+        }
+    });
+}
+function addBorderNode(g, prefix, rank, order) {
+    var node = {
+        width: 0,
+        height: 0
+    };
+    if (arguments.length >= 4) {
+        node.rank = rank;
+        node.order = order;
+    }
+    return addDummyNode(g, 'border', node, prefix);
+}
+function maxRank(g) {
+    return __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$max$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__max$3e$__["max"](__TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$map$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__map$3e$__["map"](g.nodes(), function(v) {
+        var rank = g.node(v).rank;
+        if (!__TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$isUndefined$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__isUndefined$3e$__["isUndefined"](rank)) {
+            return rank;
+        }
+    }));
+}
+/*
+ * Partition a collection into two groups: `lhs` and `rhs`. If the supplied
+ * function returns true for an entry it goes into `lhs`. Otherwise it goes
+ * into `rhs.
+ */ function partition(collection, fn) {
+    var result = {
+        lhs: [],
+        rhs: []
+    };
+    __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$forEach$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__forEach$3e$__["forEach"](collection, function(value) {
+        if (fn(value)) {
+            result.lhs.push(value);
+        } else {
+            result.rhs.push(value);
+        }
+    });
+    return result;
+}
+/*
+ * Returns a new function that wraps `fn` with a timer. The wrapper logs the
+ * time it takes to execute the function.
+ */ function time(name, fn) {
+    var start = __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$now$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__now$3e$__["now"]();
+    try {
+        return fn();
+    } finally{
+        console.log(name + ' time: ' + (__TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$now$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__now$3e$__["now"]() - start) + 'ms');
+    }
+}
+function notime(name, fn) {
+    return fn();
+}
+}),
+"[project]/frontend/node_modules/dagre-d3-es/src/graphlib/alg/components.js [app-client] (ecmascript)", ((__turbopack_context__) => {
+"use strict";
+
+__turbopack_context__.s([
+    "components",
+    ()=>components
+]);
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$forEach$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__each$3e$__ = __turbopack_context__.i("[project]/frontend/node_modules/lodash-es/forEach.js [app-client] (ecmascript) <export default as each>");
+;
+;
+/**
+ * Finds all [connected components][] in a graph and returns an array of these
+ * components. Each component is itself an array that contains the ids of nodes
+ * in the component.
+ *
+ * [connected components]: http://en.wikipedia.org/wiki/Connected_component_(graph_theory)
+ *
+ * @example
+ *
+ * ![](https://github.com/dagrejs/graphlib/wiki/images/components.png)
+ *
+ * ```js
+ * graphlib.alg.components(g);
+ * // => [ [ 'A', 'B', 'C', 'D' ],
+ * //      [ 'E', 'F', 'G' ],
+ * //      [ 'H', 'I' ] ]
+ * ```
+ *
+ * @param {Graph} g - The graph to find components in.
+ * @returns {NodeID[][]} An array of components, each of which is an array of node IDs.
+ *
+ * @remarks This function takes `O(|V|)` time.
+ */ function components(g) {
+    /**
+   * @type {Record<NodeID, true>}
+   */ var visited = {};
+    /**
+   * @type {NodeID[][]}
+   */ var cmpts = [];
+    /**
+   * @type {NodeID[]}
+   */ var cmpt;
+    /**
+   * @param {NodeID} v - The node to visit.
+   */ function dfs(v) {
+        if (Object.prototype.hasOwnProperty.call(visited, v)) return;
+        visited[v] = true;
+        cmpt.push(v);
+        __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$forEach$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__each$3e$__["each"](g.successors(v), dfs);
+        __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$forEach$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__each$3e$__["each"](g.predecessors(v), dfs);
+    }
+    __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$forEach$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__each$3e$__["each"](g.nodes(), function(v) {
+        cmpt = [];
+        dfs(v);
+        if (cmpt.length) {
+            cmpts.push(cmpt);
+        }
+    });
+    return cmpts;
+}
+}),
+"[project]/frontend/node_modules/dagre-d3-es/src/graphlib/alg/dfs.js [app-client] (ecmascript)", ((__turbopack_context__) => {
+"use strict";
+
+__turbopack_context__.s([
+    "dfs",
+    ()=>dfs
+]);
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$isArray$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__isArray$3e$__ = __turbopack_context__.i("[project]/frontend/node_modules/lodash-es/isArray.js [app-client] (ecmascript) <export default as isArray>");
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$forEach$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__each$3e$__ = __turbopack_context__.i("[project]/frontend/node_modules/lodash-es/forEach.js [app-client] (ecmascript) <export default as each>");
+;
+;
+/**
+ * A helper that preforms a pre- or post-order traversal on the input graph
+ * and returns the nodes in the order they were visited. If the graph is
+ * undirected then this algorithm will navigate using neighbors. If the graph
+ * is directed then this algorithm will navigate using successors.
+ *
+ * @param {Graph} g - Input graph.
+ * @param {NodeID[] | NodeID} vs - Starting node or array of nodes.
+ * @param {'post' | 'pre'} order - The order to use. Must be one of "pre" or "post".
+ * @returns {NodeID[]} The nodes in the order they were visited.
+ */ function dfs(g, vs, order) {
+    if (!__TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$isArray$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__isArray$3e$__["isArray"](vs)) {
+        vs = [
+            vs
+        ];
+    }
+    /** @type {Parameters<typeof doDfs>[4]} */ var navigation = (g.isDirected() ? g.successors : g.neighbors).bind(g);
+    /** @type {Parameters<typeof doDfs>[5]} */ var acc = [];
+    /** @type {Parameters<typeof doDfs>[3]} */ var visited = {};
+    __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$forEach$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__each$3e$__["each"](vs, function(v) {
+        if (!g.hasNode(v)) {
+            throw new Error('Graph does not have node: ' + v);
+        }
+        doDfs(g, v, order === 'post', visited, navigation, acc);
+    });
+    return acc;
+}
+/**
+ * @param {Graph} g - Input graph.
+ * @param {NodeID} v - The node to visit.
+ * @param {boolean} postorder - Whether to do postorder traversal.
+ * @param {Record<NodeID, true>} visited - Visited nodes.
+ * @param {(node: NodeID) => (NodeID[] | undefined)} navigation - Function to get
+ * neighbors/successors.
+ * @param {NodeID[]} acc - Accumulator for visited nodes.
+ */ function doDfs(g, v, postorder, visited, navigation, acc) {
+    if (!Object.prototype.hasOwnProperty.call(visited, v)) {
+        visited[v] = true;
+        if (!postorder) {
+            acc.push(v);
+        }
+        __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$forEach$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__each$3e$__["each"](navigation(v), function(w) {
+            doDfs(g, w, postorder, visited, navigation, acc);
+        });
+        if (postorder) {
+            acc.push(v);
+        }
+    }
+}
+}),
+"[project]/frontend/node_modules/dagre-d3-es/src/graphlib/alg/dijkstra-all.js [app-client] (ecmascript)", ((__turbopack_context__) => {
+"use strict";
+
+__turbopack_context__.s([
+    "dijkstraAll",
+    ()=>dijkstraAll
+]);
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$transform$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__transform$3e$__ = __turbopack_context__.i("[project]/frontend/node_modules/lodash-es/transform.js [app-client] (ecmascript) <export default as transform>");
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$dagre$2d$d3$2d$es$2f$src$2f$graphlib$2f$alg$2f$dijkstra$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__ = __turbopack_context__.i("[project]/frontend/node_modules/dagre-d3-es/src/graphlib/alg/dijkstra.js [app-client] (ecmascript)");
+;
+;
+;
+/**
+ * This function finds the shortest path from each node to every other
+ * reachable node in the graph. It is similar to
+ * {@link dijkstra}, but instead of returning a single-source
+ * array, it returns a mapping of of `source -> alg.dijksta(g, source,
+ * weightFn, edgeFn)`.
+ *
+ * @remarks This function takes `O(|V| * (|E| + |V|) * log |V|)` time.
+ *
+ * @example
+ *
+ * ![](https://github.com/dagrejs/graphlib/wiki/images/dijkstra-source.png)
+ *
+ * ```js
+ * function weight(e) { return g.edge(e); }
+ *
+ * graphlib.alg.dijkstraAll(g, function(e) { return g.edge(e); });
+ *
+ * // => { A:
+ * //       { A: { distance: 0 },
+ * //         B: { distance: 6, predecessor: 'C' },
+ * //         C: { distance: 4, predecessor: 'A' },
+ * //         D: { distance: 2, predecessor: 'A' },
+ * //         E: { distance: 8, predecessor: 'F' },
+ * //         F: { distance: 4, predecessor: 'D' } },
+ * //      B:
+ * //       { A: { distance: Infinity },
+ * //         B: { distance: 0 },
+ * //         C: { distance: Infinity },
+ * //         D: { distance: Infinity },
+ * //         E: { distance: 6, predecessor: 'B' },
+ * //         F: { distance: Infinity } },
+ * //      C: { ... },
+ * //      D: { ... },
+ * //      E: { ... },
+ * //      F: { ... } }
+ * ```
+ *
+ * @param {Graph} g - Input graph.
+ * @param {(e: EdgeObj) => number} [weightFunc] - Optional function that returns
+ * the weight for edge `e`. If no `weightFn` is supplied then each edge is
+ * assumed to have a weight of 1.
+ * @param {(v: NodeID) => EdgeObj[]} [edgeFunc] - Optional function that returns
+ * the ids of all edges incident to the node `v` for the purposes of shortest
+ * path traversal. By default this function uses the {@link Graph.outEdges}.
+ * @returns {Record<NodeID, ReturnType<typeof dijkstra>>} a mapping of of
+ * `source -> alg.dijksta(g, source, weightFn, edgeFn)`.
+ * @throws {Error} If any of the traversed edges has a negative edge weight.
+ */ function dijkstraAll(g, weightFunc, edgeFunc) {
+    return __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$transform$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__transform$3e$__["transform"](g.nodes(), /**
+     * @param {Record<NodeID, ReturnType<typeof dijkstra>>} acc
+     * @param {NodeID} v
+     */ function(acc, v) {
+        acc[v] = (0, __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$dagre$2d$d3$2d$es$2f$src$2f$graphlib$2f$alg$2f$dijkstra$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["dijkstra"])(g, v, weightFunc, edgeFunc);
+    }, {});
+}
+}),
+"[project]/frontend/node_modules/dagre-d3-es/src/graphlib/alg/dijkstra.js [app-client] (ecmascript)", ((__turbopack_context__) => {
+"use strict";
+
+__turbopack_context__.s([
+    "dijkstra",
+    ()=>dijkstra
+]);
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$constant$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__constant$3e$__ = __turbopack_context__.i("[project]/frontend/node_modules/lodash-es/constant.js [app-client] (ecmascript) <export default as constant>");
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$dagre$2d$d3$2d$es$2f$src$2f$graphlib$2f$data$2f$priority$2d$queue$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__ = __turbopack_context__.i("[project]/frontend/node_modules/dagre-d3-es/src/graphlib/data/priority-queue.js [app-client] (ecmascript)");
+;
+;
+;
+var DEFAULT_WEIGHT_FUNC = __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$constant$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__constant$3e$__["constant"](1);
+/**
+ * @typedef {Object} PathEntry
+ * @property {number} distance The sum of the weights from `source` to `v`
+ * along the shortest path or `Number.POSITIVE_INFINITY` if there is no path
+ * from `source`.
+ * @property {NodeID} [predecessor] Can be used to walk the individual
+ * elements of the path from `source` to `v` in reverse order.
+ */ /**
+ * This function is an implementation of [Dijkstra's algorithm][] which finds
+ * the shortest path from `source` to all other nodes in `g`. This
+ * function returns
+ *
+ * [Dijkstra's algorithm]: http://en.wikipedia.org/wiki/Dijkstra%27s_algorithm
+ *
+ * @example
+ *
+ * ![](https://github.com/dagrejs/graphlib/wiki/images/dijkstra-source.png)
+ * <!-- SOURCE:
+ * http://dagrejs.github.io/project/dagre-d3/latest/demo/interactive-demo.html?graph=digraph%20%7B%0Anode%20%5Bshape%3Dcircle%2C%20style%3D%22fill%3Awhite%3Bstroke%3A%23333%3Bstroke-width%3A1.5px%22%5D%0Aedge%20%5Blabeloffset%3D2%20labelpos%3Dr%5D%0Arankdir%3Dlr%0A%20%20A%20-%3E%20B%5Blabel%3D10%5D%0A%20%20A%20-%3E%20C%5Blabel%3D4%5D%0A%20%20A%20-%3E%20D%5Blabel%3D2%5D%0A%20%20C%20-%3E%20B%5Blabel%3D2%5D%0A%20%20C%20-%3E%20D%5Blabel%3D8%5D%0A%20%20B%20-%3E%20E%5Blabel%3D6%5D%0A%20%20D%20-%3E%20F%5Blabel%3D2%5D%0A%20%20F%20-%3E%20E%5Blabel%3D4%5D%0A%7D
+ * -->
+ *
+ * ```js
+ * function weight(e) { return g.edge(e); }
+ *
+ * graphlib.alg.dijkstra(g, "A", weight);
+ * // => { A: { distance: 0 },
+ * //      B: { distance: 6, predecessor: 'C' },
+ * //      C: { distance: 4, predecessor: 'A' },
+ * //      D: { distance: 2, predecessor: 'A' },
+ * //      E: { distance: 8, predecessor: 'F' },
+ * //      F: { distance: 4, predecessor: 'D' } }
+ * ```
+ *
+ * @remarks It takes `O((|E| + |V|) * log |V|)` time.
+ *
+ * @param {Graph} g - Input graph.
+ * @param {NodeID | number} source - The source node id. Converted to a string.
+ * @param {(e: EdgeObj) => number} [weightFn] - Optional function that returns
+ * the weight for edge `e`. If no `weightFn` is supplied then each edge is
+ * assumed to have a weight of 1.
+ * @param {(v: NodeID) => EdgeObj[]} [edgeFn] - Optional function that returns
+ * the ids of all edges incident to the node `v` for the purposes of shortest
+ * path traversal.
+ * By default this function uses the {@link Graph.outEdges} function on the
+ * supplied graph.
+ * @returns {Record<NodeID, PathEntry>} a map of `v -> { distance, predecessor }`.
+ * @throws {Error} If any of the traversed edges has a negative edge weight.
+ */ function dijkstra(g, source, weightFn, edgeFn) {
+    return runDijkstra(g, String(source), weightFn || DEFAULT_WEIGHT_FUNC, edgeFn || function(v) {
+        return g.outEdges(v);
+    });
+}
+/**
+ * @param {Graph} g - Input graph.
+ * @param {NodeID} source - The source node id.
+ * @param {(e: EdgeObj) => number} weightFn - Required weight function.
+ * @param {(v: NodeID) => EdgeObj[]} edgeFn - Required edge function.
+ */ function runDijkstra(g, source, weightFn, edgeFn) {
+    /** @type {Record<NodeID, PathEntry>} */ var results = {};
+    var pq = new __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$dagre$2d$d3$2d$es$2f$src$2f$graphlib$2f$data$2f$priority$2d$queue$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["PriorityQueue"]();
+    /** @type {NodeID} */ var v;
+    /** @type {PathEntry} */ var vEntry;
+    /** @param {EdgeObj} edge */ var updateNeighbors = function(edge) {
+        var w = edge.v !== v ? edge.v : edge.w;
+        var wEntry = results[w];
+        var weight = weightFn(edge);
+        var distance = vEntry.distance + weight;
+        if (weight < 0) {
+            throw new Error('dijkstra does not allow negative edge weights. ' + 'Bad edge: ' + edge + ' Weight: ' + weight);
+        }
+        if (distance < wEntry.distance) {
+            wEntry.distance = distance;
+            wEntry.predecessor = v;
+            pq.decrease(w, distance);
+        }
+    };
+    g.nodes().forEach(function(v) {
+        var distance = v === source ? 0 : Number.POSITIVE_INFINITY;
+        results[v] = {
+            distance: distance
+        };
+        pq.add(v, distance);
+    });
+    while(pq.size() > 0){
+        v = pq.removeMin();
+        vEntry = results[v];
+        if (vEntry.distance === Number.POSITIVE_INFINITY) {
+            break;
+        }
+        edgeFn(v).forEach(updateNeighbors);
+    }
+    return results;
+}
+}),
+"[project]/frontend/node_modules/dagre-d3-es/src/graphlib/alg/find-cycles.js [app-client] (ecmascript)", ((__turbopack_context__) => {
+"use strict";
+
+__turbopack_context__.s([
+    "findCycles",
+    ()=>findCycles
+]);
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$filter$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__filter$3e$__ = __turbopack_context__.i("[project]/frontend/node_modules/lodash-es/filter.js [app-client] (ecmascript) <export default as filter>");
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$dagre$2d$d3$2d$es$2f$src$2f$graphlib$2f$alg$2f$tarjan$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__ = __turbopack_context__.i("[project]/frontend/node_modules/dagre-d3-es/src/graphlib/alg/tarjan.js [app-client] (ecmascript)");
+;
+;
+;
+/**
+ * Given a Graph, `g`, this function returns all nodes that
+ * are part of a cycle. As there may be more than one cycle in a graph this
+ * function return an array of these cycles, where each cycle is itself
+ * represented by an array of ids for each node involved in that cycle.
+ *
+ * @remarks
+ *
+ * {@link isAcyclic} is more efficient if you only need to
+ * determine whether a graph has a cycle or not.
+ *
+ * @example
+ *
+ * ```js
+ * var g = new graphlib.Graph();
+ * g.setNode(1);
+ * g.setNode(2);
+ * g.setNode(3);
+ * g.setEdge(1, 2);
+ * g.setEdge(2, 3);
+ *
+ * graphlib.alg.findCycles(g);
+ * // => []
+ *
+ * g.setEdge(3, 1);
+ * graphlib.alg.findCycles(g);
+ * // => [ [ '3', '2', '1' ] ]
+ *
+ * g.setNode(4);
+ * g.setNode(5);
+ * g.setEdge(4, 5);
+ * g.setEdge(5, 4);
+ * graphlib.alg.findCycles(g);
+ * // => [ [ '3', '2', '1' ], [ '5', '4' ] ]
+ * ```
+ *
+ * @param {Graph} g - The graph to analyze.
+ * @returns {NodeID[][]} An array of cycles. Each cycle is itself an array
+ * that contains the ids of all nodes in the cycle.
+ */ function findCycles(g) {
+    return __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$filter$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__filter$3e$__["filter"]((0, __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$dagre$2d$d3$2d$es$2f$src$2f$graphlib$2f$alg$2f$tarjan$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["tarjan"])(g), function(cmpt) {
+        return cmpt.length > 1 || cmpt.length === 1 && g.hasEdge(cmpt[0], cmpt[0]);
+    });
+}
+}),
+"[project]/frontend/node_modules/dagre-d3-es/src/graphlib/alg/floyd-warshall.js [app-client] (ecmascript)", ((__turbopack_context__) => {
+"use strict";
+
+__turbopack_context__.s([
+    "floydWarshall",
+    ()=>floydWarshall
+]);
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$constant$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__constant$3e$__ = __turbopack_context__.i("[project]/frontend/node_modules/lodash-es/constant.js [app-client] (ecmascript) <export default as constant>");
+;
+;
+var DEFAULT_WEIGHT_FUNC = __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$constant$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__constant$3e$__["constant"](1);
+/**
+ * This function is an implementation of the [Floyd-Warshall algorithm][],
+ * which finds the shortest path from each node to every other reachable node
+ * in the graph. It is similar to {@link dijkstraAll}, but
+ * it handles negative edge weights and is more efficient for some types of
+ * graphs.
+ *
+ * [Floyd-Warshall algorithm]: https://en.wikipedia.org/wiki/Floyd-Warshall_algorithm
+ *
+ * @remarks This algorithm takes `O(|V|^3)` time.
+ *
+ * @example
+ *
+ * ![](https://github.com/dagrejs/graphlib/wiki/images/dijkstra-source.png)
+ *
+ * ```js
+ * function weight(e) { return g.edge(e); }
+ *
+ * graphlib.alg.floydWarshall(g, function(e) { return g.edge(e); });
+ *
+ * // => { A:
+ * //       { A: { distance: 0 },
+ * //         B: { distance: 6, predecessor: 'C' },
+ * //         C: { distance: 4, predecessor: 'A' },
+ * //         D: { distance: 2, predecessor: 'A' },
+ * //         E: { distance: 8, predecessor: 'F' },
+ * //         F: { distance: 4, predecessor: 'D' } },
+ * //      B:
+ * //       { A: { distance: Infinity },
+ * //         B: { distance: 0 },
+ * //         C: { distance: Infinity },
+ * //         D: { distance: Infinity },
+ * //         E: { distance: 6, predecessor: 'B' },
+ * //         F: { distance: Infinity } },
+ * //      C: { ... },
+ * //      D: { ... },
+ * //      E: { ... },
+ * //      F: { ... } }
+ * ```
+ *
+ * @param {Graph} g - The graph to analyze.
+ * @param {(e: EdgeObj) => number} [weightFn] - Optional function that returns
+ * the weight for edge `e`. If no `weightFn` is supplied then each edge is
+ * assumed to have a weight of 1.
+ * @param {(v: NodeID) => EdgeObj[]} [edgeFn] - Optional function that returns
+ * the ids of all edges incident to the node `v` for the purposes of shortest
+ * path traversal.
+ * By default this function uses the {@link Graph.outEdges} function on the
+ * supplied graph.
+ * @returns {Record<NodeID, Record<NodeID, PathEntry>>} a map of
+ * `source -> { target -> { distance, predecessor }`.
+ */ function floydWarshall(g, weightFn, edgeFn) {
+    return runFloydWarshall(g, weightFn || DEFAULT_WEIGHT_FUNC, edgeFn || function(v) {
+        return g.outEdges(v);
+    });
+}
+/**
+ * @param {Graph} g - Input graph.
+ * @param {(e: EdgeObj) => number} weightFn - Required weight function.
+ * @param {(v: NodeID) => EdgeObj[]} edgeFn - Required edge function.
+ */ function runFloydWarshall(g, weightFn, edgeFn) {
+    /** @type {Record<NodeID, Record<NodeID, PathEntry>>} */ var results = {};
+    var nodes = g.nodes();
+    nodes.forEach(function(v) {
+        results[v] = {};
+        results[v][v] = {
+            distance: 0
+        };
+        nodes.forEach(function(w) {
+            if (v !== w) {
+                results[v][w] = {
+                    distance: Number.POSITIVE_INFINITY
+                };
+            }
+        });
+        edgeFn(v).forEach(function(edge) {
+            var w = edge.v === v ? edge.w : edge.v;
+            var d = weightFn(edge);
+            results[v][w] = {
+                distance: d,
+                predecessor: v
+            };
+        });
+    });
+    nodes.forEach(function(k) {
+        var rowK = results[k];
+        nodes.forEach(function(i) {
+            var rowI = results[i];
+            nodes.forEach(function(j) {
+                var ik = rowI[k];
+                var kj = rowK[j];
+                var ij = rowI[j];
+                var altDistance = ik.distance + kj.distance;
+                if (altDistance < ij.distance) {
+                    ij.distance = altDistance;
+                    ij.predecessor = kj.predecessor;
+                }
+            });
+        });
+    });
+    return results;
+}
+}),
+"[project]/frontend/node_modules/dagre-d3-es/src/graphlib/alg/index.js [app-client] (ecmascript) <locals>", ((__turbopack_context__) => {
+"use strict";
+
+__turbopack_context__.s([]);
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$dagre$2d$d3$2d$es$2f$src$2f$graphlib$2f$alg$2f$components$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__ = __turbopack_context__.i("[project]/frontend/node_modules/dagre-d3-es/src/graphlib/alg/components.js [app-client] (ecmascript)");
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$dagre$2d$d3$2d$es$2f$src$2f$graphlib$2f$alg$2f$dijkstra$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__ = __turbopack_context__.i("[project]/frontend/node_modules/dagre-d3-es/src/graphlib/alg/dijkstra.js [app-client] (ecmascript)");
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$dagre$2d$d3$2d$es$2f$src$2f$graphlib$2f$alg$2f$dijkstra$2d$all$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__ = __turbopack_context__.i("[project]/frontend/node_modules/dagre-d3-es/src/graphlib/alg/dijkstra-all.js [app-client] (ecmascript)");
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$dagre$2d$d3$2d$es$2f$src$2f$graphlib$2f$alg$2f$find$2d$cycles$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__ = __turbopack_context__.i("[project]/frontend/node_modules/dagre-d3-es/src/graphlib/alg/find-cycles.js [app-client] (ecmascript)");
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$dagre$2d$d3$2d$es$2f$src$2f$graphlib$2f$alg$2f$floyd$2d$warshall$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__ = __turbopack_context__.i("[project]/frontend/node_modules/dagre-d3-es/src/graphlib/alg/floyd-warshall.js [app-client] (ecmascript)");
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$dagre$2d$d3$2d$es$2f$src$2f$graphlib$2f$alg$2f$is$2d$acyclic$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__ = __turbopack_context__.i("[project]/frontend/node_modules/dagre-d3-es/src/graphlib/alg/is-acyclic.js [app-client] (ecmascript)");
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$dagre$2d$d3$2d$es$2f$src$2f$graphlib$2f$alg$2f$postorder$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__ = __turbopack_context__.i("[project]/frontend/node_modules/dagre-d3-es/src/graphlib/alg/postorder.js [app-client] (ecmascript)");
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$dagre$2d$d3$2d$es$2f$src$2f$graphlib$2f$alg$2f$preorder$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__ = __turbopack_context__.i("[project]/frontend/node_modules/dagre-d3-es/src/graphlib/alg/preorder.js [app-client] (ecmascript)");
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$dagre$2d$d3$2d$es$2f$src$2f$graphlib$2f$alg$2f$prim$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__ = __turbopack_context__.i("[project]/frontend/node_modules/dagre-d3-es/src/graphlib/alg/prim.js [app-client] (ecmascript)");
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$dagre$2d$d3$2d$es$2f$src$2f$graphlib$2f$alg$2f$tarjan$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__ = __turbopack_context__.i("[project]/frontend/node_modules/dagre-d3-es/src/graphlib/alg/tarjan.js [app-client] (ecmascript)");
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$dagre$2d$d3$2d$es$2f$src$2f$graphlib$2f$alg$2f$topsort$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__ = __turbopack_context__.i("[project]/frontend/node_modules/dagre-d3-es/src/graphlib/alg/topsort.js [app-client] (ecmascript)");
+;
+;
+;
+;
+;
+;
+;
+;
+;
+;
+;
+;
+}),
+"[project]/frontend/node_modules/dagre-d3-es/src/graphlib/alg/is-acyclic.js [app-client] (ecmascript)", ((__turbopack_context__) => {
+"use strict";
+
+__turbopack_context__.s([
+    "isAcyclic",
+    ()=>isAcyclic
+]);
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$dagre$2d$d3$2d$es$2f$src$2f$graphlib$2f$alg$2f$topsort$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__ = __turbopack_context__.i("[project]/frontend/node_modules/dagre-d3-es/src/graphlib/alg/topsort.js [app-client] (ecmascript)");
+;
+;
+/**
+ * Given a Graph, `g`, this function returns `true` if the
+ * graph has no cycles and returns `false` if it does.
+ *
+ * @remarks
+ * This algorithm returns
+ * as soon as it detects the first cycle. You can use
+ * {@link ../findCycles} to get the actual list of cycles in the
+ * graph.
+ *
+ * @example
+ *
+ * ```js
+ * var g = new graphlib.Graph();
+ * g.setNode(1);
+ * g.setNode(2);
+ * g.setNode(3);
+ * g.setEdge(1, 2);
+ * g.setEdge(2, 3);
+ *
+ * graphlib.alg.isAcyclic(g);
+ * // => true
+ *
+ * g.setEdge(3, 1);
+ * graphlib.alg.isAcyclic(g);
+ * // => false
+ * ```
+ *
+ * @param {Graph} g - The graph to analyze.
+ * @returns {boolean} `true` if the graph is acyclic, `false` otherwise.
+ */ function isAcyclic(g) {
+    try {
+        (0, __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$dagre$2d$d3$2d$es$2f$src$2f$graphlib$2f$alg$2f$topsort$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["topsort"])(g);
+    } catch (e) {
+        if (e instanceof __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$dagre$2d$d3$2d$es$2f$src$2f$graphlib$2f$alg$2f$topsort$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["CycleException"]) {
+            return false;
+        }
+        throw e;
+    }
+    return true;
+}
+}),
+"[project]/frontend/node_modules/dagre-d3-es/src/graphlib/alg/postorder.js [app-client] (ecmascript)", ((__turbopack_context__) => {
+"use strict";
+
+__turbopack_context__.s([
+    "postorder",
+    ()=>postorder
+]);
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$dagre$2d$d3$2d$es$2f$src$2f$graphlib$2f$alg$2f$dfs$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__ = __turbopack_context__.i("[project]/frontend/node_modules/dagre-d3-es/src/graphlib/alg/dfs.js [app-client] (ecmascript)");
+;
+;
+/**
+ * This function performs a [postorder traversal][] of the graph `g` starting
+ * at the nodes `vs`. For each node visited, `v`,  the function `callback(v)`
+ * is called.
+ *
+ * [postorder traversal]: https://en.wikipedia.org/wiki/Tree_traversal#Depth-first
+ *
+ * @example
+ *
+ * ![](https://github.com/dagrejs/graphlib/wiki/images/preorder.png)
+ *
+ * ```js
+ * graphlib.alg.postorder(g, "A");
+ * // => One of:
+ * // [ "B", "D", "E", C", "A" ]
+ * // [ "B", "E", "D", C", "A" ]
+ * // [ "D", "E", "C", B", "A" ]
+ * // [ "E", "D", "C", B", "A" ]
+ * ```
+ *
+ * @param {Parameters<typeof dfs>[0]} g - The graph to traverse.
+ * @param {Parameters<typeof dfs>[1]} vs - Nodes to start the traversal from.
+ * @returns {ReturnType<typeof dfs>} The nodes in the order they were visited.
+ */ function postorder(g, vs) {
+    return (0, __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$dagre$2d$d3$2d$es$2f$src$2f$graphlib$2f$alg$2f$dfs$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["dfs"])(g, vs, 'post');
+}
+}),
+"[project]/frontend/node_modules/dagre-d3-es/src/graphlib/alg/preorder.js [app-client] (ecmascript)", ((__turbopack_context__) => {
+"use strict";
+
+__turbopack_context__.s([
+    "preorder",
+    ()=>preorder
+]);
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$dagre$2d$d3$2d$es$2f$src$2f$graphlib$2f$alg$2f$dfs$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__ = __turbopack_context__.i("[project]/frontend/node_modules/dagre-d3-es/src/graphlib/alg/dfs.js [app-client] (ecmascript)");
+;
+;
+/**
+ * This function performs a [preorder traversal][] of the graph `g` starting
+ * at the nodes `vs`. For each node visited, `v`,  the function `callback(v)`
+ * is called.
+ *
+ * [preorder traversal]: https://en.wikipedia.org/wiki/Tree_traversal#Depth-first
+ *
+ * @example
+ *
+ * ![](https://github.com/dagrejs/graphlib/wiki/images/preorder.png)
+ * <!-- SOURCE:
+ * http://dagrejs.github.io/project/dagre-d3/latest/demo/interactive-demo.html?graph=digraph%20%7B%0Anode%20%5Bshape%3Dcircle%2C%20style%3D%22fill%3Awhite%3Bstroke%3A%23333%3Bstroke-width%3A1.5px%22%5D%0Aedge%20%5Blabeloffset%3D2%20labelpos%3Dr%5D%0Arankdir%3Dlr%0A%20%20A%20-%3E%20B%0A%20%20A%20-%3E%20C%0A%20%20C%20-%3E%20D%0A%20%20C%20-%3E%20E%0A%7D
+ * -->
+ *
+ * ```js
+ * graphlib.alg.preorder(g, "A");
+ * // => One of:
+ * // [ "A", "B", "C", "D", "E" ]
+ * // [ "A", "B", "C", "E", "D" ]
+ * // [ "A", "C", "D", "E", "B" ]
+ * // [ "A", "C", "E", "D", "B" ]
+ * ```
+ *
+ * @param {Parameters<typeof dfs>[0]} g - The graph to traverse.
+ * @param {Parameters<typeof dfs>[1]} vs - Nodes to start the traversal from.
+ * @returns {ReturnType<typeof dfs>} The nodes in the order they were visited.
+ */ function preorder(g, vs) {
+    return (0, __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$dagre$2d$d3$2d$es$2f$src$2f$graphlib$2f$alg$2f$dfs$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["dfs"])(g, vs, 'pre');
+}
+}),
+"[project]/frontend/node_modules/dagre-d3-es/src/graphlib/alg/prim.js [app-client] (ecmascript)", ((__turbopack_context__) => {
+"use strict";
+
+__turbopack_context__.s([
+    "prim",
+    ()=>prim
+]);
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$forEach$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__each$3e$__ = __turbopack_context__.i("[project]/frontend/node_modules/lodash-es/forEach.js [app-client] (ecmascript) <export default as each>");
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$dagre$2d$d3$2d$es$2f$src$2f$graphlib$2f$data$2f$priority$2d$queue$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__ = __turbopack_context__.i("[project]/frontend/node_modules/dagre-d3-es/src/graphlib/data/priority-queue.js [app-client] (ecmascript)");
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$dagre$2d$d3$2d$es$2f$src$2f$graphlib$2f$graph$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__ = __turbopack_context__.i("[project]/frontend/node_modules/dagre-d3-es/src/graphlib/graph.js [app-client] (ecmascript)");
+;
+;
+;
+;
+/**
+ * [Prim's algorithm][] takes a connected undirected graph and generates a
+ * [minimum spanning tree][]. This function returns the minimum spanning
+ * tree as an undirected graph. This algorithm is derived from the description
+ * in "Introduction to Algorithms", Third Edition, Cormen, et al., Pg 634.
+ *
+ * [Prim's algorithm]: https://en.wikipedia.org/wiki/Prim's_algorithm
+ * [minimum spanning tree]: https://en.wikipedia.org/wiki/Minimum_spanning_tree
+ *
+ * @remarks This function takes `O(|E| log |V|)` time.
+ *
+ * @example
+ *
+ * ![](https://github.com/dagrejs/graphlib/wiki/images/prim-input.png)
+ * <!-- SOURCE:
+ * digraph {
+ * node [shape=circle, style="fill:white;stroke:#333;stroke-width:1.5px"]
+ * edge [labeloffset=2 labelpos=r arrowhead="none"]
+ * rankdir=lr
+ * A -> B [label=3]
+ * A -> D [label=12]
+ * B -> C [label=6]
+ * B -> D [label=1]
+ * C -> D [label=1]
+ * D -> E [label=2]
+ * C -> E [label=9]
+ * }
+ * -->
+ *
+ * ```js
+ * function weight(e) { return g(e); }
+ * graphlib.alg.prim(g, weight);
+ * ```
+ *
+ * Returns a tree (represented as a Graph) of the following form:
+ *
+ * ![](https://github.com/dagrejs/graphlib/wiki/images/prim-output.png)
+ * <!-- SOURCE:
+ * digraph {
+ * node [shape=circle, style="fill:white;stroke:#333;stroke-width:1.5px"]
+ * edge [labeloffset=2 labelpos=r arrowhead="none"]
+ * rankdir=lr
+ * A -> B
+ * B -> D
+ * C -> D
+ * D -> E
+ * }
+ * -->
+ *
+ * @param {Graph} g - The input undirected connected graph.
+ * @param {(e: EdgeObj) => number} weightFunc - Function that returns
+ * the weight for edge `e`.
+ * @returns {Graph<undefined, undefined, undefined>} The minimum spanning tree
+ * as an undirected graph.
+ * @throws {Error} If the input graph is not connected.
+ */ function prim(g, weightFunc) {
+    var result = new __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$dagre$2d$d3$2d$es$2f$src$2f$graphlib$2f$graph$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["Graph"]();
+    /** @type {Record<NodeID, NodeID>} */ var parents = {};
+    var pq = new __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$dagre$2d$d3$2d$es$2f$src$2f$graphlib$2f$data$2f$priority$2d$queue$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__["PriorityQueue"]();
+    /** @type {NodeID} */ var v;
+    /**
+   * @param {EdgeObj} edge - Edge to examine for possible inclusion in the
+   * minimum spanning tree.
+   */ function updateNeighbors(edge) {
+        var w = edge.v === v ? edge.w : edge.v;
+        var pri = pq.priority(w);
+        if (pri !== undefined) {
+            var edgeWeight = weightFunc(edge);
+            if (edgeWeight < pri) {
+                parents[w] = v;
+                pq.decrease(w, edgeWeight);
+            }
+        }
+    }
+    if (g.nodeCount() === 0) {
+        return result;
+    }
+    __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$forEach$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__each$3e$__["each"](g.nodes(), function(v) {
+        pq.add(v, Number.POSITIVE_INFINITY);
+        result.setNode(v);
+    });
+    // Start from an arbitrary node
+    pq.decrease(g.nodes()[0], 0);
+    var init = false;
+    while(pq.size() > 0){
+        v = pq.removeMin();
+        if (Object.prototype.hasOwnProperty.call(parents, v)) {
+            result.setEdge(v, parents[v]);
+        } else if (init) {
+            throw new Error('Input graph is not connected: ' + g);
+        } else {
+            init = true;
+        }
+        g.nodeEdges(v).forEach(updateNeighbors);
+    }
+    return result;
+}
+}),
+"[project]/frontend/node_modules/dagre-d3-es/src/graphlib/alg/tarjan.js [app-client] (ecmascript)", ((__turbopack_context__) => {
+"use strict";
+
+/**
+ * @import { Graph, NodeID } from '../graph.js';
+ */ __turbopack_context__.s([
+    "tarjan",
+    ()=>tarjan
+]);
+;
+/**
+ * This function is an implementation of [Tarjan's algorithm][] which finds
+ * all [strongly connected components][] in the directed graph `g`. Each
+ * strongly connected component is composed of nodes that can reach all other
+ * nodes in the component via directed edges. A strongly connected component
+ * can consist of a single node if that node cannot both reach and be reached
+ * by any other specific node in the graph. Components of more than one node
+ * are guaranteed to have at least one cycle.
+ *
+ * [Tarjan's algorithm]: http://en.wikipedia.org/wiki/Tarjan's_strongly_connected_components_algorithm
+ * [strongly connected components]: http://en.wikipedia.org/wiki/Strongly_connected_component
+ *
+ * @example
+ *
+ * ![](https://github.com/dagrejs/graphlib/wiki/images/tarjan.png)
+ * <!-- SOURCE:
+ * digraph {
+ * node [shape=circle, style="fill:white;stroke:#333;stroke-width:1.5px"]
+ * edge [lineInterpolate=bundle]
+ * rankdir=lr
+ *
+ * A -> B -> C -> D -> H -> G -> F
+ * F -> G
+ * D -> C
+ * H -> D
+ * B -> E -> G
+ * E -> A
+ * }
+ * -->
+ *
+ * ```js
+ * graphlib.alg.tarjan(g);
+ * // => [ [ 'F', 'G' ],
+ * //      [ 'H', 'D', 'C' ],
+ * //      [ 'E', 'B', 'A' ] ]
+ * ```
+ *
+ * @param {Graph} g - The directed graph to analyze.
+ * @returns {NodeID[][]} an array of components. Each component is itself an
+ * array that contains the ids of all nodes in the component.
+ */ function tarjan(g) {
+    var index = 0;
+    /** @type {NodeID[]} */ var stack = [];
+    /**
+   * @type {Record<NodeID, { onStack: boolean, lowlink: number, index: number }>}
+   */ var visited = {};
+    /** @type {NodeID[][]} */ var results = [];
+    /**
+   * @param {NodeID} v - Node to recursively visit
+   */ function dfs(v) {
+        var entry = visited[v] = {
+            onStack: true,
+            lowlink: index,
+            index: index++
+        };
+        stack.push(v);
+        g.successors(v).forEach(function(w) {
+            if (!Object.prototype.hasOwnProperty.call(visited, w)) {
+                dfs(w);
+                entry.lowlink = Math.min(entry.lowlink, visited[w].lowlink);
+            } else if (visited[w].onStack) {
+                entry.lowlink = Math.min(entry.lowlink, visited[w].index);
+            }
+        });
+        if (entry.lowlink === entry.index) {
+            /** @type {NodeID[]} */ var cmpt = [];
+            /** @type {NodeID} */ var w;
+            do {
+                w = stack.pop();
+                visited[w].onStack = false;
+                cmpt.push(w);
+            }while (v !== w)
+            results.push(cmpt);
+        }
+    }
+    g.nodes().forEach(function(v) {
+        if (!Object.prototype.hasOwnProperty.call(visited, v)) {
+            dfs(v);
+        }
+    });
+    return results;
+}
+}),
+"[project]/frontend/node_modules/dagre-d3-es/src/graphlib/alg/topsort.js [app-client] (ecmascript)", ((__turbopack_context__) => {
+"use strict";
+
+__turbopack_context__.s([
+    "CycleException",
+    ()=>CycleException,
+    "topsort",
+    ()=>topsort
+]);
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$forEach$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__each$3e$__ = __turbopack_context__.i("[project]/frontend/node_modules/lodash-es/forEach.js [app-client] (ecmascript) <export default as each>");
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$size$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__size$3e$__ = __turbopack_context__.i("[project]/frontend/node_modules/lodash-es/size.js [app-client] (ecmascript) <export default as size>");
+;
+;
+topsort.CycleException = CycleException;
+/**
+ * An implementation of [topological sorting](https://en.wikipedia.org/wiki/Topological_sorting).
+ *
+ * @remarks Takes `O(|V| + |E|)` time.
+ *
+ * @example
+ *
+ * ![](https://github.com/dagrejs/graphlib/wiki/images/topsort.png)
+ *
+ * ```js
+ * graphlib.alg.topsort(g)
+ * // [ '1', '2', '3', '4' ] or [ '1', '3', '2', '4' ]
+ * ```
+ *
+ * @param {Graph} g - The graph to sort.
+ * @returns {NodeID[]} an array of nodes
+ * such that for each edge `u -> v`, `u` appears before `v` in the array.
+ * @throws {CycleException} If the graph has a cycle so that it is impossible
+ * to generate a topological sort.
+ */ function topsort(g) {
+    /** @type {Record<NodeID, true>} */ var visited = {};
+    /** @type {Record<NodeID, true>} */ var stack = {};
+    /** @type {NodeID[]} */ var results = [];
+    /**
+   * @param {NodeID} node - Node to recursively visit.
+   */ function visit(node) {
+        if (Object.prototype.hasOwnProperty.call(stack, node)) {
+            throw new CycleException();
+        }
+        if (!Object.prototype.hasOwnProperty.call(visited, node)) {
+            stack[node] = true;
+            visited[node] = true;
+            __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$forEach$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__each$3e$__["each"](g.predecessors(node), visit);
+            delete stack[node];
+            results.push(node);
+        }
+    }
+    __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$forEach$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__each$3e$__["each"](g.sinks(), visit);
+    if (__TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$size$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__size$3e$__["size"](visited) !== g.nodeCount()) {
+        throw new CycleException();
+    }
+    return results;
+}
+/**
+ * @class
+ */ function CycleException() {}
+CycleException.prototype = new Error(); // must be an instance of Error to pass testing
+}),
+"[project]/frontend/node_modules/dagre-d3-es/src/graphlib/data/priority-queue.js [app-client] (ecmascript)", ((__turbopack_context__) => {
+"use strict";
+
+__turbopack_context__.s([
+    "PriorityQueue",
+    ()=>PriorityQueue
+]);
+;
+/**
+ * A min-priority queue data structure. This algorithm is derived from Cormen,
+ * et al., "Introduction to Algorithms". The basic idea of a min-priority
+ * queue is that you can efficiently (in O(1) time) get the smallest key in
+ * the queue. Adding and removing elements takes O(log n) time. A key can
+ * have its priority decreased in O(log n) time.
+ */ class PriorityQueue {
+    constructor(){
+        /**
+     * @private
+     * @type {Array<{key: string, priority: number}>}
+     */ this._arr = [];
+        /**
+     * @private
+     * @type {Record<string, number>}
+     */ this._keyIndices = {};
+    }
+    /**
+   * @returns {number} the number of elements in the queue.
+   * @remarks Takes `O(1)` time.
+   */ size() {
+        return this._arr.length;
+    }
+    /**
+   * @returns {string[]} the keys that are in the queue.
+   * @remarks Takes `O(n)` time.
+   */ keys() {
+        return this._arr.map(function(x) {
+            return x.key;
+        });
+    }
+    /**
+   * @param {Object} key - The key to check for presence in the queue.
+   * @returns {boolean} `true` if **key** is in the queue and `false` if not.
+   */ has(key) {
+        return Object.prototype.hasOwnProperty.call(this._keyIndices, key);
+    }
+    /**
+   * @param {Object} key - The key to get the priority for.
+   * @returns {number | undefined} the priority for **key**.
+   * If **key** is not present in the queue then this function returns `undefined`.
+   * @remarks Takes `O(1)` time.
+   */ priority(key) {
+        var index = this._keyIndices[key];
+        if (index !== undefined) {
+            return this._arr[index].priority;
+        }
+    }
+    /**
+   * @returns {string} the key for the minimum element in this queue.
+   * @throws {Error} if the queue is empty.
+   * @remarks Takes `O(1)` time.
+   */ min() {
+        if (this.size() === 0) {
+            throw new Error('Queue underflow');
+        }
+        return this._arr[0].key;
+    }
+    /**
+   * Inserts a new key into the priority queue.
+   *
+   * @remarks Takes `O(n)` time.
+   *
+   * @param {Object} key the key to add. This will be coerced to a `string`.
+   * @param {Number} priority the initial priority for the key
+   * @returns {boolean} `true` if the key was added and `false` if it was already
+   * present in the queue.
+   */ add(key, priority) {
+        var keyIndices = this._keyIndices;
+        key = String(key);
+        if (!Object.prototype.hasOwnProperty.call(keyIndices, key)) {
+            var arr = this._arr;
+            var index = arr.length;
+            keyIndices[key] = index;
+            arr.push({
+                key: key,
+                priority: priority
+            });
+            this._decrease(index);
+            return true;
+        }
+        return false;
+    }
+    /**
+   * Removes and returns the smallest key in the queue.
+   * @returns {string} the key with the smallest priority
+   * @remarks Takes `O(log n)` time.
+   */ removeMin() {
+        this._swap(0, this._arr.length - 1);
+        var min = this._arr.pop();
+        delete this._keyIndices[min.key];
+        this._heapify(0);
+        return min.key;
+    }
+    /**
+   * Decreases the priority for **key** to **priority**.
+   *
+   * @param {Object} key the key for which to raise priority
+   * @param {Number} priority the new priority for the key
+   * @throws {Error} if the new priority is  greater than the previous priority.
+   */ decrease(key, priority) {
+        var index = this._keyIndices[key];
+        if (priority > this._arr[index].priority) {
+            throw new Error('New priority is greater than current priority. ' + 'Key: ' + key + ' Old: ' + this._arr[index].priority + ' New: ' + priority);
+        }
+        this._arr[index].priority = priority;
+        this._decrease(index);
+    }
+    /**
+   * @param {number} i - Lower index.
+   * @private
+   */ _heapify(i) {
+        var arr = this._arr;
+        var l = 2 * i;
+        var r = l + 1;
+        var largest = i;
+        if (l < arr.length) {
+            largest = arr[l].priority < arr[largest].priority ? l : largest;
+            if (r < arr.length) {
+                largest = arr[r].priority < arr[largest].priority ? r : largest;
+            }
+            if (largest !== i) {
+                this._swap(i, largest);
+                this._heapify(largest);
+            }
+        }
+    }
+    /**
+   * @param {number} index - Index to decrease.
+   * @private
+   */ _decrease(index) {
+        var arr = this._arr;
+        var priority = arr[index].priority;
+        var parent;
+        while(index !== 0){
+            parent = index >> 1;
+            if (arr[parent].priority < priority) {
+                break;
+            }
+            this._swap(index, parent);
+            index = parent;
+        }
+    }
+    /**
+   * @param {number} i - First index
+   * @param {number} j - Second index
+   * @private
+   */ _swap(i, j) {
+        var arr = this._arr;
+        var keyIndices = this._keyIndices;
+        var origArrI = arr[i];
+        var origArrJ = arr[j];
+        arr[i] = origArrJ;
+        arr[j] = origArrI;
+        keyIndices[origArrJ.key] = i;
+        keyIndices[origArrI.key] = j;
+    }
+}
+}),
+"[project]/frontend/node_modules/dagre-d3-es/src/graphlib/graph.js [app-client] (ecmascript)", ((__turbopack_context__) => {
+"use strict";
+
+__turbopack_context__.s([
+    "Graph",
+    ()=>Graph
+]);
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$constant$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__constant$3e$__ = __turbopack_context__.i("[project]/frontend/node_modules/lodash-es/constant.js [app-client] (ecmascript) <export default as constant>");
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$isFunction$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__isFunction$3e$__ = __turbopack_context__.i("[project]/frontend/node_modules/lodash-es/isFunction.js [app-client] (ecmascript) <export default as isFunction>");
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$keys$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__keys$3e$__ = __turbopack_context__.i("[project]/frontend/node_modules/lodash-es/keys.js [app-client] (ecmascript) <export default as keys>");
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$filter$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__filter$3e$__ = __turbopack_context__.i("[project]/frontend/node_modules/lodash-es/filter.js [app-client] (ecmascript) <export default as filter>");
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$isEmpty$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__isEmpty$3e$__ = __turbopack_context__.i("[project]/frontend/node_modules/lodash-es/isEmpty.js [app-client] (ecmascript) <export default as isEmpty>");
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$forEach$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__each$3e$__ = __turbopack_context__.i("[project]/frontend/node_modules/lodash-es/forEach.js [app-client] (ecmascript) <export default as each>");
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$isUndefined$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__isUndefined$3e$__ = __turbopack_context__.i("[project]/frontend/node_modules/lodash-es/isUndefined.js [app-client] (ecmascript) <export default as isUndefined>");
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$union$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__union$3e$__ = __turbopack_context__.i("[project]/frontend/node_modules/lodash-es/union.js [app-client] (ecmascript) <export default as union>");
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$values$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__values$3e$__ = __turbopack_context__.i("[project]/frontend/node_modules/lodash-es/values.js [app-client] (ecmascript) <export default as values>");
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$reduce$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__reduce$3e$__ = __turbopack_context__.i("[project]/frontend/node_modules/lodash-es/reduce.js [app-client] (ecmascript) <export default as reduce>");
+;
+var DEFAULT_EDGE_NAME = '\x00';
+var GRAPH_NODE = '\x00';
+var EDGE_KEY_DELIM = '\x01';
+class Graph {
+    /**
+   * @param {GraphOptions} [opts] - Graph options.
+   */ constructor(opts = {}){
+        /**
+     * @type {boolean}
+     * @private
+     */ this._isDirected = Object.prototype.hasOwnProperty.call(opts, 'directed') ? opts.directed : true;
+        /**
+     * @type {boolean}
+     * @private
+     */ this._isMultigraph = Object.prototype.hasOwnProperty.call(opts, 'multigraph') ? opts.multigraph : false;
+        /**
+     * @type {boolean}
+     * @private
+     */ this._isCompound = Object.prototype.hasOwnProperty.call(opts, 'compound') ? opts.compound : false;
+        /**
+     * @type {GraphLabel | undefined}
+     * Label for the graph itself
+     */ this._label = undefined;
+        /**
+     * Default label to be set when creating a new node.
+     *
+     * @private
+     * @type {(v: NodeID | number) => NodeLabel}
+     */ this._defaultNodeLabelFn = __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$constant$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__constant$3e$__["constant"](undefined);
+        /**
+     * Default label to be set when creating a new edge
+     *
+     * @private
+     * @type {(v: NodeID, w: NodeID, name: string | undefined) => EdgeLabel}
+     */ this._defaultEdgeLabelFn = __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$constant$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__constant$3e$__["constant"](undefined);
+        /**
+     * @type {Record<NodeID, NodeLabel>}
+     * @private
+     *
+     * v -> label
+     */ this._nodes = {};
+        if (this._isCompound) {
+            /**
+       * @type {Record<NodeID, NodeID>}
+       * @private
+       * v -> parent
+       */ this._parent = {};
+            /**
+       * @type {Record<NodeID, Record<NodeID, true>>}
+       * @private
+       * v -> children
+       */ this._children = {};
+            this._children[GRAPH_NODE] = {};
+        }
+        /**
+     * @type {Record<NodeID, Record<EdgeID, EdgeObj>>}
+     * @private
+     * v -> edgeObj
+     */ this._in = {};
+        /**
+     * @type {Record<NodeID, Record<NodeID, number>>}
+     * @private
+     * u -> v -> Number
+     */ this._preds = {};
+        /**
+     * @type {Record<NodeID, Record<EdgeID, EdgeObj>>}
+     * @private
+     * v -> edgeObj
+     */ this._out = {};
+        /**
+     * @type {Record<NodeID, Record<NodeID, number>>}
+     * @private
+     * v -> w -> Number
+     */ this._sucs = {};
+        /**
+     * @type {Record<EdgeID, EdgeObj>}
+     * @private
+     * e -> edgeObj
+     */ this._edgeObjs = {};
+        /**
+     * @type {Record<EdgeID, EdgeLabel>}
+     * @private
+     * e -> label
+     */ this._edgeLabels = {};
+    }
+    /* === Graph functions ========= */ /**
+   *
+   * @returns {boolean} `true` if the graph is [directed](https://en.wikipedia.org/wiki/Directed_graph).
+   * A directed graph treats the order of nodes in an edge as significant whereas an
+   * [undirected](https://en.wikipedia.org/wiki/Graph_(mathematics)#Undirected_graph)
+   * graph does not.
+   * This example demonstrates the difference:
+   *
+   * @example
+   *
+   * ```js
+   * var directed = new Graph({ directed: true });
+   * directed.setEdge("a", "b", "my-label");
+   * directed.edge("a", "b"); // returns "my-label"
+   * directed.edge("b", "a"); // returns undefined
+   *
+   * var undirected = new Graph({ directed: false });
+   * undirected.setEdge("a", "b", "my-label");
+   * undirected.edge("a", "b"); // returns "my-label"
+   * undirected.edge("b", "a"); // returns "my-label"
+   * ```
+   */ isDirected() {
+        return this._isDirected;
+    }
+    /**
+   * @returns {boolean} `true` if the graph is a multigraph.
+   */ isMultigraph() {
+        return this._isMultigraph;
+    }
+    /**
+   * @returns {boolean} `true` if the graph is compound.
+   */ isCompound() {
+        return this._isCompound;
+    }
+    /**
+   * Sets the label for the graph to `label`.
+   *
+   * @param {GraphLabel} label - Label for the graph.
+   * @returns {this}
+   */ setGraph(label) {
+        this._label = label;
+        return this;
+    }
+    /**
+   * @returns {GraphLabel | undefined} the currently assigned label for the graph.
+   * If no label has been assigned, returns `undefined`.
+   *
+   * @example
+   *
+   * ```js
+   * var g = new Graph();
+   * g.graph(); // returns undefined
+   * g.setGraph("graph-label");
+   *  g.graph(); // returns "graph-label"
+   * ```
+   */ graph() {
+        return this._label;
+    }
+    /* === Node functions ========== */ /**
+   * Sets a new default value that is assigned to nodes that are created without
+   * a label.
+   *
+   * @param {typeof this._defaultNodeLabelFn | NodeLabel} newDefault - If a function,
+   * it is called with the id of the node being created.
+   * Otherwise, it is assigned as the label directly.
+   * @returns {this}
+   */ setDefaultNodeLabel(newDefault) {
+        if (!__TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$isFunction$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__isFunction$3e$__["isFunction"](newDefault)) {
+            newDefault = __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$constant$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__constant$3e$__["constant"](newDefault);
+        }
+        this._defaultNodeLabelFn = newDefault;
+        return this;
+    }
+    /**
+   * @returns {number} the number of nodes in the graph.
+   */ nodeCount() {
+        return this._nodeCount;
+    }
+    /**
+   * @returns {NodeID[]} the ids of the nodes in the graph.
+   *
+   * @remarks
+   * Use {@link node()} to get the label for each node.
+   * Takes `O(|V|)` time.
+   */ nodes() {
+        return __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$keys$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__keys$3e$__["keys"](this._nodes);
+    }
+    /**
+   * @returns {NodeID[]} those nodes in the graph that have no in-edges.
+   * @remarks Takes `O(|V|)` time.
+   */ sources() {
+        var self = this;
+        return __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$filter$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__filter$3e$__["filter"](this.nodes(), function(v) {
+            return __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$isEmpty$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__isEmpty$3e$__["isEmpty"](self._in[v]);
+        });
+    }
+    /**
+   * @returns {NodeID[]} those nodes in the graph that have no out-edges.
+   * @remarks Takes `O(|V|)` time.
+   */ sinks() {
+        var self = this;
+        return __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$filter$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__filter$3e$__["filter"](this.nodes(), function(v) {
+            return __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$isEmpty$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__isEmpty$3e$__["isEmpty"](self._out[v]);
+        });
+    }
+    /**
+   * Invokes setNode method for each node in `vs` list.
+   *
+   * @param {Collection<NodeID | number>} vs - List of node IDs to create/set.
+   * @param {NodeLabel} [value] - If set, update all nodes with this value.
+   * @returns {this}
+   * @remarks Complexity: O(|names|).
+   */ setNodes(vs, value) {
+        var args = arguments;
+        var self = this;
+        __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$forEach$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__each$3e$__["each"](vs, function(v) {
+            if (args.length > 1) {
+                self.setNode(v, value);
+            } else {
+                self.setNode(v);
+            }
+        });
+        return this;
+    }
+    /**
+   * Creates or updates the value for the node `v` in the graph.
+   *
+   * @param {NodeID | number} v - ID of the node to create/set.
+   * @param {NodeLabel} [value] - If supplied, it is set as the value for the node.
+   * If not supplied and the node was created by this call then
+   * {@link setDefaultNodeLabel} will be used to set the node's value.
+   * @returns {this} the graph, allowing this to be chained with other functions.
+   * @remarks Takes `O(1)` time.
+   */ setNode(v, value) {
+        if (Object.prototype.hasOwnProperty.call(this._nodes, v)) {
+            if (arguments.length > 1) {
+                this._nodes[v] = value;
+            }
+            return this;
+        }
+        this._nodes[v] = arguments.length > 1 ? value : this._defaultNodeLabelFn(v);
+        if (this._isCompound) {
+            this._parent[v] = GRAPH_NODE;
+            this._children[v] = {};
+            this._children[GRAPH_NODE][v] = true;
+        }
+        this._in[v] = {};
+        this._preds[v] = {};
+        this._out[v] = {};
+        this._sucs[v] = {};
+        ++this._nodeCount;
+        return this;
+    }
+    /**
+   * Gets the label of node with specified name.
+   *
+   * @param {NodeID | number} v - Node ID.
+   * @returns {NodeLabel | undefined} the label assigned to the node with the id `v`
+   * if it is in the graph.
+   * Otherwise returns `undefined`.
+   * @remarks Takes `O(1)` time.
+   */ node(v) {
+        return this._nodes[v];
+    }
+    /**
+   * Detects whether graph has a node with specified name or not.
+   *
+   * @param {NodeID | number} v - Node ID.
+   * @returns {boolean} Returns `true` the graph has a node with the id.
+   * @remarks Takes `O(1)` time.
+   */ hasNode(v) {
+        return Object.prototype.hasOwnProperty.call(this._nodes, v);
+    }
+    /**
+   * Remove the node with the id `v` in the graph or do nothing if the node is
+   * not in the graph.
+   *
+   * If the node was removed this function also removes any incident edges.
+   *
+   * @param {NodeID | number} v - Node ID to remove.
+   * @returns {this} the graph, allowing this to be chained with other functions.
+   * @remarks Takes `O(|E|)` time.
+   */ removeNode(v) {
+        if (Object.prototype.hasOwnProperty.call(this._nodes, v)) {
+            var removeEdge = (e)=>this.removeEdge(this._edgeObjs[e]);
+            delete this._nodes[v];
+            if (this._isCompound) {
+                this._removeFromParentsChildList(v);
+                delete this._parent[v];
+                __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$forEach$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__each$3e$__["each"](this.children(v), (child)=>{
+                    this.setParent(child);
+                });
+                delete this._children[v];
+            }
+            __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$forEach$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__each$3e$__["each"](__TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$keys$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__keys$3e$__["keys"](this._in[v]), removeEdge);
+            delete this._in[v];
+            delete this._preds[v];
+            __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$forEach$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__each$3e$__["each"](__TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$keys$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__keys$3e$__["keys"](this._out[v]), removeEdge);
+            delete this._out[v];
+            delete this._sucs[v];
+            --this._nodeCount;
+        }
+        return this;
+    }
+    /**
+   * Sets the parent for `v` to `parent` if it is defined or removes the parent
+   * for `v` if `parent` is undefined.
+   *
+   * @param {NodeID | number} v - Node ID to set the parent for.
+   * @param {NodeID | number} [parent] - Parent node ID. If not defined, removes the parent.
+   * @returns {this} the graph, allowing this to be chained with other functions.
+   * @throws if the graph is not compound.
+   * @throws if setting the parent would create a cycle.
+   * @remarks Takes `O(1)` time.
+   */ setParent(v, parent) {
+        if (!this._isCompound) {
+            throw new Error('Cannot set parent in a non-compound graph');
+        }
+        if (__TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$isUndefined$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__isUndefined$3e$__["isUndefined"](parent)) {
+            parent = GRAPH_NODE;
+        } else {
+            // Coerce parent to string
+            parent += '';
+            for(var ancestor = parent; !__TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$isUndefined$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__isUndefined$3e$__["isUndefined"](ancestor); ancestor = this.parent(ancestor)){
+                if (ancestor === v) {
+                    throw new Error('Setting ' + parent + ' as parent of ' + v + ' would create a cycle');
+                }
+            }
+            this.setNode(parent);
+        }
+        this.setNode(v);
+        this._removeFromParentsChildList(v);
+        // @ts-expect-error -- We coerced parent to a string above
+        this._parent[v] = parent;
+        this._children[parent][v] = true;
+        return this;
+    }
+    /**
+   * @private
+   * @param {NodeID | number} v - Node ID.
+   */ _removeFromParentsChildList(v) {
+        delete this._children[this._parent[v]][v];
+    }
+    /**
+   * Get parent node for node `v`.
+   *
+   * @param {NodeID | number} v - Node ID.
+   * @returns {NodeID | undefined} the node that is a parent of node `v`
+   * or `undefined` if node `v` does not have a parent or is not a member of
+   * the graph.
+   * Always returns `undefined` for graphs that are not compound.
+   * @remarks Takes `O(1)` time.
+   */ parent(v) {
+        if (this._isCompound) {
+            var parent = this._parent[v];
+            if (parent !== GRAPH_NODE) {
+                return parent;
+            }
+        }
+    }
+    /**
+   * Gets list of direct children of node v.
+   *
+   * @param {NodeID | number} [v] - Node ID. If not specified, gets nodes
+   * with no parent (top-level nodes).
+   * @returns {NodeID[] | undefined} all nodes that are children of node `v` or
+   * `undefined` if node `v` is not in the graph.
+   * Always returns `[]` for graphs that are not compound.
+   * @remarks Takes `O(|V|)` time.
+   */ children(v) {
+        if (__TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$isUndefined$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__isUndefined$3e$__["isUndefined"](v)) {
+            v = GRAPH_NODE;
+        }
+        if (this._isCompound) {
+            var children = this._children[v];
+            if (children) {
+                return __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$keys$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__keys$3e$__["keys"](children);
+            }
+        } else if (v === GRAPH_NODE) {
+            return this.nodes();
+        } else if (this.hasNode(v)) {
+            return [];
+        }
+    }
+    /**
+   * @param {NodeID | number} v - Node ID.
+   * @returns {NodeID[] | undefined} all nodes that are predecessors of the
+   * specified node or `undefined` if node `v` is not in the graph.
+   * @remarks
+   * Behavior is undefined for undirected graphs - use {@link neighbors} instead.
+   * Takes `O(|V|)` time.
+   */ predecessors(v) {
+        var predsV = this._preds[v];
+        if (predsV) {
+            return __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$keys$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__keys$3e$__["keys"](predsV);
+        }
+    }
+    /**
+   * @param {NodeID | number} v - Node ID.
+   * @returns {NodeID[] | undefined} all nodes that are successors of the
+   * specified node or `undefined` if node `v` is not in the graph.
+   * @remarks
+   * Behavior is undefined for undirected graphs - use {@link neighbors} instead.
+   * Takes `O(|V|)` time.
+   */ successors(v) {
+        var sucsV = this._sucs[v];
+        if (sucsV) {
+            return __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$keys$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__keys$3e$__["keys"](sucsV);
+        }
+    }
+    /**
+   * @param {NodeID | number} v - Node ID.
+   * @returns {NodeID[] | undefined} all nodes that are predecessors or
+   * successors of the specified node
+   * or `undefined` if node `v` is not in the graph.
+   * @remarks Takes `O(|V|)` time.
+   */ neighbors(v) {
+        var preds = this.predecessors(v);
+        if (preds) {
+            return __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$union$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__union$3e$__["union"](preds, this.successors(v));
+        }
+    }
+    /**
+   * @param {NodeID | number} v - Node ID.
+   * @returns {boolean} True if the node is a leaf (has no successors), false otherwise.
+   */ isLeaf(v) {
+        var neighbors;
+        if (this.isDirected()) {
+            neighbors = this.successors(v);
+        } else {
+            neighbors = this.neighbors(v);
+        }
+        return neighbors.length === 0;
+    }
+    /**
+   * Creates new graph with nodes filtered via `filter`.
+   * Edges incident to rejected node
+   * are also removed.
+   * 
+   * In case of compound graph, if parent is rejected by `filter`,
+   * than all its children are rejected too.
+
+   * @param {(v: NodeID) => boolean} filter - Function that returns `true` for nodes to keep.
+   * @returns {Graph<GraphLabel, NodeLabel, EdgeLabel>} A new graph containing only the nodes for which `filter` returns `true`.
+   * @remarks Average-case complexity: O(|E|+|V|).
+   */ filterNodes(filter) {
+        /**
+     * @type {Graph<GraphLabel, NodeLabel, EdgeLabel>}
+     */ // @ts-expect-error
+        var copy = new this.constructor({
+            directed: this._isDirected,
+            multigraph: this._isMultigraph,
+            compound: this._isCompound
+        });
+        copy.setGraph(this.graph());
+        var self = this;
+        __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$forEach$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__each$3e$__["each"](this._nodes, function(value, v) {
+            if (filter(v)) {
+                copy.setNode(v, value);
+            }
+        });
+        __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$forEach$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__each$3e$__["each"](this._edgeObjs, function(e) {
+            if (copy.hasNode(e.v) && copy.hasNode(e.w)) {
+                copy.setEdge(e, self.edge(e));
+            }
+        });
+        var parents = {};
+        function findParent(v) {
+            var parent = self.parent(v);
+            if (parent === undefined || copy.hasNode(parent)) {
+                parents[v] = parent;
+                return parent;
+            } else if (parent in parents) {
+                return parents[parent];
+            } else {
+                return findParent(parent);
+            }
+        }
+        if (this._isCompound) {
+            __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$forEach$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__each$3e$__["each"](copy.nodes(), function(v) {
+                copy.setParent(v, findParent(v));
+            });
+        }
+        return copy;
+    }
+    /* === Edge functions ========== */ /**
+   * Sets a new default value that is assigned to edges that are created without
+   * a label.
+   *
+   * @param {typeof this._defaultEdgeLabelFn | EdgeLabel} newDefault - If a function,
+   * it is called with the parameters `(v, w, name)`.
+   * Otherwise, it is assigned as the label directly.
+   * @returns {this}
+   */ setDefaultEdgeLabel(newDefault) {
+        if (!__TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$isFunction$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__isFunction$3e$__["isFunction"](newDefault)) {
+            newDefault = __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$constant$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__constant$3e$__["constant"](newDefault);
+        }
+        this._defaultEdgeLabelFn = newDefault;
+        return this;
+    }
+    /**
+   * @returns {number} the number of edges in the graph.
+   * @remarks Complexity: O(1).
+   */ edgeCount() {
+        return this._edgeCount;
+    }
+    /**
+   * Gets edges of the graph.
+   *
+   * @returns {EdgeObj[]} the {@link EdgeObj} for each edge in the graph.
+   *
+   * @remarks
+   * In case of compound graph subgraphs are not considered.
+   * Use {@link edge()} to get the label for each edge.
+   * Takes `O(|E|)` time.
+   */ edges() {
+        return __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$values$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__values$3e$__["values"](this._edgeObjs);
+    }
+    /**
+   * Establish an edges path over the nodes in nodes list.
+   *
+   * If some edge is already exists, it will update its label, otherwise it will
+   * create an edge between pair of nodes with label provided or default label
+   * if no label provided.
+   *
+   * @param {Collection<NodeID>} vs - List of node IDs to create edges between.
+   * @param {EdgeLabel} [value] - If set, update all edges with this value.
+   * @returns {this}
+   * @remarks Complexity: O(|nodes|).
+   */ setPath(vs, value) {
+        var self = this;
+        var args = arguments;
+        __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$reduce$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__reduce$3e$__["reduce"](vs, function(v, w) {
+            if (args.length > 1) {
+                self.setEdge(v, w, value);
+            } else {
+                self.setEdge(v, w);
+            }
+            return w;
+        });
+        return this;
+    }
+    /**
+   * Creates or updates the label for the edge (`v`, `w`) with the optionally
+   * supplied `name`.
+   *
+   * @overload
+   * @param {EdgeObj} arg0 - Edge object.
+   * @param {EdgeLabel} [value] - If supplied, it is set as the label for the edge.
+   * If not supplied and the edge was created by this call then
+   * {@link setDefaultEdgeLabel} will be used to assign the edge's label.
+   * @returns {this} the graph, allowing this to be chained with other functions.
+   * @remarks Takes `O(1)` time.
+   */ /**
+   * Creates or updates the label for the edge (`v`, `w`) with the optionally
+   * supplied `name`.
+   *
+   * @overload
+   * @param {NodeID | number} v - Source node ID. Number values will be coerced to strings.
+   * @param {NodeID | number} w - Target node ID. Number values will be coerced to strings.
+   * @param {EdgeLabel} [value] - If supplied, it is set as the label for the edge.
+   * If not supplied and the edge was created by this call then
+   * {@link setDefaultEdgeLabel} will be used to assign the edge's label.
+   * @param {string | number} [name] - Edge name. Only useful with multigraphs.
+   * @returns {this} the graph, allowing this to be chained with other functions.
+   * @remarks Takes `O(1)` time.
+   */ setEdge() {
+        var v, w, name, value;
+        var valueSpecified = false;
+        var arg0 = arguments[0];
+        if (typeof arg0 === 'object' && arg0 !== null && 'v' in arg0) {
+            v = arg0.v;
+            w = arg0.w;
+            name = arg0.name;
+            if (arguments.length === 2) {
+                value = arguments[1];
+                valueSpecified = true;
+            }
+        } else {
+            v = arg0;
+            w = arguments[1];
+            name = arguments[3];
+            if (arguments.length > 2) {
+                value = arguments[2];
+                valueSpecified = true;
+            }
+        }
+        v = '' + v;
+        w = '' + w;
+        if (!__TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$isUndefined$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__isUndefined$3e$__["isUndefined"](name)) {
+            name = '' + name;
+        }
+        var e = edgeArgsToId(this._isDirected, v, w, name);
+        if (Object.prototype.hasOwnProperty.call(this._edgeLabels, e)) {
+            if (valueSpecified) {
+                this._edgeLabels[e] = value;
+            }
+            return this;
+        }
+        if (!__TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$isUndefined$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__isUndefined$3e$__["isUndefined"](name) && !this._isMultigraph) {
+            throw new Error('Cannot set a named edge when isMultigraph = false');
+        }
+        // It didn't exist, so we need to create it.
+        // First ensure the nodes exist.
+        this.setNode(v);
+        this.setNode(w);
+        this._edgeLabels[e] = valueSpecified ? value : this._defaultEdgeLabelFn(v, w, name);
+        var edgeObj = edgeArgsToObj(this._isDirected, v, w, name);
+        // Ensure we add undirected edges in a consistent way.
+        v = edgeObj.v;
+        w = edgeObj.w;
+        Object.freeze(edgeObj);
+        this._edgeObjs[e] = edgeObj;
+        incrementOrInitEntry(this._preds[w], v);
+        incrementOrInitEntry(this._sucs[v], w);
+        this._in[w][e] = edgeObj;
+        this._out[v][e] = edgeObj;
+        this._edgeCount++;
+        return this;
+    }
+    /**
+   * Gets the label for the specified edge.
+   *
+   * @overload
+   * @param {EdgeObj} v - Edge object.
+   * @returns {EdgeLabel | undefined} the label for the edge (`v`, `w`) if the
+   * graph has an edge between `v` and `w` with the optional `name`.
+   * Returned `undefined` if there is no such edge in the graph.
+   * @remarks
+   * `v` and `w` can be interchanged for undirected graphs.
+   * Takes `O(1)` time.
+   */ /**
+   * Gets the label for the specified edge.
+   *
+   * @overload
+   * @param {NodeID | number} v - Source node ID.
+   * @param {NodeID | number} w - Target node ID.
+   * @param {string | number} [name] - Edge name. Only useful with multigraphs.
+   * @returns {EdgeLabel | undefined} the label for the edge (`v`, `w`) if the
+   * graph has an edge between `v` and `w` with the optional `name`.
+   * Returned `undefined` if there is no such edge in the graph.
+   * @remarks
+   * `v` and `w` can be interchanged for undirected graphs.
+   * Takes `O(1)` time.
+   */ edge(v, w, name) {
+        var e = arguments.length === 1 ? edgeObjToId(this._isDirected, arguments[0]) : edgeArgsToId(this._isDirected, v, w, name);
+        return this._edgeLabels[e];
+    }
+    /**
+   * Detects whether the graph contains specified edge or not.
+   *
+   * @overload
+   * @param {EdgeObj} v - Edge object.
+   * @returns {boolean} `true` if the graph has an edge between `v` and `w`
+   * with the optional `name`.
+   * @remarks
+   * `v` and `w` can be interchanged for undirected graphs.
+   * No subgraphs are considered.
+   * Takes `O(1)` time.
+   */ /**
+   * Detects whether the graph contains specified edge or not.
+   *
+   * @overload
+   * @param {NodeID | number} v - Source node ID.
+   * @param {NodeID | number} w - Target node ID.
+   * @param {string | number} [name] - Edge name. Only useful with multigraphs.
+   * @returns {boolean} `true` if the graph has an edge between `v` and `w`
+   * with the optional `name`.
+   * @remarks
+   * `v` and `w` can be interchanged for undirected graphs.
+   * No subgraphs are considered.
+   * Takes `O(1)` time.
+   */ hasEdge(v, w, name) {
+        var e = arguments.length === 1 ? edgeObjToId(this._isDirected, arguments[0]) : edgeArgsToId(this._isDirected, v, w, name);
+        return Object.prototype.hasOwnProperty.call(this._edgeLabels, e);
+    }
+    /**
+   * Removes the edge (`v`, `w`) if the graph has an edge between `v` and `w`
+   * with the optional `name`. If not this function does nothing.
+   *
+   * @overload
+   * @param {EdgeObj} v - Edge object.
+   * @returns {this}
+   * @remarks
+   * `v` and `w` can be interchanged for undirected graphs.
+   * No subgraphs are considered.
+   * Takes `O(1)` time.
+   */ /**
+   * Removes the edge (`v`, `w`) if the graph has an edge between `v` and `w`
+   * with the optional `name`. If not this function does nothing.
+   *
+   * @overload
+   * @param {NodeID | number} v - Source node ID.
+   * @param {NodeID | number} w - Target node ID.
+   * @param {string | number} [name] - Edge name. Only useful with multigraphs.
+   * @returns {this}
+   * @remarks
+   * `v` and `w` can be interchanged for undirected graphs.
+   * Takes `O(1)` time.
+   */ removeEdge(v, w, name) {
+        var e = arguments.length === 1 ? edgeObjToId(this._isDirected, arguments[0]) : edgeArgsToId(this._isDirected, v, w, name);
+        var edge = this._edgeObjs[e];
+        if (edge) {
+            v = edge.v;
+            w = edge.w;
+            delete this._edgeLabels[e];
+            delete this._edgeObjs[e];
+            decrementOrRemoveEntry(this._preds[w], v);
+            decrementOrRemoveEntry(this._sucs[v], w);
+            delete this._in[w][e];
+            delete this._out[v][e];
+            this._edgeCount--;
+        }
+        return this;
+    }
+    /**
+   * @param {NodeID | number} v - Target node ID.
+   * @param {NodeID | number} [u] - Optionally filters edges down to just those
+   * coming from node `u`.
+   * @returns {EdgeObj[] | undefined} all edges that point to the node `v`.
+   * Returns `undefined` if node `v` is not in the graph.
+   * @remarks
+   * Behavior is undefined for undirected graphs - use {@link nodeEdges} instead.
+   * Takes `O(|E|)` time.
+   */ inEdges(v, u) {
+        var inV = this._in[v];
+        if (inV) {
+            var edges = __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$values$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__values$3e$__["values"](inV);
+            if (!u) {
+                return edges;
+            }
+            return __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$filter$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__filter$3e$__["filter"](edges, function(edge) {
+                return edge.v === u;
+            });
+        }
+    }
+    /**
+   * @param {NodeID | number} v - Target node ID.
+   * @param {NodeID | number} [w] - Optionally filters edges down to just those
+   * that point to `w`.
+   * @returns {EdgeObj[] | undefined} all edges that point to the node `v`.
+   * Returns `undefined` if node `v` is not in the graph.
+   * @remarks
+   * Behavior is undefined for undirected graphs - use {@link nodeEdges} instead.
+   * Takes `O(|E|)` time.
+   */ outEdges(v, w) {
+        var outV = this._out[v];
+        if (outV) {
+            var edges = __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$values$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__values$3e$__["values"](outV);
+            if (!w) {
+                return edges;
+            }
+            return __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$filter$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__filter$3e$__["filter"](edges, function(edge) {
+                return edge.w === w;
+            });
+        }
+    }
+    /**
+   * @param {NodeID | number} v - Target Node ID.
+   * @param {NodeID | number} [w] - If set, filters those edges down to just
+   * those between nodes `v` and `w` regardless of direction
+   * @returns {EdgeObj[] | undefined} all edges to or from node `v` regardless
+   * of direction. Returns `undefined` if node `v` is not in the graph.
+   * @remarks Takes `O(|E|)` time.
+   */ nodeEdges(v, w) {
+        var inEdges = this.inEdges(v, w);
+        if (inEdges) {
+            return inEdges.concat(this.outEdges(v, w));
+        }
+    }
+}
+/* Number of nodes in the graph. Should only be changed by the implementation. */ Graph.prototype._nodeCount = 0;
+/* Number of edges in the graph. Should only be changed by the implementation. */ Graph.prototype._edgeCount = 0;
+/**
+ * @param {Record<NodeID, number>} map - Object mapping node IDs to counts.
+ * @param {NodeID | number} k - Node ID.
+ */ function incrementOrInitEntry(map, k) {
+    if (map[k]) {
+        map[k]++;
+    } else {
+        map[k] = 1;
+    }
+}
+/**
+ * @param {Record<NodeID, number>} map - Object mapping node IDs to counts.
+ * @param {NodeID | number} k - Node ID.
+ */ function decrementOrRemoveEntry(map, k) {
+    if (!--map[k]) {
+        delete map[k];
+    }
+}
+/**
+ * @param {boolean} isDirected - If `false`, sorts v and w to ensure a consistent ID.
+ * @param {EdgeObj['v'] | number} v_ - Source node ID.
+ * @param {EdgeObj['w'] | number} w_ - Target node ID.
+ * @param {EdgeObj['name']} [name] - Edge name (for multiple edges between the same nodes).
+ * @returns {EdgeID} Unique ID for the edge.
+ */ function edgeArgsToId(isDirected, v_, w_, name) {
+    var v = '' + v_;
+    var w = '' + w_;
+    if (!isDirected && v > w) {
+        var tmp = v;
+        v = w;
+        w = tmp;
+    }
+    return v + EDGE_KEY_DELIM + w + EDGE_KEY_DELIM + (__TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$lodash$2d$es$2f$isUndefined$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__$3c$export__default__as__isUndefined$3e$__["isUndefined"](name) ? DEFAULT_EDGE_NAME : name);
+}
+/**
+ * @param {boolean} isDirected - If `false`, sorts v and w to ensure a consistent ID.
+ * @param {EdgeObj['v'] | number} v_ - Source node ID.
+ * @param {EdgeObj['w'] | number} w_ - Target node ID.
+ * @param {EdgeObj['name']} [name] - Edge name (for multiple edges between the same nodes).
+ * @returns {EdgeObj}
+ */ function edgeArgsToObj(isDirected, v_, w_, name) {
+    var v = '' + v_;
+    var w = '' + w_;
+    if (!isDirected && v > w) {
+        var tmp = v;
+        v = w;
+        w = tmp;
+    }
+    var edgeObj = {
+        v: v,
+        w: w
+    };
+    if (name) {
+        edgeObj.name = name;
+    }
+    return edgeObj;
+}
+/**
+ * @param {boolean} isDirected - If `false`, sorts v and w to ensure a consistent ID.
+ * @param {EdgeObj} edgeObj - Edge object.
+ * @returns {EdgeID} Unique ID for the edge.
+ */ function edgeObjToId(isDirected, edgeObj) {
+    return edgeArgsToId(isDirected, edgeObj.v, edgeObj.w, edgeObj.name);
+}
+}),
+"[project]/frontend/node_modules/dagre-d3-es/src/graphlib/index.js [app-client] (ecmascript) <locals>", ((__turbopack_context__) => {
+"use strict";
+
+__turbopack_context__.s([
+    "version",
+    ()=>version
+]);
+// Includes only the "core" of graphlib
+var __TURBOPACK__imported__module__$5b$project$5d2f$frontend$2f$node_modules$2f$dagre$2d$d3$2d$es$2f$src$2f$graphlib$2f$graph$2e$js__$5b$app$2d$client$5d$__$28$ecmascript$29$__ = __turbopack_context__.i("[project]/frontend/node_modules/dagre-d3-es/src/graphlib/graph.js [app-client] (ecmascript)");
+;
+const version = '2.1.9-pre';
+;
+}),
+]);
+
+//# sourceMappingURL=19xk_dagre-d3-es_src_1es2ww0._.js.map

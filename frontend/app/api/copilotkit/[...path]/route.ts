@@ -4,6 +4,7 @@ import {
   InMemoryAgentRunner,
   createCopilotRuntimeHandler,
 } from "@copilotkit/runtime/v2";
+import { AGUI_BACKEND_URL, backendAuthHeaders } from "../../../lib/auth";
 
 // ---------------------------------------------------------------------------
 // Path B wiring (see agui_server.py and langgraph.json http.app).
@@ -14,25 +15,33 @@ import {
 // ``HttpAgent``, so tool calls, state snapshots and interrupts pass 1:1.
 // The pages pick their agent: ``/lead`` uses ``lead``, ``/databot`` uses
 // ``databot``.
+//
+// Visitor identity. Agents are built per request so each call carries the
+// visitor's session: the login cookie (``tp_session``) becomes
+// ``Authorization: Bearer <token>``, which agui_server.py verifies when
+// ``[auth].enabled``. Headers set here win over forwarded ones, so a browser
+// cannot substitute its own. The runtime also forwards the browser request's
+// ``x-*`` headers, which is how an auth proxy's ``X-Tahoepilot-User``
+// (``[agui].user_header``) reaches the backend when login is off.
 // ---------------------------------------------------------------------------
 
-/** AG-UI base URL; each agent is served at ``${AGUI_BACKEND_URL}/<agent>``. */
-const AGUI_BACKEND_URL = (
-  process.env.AGUI_BACKEND_URL || "http://localhost:8000/agui"
-).replace(/\/+$/, "");
-
 const runtime = new CopilotRuntime({
-  agents: {
-    // Keys are the agent ids the pages use (``useAgent({ agentId })``).
-    lead: new HttpAgent({
-      url: `${AGUI_BACKEND_URL}/lead`,
-      description:
-        "TahoePilot lead agent — answers, plans and delegates to specialists (warehouse runs reviewed SQL).",
-    }),
-    databot: new HttpAgent({
-      url: `${AGUI_BACKEND_URL}/databot`,
-      description: "Databot — table cards → human-gated SQL → execute.",
-    }),
+  agents: ({ request }) => {
+    const headers = backendAuthHeaders(request);
+    return {
+      // Keys are the agent ids the pages use (``useAgent({ agentId })``).
+      lead: new HttpAgent({
+        url: `${AGUI_BACKEND_URL}/lead`,
+        headers,
+        description:
+          "TahoePilot lead agent — answers, plans and delegates to specialists (warehouse runs reviewed SQL).",
+      }),
+      databot: new HttpAgent({
+        url: `${AGUI_BACKEND_URL}/databot`,
+        headers,
+        description: "Databot — table cards → human-gated SQL → execute.",
+      }),
+    };
   },
   // SSE mode. The real conversation state lives in checkpoints.sqlite
   // (set up in agui_server.py), this only holds UI thread metadata.

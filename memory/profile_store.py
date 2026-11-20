@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import getpass
 import json
-import os
 import re
 from collections.abc import Mapping
 from pathlib import Path
@@ -12,7 +11,6 @@ from typing import Any, Protocol
 
 from memory.profile import UserProfile
 
-_USER_ID_ENV = "TAHOEPILOT_USER_ID"
 
 
 def _user_id_text(value: object | None) -> str:
@@ -21,14 +19,47 @@ def _user_id_text(value: object | None) -> str:
     return value.strip()
 
 
+#: ``configurable`` key carrying the run's user id (CLI: ``session_graph_config``;
+#: web: ``agui_endpoint``). Nested specialists and tools inherit it.
+RUN_USER_ID_KEY = "user_id"
+
+
+def run_user_id() -> str:
+    """The user id in the current graph run's config, or ``""`` outside a run.
+
+    This is the user the run was started for, so tools (which see no state)
+    and code inside nested specialists read it here.
+    """
+    from langgraph.config import get_config
+
+    try:
+        configurable = get_config().get("configurable") or {}
+    except RuntimeError:  # not inside a graph run
+        return ""
+    return _user_id_text(configurable.get(RUN_USER_ID_KEY))
+
+
 def resolve_user_id(
     explicit: str | None = None,
     *,
     prior: object | None = None,
     active: str | None = None,
 ) -> str:
-    """Pick a user id: explicit value, then prior id, then the active id, then env, then the process user."""
-    for candidate in (explicit, prior, active, os.getenv(_USER_ID_ENV)):
+    """Pick a user id, first non-empty of:
+
+    1. ``explicit``: CLI ``-u``, the web request's user header, a delegated task's id;
+    2. the current run's ``configurable.user_id`` (:func:`run_user_id`);
+    3. ``prior``: the id stored in the thread's checkpoint state;
+    4. ``active``: the user a CLI process activated;
+    5. ``[user].default_id`` in runtime.toml;
+    6. the OS user.
+
+    The CLI and the web server both resolve once at the start of a run and put
+    the result in state and in the run config, so later lookups agree.
+    """
+    from settings.runtime_config import default_user_id
+
+    for candidate in (explicit, run_user_id(), prior, active, default_user_id()):
         text = _user_id_text(candidate)
         if text:
             return text

@@ -34,7 +34,7 @@ Related docs:
 - **Source-specific readers, one shared pipeline.** Each source only decides how to build documents, how to split them into paragraphs, and what payload / point id each chunk gets (`chunk_payload`, `chunk_embed_text`, `chunk_point_id`). Splitting, embedding, batching, and upsert are shared (`rag.ingest.upsert_documents`).
 - **Re-ingest replaces a document.** Every chunk payload carries `doc_key`, a stable per-document key that does not depend on chunk layout or on the `plan -p` root (`Document.doc_key`: `jira:<issue key>`, `drive:<absolute file path>`, `dbt:<yml path>::<model>`). Before upserting a document's new chunks, ingest deletes every point with that `doc_key` (`rag.qdrant.delete_points_by_doc_keys`), so a changed chunk layout never leaves stale points. Point ids are still deterministic (`stable_point_id`, a UUID-shaped SHA1).
 - **No silent truncation of indexed text.** Chunks are sized to `[embedding].max_chars` before embedding, and dbt descriptions are packed across extra chunks rather than cut.
-- **Local embeddings only.** `EMBEDDING_PROVIDER` set to anything other than `local` is rejected by `rag.config.get_rag_config`.
+- **Local embeddings only.** BGE-M3 runs in-process through FlagEmbedding; there is no remote embedding provider.
 
 ## Layout
 
@@ -180,9 +180,9 @@ Download both models once, before any ingest or search:
 
 ```bash
 python -m rag download
-# when huggingface.co resets connections:
-export HF_ENDPOINT=https://hf-mirror.com
-export HF_HUB_DISABLE_XET=1
+# when huggingface.co resets connections, set in config/rag.toml:
+#   [local_models]
+#   hf_endpoint = "https://hf-mirror.com"
 python -m rag download
 ```
 
@@ -191,11 +191,11 @@ python -m rag download
 | `BAAI/bge-m3` | `[embedding].model` | Dense + sparse embeddings |
 | `BAAI/bge-reranker-v2-m3` | `[rerank].model` | Cross-encoder rerank |
 
-Models land in `~/.cache/tahoepilot/models/<repo id>/` (override with `TAHOEPILOT_MODELS_DIR`). The snapshot skips `imgs/*`, `.DS_Store`, ONNX, Flax, TF, and Rust weights; hf-mirror rejects `imgs/.DS_Store` with 403. Without `HF_ENDPOINT`, a connection failure to the Hub is retried once through `https://hf-mirror.com`, and Xet downloads are disabled for the mirror. A model value that is an existing directory is used as-is and must already contain the weight, tokenizer, and (for the embedder) `colbert_linear.pt` / `sparse_linear.pt` files.
+Models land in `~/.cache/tahoepilot/models/<repo id>/` (`[local_models].dir` in `rag.toml`). The snapshot skips `imgs/*`, `.DS_Store`, ONNX, Flax, TF, and Rust weights; hf-mirror rejects `imgs/.DS_Store` with 403. With an empty `[local_models].hf_endpoint`, a connection failure to the Hub is retried once through `https://hf-mirror.com`, and Xet downloads are disabled for the mirror. A model value that is an existing directory is used as-is and must already contain the weight, tokenizer, and (for the embedder) `colbert_linear.pt` / `sparse_linear.pt` files.
 
 ### Tika (optional)
 
-Only `rag.markdown.PdfDocument.open` uses Tika, and no CLI job type calls it; Drive ingest reads PDFs with pypdf. To use `PdfDocument` directly, start the bundled server and point `TIKA_SERVER_ENDPOINT` at it (default `http://localhost:9998`):
+Only `rag.markdown.PdfDocument.open` uses Tika, and no CLI job type calls it; Drive ingest reads PDFs with pypdf. To use `PdfDocument` directly, start the bundled server and set `[tika].endpoint` in `rag.toml` (default `http://localhost:9998`):
 
 ```bash
 java -jar rag/tika/tika-server-standard-3.3.2.jar
@@ -220,19 +220,13 @@ Settings come from `config/rag.toml` (`rag.config.get_rag_config`, cached per pr
 | `[rerank].model` | `BAAI/bge-reranker-v2-m3` | Reranker; empty string disables rerank |
 | `[rerank].prefetch_limit` | `50` | Candidates per prefetch before fusion and rerank |
 
-Env overrides (applied on top of the file):
+| `[local_models].dir` | `~/.cache/tahoepilot/models` | Model weight cache (`python -m rag download`) |
+| `[local_models].hf_endpoint` | `""` | Hub endpoint for `download` (e.g. `https://hf-mirror.com`) |
+| `[tika].endpoint` | `http://localhost:9998` | Tika server for `PdfDocument.open` |
 
-| Variable | Overrides |
-|----------|-----------|
-| `QDRANT_URL` | `[qdrant].url` |
-| `QDRANT_API_KEY` (or whatever `api_key_env` names) | `[qdrant].api_key` |
-| `EMBEDDING_MODEL` | `[embedding].model` |
-| `EMBEDDING_VECTOR_SIZE` | `[embedding].vector_size` |
-| `EMBEDDING_DEVICE` | `[embedding].device` |
-| `EMBEDDING_PROVIDER` | Must be unset or `local`; anything else raises |
-| `TAHOEPILOT_MODELS_DIR` | Model cache root |
-| `HF_ENDPOINT`, `HF_HUB_DISABLE_XET` | Hub endpoint for `download` |
-| `TIKA_SERVER_ENDPOINT` | Tika server for `PdfDocument.open` |
+`rag.toml` is the only source. The one env lookup is the Qdrant API key: the
+variable named by `[qdrant].api_key_env` (default `QDRANT_API_KEY`) wins over
+`[qdrant].api_key`.
 
 The defaults keep CPU / MPS memory bounded on long Jira descriptions. Raise `max_seq_length`, `max_chars`, or `batch_size` only with spare GPU memory.
 
@@ -358,7 +352,7 @@ The collection names are hard-coded in `tools/rag/jira.py` (`JIRA_PROFILES`) and
 | Jira CXDS | `aug_jira_ds` | `fetch_related_jira_tickets(project="ds")` |
 | Jira SQD | `aug_jira_sqd` | `fetch_related_jira_tickets(project="sqd")` |
 | dbt semantic models | `aug_dbt_models` | `fetch_related_models(layer="hive_analytics")` |
-| dbt models of the metric catalog (the 39 in `tools/data/lib/models`) | `metric_catalog_models` | the `model_selection` eval only (`--rag-collection metric_catalog_models`); job file `rag-jobs/metric_catalog_models.json` |
+| dbt models of the metric catalog (the 39 in `semantic_models`) | `metric_catalog_models` | the `model_selection` eval only (`--rag-collection metric_catalog_models`); job file `rag-jobs/metric_catalog_models.json` |
 | Google Drive | any (e.g. `gdrive_tahoe`) | not read by a tool yet |
 
 ## Python API

@@ -1,12 +1,17 @@
+# Agent name (catalog key and `delegate` target); defaults to the file stem.
 name = "swe"
+# One-line summary for the catalog; the lead roster falls back to it without delegate_when.
 description = "Software engineering specialist (edit files, shell, Python scripts)"
+# Lead roster line: when the lead should delegate to this agent.
 delegate_when = """
 software engineering on local files — write or edit code and config, run shell commands or Python scripts, refactor, or fix a bug in the code
 """
 
 [system_prompt]
+# Inherit tahoe.toml's layout and sections; only the tables below differ.
 extends = "tahoe"
 
+# Replaces tahoe's role: software-engineering specialist.
 [system_prompt.sections.role]
 title = "Role"
 text = """
@@ -15,6 +20,7 @@ Implement, refactor, and debug scripts and small programs: edit files,
 run commands, execute Python snippets, and verify behavior before replying.
 """
 
+# Adds bullets after the inherited general rules: editing, planning and verification practice.
 [system_prompt.sections.general_rules]
 append = [
     """
@@ -40,6 +46,7 @@ append = [
 # Built-in tools per tool scope ("agent,scope" in AgentCatalog.tools_for).
 # "@name" expands a set from config/tool_groups.toml. MCP tools: [accepted_mcp].
 [tools]
+# Main scope: tools bound to this agent's ReAct loop.
 default = [
     "@memory",
     "@code",

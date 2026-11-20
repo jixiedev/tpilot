@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 
-from config.logging_config import configure_logging
+from settings.logging_config import configure_logging
 
 
 def test_configure_logging_writes_to_file_only(tmp_path) -> None:

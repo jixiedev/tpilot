@@ -80,8 +80,8 @@ def test_s3_missing_object(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_s3_connection_kwargs_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("AWS_ACCESS_KEY_ID", "AKIATEST")
     monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "secret")
-    monkeypatch.setenv("AWS_REGION", "us-west-2")
-    monkeypatch.setenv("AWS_ENDPOINT_URL", "https://s3.local")
+    monkeypatch.setattr(s3_mod, "s3_region", lambda: "us-west-2")
+    monkeypatch.setattr(s3_mod, "s3_endpoint_url", lambda: "https://s3.local")
     kwargs = s3_mod.s3_connection_kwargs()
     assert kwargs["aws_access_key_id"] == "AKIATEST"
     assert kwargs["region_name"] == "us-west-2"

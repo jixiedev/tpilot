@@ -1,0 +1,26 @@
+{
+  "description": "Small talk and capability questions are answered without delegating.",
+  "models": [
+    "MiniMax-M3"
+  ],
+  "run": {
+    "stub_specialists": true
+  },
+  "cases": [
+    {
+      "name": "answer_small_talk",
+      "query": "hello",
+      "expected_decision": [
+        "answer",
+        "clarify"
+      ],
+      "expected_routes": []
+    },
+    {
+      "name": "answer_capabilities",
+      "query": "What kinds of requests can you help me with?",
+      "expected_decision": "answer",
+      "expected_routes": []
+    }
+  ]
+}

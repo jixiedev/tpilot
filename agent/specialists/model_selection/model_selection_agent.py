@@ -29,7 +29,7 @@ from agent.specialists.databot.card_staging import staging_cards_reducer
 from agent.prompt import SystemPromptAssembler
 from agent.react import BaseReactAgent
 from agent.subagent import SubagentResult
-from config.agent_config import AgentConfig, ModelSelectionAgentConfig, agent_config_path
+from settings.agent_config import AgentConfig, ModelSelectionAgentConfig, agent_config_path
 from evals.answer_match import extract_json_object
 from graph.builder import ReactLoopSpec, ReactStateSpec, build_react_graph
 from graph.state import ReactAgentState

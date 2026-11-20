@@ -51,7 +51,7 @@ class ReactLoopSpec:
         cls, run_context: Mapping[str, Any], *, default_max_tool_calls: int = 10
     ) -> ReactLoopSpec:
         """Read ``next_step`` / nudge / budget prompts and ``max_tool_calls``."""
-        from config.agent_config import AgentConfig
+        from settings.agent_config import AgentConfig
 
         return cls(
             next_step_prompt=AgentConfig.as_str(run_context, "next_step"),

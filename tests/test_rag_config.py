@@ -37,14 +37,12 @@ def test_get_rag_config_loads_toml() -> None:
     get_rag_config.cache_clear()
 
 
-def test_get_rag_config_rejects_remote_embedding_provider(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setenv("EMBEDDING_PROVIDER", "openai")
+def test_rag_toml_holds_service_endpoints() -> None:
     get_rag_config.cache_clear()
     try:
-        with pytest.raises(ValueError, match="local BGE-M3"):
-            get_rag_config()
+        cfg = get_rag_config()
+        assert cfg.tika.endpoint == "http://localhost:9998"
+        assert cfg.local_models.dir
     finally:
         get_rag_config.cache_clear()
 

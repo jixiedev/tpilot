@@ -13,7 +13,7 @@ from langchain_core.tools import BaseTool
 from langgraph.checkpoint.base import BaseCheckpointSaver
 
 from agent.agent import BaseAgent
-from config.agent_config import AgentConfig, agent_config_path, agent_config_type
+from settings.agent_config import AgentConfig, agent_config_path, agent_config_type
 from memory import CompressionConfig
 from memory.profile_store import ProfileStore
 
@@ -185,7 +185,7 @@ class AgentCatalog:
         A configured name that is not registered (e.g. an optional extra such
         as ``rag`` is not installed) is skipped with a warning.
         """
-        from config.agent_config import agent_tool_scopes, tool_groups
+        from settings.agent_config import agent_tool_scopes, tool_groups
         from tools.registry import registered_tools
 
         registry = registered_tools()

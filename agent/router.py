@@ -6,7 +6,7 @@ import logging
 from collections.abc import Callable
 
 from agent.run_context import ReactContext, StateLike
-from config.agent_config import AgentConfig
+from settings.agent_config import AgentConfig
 from graph.state import idle_reason_rounds, latest_message, tool_call_count
 
 logger = logging.getLogger(__name__)

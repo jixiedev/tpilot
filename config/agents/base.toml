@@ -1,19 +1,30 @@
-# Shared system-prompt parent; not a registered agent.
+# Shared system-prompt and compression parent; not a registered agent.
+# Agent name; only used if this file is loaded directly (extends ignores it).
 name = "base"
 
-# Context-compression thresholds shared by every agent file. A file may
-# `[compression] extends = "base"` and override fields. offload_dir and the
-# session turn-boundary marker stay in code (memory.config.CompressionConfig).
+# Context-compression thresholds (memory.config.CompressionConfig). Every agent
+# file without its own [compression] inherits this table; one with a table
+# overlays its keys on it. offload_dir and the turn-boundary marker stay in code.
 [compression]
+# Master switch; false skips every compression layer.
 enabled = true
+# Model context size in tokens; fill = message tokens / this value.
 context_window = 128000
+# Tool results larger than this many tokens are written to a file and replaced by a preview.
 tool_result_offload_threshold = 8000
+# Arguments of write_tools calls larger than this many tokens are offloaded (only once fill_trigger is hit).
 tool_input_offload_threshold = 500
+# Context fill fraction (0-1) that triggers tool-input offload, then summarization.
 fill_trigger = 0.85
+# Fraction of context_window kept verbatim as the recent tail when older history is summarized.
 recent_messages_keep = 0.10
+# Lines of an offloaded tool result shown in its in-context preview.
 preview_lines = 30
+# Offload files older than this many days are deleted when a store opens; 0 disables.
 offload_max_age_days = 30
+# true drops earlier turns' tool calls/results, keeping each user message and final answer.
 prior_turns_qa_only = true
+# Tools whose large inputs may be offloaded after the write persisted (replaced, not merged, by children).
 write_tools = [
     "write_file",
     "edit_file",
@@ -23,16 +34,20 @@ write_tools = [
     "ingest_file_path",
     "str_replace_editor",
 ]
+# Tools whose results always stay in context (never offloaded); empty = none.
 never_offload_tools = []
 
+# Root system prompt: no extends; tahoe.toml builds on it.
 [system_prompt]
 
+# Section ids rendered in order; a child layout replaces this list entirely.
 layout = [
     "role",
     "general_rules",
     "session_layout",
 ]
 
+# Who the assistant is (generic persona; tahoe.toml and specialists replace it).
 [system_prompt.sections.role]
 title = "Role"
 text = """
@@ -40,6 +55,7 @@ You are TahoePilot, an interactive CLI assistant.
 Answer helpfully with enough detail for the user to understand, verify, and act on the answer.
 """
 
+# Rules for every agent; specialists add bullets with `append`.
 [system_prompt.sections.general_rules]
 title = "General rules"
 text = """
@@ -47,6 +63,7 @@ text = """
 - Prefer complete, actionable answers over brief summaries; include reasoning and caveats.
 - Use only tools that appear in the runtime tool list; do not invent tool names or capabilities.
 - General tools when present: `bash` (persistent shell), `python_execute` (print to see output), `str_replace_editor` (view/create/edit local files), `web_search` (public web), and `planning` (create/track multi-step plans). Use them only when they help the current request.
+- `bash`, `python_execute` and `str_replace_editor` work in your workspace folder (their starting directory). Keep files you create there; do not browse the server's own files, which are not part of the user's data.
 - Query results may be truncated; mention truncation when present.
 - Large tool results may be offloaded; call `read_offloaded_file(path)` when the preview is insufficient.
 - Call `compact_context(reason=...)` after a major phase, when the user switches topics, or when history holds stale intermediate tool output.
@@ -55,6 +72,7 @@ text = """
 - Honor the User profile section when present (identity, permissions, locale, and preferences).
 """
 
+# Explains the session turn-boundary marker so history is read as context only.
 [system_prompt.sections.session_layout]
 title = "Session message layout"
 text = """

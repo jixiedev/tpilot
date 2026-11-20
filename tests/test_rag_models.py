@@ -20,13 +20,13 @@ def _write_model(path: Path, *, embedder: bool) -> None:
 
 
 def test_resolve_model_dir_requires_a_prefetch(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("TAHOEPILOT_MODELS_DIR", str(tmp_path))
+    monkeypatch.setattr("rag.local_models.models_root", lambda: tmp_path)
     with pytest.raises(FileNotFoundError, match="python -m rag download"):
         resolve_model_dir("BAAI/bge-m3", embedder=True)
 
 
 def test_resolve_model_dir_uses_prefetched_copy(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("TAHOEPILOT_MODELS_DIR", str(tmp_path))
+    monkeypatch.setattr("rag.local_models.models_root", lambda: tmp_path)
     dest = tmp_path / "BAAI" / "bge-m3"
     _write_model(dest, embedder=True)
     assert resolve_model_dir("BAAI/bge-m3", embedder=True) == str(dest)
@@ -42,7 +42,7 @@ def test_download_configured_models_skips_hub_when_cache_is_ready(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("TAHOEPILOT_MODELS_DIR", str(tmp_path))
+    monkeypatch.setattr("rag.local_models.models_root", lambda: tmp_path)
     _write_model(tmp_path / "BAAI" / "bge-m3", embedder=True)
     _write_model(tmp_path / "BAAI" / "bge-reranker-v2-m3", embedder=False)
 

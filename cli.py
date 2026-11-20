@@ -9,16 +9,14 @@ import sys
 import uuid
 from pathlib import Path
 
-from dotenv import load_dotenv
+import settings.paths  # noqa: F401 — loads .env and the secrets file first
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
-
-load_dotenv(Path(__file__).resolve().parent / ".env")
 
 from agent.catalog import AgentCatalog, AgentCatalogSettings, DEFAULT_AGENT
 from agent.runtime import TahoeRuntimeHelper
 from memory.profile_store import resolve_user_id
-from config.local_config import ensure_local_dirs, get_local_paths
-from config.logging_config import configure_logging
+from settings.runtime_config import ensure_runtime_dirs, get_runtime_paths
+from settings.logging_config import configure_logging
 from graph.error_recovery import format_turn_failure
 from memory import CompressionConfig
 from models.llm import default_model_name, get_default_model
@@ -135,17 +133,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
         "-u",
         "--user-id",
         default=None,
-        help="User id for profile lookup (default: TAHOEPILOT_USER_ID or process username)",
-    )
-    parser.add_argument(
-        "--checkpoint-db",
-        default=None,
-        help="SQLite path for LangGraph checkpoints (default: from config/local.toml)",
-    )
-    parser.add_argument(
-        "--profile-dir",
-        default=None,
-        help="Directory for per-user profile JSON files (default: from config/local.toml)",
+        help="User id for profile lookup (default: [user].default_id in runtime.toml, else the OS user)",
     )
     parser.add_argument(
         "-v",
@@ -159,18 +147,17 @@ def build_arg_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> None:
     args = build_arg_parser().parse_args(argv)
     configure_logging(verbose=args.verbose)
-    ensure_local_dirs()
+    ensure_runtime_dirs()
     session = args.session or str(uuid.uuid4())
     user_id = resolve_user_id(args.user_id)
-    checkpoint_db = Path(args.checkpoint_db) if args.checkpoint_db else get_local_paths().checkpoint_db
-    profile_dir = Path(args.profile_dir) if args.profile_dir else get_local_paths().profiles_dir
+    local_paths = get_runtime_paths()
     asyncio.run(
         run_repl(
             agent_name=args.agent,
             session=session,
             user_id=user_id,
-            checkpoint_db=checkpoint_db,
-            profile_dir=profile_dir,
+            checkpoint_db=local_paths.checkpoint_db,
+            profile_dir=local_paths.profiles_dir,
             verbose=args.verbose,
         )
     )

@@ -12,7 +12,7 @@ from langgraph.graph.state import CompiledStateGraph
 
 from agent.agent import BaseAgent
 from agent.run_context import ReactContext
-from config.agent_config import AgentConfig
+from settings.agent_config import AgentConfig
 from agent.listener import AgentListener, CliListener, ListenerHub
 from agent.prompt import SystemPromptAssembler
 from agent.turn_messages import TurnMessagePolicy

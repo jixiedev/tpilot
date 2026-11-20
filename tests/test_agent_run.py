@@ -10,7 +10,7 @@ from agent.agent import BaseAgent
 from agent.listener import AgentListener
 from agent.prompt import SystemPromptAssembler
 from agent.turn_messages import DefaultTurnMessagePolicy
-from config.agent_config import AgentConfig, agent_config_path
+from settings.agent_config import AgentConfig, agent_config_path
 from agent.turn import AgentTurnResult
 from langgraph.types import interrupt
 from memory.profile import UserProfile

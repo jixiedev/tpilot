@@ -34,7 +34,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from typing import Any
@@ -51,12 +50,15 @@ from pydantic import BaseModel, Field
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 
 from agent.catalog import AgentCatalog, AgentCatalogSettings
-from agent.session import GRAPH_RECURSION_LIMIT
+from agent.session import GRAPH_RECURSION_LIMIT, with_run_user
 from agent.lead.paused import live_subagent_view
 from agent.runtime import TahoeRuntimeHelper
 from ag_ui_langgraph import LangGraphAgent  # add_langgraph_fastapi_endpoint no longer used
+from agui_auth import AuthError, DirectoryUnavailable, auth_config, login, user_from_request
 from agui_history import AguiHistoryRepair
-from config.local_config import ensure_local_dirs, get_local_paths
+from memory.profile_store import resolve_user_id
+from settings.runtime_config import ensure_runtime_dirs, get_runtime_paths
+from settings.server_config import get_server_config
 from models.llm import get_default_model
 
 # Follow-up requests resend streamed tool-call arguments. Install before any
@@ -70,13 +72,14 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname
 # Configuration
 # ---------------------------------------------------------------------------
 
-# Path to the SQLite checkpoint DB (``config/local.toml`` + env overrides).
-CHECKPOINT_DB = str(get_local_paths().checkpoint_db)
+# Path to the SQLite checkpoint DB (``config/runtime.toml`` + env overrides).
+CHECKPOINT_DB = str(get_runtime_paths().checkpoint_db)
 
 # AG-UI base path; each front agent is served at ``{AGUI_PATH}/{name}``. The
 # Next.js route ``frontend/app/api/copilotkit/[...path]/route.ts`` forwards
 # CopilotKit agent ``lead`` / ``databot`` to these endpoints.
-AGUI_PATH = os.environ.get("AGUI_AGENT_PATH", "/agui").rstrip("/") or "/agui"
+# Set in ``<config dir>/server.toml`` ``[agui]``, like the other server settings.
+AGUI_PATH = get_server_config().agui.base_path
 
 LEAD_AGENT = "lead"
 DATABOT_AGENT = "databot"
@@ -96,18 +99,24 @@ def agent_path(name: str) -> str:
     return f"{AGUI_PATH}/{name}"
 
 
+# Request header naming the visitor (``[agui].user_header`` in server.toml). The
+# ingress / auth proxy must set it; CopilotKit's runtime forwards ``x-*`` headers
+# from the browser request to this server unchanged.
+USER_HEADER = get_server_config().agui.user_header
+
+
 # How a delegated specialist's own stream reaches the client (ag_ui_langgraph):
 # "inline" streams its text and tool calls as the lead's work (the only mode a
 # @ag-ui/client <= 0.0.57 accepts), "hidden" shows only the delegate call and
 # its result, "attributed" adds SUBAGENT_* events (needs a newer client).
-SUBAGENT_VISIBILITY = os.environ.get("AGUI_SUBAGENT_VISIBILITY", "inline")
+SUBAGENT_VISIBILITY = get_server_config().agui.subagent_visibility
 
 # The adapter's raw LangGraph event copies are off by default. With them on it
 # attaches each underlying event (full prompts, full specialist state) to every
 # AG-UI event: a dozen nested databot steps streamed ~95 MB to the browser,
 # against ~0.3 MB without, and a longer run hung a 16 GB machine. Nothing in
-# the frontend reads them; set AGUI_EMIT_RAW_EVENTS=1 to debug the stream.
-EMIT_RAW_EVENTS = os.environ.get("AGUI_EMIT_RAW_EVENTS", "").strip().lower() in {"1", "true", "yes"}
+# the frontend reads them; set ``emit_raw_events = true`` in server.toml to debug.
+EMIT_RAW_EVENTS = get_server_config().agui.emit_raw_events
 
 
 # ---------------------------------------------------------------------------
@@ -217,7 +226,7 @@ CHECKPOINTS = CheckpointStore()
 
 
 async def _create_front_agent(name: str) -> Any:
-    profile_store = TahoeRuntimeHelper.default_profile_store(get_local_paths().profiles_dir)
+    profile_store = TahoeRuntimeHelper.default_profile_store(get_runtime_paths().profiles_dir)
     catalog = AgentCatalog(
         AgentCatalogSettings.for_agent(
             name,
@@ -336,7 +345,12 @@ def make_runtimes() -> dict[str, AguiRuntime]:
 # context manager (it rejects on_startup/on_shutdown handlers).
 @asynccontextmanager
 async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
-    ensure_local_dirs()
+    ensure_runtime_dirs()
+    if auth_config().enabled and auth_config().skip_password_check:
+        logger.warning(
+            "[auth].skip_password_check is on: the login page accepts ANY password "
+            "(development only; anyone can sign in as anyone)"
+        )
     runtimes: dict[str, AguiRuntime] = app.state.runtimes
     # Build eagerly so a broken setup fails startup instead of each request.
     for runtime in runtimes.values():
@@ -438,9 +452,87 @@ def _log_schema_keys(agent: LangGraphAgent, thread_id: str) -> None:
         logger.warning("agui_endpoint: get_schema_keys failed: %r", exc)
 
 
+async def _request_user_id(request: Request, runtime: AguiRuntime, thread_id: str) -> str:
+    """The run's user.
+
+    With ``[auth].enabled``: the username in the session token (else HTTP 401).
+    Otherwise the user header, else the thread's checkpointed id, else the default.
+
+    Same resolver as the CLI (``memory.profile_store.resolve_user_id``). The
+    client's own ``state.user_id`` is never consulted: the browser can set it.
+    """
+    if auth_config().enabled:
+        # Login on: only a valid session token identifies the user.
+        return _signed_in_user(request)
+    header = (request.headers.get(USER_HEADER) or "").strip() if USER_HEADER else ""
+    prior = None
+    if not header:
+        # The plain compiled graph: the views' overlays are not needed here.
+        graph = getattr(runtime.graph, "_graph", runtime.graph)
+        try:
+            snapshot = await graph.aget_state({"configurable": {"thread_id": thread_id}})
+            prior = (snapshot.values or {}).get("user_id")
+        except Exception:  # noqa: BLE001 - fall back to the default user
+            logger.exception("could not read the thread's user id (thread=%s)", thread_id)
+    return resolve_user_id(header or None, prior=prior)
+
+
+def _signed_in_user(request: Request) -> str:
+    try:
+        return user_from_request(request.headers)
+    except AuthError as exc:
+        raise HTTPException(status_code=401, detail=str(exc)) from exc
+
+
+def bind_run_user(
+    input_data: RunAgentInput, config: dict[str, Any] | None, user_id: str
+) -> tuple[RunAgentInput, dict[str, Any]]:
+    """Put ``user_id`` in the run's state (profile, persona, delegation) and config (tools).
+
+    The state value overwrites whatever the client sent. On a resume the
+    adapter ignores client state, so the config is what carries it there.
+    """
+    state = dict(input_data.state) if isinstance(input_data.state, dict) else {}
+    state["user_id"] = user_id
+    return input_data.model_copy(update={"state": state}), with_run_user(config, user_id)
+
+
 # Hand-rolled instead of ``ag_ui_langgraph.add_langgraph_fastapi_endpoint``:
 # that helper has no hook for the deferred graph build, and its signature
 # changes between versions. The body mirrors what it does internally.
+# ---------------------------------------------------------------------------
+# Login ([auth] in server.toml; see agui_auth.py)
+# ---------------------------------------------------------------------------
+
+
+class LoginBody(BaseModel):
+    username: str = Field(min_length=1, max_length=128)
+    password: str = Field(max_length=1024)
+
+
+@app.post(f"{AGUI_PATH}/auth/login")
+async def auth_login(body: LoginBody) -> dict:
+    """Check the password with LDAP; return a session token for the username."""
+    if not auth_config().enabled:
+        raise HTTPException(status_code=404, detail="login is disabled")
+    try:
+        token, session = await asyncio.to_thread(login, body.username, body.password)
+    except AuthError as exc:
+        raise HTTPException(status_code=401, detail=str(exc)) from exc
+    except DirectoryUnavailable as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    logger.info("login: %s", session.user)
+    return {"user": session.user, "token": token, "expires_at": session.expires_at}
+
+
+@app.get(f"{AGUI_PATH}/auth/me")
+def auth_me(request: Request) -> dict:
+    """The signed-in user (``{"user": null}`` when login is disabled)."""
+    if not auth_config().enabled:
+        return {"user": None, "auth": False}
+    return {"user": _signed_in_user(request), "auth": True}
+
+
 @app.post(f"{AGUI_PATH}/{{agent_name}}")
 async def agui_endpoint(agent_name: str, input_data: RunAgentInput, request: Request):
     runtime = _runtime(request, agent_name)
@@ -449,6 +541,8 @@ async def agui_endpoint(agent_name: str, input_data: RunAgentInput, request: Req
     # Clone per request: LangGraphAgent keeps per-run state in
     # ``self.active_run``, so a shared instance breaks under concurrency.
     request_agent = runtime.agent.clone()
+    user_id = await _request_user_id(request, runtime, input_data.thread_id)
+    input_data, request_agent.config = bind_run_user(input_data, request_agent.config, user_id)
     _log_schema_keys(request_agent, input_data.thread_id)
     return StreamingResponse(
         _stream_events(request_agent, input_data, encoder),
@@ -478,6 +572,8 @@ class DatabotUiActionBody(BaseModel):
 @app.post(f"{agent_path(DATABOT_AGENT)}/actions")
 async def databot_ui_action(body: DatabotUiActionBody, request: Request) -> dict:
     """Apply a human UI edit to databot's checkpoint while it waits at a gate."""
+    if auth_config().enabled:
+        _signed_in_user(request)
     from agent.specialists.databot.graph import DatabotGraphBuilder
     from agent.specialists.databot.ui_actions import build_ui_action_patch, databot_state_subset
 
@@ -540,20 +636,19 @@ logger.info(
 # (it loads ``agui_server.py:app`` via the ``http.app`` field in
 # ``langgraph.json``), but if you ever need to run just the AG-UI
 # server in isolation — e.g. against a remote LangGraph deployment —
-# this is the entry point. ``AGUI_HOST`` / ``AGUI_PORT`` override the
-# bind address; the defaults match what
+# this is the entry point. The bind address is ``[agui].host`` / ``port``
+# in ``<config dir>/server.toml``; the defaults match what
 # ``frontend/app/api/copilotkit/[...path]/route.ts`` expects
 # (``http://localhost:8000/agui/<agent>``).
 
 def main() -> None:
     import uvicorn
 
-    host = os.environ.get("AGUI_HOST", "127.0.0.1")
-    port = int(os.environ.get("AGUI_PORT", "8000"))
+    agui = get_server_config().agui
     uvicorn.run(
         "agui_server:app",
-        host=host,
-        port=port,
+        host=agui.host,
+        port=agui.port,
         log_level="info",
         reload=False,
     )

@@ -1,19 +1,23 @@
 # Shared Tahoe-team system-prompt parent; not a registered agent.
+# Agent name; only used if this file is loaded directly (extends ignores it).
 name = "tahoe"
 
-# Default ReAct loop limits. Databot nested tables ``[run_context.react.fetch]`` and
-# ``[run_context.react.sql]`` set ``extends = "tahoe"`` before overlaying stage-specific
-# next_step / idle / tool-budget prompts in ``config/agents/databot.toml``.
-# ``max_idle_reason_rounds`` only applies to such staged loops (a router with a stage
-# contract); pure ReAct specialists do not resolve it.
+# Default ReAct loop limits, used only by files that extend "tahoe" here
+# (lead.toml, databot's [run_context.react.fetch]/[run_context.react.sql]);
+# specialists without a [run_context] table get the equal code defaults.
 [run_context]
+# Tool-call batches per turn; at the limit the model answers once more without tools.
 max_tool_calls = 10
+# Plain-text replies retried while a stage goal is unmet; only staged loops
+# (databot) read it, pure ReAct agents such as the lead drop it.
 max_idle_reason_rounds = 1
 
 # Base chat persona; Databot ``[system_prompt] extends = "tahoe"`` and adds data-retrieval sections.
 [system_prompt]
+# Inherit base.toml's sections (role, general_rules, session_layout).
 extends = "base"
 
+# Render order; replaces base's layout (adds business_context and output).
 layout = [
     "role",
     "business_context",
@@ -28,7 +32,7 @@ layout = [
 title = "Business context"
 text = """
 TahoePilot works for the Tahoe team at Wish, the e-commerce marketplace. "Wish"
-is our company: the warehouse, metrics, glossary, dbt models, pipelines and
+is our company: the warehouse, metrics, metric catalog, dbt models, pipelines and
 code are Wish's own.
 - In a data question, "Wish" (or "wish") means the whole Wish marketplace.
   "Wish's GMV last month" is total marketplace GMV for that month; it is not
@@ -40,6 +44,7 @@ code are Wish's own.
   not a brand.
 """
 
+# Tahoe-team persona; replaces base's role (specialists replace it again).
 [system_prompt.sections.role]
 title = "Role"
 text = """
@@ -48,6 +53,7 @@ Help users complete their requests with clear reasoning, the available tools,
 and transparent, verifiable answers.
 """
 
+# How to end the turn: answer in plain text with no tool calls.
 [system_prompt.sections.output]
 title = "Output"
 text = """

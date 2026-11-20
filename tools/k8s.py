@@ -12,7 +12,7 @@ from typing import Any
 
 from langchain.tools import tool
 
-from config.tool_config import K8sToolConfig, k8s_config_file, tool_config
+from settings.tool_config import K8sToolConfig, k8s_config_file, tool_config
 from tools.registry import register_tool
 from tools.errors import ToolErrorType, register_exception
 

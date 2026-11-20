@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from agent.prompt import SystemPromptAssembler
 from agent.react import BaseReactAgent
-from config.agent_config import AgentConfig, agent_config_path
+from settings.agent_config import AgentConfig, agent_config_path
 
 REGISTRY_NAME = "data_analysis"
 TOOL_ID_DEFAULT = "default"

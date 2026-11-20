@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from agent.prompt import SystemPromptAssembler
 from agent.react import BaseReactAgent
-from config.agent_config import AgentConfig, agent_config_path
+from settings.agent_config import AgentConfig, agent_config_path
 
 REGISTRY_NAME = "knowledge"
 TOOL_ID_DEFAULT = "default"
@@ -20,7 +20,7 @@ class KnowledgeSystemPrompt(SystemPromptAssembler):
 
 
 class KnowledgeAgent(BaseReactAgent):
-    """Team knowledge specialist (code, docs, wikis, Jira)."""
+    """Team knowledge specialist (metrics and models, code, docs, wikis, Jira)."""
 
     prompt_factory = KnowledgeSystemPrompt
     tool_ids = TOOL_ID_REACT

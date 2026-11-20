@@ -8,7 +8,7 @@ every case where the arms disagree. Several files are merged first, so arms run
 in separate processes can be reported together.
 
 ``--rescore`` re-scores every stored reply against the current case file
-(``evals/cases/model_selection.json``) with the current answer parser, so a
+(``evals/cases/model_selection/*.json``) with the current answer parser, so a
 gold-label correction or parser fix needs no new LLM runs.
 """
 
@@ -40,13 +40,11 @@ def rescore_runs(
 ) -> list[dict[str, Any]]:
     """Recompute selection / recall from each stored reply and the current cases."""
     from agent.specialists.model_selection import parse_selection
-    from evals.selection_case import find_selection_cases, normalize_model_name
+    from evals.case import load_cases
+    from evals.checks import normalize_model_name
 
-    groups = sorted({run["case"].split("/", 1)[0] for run in runs})
-    cases = {
-        f"{case.case_group}/{case.name}": case
-        for case in find_selection_cases(groups, cases_dir=cases_dir)
-    }
+    agents = sorted({run["case"].split("/", 1)[0] for run in runs})
+    cases = {case.id: case for agent in agents for case in load_cases(agent, cases_dir=cases_dir)}
     out: list[dict[str, Any]] = []
     for run in runs:
         case = cases.get(run["case"])
@@ -55,7 +53,8 @@ def rescore_runs(
             continue
         selection = parse_selection(run["reply"])
         chosen = normalize_model_name(selection.get("model"))
-        expected = set(case.expected_models)
+        expected_models = [normalize_model_name(m) for m in case.expect.get("expected_models") or []]
+        expected = set(expected_models)
         if expected:
             sel = 1.0 if chosen and chosen in expected else 0.0
             recall = 1.0 if expected & set(run["candidates"]) else 0.0
@@ -65,7 +64,7 @@ def rescore_runs(
         score = dict(run["score"])
         score.update(selection=sel, recall=recall)
         score["details"] = {**score.get("details", {}), "parsed": bool(selection), "chosen": chosen}
-        out.append({**run, "kind": case.kind, "expected": case.expected_models, "chosen": chosen, "score": score})
+        out.append({**run, "kind": case.kind, "expected": expected_models, "chosen": chosen, "score": score})
     return out
 
 

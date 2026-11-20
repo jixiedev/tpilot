@@ -17,7 +17,7 @@ from agent.listener import AgentListener, ListenerHub
 from agent.prompt import SystemPromptAssembler
 from agent.turn_messages import DefaultTurnMessagePolicy, TurnMessagePolicy, SessionTurnProcessor
 from agent.turn import AgentTurnResult, OnInterrupt
-from config.agent_config import AgentConfig
+from settings.agent_config import AgentConfig
 from memory import CompressionConfig, ContextCompressor, make_compressor
 from memory.session_runtime import SessionRuntime
 from agent.session import GRAPH_RECURSION_LIMIT, SessionUserRequest, session_graph_config

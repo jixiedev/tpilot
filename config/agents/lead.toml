@@ -1,8 +1,12 @@
+# Agent name (catalog key and AG-UI endpoint name); defaults to the file stem.
 name = "lead"
+# One-line summary for the catalog listing (no delegate_when: the lead is never delegated to).
 description = "Front agent: answers, asks clarifying questions, plans and delegates to specialists"
+# Front agent: user-facing endpoint, excluded from the lead roster and from `delegate`.
 front = true
 
 [run_context]
+# Start from tahoe.toml's [run_context] (max_idle_reason_rounds is dropped for the lead).
 extends = "tahoe"
 # Tool batches per turn (delegate / write_plan / memory tools).
 max_tool_calls = 12
@@ -10,8 +14,10 @@ max_tool_calls = 12
 max_delegations = 6
 
 [system_prompt]
+# Inherit tahoe.toml's layout and sections; only the tables below differ.
 extends = "tahoe"
 
+# Replaces tahoe's role: the user-facing lead that answers, clarifies and delegates.
 [system_prompt.sections.role]
 title = "Role"
 text = """
@@ -22,6 +28,7 @@ when a request is ambiguous, and hand real work to specialist agents with
 and `context` tell them.
 """
 
+# Adds bullets after the inherited general rules: answering, briefing, planning and routing.
 [system_prompt.sections.general_rules]
 append = [
     """
@@ -60,10 +67,11 @@ append = [
     specialist that cannot finish within them must stop and report.
     """,
     """
-    "What does X mean" or "how is X defined" (a metric, KPI or glossary term)
-    goes to `knowledge`, not `warehouse`: warehouse fetches data and asks the
-    user to review its SQL. Send it to warehouse only when the user also wants
-    a number.
+    "What does X mean", "how is X defined or calculated" or "which models
+    have X" (a metric or KPI) goes to `knowledge`, which answers from the
+    curated metric catalog; not to `warehouse`, which fetches data and asks
+    the user to review its SQL. Send it to warehouse only when the user also
+    wants a number.
     """,
     """
     Numbers and other facts from the warehouse come only from `warehouse`.
@@ -84,10 +92,13 @@ append = [
 
 # Built-in tools per scope. `delegate` and `write_plan` are bound by LeadAgent.
 [tools]
+# Main scope: context tools (compact_context, read_offloaded_file).
 default = ["@memory"]
 
 # A specialist's result is the answer the lead must read in full: never swap a
 # `delegate` result for a file preview (it once hid the summary's key line).
 [compression]
+# Start from base.toml's thresholds and override only the key below.
 extends = "base"
+# Results of these tools are never offloaded to a file.
 never_offload_tools = ["delegate"]

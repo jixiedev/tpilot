@@ -1,9 +1,30 @@
 # Configuration
 
-TahoePilot keeps agent behavior, connection settings, model definitions and local
-paths in TOML/JSON files. Python modules next to each file parse it into typed
-objects. Secrets never need to live in a file: every credential has an
-environment-variable override, and `.env` is loaded at startup.
+TahoePilot keeps agent behavior, connection settings, model definitions, local
+paths and the metric catalog in TOML/JSON/CSV files, all in this one directory.
+The Python modules that parse them into typed objects live in `settings/`.
+Secrets never live here: they come from a separate secrets file or the
+environment (see [Environment, `.env` and secrets](#environment-env-and-secrets)).
+
+This directory holds data only, so a deployment replaces it with a single
+mount (for example a k8s ConfigMap at `/tahoepilot/config`). Code finds it
+through `settings/paths.py`: `config_dir()` is `$TAHOEPILOT_CONFIG_DIR`, default
+`/tahoepilot/config`. A relative value resolves against the project root, so a
+dev checkout puts `TAHOEPILOT_CONFIG_DIR=config` in `.env`.
+
+**Rules.**
+
+- Every non-secret setting (paths, hosts, ports, URLs, models, agents) is read
+  from a file here. There are no env-var or CLI overrides for them.
+- Secrets live in the secrets file (`$TAHOEPILOT_SECRETS_FILE`, `secrets.env`
+  locally, a mounted k8s Secret in a cluster) or real env vars. Config files
+  name them with `*_env` keys, e.g. `api_key_env = "MiniMax_API_KEY"`, or
+  `${VAR}` in `mcp.json`.
+- `TAHOEPILOT_CONFIG_DIR` and `TAHOEPILOT_SECRETS_FILE` are the only
+  TahoePilot variables in `.env`; it holds no secrets.
+- The semantic models are data, not config: `models_dir` in
+  `semantic.toml` points to them (default `semantic_models/`, where a git-sync
+  volume is mounted).
 
 Related docs: [agent/README.md](../agent/README.md) (catalog, agent classes),
 [tools/README.md](../tools/README.md) (tool registry, MCP),
@@ -18,16 +39,20 @@ Related docs: [agent/README.md](../agent/README.md) (catalog, agent classes),
 
 | File | Parsed by | Holds |
 | --- | --- | --- |
-| `config/agents/<name>.toml` | `config/agent_config.py` (`AgentConfig` and subclasses) | Identity, `delegate_when` roster line, system prompt, run context, compression, tool scopes, accepted MCP servers |
+| `config/agents/<name>.toml` | `settings/agent_config.py` (`AgentConfig` and subclasses) | Identity, `delegate_when` roster line, system prompt, run context, compression, tool scopes, accepted MCP servers |
 | `config/agents/base.toml`, `tahoe.toml`, `stage.toml` | same | Shared parents for `extends`; not registered agents |
-| `config/tool_groups.toml` | `tool_groups()` in `config/agent_config.py` | Named tool sets referenced as `@group` |
-| `config/tools.toml` | `config/tool_config.py` (`ToolConfig`) | Hive, Trino, DataHub, Kubernetes, web search, S3 connection settings |
-| `config/local.toml` | `config/local_config.py` (`LocalConfig`, `LocalPaths`) | Checkpoint DB, profiles, offload store, log paths |
-| `config/logging_config.py` | – | File-only logging setup (`configure_logging`) |
-| `models/models.toml` | `models/llm.py` (`ModelConfig`) | Chat model endpoints and the default model |
+| `config/tool_groups.toml` | `tool_groups()` in `settings/agent_config.py` | Named tool sets referenced as `@group` |
+| `config/tools.toml` | `settings/tool_config.py` (`ToolConfig`) | Hive, Trino, DataHub, Kubernetes, web search, S3 connection settings |
+| `config/runtime.toml` | `settings/runtime_config.py` (`RuntimeConfig` → resolved `RuntimePaths`) | Checkpoint DB, profiles, offload store, log paths; default user id |
+| `config/semantic.toml` | `settings/semantic_config.py` (`SemanticConfig` → resolved `SemanticPaths`) | Semantic model dir and metric catalog files |
+| `settings/logging_config.py` | – | File-only logging setup (`configure_logging`) |
+| `config/models.toml` | `models/llm.py` (`ModelConfig`) | Chat model endpoints and the default model |
 | `config/rag.toml` | `rag/config.py` (`RagConfig`) | Qdrant, embedding and rerank settings |
-| `tools/mcp/mcp.json` | `tools/mcp/client.py` | MCP server definitions |
-| `.env` | `python-dotenv` in `main.py` / `cli.py`; `"env"` in `langgraph.json` | Secrets and environment overrides |
+| `config/mcp.json` | `tools/mcp/client.py` | MCP server definitions |
+| `config/server.toml` | `settings/server_config.py` (`ServerConfig`) | AG-UI backend host/port/path/stream options; Next.js host/port/backend URL |
+| `config/metrics/*.csv`, `*.json` | `tools/data/metrics.py` | Metric catalog: roots, members, model → metric assignments (paths in `semantic.toml`) |
+| `.env` (repo root) | `settings/paths.py`; `"env"` in `langgraph.json` | Non-secret: `TAHOEPILOT_CONFIG_DIR`, `TAHOEPILOT_SECRETS_FILE`, `HF_*` library flags |
+| `secrets.env` (`$TAHOEPILOT_SECRETS_FILE`) | `settings/paths.py` | API keys, passwords, tokens; template `secrets.env.example` |
 
 ## Concepts
 
@@ -209,7 +234,7 @@ How tools register by name is covered in [tools/README.md](../tools/README.md).
 
 ### `[accepted_mcp]`
 
-Maps a tool scope id to MCP server names from `tools/mcp/mcp.json`. A string is
+Maps a tool scope id to MCP server names from `config/mcp.json`. A string is
 treated as a one-element list; `"*"` (`MCP_ALL_SERVERS`) means every configured
 server. `AgentCatalog.register_mcp_tools` loads the tools once per agent and adds
 them under `"<agent>,<scope>"`. Servers that fail to load are logged and skipped.
@@ -222,51 +247,89 @@ Top-level keys are group names, values are tool-name lists: `memory`, `code`,
 
 ## Connections: `config/tools.toml`
 
-Loaded once at import of `config/tool_config.py` into `tool_config`. The file is
+Loaded once at import of `settings/tool_config.py` into `tool_config`. The file is
 required, and `[hive]` and `[trino]` must be present.
 
-| Table | Keys | Env override (default variable) |
+| Table | Keys | Secret env variable (default name) |
 | --- | --- | --- |
 | `[hive]` | `hms_host`, `hms_port` | – |
-| `[trino]` | `host`, `port`, `user`, `password`, `password_env`, `catalog`, `schema_name`, `http_scheme` | `password_env` (no default; `trino_password()` raises if neither is set) |
-| `[datahub]` | `gms_url`, `gms_url_env`, `token`, `token_env`, `timeout_seconds` | `DATAHUB_GMS_URL`, `DATAHUB_GMS_TOKEN` |
-| `[k8s]` | `config_file`, `config_file_env`, `default_namespace` | `KUBECONFIG` (empty means default kubeconfig discovery) |
+| `[trino]` | `host`, `port`, `user`, `user_env`, `password`, `password_env`, `catalog`, `schema_name`, `http_scheme`, `request_timeout_seconds`, `max_attempts` | `TRINO_USER`, `TRINO_PASSWORD` (as set in tools.toml; `trino_user()` / `trino_password()` raise if neither is set) |
+| `[datahub]` | `gms_url`, `token`, `token_env`, `timeout_seconds` | `DATAHUB_GMS_TOKEN` |
+| `[k8s]` | `config_file`, `default_namespace` | – (empty `config_file` means the client's default discovery) |
 | `[web_search]` | `enabled`, `provider`, `max_results`, `tavily_api_key`, `tavily_api_key_env`, `brave_api_key`, `brave_api_key_env` | `TAVILY_API_KEY`, `BRAVE_API_KEY` |
-| `[s3]` | `access_key_id`, `secret_access_key`, `region`, `endpoint_url` and their `*_env` keys, `path_style_access` | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION` (then `AWS_DEFAULT_REGION`), `AWS_ENDPOINT_URL` |
+| `[s3]` | `access_key_id(_env)`, `secret_access_key(_env)`, `region`, `endpoint_url`, `path_style_access` | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` |
 
-The resolver functions (`trino_password`, `datahub_gms_url`, `datahub_token`,
-`k8s_config_file`, `web_search_api_key`, `s3_*`) read the env variable first and
-fall back to the inline value. Set a `*_env` key to empty to disable the env
-lookup. The file also has a `[spark]` table that `ToolConfig` does not read.
+Only secrets have an env lookup: the resolvers (`trino_user`, `trino_password`,
+`datahub_token`, `web_search_api_key`, `s3_access_key_id`,
+`s3_secret_access_key`) read the variable named by the `*_env` key first and
+fall back to the inline value; set a `*_env` key to empty to disable it. Every
+other key (`gms_url`, `config_file`, `region`, `endpoint_url`, ...) comes from
+the file only. The file also has a `[spark]` table that `ToolConfig` does not read.
 
-## Local paths: `config/local.toml`
+## Runtime paths: `config/runtime.toml`
 
-`[paths]` keys and their env overrides (`config/local_config.py`):
+`[paths]` keys (`settings/runtime_config.py`); `runtime.toml` is the only source:
 
-| Key | Env variable | Default |
-| --- | --- | --- |
-| `data_dir` | `TAHOEPILOT_LOCAL_DIR` | `.local` |
-| `checkpoint_db` | `TAHOEPILOT_CHECKPOINT_DB`, then `AGUI_CHECKPOINT_DB` | `<data_dir>/checkpoints.sqlite` |
-| `profiles_dir` | `TAHOEPILOT_PROFILE_DIR` | `<data_dir>/profiles` |
-| `offload_dir` | `TAHOEPILOT_OFFLOAD_DIR` | `<data_dir>/offload_store` |
-| `logs_dir` | `TAHOEPILOT_LOGS_DIR` | `<data_dir>/logs` |
-| `log_file` | `TAHOEPILOT_LOG_FILE` | `<logs_dir>/tahoepilot.log` |
+| Key | Default |
+| --- | --- |
+| `data_dir` | `.local` (in k8s, the PVC mount such as `/data`) |
+| `checkpoint_db` | `<data_dir>/checkpoints.sqlite` |
+| `profiles_dir` | `<data_dir>/profiles` |
+| `offload_dir` | `<data_dir>/offload_store` |
+| `logs_dir` | `<data_dir>/logs` |
+| `log_file` | `<logs_dir>/tahoepilot.log` |
+| `workspace_dir` | `<data_dir>/workspace`: working folder of `bash`, `python_execute`, `str_replace_editor` (see [tools/README.md](../tools/README.md)) |
 
-Order per path: env variable, then the TOML value, then the default under
-`data_dir`. Relative paths resolve against the project root; `~` is expanded.
-The `*_env` keys rename the variables. Results are cached by
-`get_local_paths()`; call `reset_local_paths_cache()` after changing env in
-tests. `ensure_local_dirs()` creates the directories. Without `local.toml` the
+An empty value takes the default. Relative paths resolve against the project
+root; `~` is expanded. Results are cached by `get_runtime_paths()`; call
+`reset_runtime_paths_cache()` after changing the config dir in tests. `ensure_runtime_dirs()` creates the directories. Without `runtime.toml` the
 defaults apply.
 
-## Logging: `config/logging_config.py`
+`[user].default_id` is the profile user id when none is given (`-u` on the
+CLI, or the `[agui].user_header` request header on the web) and the thread has
+no stored id; empty means the OS user name.
+
+Naming: `RuntimeConfig` / `PathsConfig` / `UserConfig` mirror the file as
+written; `RuntimePaths` is the resolved result (absolute paths, defaults filled
+in) that callers use.
+
+## Metric catalog: `config/semantic.toml`
+
+Top-level keys, parsed by `get_semantic_config()` and resolved by
+`get_semantic_paths()` in `settings/semantic_config.py`; read by
+`tools/data/metrics.py`. Relative paths resolve against the project root.
+
+| Key | Default |
+| --- | --- |
+| `models_dir` | `semantic_models` (`<db>/<model>.{yml,sql}`; mount the git-sync volume here) |
+| `metric_root` | `config/metrics/final_root.csv` |
+| `metric_member` | `config/metrics/root_member.csv` |
+| `metric_assign` | `config/metrics/root_member_assign.json` |
+
+The metric catalog caches what it loads per process, so a change needs a
+restart.
+
+## Servers: `config/server.toml`
+
+`settings/server_config.py` (`get_server_config()`):
+
+| Table | Keys | Used by |
+| --- | --- | --- |
+| `[agui]` | `host`, `port`, `path` (base path, agents at `<path>/<name>`), `subagent_visibility` (`inline` / `hidden` / `attributed`), `emit_raw_events`, `user_header` (request header naming the visitor) | `agui_server.py` (`path` and stream options always; `host`/`port` for the standalone `python agui_server.py`) |
+| `[auth]` | `enabled`, `skip_password_check` (development only: accept any password, no LDAP), `ldap_url`, `user_base_dn` + `user_search_filter` + `bind_user` + `bind_password_env` (search-then-bind with a service account; default secret `LDAP_BIND_PASSWORD`) or `user_dn_template` (`{username}` is replaced), `start_tls`, `timeout_seconds`, `session_hours`, `session_secret_env` (default `TAHOEPILOT_SESSION_SECRET`, in the secrets file) | `agui_auth.py` (login page: LDAP bind, signed session token), `settings/server_config.py` (`TAHOEPILOT_AUTH_ENABLED` for Next.js) |
+| `[frontend]` | `host`, `port`, `backend_url` | `docker/entrypoint.sh` exports them as `HOSTNAME`, `PORT`, `AGUI_BACKEND_URL` for Next.js (`python -m settings.server_config`) |
+
+`langgraph dev` (`scripts/dev.sh`) still picks its own port (8000) and `next
+dev` reads `AGUI_BACKEND_URL` from its environment.
+
+## Logging: `settings/logging_config.py`
 
 `configure_logging(log_file=None, verbose=False)` installs a single file handler
-on the root logger (no console output) at `LocalPaths.log_file`, `INFO` level or
+on the root logger (no console output) at `RuntimePaths.log_file`, `INFO` level or
 `DEBUG` with `verbose=True` (`-v` on the CLI). MCP stdio server stderr is
 redirected to the same file by `tools/mcp/client.py`.
 
-## Models: `models/models.toml`
+## Models: `config/models.toml`
 
 | Key | Meaning |
 | --- | --- |
@@ -288,32 +351,35 @@ raises `RuntimeError` listing each failure only if none works.
 
 ## RAG: `config/rag.toml`
 
-Tables `[qdrant]`, `[embedding]`, `[rerank]`, parsed by `get_rag_config()` in
-`rag/config.py`. Env overrides: `QDRANT_URL`, `QDRANT_API_KEY` (via
-`api_key_env`), `EMBEDDING_MODEL`, `EMBEDDING_VECTOR_SIZE`, `EMBEDDING_DEVICE`.
-`EMBEDDING_PROVIDER` set to anything other than `local` raises `ValueError`. Details:
+Tables `[qdrant]`, `[embedding]`, `[rerank]`, `[local_models]` (weight cache
+`dir`, `hf_endpoint`), `[tika]` (`endpoint`), parsed by `get_rag_config()` in
+`rag/config.py`. The only env lookup is the Qdrant API key (`api_key_env`,
+default `QDRANT_API_KEY`). Details:
 [rag/README.md](../rag/README.md).
 
-## MCP servers: `tools/mcp/mcp.json`
+## MCP servers: `config/mcp.json`
 
 Cursor-style `{"mcpServers": {"<name>": {...}}}` or a flat map, as accepted by
-`MultiServerMCPClient`. `tools/mcp/mcp.json.example` shows a stdio server.
+`MultiServerMCPClient`. `config/mcp.json.example` shows a stdio server.
 `${VAR}` in any string is replaced from the environment at load time (unknown
-variables stay literal), so tokens belong in `.env`. Server names are what
+variables stay literal), so tokens belong in the secrets file. Server names are what
 `[accepted_mcp]` refers to.
 
-## Environment and `.env`
+## Environment, `.env` and secrets
 
-| Entry point | How `.env` is loaded |
-| --- | --- |
-| `main.py`, `cli.py` | `load_dotenv(<repo>/.env)` before other imports |
-| `langgraph dev` | `"env": ".env"` in `langgraph.json` |
-| `evals/__main__.py` | `load_dotenv` |
-| `agui_server.py` | Not loaded; export variables in the shell |
+`settings/paths.py` loads two files on import, so every entry point (CLI,
+`agui_server.py`, evals, RAG jobs) sees them before reading any config file.
+Real environment variables always win; `scripts/dev.sh` sources both files the
+same way, and `langgraph dev` also loads `.env` via `"env": ".env"`.
 
-Other variables: `TAHOEPILOT_USER_ID` (default user id, see
-[memory/README.md](../memory/README.md#user-profiles)), `AGUI_HOST`,
-`AGUI_PORT`, `AGUI_AGENT_PATH`.
+| File | Holds | Location |
+| --- | --- | --- |
+| `.env` | Non-secret only: `TAHOEPILOT_CONFIG_DIR` (`config` for a checkout), `TAHOEPILOT_SECRETS_FILE` (`secrets.env` for a checkout), library flags such as `HF_HUB_DISABLE_XET` | `<project root>/.env`; not in the image |
+| secrets file | Model API keys (`api_key_env` in `models.toml`), `TRINO_PASSWORD`, `TRINO_USER`, `DATAHUB_GMS_TOKEN`, `TAVILY_API_KEY`, `BRAVE_API_KEY`, AWS keys, `QDRANT_API_KEY`, MCP tokens (`${VAR}` in `mcp.json`), `LANGSMITH_API_KEY` | `$TAHOEPILOT_SECRETS_FILE`, default `/tahoepilot/secrets/secrets.env`; relative values from the project root |
+
+Both are git-ignored; `secrets.env.example` lists every secret name. The
+secrets file is optional: in k8s either mount a Secret with a `secrets.env` key
+at `/tahoepilot/secrets`, or pass the same names as env vars (`envFrom`).
 
 ## Recipes
 
@@ -363,15 +429,15 @@ stages, set `max_tool_calls` under `[run_context.react.fetch]` or
 turns off warehouse's human SQL review (approval becomes automatic).
 
 **Add a model.** Add a `[model."<id>"]` table with `base_url`, `provider` and
-`api_key_env`, put the key in `.env`, and set `[basic].default_model_name` to
+`api_key_env`, put the key in the secrets file, and set `[basic].default_model_name` to
 use it everywhere.
 
 **Point at a different Trino.** Edit `host`, `port`, `user`, `catalog`,
 `schema_name` and `http_scheme` under `[trino]`; put the password in the
 variable named by `password_env`.
 
-**Move runtime data.** `export TAHOEPILOT_LOCAL_DIR=/data/tahoepilot` moves
-everything that has no explicit path.
+**Move runtime data.** Set `[paths].data_dir = "/data/tahoepilot"` in
+`runtime.toml`; it moves everything that has no explicit path.
 
 **Check the resolved config.**
 

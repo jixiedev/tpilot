@@ -37,3 +37,28 @@ def test_extract_json_object_from_plain_body() -> None:
 def test_values_equal_normalizes_numbers() -> None:
     assert values_equal(3, 3.0)
     assert not values_equal(4, 3)
+
+
+def test_expected_list_accepts_any_listed_scalar():
+    from evals.answer_match import values_equal
+
+    accepted = ["fct_transaction_variations", "fact_trans_detail"]
+    assert values_equal("FACT_TRANS_DETAIL", accepted)
+    assert not values_equal("fct_dau", accepted)
+
+
+def test_expected_list_against_list_needs_every_item():
+    from evals.answer_match import values_equal
+
+    expected = ["core_data.fct_dau", "core_data.fct_refund"]
+    assert values_equal(["core_data.fct_refund", "core_data.fct_dau", "core_data.other"], expected)
+    assert not values_equal(["core_data.fct_dau"], expected)
+
+
+def test_expected_null_needs_null():
+    from evals.answer_match import values_equal
+
+    assert values_equal(None, None)
+    assert values_equal("null", None)
+    assert not values_equal("fct_dau", None)
+    assert not values_equal(None, "fct_dau")

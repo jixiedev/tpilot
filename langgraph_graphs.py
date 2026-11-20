@@ -5,13 +5,13 @@ import compat  # noqa: F401 — TypedDict shim before agent / graph imports
 from langgraph.checkpoint.memory import MemorySaver
 
 from agent.catalog import AgentCatalog, AgentCatalogSettings
-from config.local_config import ensure_local_dirs, get_local_paths
+from settings.runtime_config import ensure_runtime_dirs, get_runtime_paths
 from agent.runtime import TahoeRuntimeHelper
 from models.llm import get_default_model
 
 
 async def ui_agent_graph(agent_name: str):
-    profile_store = TahoeRuntimeHelper.default_profile_store(get_local_paths().profiles_dir)
+    profile_store = TahoeRuntimeHelper.default_profile_store(get_runtime_paths().profiles_dir)
     catalog = AgentCatalog(
         AgentCatalogSettings.for_agent(
             agent_name,
@@ -26,20 +26,20 @@ async def ui_agent_graph(agent_name: str):
 
 
 async def databot_ui_agent():
-    ensure_local_dirs()
+    ensure_runtime_dirs()
     return await ui_agent_graph("databot")
 
 
 async def knowledge_ui_agent():
-    ensure_local_dirs()
+    ensure_runtime_dirs()
     return await ui_agent_graph("knowledge")
 
 
 async def lead_ui_agent():
-    ensure_local_dirs()
+    ensure_runtime_dirs()
     return await ui_agent_graph("lead")
 
 
 async def warehouse_ui_agent():
-    ensure_local_dirs()
+    ensure_runtime_dirs()
     return await ui_agent_graph("warehouse")

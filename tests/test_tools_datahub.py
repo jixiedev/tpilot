@@ -7,7 +7,7 @@ from urllib.request import Request
 
 import pytest
 
-from config.tool_config import DataHubToolConfig
+from settings.tool_config import DataHubToolConfig
 from tools.external import datahub as datahub_mod
 from tools.external.datahub import client as datahub_client
 from tools.external.datahub import operations as datahub_ops

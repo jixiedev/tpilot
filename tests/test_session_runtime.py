@@ -12,7 +12,7 @@ from agent.agent import BaseAgent
 from agent.listener import AgentListener
 from agent.prompt import SystemPromptAssembler
 from agent.turn_messages import DefaultTurnMessagePolicy, TurnMessagePolicy
-from config.agent_config import AgentConfig, agent_config_path
+from settings.agent_config import AgentConfig, agent_config_path
 from agent.runtime.prompt import SESSION_TURN_BOUNDARY
 from langgraph.checkpoint.memory import MemorySaver
 from memory.profile import UserProfile

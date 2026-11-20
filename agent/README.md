@@ -44,7 +44,7 @@ Related documentation:
 | Term | Meaning in the code |
 | --- | --- |
 | Agent | A `BaseAgent` subclass instance. It owns one compiled graph (`self.graph`), a model, a checkpointer, an `AgentConfig`, a `SessionRuntime`, and a `ListenerHub`. |
-| Agent config | `config/agents/<name>.toml`, loaded into an `AgentConfig` subclass chosen by `agent_config_type(name)` in `config/agent_config.py`. Holds identity (`name`, `description`, `delegate_when`, `front`), `[system_prompt]`, `[run_context]`, `[compression]`, `[tools]`, `[accepted_mcp]`. |
+| Agent config | `config/agents/<name>.toml`, loaded into an `AgentConfig` subclass chosen by `agent_config_type(name)` in `settings/agent_config.py`. Holds identity (`name`, `description`, `delegate_when`, `front`), `[system_prompt]`, `[run_context]`, `[compression]`, `[tools]`, `[accepted_mcp]`. |
 | Front agent | An agent the user talks to directly, with its own AG-UI endpoint and web page: `lead` and `databot`. Marked `front = true` in its TOML; the lead never delegates to a front agent. |
 | Specialist | An agent the lead delegates to, which answers the request itself with tools: `knowledge`, `diagnostic`, `data_analysis`, `swe` (pure ReAct) and `warehouse` (ReAct plus a tool-enforced SQL review). |
 | Lead agent | `lead` (`LeadAgent`), the default agent. A ReAct agent whose only work tools are `delegate` and `write_plan` (plus `@memory`): it answers from the conversation, asks a clarifying question, or hands work to specialists and writes the reply from their results. |
@@ -289,9 +289,9 @@ The `planning` tool in `tools/plan.py` is a separate, generic in-memory plan too
 | --- | --- | --- |
 | `-a`, `--agent` | `lead` | Agent to run; choices are `AgentCatalog.names()` |
 | `-s`, `--session` | random UUID | Session id; reuse it to continue a conversation from the checkpoint DB |
-| `-u`, `--user-id` | `TAHOEPILOT_USER_ID` or the OS user | Profile to load and refine |
-| `--checkpoint-db` | from `config/local.toml` | SQLite file for `AsyncSqliteSaver` |
-| `--profile-dir` | from `config/local.toml` | Directory of per-user profile JSON |
+| `-u`, `--user-id` | `[user].default_id` in `runtime.toml`, else the OS user | Profile to load and refine |
+
+The checkpoint DB and profile directory come from `[paths]` in `runtime.toml`; the CLI takes no path flags.
 | `-v`, `--verbose` | off | Print checkpoint DB and profile dir at startup, verbose logging |
 
 The CLI applies `max_tool_calls=30` as a run override. Type `quit`, `exit`, `q` or `:q` to leave. When a graph interrupts (including a specialist's gate inside the lead), the CLI prints `Prompt> <question>` and reads the answer; answering with an exit command cancels the turn and ends the session. Turn failures are reported through `format_turn_failure`. Running a specialist directly with `-a <name>` skips the lead: no brief, no plan, no work record.
@@ -412,7 +412,7 @@ class ReportsAgent(BaseReactAgent):
     tool_ids = ("default",)      # [tools] scopes to bind, in order
 ```
 
-**3. Config type.** Add `"reports": ReactAgentConfig` to `AGENT_CONFIG_TYPES` in `config/agent_config.py` (or pass `config_cls=ReactAgentConfig` to `register`). Without it the file loads as plain `AgentConfig`, whose `run_context` has no ReAct defaults: no `next_step` prompt, no budget-exhausted prompt and no profile refinement.
+**3. Config type.** Add `"reports": ReactAgentConfig` to `AGENT_CONFIG_TYPES` in `settings/agent_config.py` (or pass `config_cls=ReactAgentConfig` to `register`). Without it the file loads as plain `AgentConfig`, whose `run_context` has no ReAct defaults: no `next_step` prompt, no budget-exhausted prompt and no profile refinement.
 
 **4. Registration** in `agent/catalog.py`:
 

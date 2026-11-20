@@ -10,7 +10,7 @@ from langchain_core.messages import ToolMessage
 from agent.lead.state import pending_steps, render_plan, render_work_record
 from agent.lead.tools import DELEGATE_TOOL_NAME
 from agent.prompt import SystemPromptAssembler
-from config.agent_config import AgentConfig, agent_config_path
+from settings.agent_config import AgentConfig, agent_config_path
 
 LEAD_AGENT_NAME = "lead"
 

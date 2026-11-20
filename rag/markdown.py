@@ -7,7 +7,6 @@ split on markdown headings via markdown-it, then length-chunked by
 
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Self
@@ -183,11 +182,12 @@ class PdfDocument(MarkdownDocument):
         else:
             from tika import parser as tika_parser
 
-            endpoint = (
-                tika_endpoint
-                or os.environ.get("TIKA_SERVER_ENDPOINT", "").strip()
-                or "http://localhost:9998"
-            )
+            if tika_endpoint:
+                endpoint = tika_endpoint
+            else:
+                from rag.config import get_rag_config
+
+                endpoint = get_rag_config().tika.endpoint
             parsed_raw = tika_parser.from_file(str(file_path), serverEndpoint=endpoint)
             parsed = parsed_raw if isinstance(parsed_raw, dict) else {}
             text = str(parsed.get("content") or "").strip()

@@ -7,6 +7,7 @@ from pathlib import Path
 
 from langchain.tools import tool
 
+from tools.code.workspace import WorkspacePathError, resolve_in_workspace
 from tools.registry import register_tool
 from tools.errors import ToolErrorType, register_exception
 
@@ -20,6 +21,7 @@ TRUNCATED_MESSAGE = (
 
 DESCRIPTION = """\
 Custom editing tool for viewing, creating and editing files
+* Works only inside your workspace folder: `path` may be relative to it or absolute within it; other paths are refused
 * State is persistent across command calls and discussions with the user
 * If `path` is a file, `view` displays the result of applying `cat -n`. If `path` is a directory, `view` lists non-hidden files and directories up to 2 levels deep
 * The `create` command cannot be used if the specified `path` already exists as a file
@@ -88,8 +90,6 @@ def _is_hidden_in_tree(root: Path, candidate: Path) -> bool:
 
 
 def _validate_path(command: str, path: Path) -> None:
-    if not path.is_absolute():
-        raise EditorError(f"The path {path} is not an absolute path")
     if command == "create":
         if path.exists():
             raise EditorError(
@@ -258,10 +258,10 @@ def run_editor(
     insert_line: int | None = None,
     view_range: list[int] | None = None,
 ) -> str:
-    original = Path(path).expanduser()
-    if not original.is_absolute():
-        raise EditorError(f"The path {original} is not an absolute path")
-    file_path = original.resolve()
+    try:
+        file_path = resolve_in_workspace(path)
+    except WorkspacePathError as exc:
+        raise EditorError(str(exc)) from exc
     _validate_path(command, file_path)
     if command == "view":
         return _view(file_path, view_range)
@@ -292,7 +292,7 @@ def str_replace_editor(
     """View, create, replace, insert, or undo edits on a local file.
 
     ``command`` is one of: view, create, str_replace, insert, undo_edit.
-    ``path`` must be an absolute file or directory path.
+    ``path`` is relative to the workspace folder, or absolute inside it.
     """
     return run_editor(
         command,

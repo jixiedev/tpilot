@@ -10,12 +10,14 @@ from pathlib import Path
 
 from langchain.tools import tool
 
+from tools.code.workspace import subprocess_env, workspace_dir
 from tools.registry import register_tool
 
 from tools.errors import ToolErrorType, register_exception
 
 DESCRIPTION = """\
 Execute a bash command in the terminal.
+* The shell starts in your workspace folder; keep your files there. Secrets are not in its environment.
 * Long running commands: For commands that may run indefinitely, it should be run in the background and the output should be redirected to a file, e.g. command = `python3 app.py > server.log 2>&1 &`.
 * Interactive: If a bash command returns exit code `-1`, this means the process is not yet finished. The assistant must then send a second call to terminal with an empty `command` (which will retrieve any additional logs), or it can send additional text (set `command` to the text) to STDIN of the running process, or it can send command=`ctrl+c` to interrupt the process.
 * Timeout: If a command execution result says "Command timed out. Sending SIGINT to the process", the assistant should retry running the command in the background.
@@ -71,6 +73,8 @@ class _BashSession:
             "stdin": subprocess.PIPE,
             "stdout": subprocess.PIPE,
             "stderr": subprocess.PIPE,
+            # Minimal env: secrets loaded into this process never reach the shell.
+            "env": subprocess_env(),
         }
         if self.working_directory is not None and self.working_directory.is_dir():
             kwargs["cwd"] = str(self.working_directory)
@@ -188,7 +192,7 @@ def clear_sessions() -> None:
 def _session() -> _BashSession:
     holder = _sessions.get(DEFAULT_SESSION_ID)
     if holder is None or not holder.is_alive():
-        holder = _BashSession(_working_directory)
+        holder = _BashSession(_working_directory or workspace_dir())
         holder.start()
         _sessions[DEFAULT_SESSION_ID] = holder
     return holder
@@ -221,7 +225,7 @@ def bash(command: str, restart: bool = False) -> str:
             existing = _sessions.pop(DEFAULT_SESSION_ID, None)
             if existing is not None:
                 existing.stop()
-            holder = _BashSession(_working_directory)
+            holder = _BashSession(_working_directory or workspace_dir())
             holder.start()
             _sessions[DEFAULT_SESSION_ID] = holder
             return "tool has been restarted."

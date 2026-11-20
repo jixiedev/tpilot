@@ -41,11 +41,11 @@ _CONNECTION_ERROR_NAMES = {
 
 
 def models_root() -> Path:
-    """Directory that holds prefetched Hub snapshots."""
-    override = os.environ.get("TAHOEPILOT_MODELS_DIR", "").strip()
-    if override:
-        return Path(override)
-    return Path.home() / ".cache" / "tahoepilot" / "models"
+    """Directory that holds prefetched Hub snapshots (``[local_models].dir`` in rag.toml)."""
+    from rag.config import get_rag_config
+    from settings.paths import resolve_project_path
+
+    return resolve_project_path(get_rag_config().local_models.dir)
 
 
 def model_ready(path: Path, *, embedder: bool) -> bool:
@@ -119,7 +119,9 @@ def _snapshot(repo_id: str, dest: Path, endpoint: str | None) -> None:
 def download_repo(repo_id: str, dest: Path) -> None:
     """Download one Hub repo into ``dest``, skipping junk files such as ``.DS_Store``."""
     dest.mkdir(parents=True, exist_ok=True)
-    endpoint = os.environ.get("HF_ENDPOINT", "").strip()
+    from rag.config import get_rag_config
+
+    endpoint = get_rag_config().local_models.hf_endpoint.strip()
     if endpoint:
         _snapshot(repo_id, dest, endpoint)
         return

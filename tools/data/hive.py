@@ -5,7 +5,7 @@ from threading import local
 from hmsclient import HMSClient
 from langchain.tools import tool
 
-from config.tool_config import tool_config
+from settings.tool_config import tool_config
 from tools.registry import alternative_tool, register_tool
 
 _thread_local = local()

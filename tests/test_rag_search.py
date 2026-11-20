@@ -92,7 +92,9 @@ def test_download_repo_retries_mirror_and_skips_ds_store(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path,
 ) -> None:
-    monkeypatch.delenv("HF_ENDPOINT", raising=False)
+    from rag.config import RagConfig
+
+    monkeypatch.setattr("rag.config.get_rag_config", lambda: RagConfig())  # hf_endpoint = ""
     calls: list[tuple[str | None, list[str] | None]] = []
 
     def fake_snapshot(repo_id: str, **kwargs: object) -> str:
