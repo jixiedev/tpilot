@@ -39,8 +39,10 @@ prefetch_limit = 50
 # relative to the project root.
 dir = "~/.cache/tahoepilot/models"
 # Hugging Face endpoint (e.g. "https://hf-mirror.com"); empty = huggingface.co, then
-# the mirror on failure.
-hf_endpoint = "https://hf-mirror.com"
+# the mirror on failure. Keep it empty: since 2026-11 hf-mirror.com answers every
+# request with a 308 redirect to huggingface.co, which huggingface_hub 1.x does not
+# follow, so a pinned mirror fails the download (and the Docker build).
+hf_endpoint = ""
 
 [tika]
 # Apache Tika server that extracts text from non-markdown documents during ingest.

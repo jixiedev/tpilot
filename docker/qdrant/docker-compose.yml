@@ -14,7 +14,8 @@ services:
       QDRANT__SERVICE__HTTP_PORT: "6333"
       QDRANT__SERVICE__GRPC_PORT: "6334"
     volumes:
-      - ./qdrant_storage:/qdrant/storage
+      # Runtime data lives under the repo's .local/ (gitignored, not in the image).
+      - ../../.local/qdrant/compose_storage:/qdrant/storage
     healthcheck:
       test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/6333'"]
       interval: 10s

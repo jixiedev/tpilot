@@ -1,24 +1,39 @@
 # Runtime state locations and user defaults, read by settings/runtime_config.py.
 # Paths may be absolute, start with ~, or be relative to the project root.
+#
+# Everything written at run time lives under data_dir (.local/ in a dev checkout:
+# gitignored and left out of the Docker image); the project tree holds only code
+# and config. An empty value means the default under data_dir shown in its comment.
 
 [paths]
-# Root for all runtime data; every empty path below defaults under it. In k8s set it
-# to the PVC mount (e.g. "/data").
+# Root for all runtime data. In k8s set it to the PVC mount (e.g. "/data") and
+# clear the paths below (or point them under the mount).
 data_dir = ".local"
-# SQLite file holding LangGraph conversation checkpoints. Empty = <data_dir>/checkpoints.sqlite.
-checkpoint_db = ""
-# Directory of per-user profile JSON files. Empty = <data_dir>/profiles.
-profiles_dir = ""
-# Directory for offloaded large tool results and archives. Empty = <data_dir>/offload_store.
-offload_dir = ""
-# Directory for log files. Empty = <data_dir>/logs.
-logs_dir = ""
-# Log file path. Empty = <logs_dir>/tahoepilot.log.
-log_file = ""
+# SQLite file holding LangGraph conversation checkpoints. Default <data_dir>/checkpoints.sqlite.
+checkpoint_db = ".local/checkpoints.sqlite"
+# Directory of per-user profile JSON files. Default <data_dir>/profiles.
+profiles_dir = ".local/profiles"
+# Directory for offloaded large tool results and archives. Default <data_dir>/offload_store.
+offload_dir = ".local/offload_store"
+# Directory for log files. Default <data_dir>/logs.
+logs_dir = ".local/logs"
+# Log file path. Default <logs_dir>/tahoepilot.log.
+log_file = ".local/logs/tahoepilot.log"
 # Working folder of the code tools (bash, python_execute, str_replace_editor): they start
 # here, the editor only accepts paths inside it, and none of them sees secrets.
-# Empty = <data_dir>/workspace. Keep it outside the project folder.
-workspace_dir = ""
+# Default <data_dir>/workspace. Keep it outside the project folder.
+workspace_dir = ".local/workspace"
+# PID files and logs of `scripts/dev.sh start` (and eval logs). Default <data_dir>/run.
+run_dir = ".local/run"
+# Working folder of `langgraph dev` (scripts/dev.sh runs it here); its in-memory
+# store goes to <langgraph_dir>/.langgraph_api. Default <data_dir>/langgraph.
+langgraph_dir = ".local/langgraph"
+# Folder for RAG ingest task lists and checkpoints: `python -m rag plan|run --tasks`
+# with a bare file name puts the file here. Default <data_dir>/rag-jobs.
+rag_jobs_dir = ".local/rag-jobs"
+# Local Qdrant (dev only, not read by code): run the binary from .local/qdrant/
+# (its storage/ and snapshots/ land next to it); docker/qdrant/docker-compose.yml
+# mounts .local/qdrant/compose_storage.
 
 [user]
 # User id for profiles when none is given (CLI -u / UI). Empty = the OS user name.

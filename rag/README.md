@@ -55,7 +55,7 @@ Related docs:
 | `rag/dbt/` | dbt semantic-model reader and `upload_semantic_models` |
 | `rag/tika/` | Bundled Tika server jar (only needed for `PdfDocument.open`) |
 | `rag/samples/` | Sample markdown / PDF used by tests |
-| `rag-jobs/` | Task-list and checkpoint JSON files (e.g. `aug_dbt_models.json`) |
+| `.local/rag-jobs/` | Task-list and checkpoint JSON files (e.g. `aug_dbt_models.json`); runtime data, gitignored |
 | `docker/qdrant/` | Docker Compose file for a local Qdrant |
 
 ## Data flow
@@ -163,9 +163,9 @@ docker compose up -d
 | REST | `http://localhost:6333` |
 | gRPC | `localhost:6334` |
 | Dashboard | http://localhost:6333/dashboard |
-| Data volume | `docker/qdrant/qdrant_storage/` (gitignored) |
+| Data volume | `.local/qdrant/compose_storage/` (gitignored) |
 
-`docker/qdrant/bin/` may hold a locally downloaded Qdrant binary (`dist-qdrant.zip`, `qdrant`, `static/`) with its own `storage/` and `snapshots/`. These are dev-only and gitignored by `docker/qdrant/.gitignore`. Use Compose or your own Qdrant deployment elsewhere.
+A locally downloaded Qdrant binary goes in `.local/qdrant/` (`qdrant`, `static/`, `dist-qdrant.zip`); run it from there (`cd .local/qdrant && ./qdrant`) so its `storage/` and `snapshots/` land next to it. Dev-only and gitignored, like everything under `.local/`. Use Compose or your own Qdrant deployment elsewhere.
 
 Check that Qdrant is up:
 
@@ -288,11 +288,11 @@ Checkpoint (`version` 1): `task_list` (absolute path), `task_list_sha256`, `comp
 ### Jira CSV (`-t jira`)
 
 ```bash
-python -m rag plan -t jira -p ~/Jira-tahoe.csv -c aug_jira_tahoe --tasks ./rag-jobs/aug_jira_tahoe.json
-python -m rag run --tasks ./rag-jobs/aug_jira_tahoe.json
+python -m rag plan -t jira -p ~/Jira-tahoe.csv -c aug_jira_tahoe --tasks ./.local/rag-jobs/aug_jira_tahoe.json
+python -m rag run --tasks ./.local/rag-jobs/aug_jira_tahoe.json
 
 # skip the first 500 data rows
-python -m rag plan -t jira -p ~/Jira-tahoe.csv -c aug_jira_tahoe --tasks ./rag-jobs/aug_jira_tahoe.json --start-line 500
+python -m rag plan -t jira -p ~/Jira-tahoe.csv -c aug_jira_tahoe --tasks ./.local/rag-jobs/aug_jira_tahoe.json --start-line 500
 ```
 
 - One `JiraDocument` per row; rows with neither summary nor description are skipped. Columns that are empty in every row are dropped.
@@ -307,8 +307,8 @@ Download the Drive folder, unzip it, then point ingest at the extracted tree. Zi
 
 ```bash
 mkdir -p ~/gdrive_exports   # unzip the downloaded Drive folder(s) here
-python -m rag plan -t drive -p ~/gdrive_exports -c gdrive_tahoe --tasks ./rag-jobs/gdrive.json
-python -m rag run --tasks ./rag-jobs/gdrive.json
+python -m rag plan -t drive -p ~/gdrive_exports -c gdrive_tahoe --tasks ./.local/rag-jobs/gdrive.json
+python -m rag run --tasks ./.local/rag-jobs/gdrive.json
 ```
 
 | Files | Extraction |
@@ -325,8 +325,8 @@ Markdown files are split on headings into paragraphs; other files are a single p
 ### dbt semantic models (`-t dbt`)
 
 ```bash
-python -m rag plan -t dbt -p ~/wbox/data-governance/semantic_layer/models/hive -c aug_dbt_models --tasks ./rag-jobs/aug_dbt_models.json
-python -m rag run --tasks ./rag-jobs/aug_dbt_models.json --recreate-collection
+python -m rag plan -t dbt -p ~/wbox/data-governance/semantic_layer/models/hive -c aug_dbt_models --tasks ./.local/rag-jobs/aug_dbt_models.json
+python -m rag run --tasks ./.local/rag-jobs/aug_dbt_models.json --recreate-collection
 ```
 
 Each `models[]` entry in a schema yml becomes one `ModelDocument` (the sibling `<model name>.sql`, if present, is read into the payload). Paragraphs are packed groups, one chunk each (`IdentitySplitStrategy`):
@@ -352,7 +352,7 @@ The collection names are hard-coded in `tools/rag/jira.py` (`JIRA_PROFILES`) and
 | Jira CXDS | `aug_jira_ds` | `fetch_related_jira_tickets(project="ds")` |
 | Jira SQD | `aug_jira_sqd` | `fetch_related_jira_tickets(project="sqd")` |
 | dbt semantic models | `aug_dbt_models` | `fetch_related_models(layer="hive_analytics")` |
-| dbt models of the metric catalog (the 39 in `semantic_models`) | `metric_catalog_models` | the `model_selection` eval only (`--rag-collection metric_catalog_models`); job file `rag-jobs/metric_catalog_models.json` |
+| dbt models of the metric catalog (the 39 in `semantic_models`) | `metric_catalog_models` | the `model_selection` eval only (`--rag-collection metric_catalog_models`); job file `.local/rag-jobs/metric_catalog_models.json` |
 | Google Drive | any (e.g. `gdrive_tahoe`) | not read by a tool yet |
 
 ## Python API
@@ -371,8 +371,8 @@ upload_semantic_models("~/wbox/data-governance/semantic_layer/models/hive", "aug
 
 # resumable, same as the CLI
 plan_ingest(job_type="dbt", source="~/wbox/data-governance/semantic_layer/models/hive",
-            collection="aug_dbt_models", tasks_path="./rag-jobs/aug_dbt_models.json")
-run_ingest(tasks_path="./rag-jobs/aug_dbt_models.json")  # raises rag.job.IngestFailedError if any task failed
+            collection="aug_dbt_models", tasks_path="./.local/rag-jobs/aug_dbt_models.json")
+run_ingest(tasks_path="./.local/rag-jobs/aug_dbt_models.json")  # raises rag.job.IngestFailedError if any task failed
 
 hits = search("aug_jira_core", "Hudi compaction failures", limit=5)
 ```

@@ -1,0 +1,49 @@
+# Build context for docker/Dockerfile: the whole project except what git ignores.
+# Mirrors .gitignore and frontend/.gitignore (Docker
+# reads only this file, and its patterns are relative to the repo root, so
+# unanchored .gitignore patterns get a **/ prefix here). Keep it in sync when
+# those files change.
+
+# Git metadata (not a project file)
+.git
+
+# ---- .gitignore ----
+**/__pycache__
+**/*.py[oc]
+**/build
+**/dist
+**/wheels
+**/*.egg-info
+**/.venv
+**/.env
+**/secrets.env
+config/mcp.json
+**/.local
+**/.idea
+**/.langgraph_api
+.next
+frontend/node_modules
+frontend/.next
+frontend/tsconfig.tsbuildinfo
+frontend/out
+**/.DS_Store
+**/venv
+**/site
+
+# ---- frontend/.gitignore ----
+# (next-env.d.ts is listed there but tracked, and the frontend build copies it.)
+frontend/.pnp
+frontend/.pnp.*
+frontend/.yarn
+frontend/coverage
+frontend/**/*.pem
+frontend/**/npm-debug.log*
+frontend/**/yarn-debug.log*
+frontend/**/yarn-error.log*
+frontend/**/.pnpm-debug.log*
+frontend/.vercel
+frontend/**/*.tsbuildinfo
+
+# ---- tool caches (their own .gitignore ignores everything) ----
+**/.pytest_cache
+**/.ruff_cache

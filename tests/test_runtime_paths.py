@@ -15,6 +15,45 @@ def test_runtime_paths_defaults() -> None:
     assert paths.offload_dir == paths.data_dir / "offload_store"
     assert paths.logs_dir == paths.data_dir / "logs"
     assert paths.log_file == paths.logs_dir / "tahoepilot.log"
+    assert paths.run_dir == paths.data_dir / "run"
+    assert paths.langgraph_dir == paths.data_dir / "langgraph"
+    assert paths.rag_jobs_dir == paths.data_dir / "rag-jobs"
+
+
+def test_dev_paths_default_under_data_dir(tmp_path, monkeypatch) -> None:
+    """Empty run/langgraph/rag-jobs paths fall under data_dir."""
+    config_dir = tmp_path / "config"
+    config_dir.mkdir()
+    (config_dir / "runtime.toml").write_text('[paths]\ndata_dir = "/srv/data"\n', encoding="utf-8")
+    monkeypatch.setenv("TAHOEPILOT_CONFIG_DIR", str(config_dir))
+    reset_runtime_paths_cache()
+    try:
+        paths = get_runtime_paths()
+        assert str(paths.run_dir) == "/srv/data/run"
+        assert str(paths.langgraph_dir) == "/srv/data/langgraph"
+        assert str(paths.rag_jobs_dir) == "/srv/data/rag-jobs"
+    finally:
+        monkeypatch.undo()
+        reset_runtime_paths_cache()
+
+
+def test_rag_bare_tasks_name_goes_to_rag_jobs_dir(tmp_path, monkeypatch) -> None:
+    from rag.__main__ import resolve_tasks_path
+
+    config_dir = tmp_path / "config"
+    config_dir.mkdir()
+    jobs = tmp_path / "jobs"
+    (config_dir / "runtime.toml").write_text(f'[paths]\nrag_jobs_dir = "{jobs}"\n', encoding="utf-8")
+    monkeypatch.setenv("TAHOEPILOT_CONFIG_DIR", str(config_dir))
+    reset_runtime_paths_cache()
+    try:
+        assert resolve_tasks_path("aug.json") == str(jobs / "aug.json")
+        assert jobs.is_dir()
+        assert resolve_tasks_path("./aug.json") == "./aug.json"
+        assert resolve_tasks_path("/tmp/aug.json") == "/tmp/aug.json"
+    finally:
+        monkeypatch.undo()
+        reset_runtime_paths_cache()
 
 
 def test_runtime_paths_from_toml(tmp_path, monkeypatch) -> None:

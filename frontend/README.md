@@ -283,12 +283,12 @@ The frontend uses no `NEXT_PUBLIC_*` variables; the browser only calls same-orig
 ./scripts/dev.sh frontend   # npm run dev in frontend/ on :3000
 
 # or one terminal, background
-./scripts/dev.sh start      # each in its own process group; PIDs in .run/langgraph.pid, .run/next.pid
+./scripts/dev.sh start      # each in its own process group; PIDs in .local/run/langgraph.pid, .local/run/next.pid
 ./scripts/dev.sh status     # probes :8000, :3000 and POST /agui/lead, /agui/databot
 ./scripts/dev.sh stop       # stops only the recorded PIDs (+ their process group / children), removes the pid files
 ```
 
-Open http://localhost:3000 and pick a page (or go straight to http://localhost:3000/lead or /databot). Background logs go to `.run/langgraph.log` and `.run/next.log`.
+Open http://localhost:3000 and pick a page (or go straight to http://localhost:3000/lead or /databot). Background logs go to `.local/run/langgraph.log` and `.local/run/next.log`.
 
 ### Health checks
 
@@ -306,7 +306,7 @@ Backend tests for this layer: `.venv/bin/python -m pytest tests/test_agui_server
 
 | Symptom | Likely cause / where to look |
 | --- | --- |
-| `langgraph dev` fails at startup with a graph/build error | `_lifespan` builds the graph eagerly; check `.run/langgraph.log` for catalog, model or checkpoint errors (missing API key, unwritable data dir). |
+| `langgraph dev` fails at startup with a graph/build error | `_lifespan` builds the graph eagerly; check `.local/run/langgraph.log` for catalog, model or checkpoint errors (missing API key, unwritable data dir). |
 | `/agui/lead` or `/agui/databot` returns 404 | `http.app` in `langgraph.json` not loaded, `[agui].path` in `server.toml` differs from `AGUI_BACKEND_URL`, or the agent name is not in `FRONT_AGENTS`. |
 | Chat shows `INCOMPLETE_STREAM` | The agent stream ended without `RUN_FINISHED` / `RUN_ERROR`; look for the run in the backend log. |
 | Chat shows `AGENT_RUNTIME_ERROR: <ExceptionType>: ...` | Exception inside the run (often an LLM provider error); full traceback is logged as `agui_endpoint: unhandled exception`. |
@@ -358,4 +358,4 @@ To give an agent its own page and endpoint instead (a new front agent):
 - **Two sets of graphs.** Threads created in LangGraph Studio (`langgraph.json` graphs, `MemorySaver`) are not visible to the UI (`/agui/<agent>`, SQLite checkpointer), and vice versa. Lead-page and databot-page threads are separate too.
 - **`InMemoryAgentRunner`.** Restarting Next.js loses its thread metadata; the checkpoint still exists under the same `thread_id`.
 - **Run `langgraph dev` with `--allow-blocking`.** `langgraph dev` enables a blocking-I/O detector (blockbuster) when its run queue starts, concurrently with the AG-UI lifespan that builds the agent. Agent construction and turns do synchronous file and SQLite work (offload store, profiles, config), so without the flag startup fails at random with `BlockingError: Blocking call to os.mkdir`; the reloader stays up, the AG-UI endpoints do not, and the browser shows `fetch failed` / `INCOMPLETE_STREAM`. `dev.sh` passes the flag; add it yourself if you launch `langgraph dev` by hand.
-- **`./scripts/dev.sh stop`** only stops what `start` recorded in `.run/*.pid` (that PID, its process group, and its descendants). Servers started in the foreground with `backend` / `frontend`, or from another checkout, are not touched; stop them with Ctrl-C. If a pid file is lost, find the process with `lsof -i :8000` / `lsof -i :3000`.
+- **`./scripts/dev.sh stop`** only stops what `start` recorded in `.local/run/*.pid` (that PID, its process group, and its descendants). Servers started in the foreground with `backend` / `frontend`, or from another checkout, are not touched; stop them with Ctrl-C. If a pid file is lost, find the process with `lsof -i :8000` / `lsof -i :3000`.

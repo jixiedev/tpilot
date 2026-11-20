@@ -16,18 +16,19 @@ secrets.env
 # Local MCP server config (may contain secrets)
 config/mcp.json
 
-# Local dev process logs / pids (langgraph dev, next dev)
-.run/
-
-# Machine-local runtime data (checkpoints, profiles, logs, offload store)
+# All runtime files: checkpoints, profiles, logs, offload store, workspace, dev
+# server PIDs/logs (run/), langgraph dev store (langgraph/), Qdrant binary and
+# data (qdrant/), RAG job files (rag-jobs/). See config/README.md.
 .local/
 
 .idea/
 
-# LangGraph API
+# LangGraph dev store, if `langgraph dev` is started outside scripts/dev.sh
 .langgraph_api/
 
 # Frontend (Next.js / CopilotKit) — only cache / deps, source stays tracked
+# Stray Next.js cache from running `next dev` at the repo root (the app lives in frontend/)
+/.next/
 frontend/node_modules/
 frontend/.next/
 frontend/.next/dev/

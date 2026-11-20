@@ -115,8 +115,8 @@ def _cleanup(*pids: int) -> None:
 
 
 def test_stop_kills_only_recorded_pids_and_their_children(sandbox: dict) -> None:
-    run_dir = sandbox["root"] / ".run"
-    run_dir.mkdir()
+    run_dir = sandbox["root"] / ".local" / "run"
+    run_dir.mkdir(parents=True)
     grouped, grouped_kids = _spawn(own_group=True)
     # Shares pytest's process group: stop must not signal that group.
     ungrouped, ungrouped_kids = _spawn(own_group=False)
@@ -139,8 +139,8 @@ def test_stop_kills_only_recorded_pids_and_their_children(sandbox: dict) -> None
 
 
 def test_stop_removes_stale_and_garbage_pid_files(sandbox: dict) -> None:
-    run_dir = sandbox["root"] / ".run"
-    run_dir.mkdir()
+    run_dir = sandbox["root"] / ".local" / "run"
+    run_dir.mkdir(parents=True)
     dead = subprocess.Popen(["true"])
     dead.wait()
     (run_dir / "langgraph.pid").write_text(f"{dead.pid}\n", encoding="utf-8")
@@ -155,7 +155,7 @@ def test_stop_removes_stale_and_garbage_pid_files(sandbox: dict) -> None:
 
 
 def test_start_then_stop_uses_own_process_groups(sandbox: dict) -> None:
-    run_dir = sandbox["root"] / ".run"
+    run_dir = sandbox["root"] / ".local" / "run"
     started = _run(sandbox, "start")
     assert started.returncode == 0, started.stderr
     pids = {

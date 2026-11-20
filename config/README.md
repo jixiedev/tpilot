@@ -279,11 +279,15 @@ the file only. The file also has a `[spark]` table that `ToolConfig` does not re
 | `logs_dir` | `<data_dir>/logs` |
 | `log_file` | `<logs_dir>/tahoepilot.log` |
 | `workspace_dir` | `<data_dir>/workspace`: working folder of `bash`, `python_execute`, `str_replace_editor` (see [tools/README.md](../tools/README.md)) |
+| `run_dir` | `<data_dir>/run`: PID files and logs of `scripts/dev.sh start` (and eval logs) |
+| `langgraph_dir` | `<data_dir>/langgraph`: working folder of `langgraph dev` (`scripts/dev.sh`); its store is `<langgraph_dir>/.langgraph_api` |
+| `rag_jobs_dir` | `<data_dir>/rag-jobs`: where `python -m rag plan|run --tasks <bare file name>` writes and reads task lists and checkpoints |
 
 An empty value takes the default. Relative paths resolve against the project
 root; `~` is expanded. Results are cached by `get_runtime_paths()`; call
-`reset_runtime_paths_cache()` after changing the config dir in tests. `ensure_runtime_dirs()` creates the directories. Without `runtime.toml` the
-defaults apply.
+`reset_runtime_paths_cache()` after changing the config dir in tests. `ensure_runtime_dirs()` creates the directories. Without `runtime.toml` the defaults apply.
+
+In a dev checkout everything written at run time lives under `.local/`; the project tree holds only code and config. The dev `runtime.toml` spells out each path above under `.local/`. The local Qdrant is the one runtime folder not read from config: run its binary from `.local/qdrant/` (its `storage/` and `snapshots/` land next to it), and `docker/qdrant/docker-compose.yml` mounts `.local/qdrant/compose_storage`. `.local/` is gitignored and left out of the Docker image.
 
 `[user].default_id` is the profile user id when none is given (`-u` on the
 CLI, or the `[agui].user_header` request header on the web) and the thread has

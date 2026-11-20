@@ -2,14 +2,12 @@
 
 from __future__ import annotations
 
-import json
-import re
 from typing import Any
 
-_JSON_FENCE_RE = re.compile(
-    r"```(?:json)?\s*(?P<body>\{.*?\})\s*```",
-    re.DOTALL | re.IGNORECASE,
-)
+from graph.messages import extract_json_object
+
+__all__ = ["extract_json_object", "score_answer", "values_equal"]
+
 
 
 def score_answer(reply: str, answer: dict[str, Any]) -> tuple[float, dict[str, Any]]:
@@ -44,40 +42,6 @@ def score_answer(reply: str, answer: dict[str, Any]) -> tuple[float, dict[str, A
         "missing": missing,
         "mismatched": mismatched,
     }
-
-
-def extract_json_object(reply: str) -> tuple[dict[str, Any] | None, str | None]:
-    text = reply.strip()
-    if not text:
-        return None, "empty reply"
-
-    candidates: list[str] = []
-    fence = _JSON_FENCE_RE.search(text)
-    if fence:
-        candidates.append(fence.group("body"))
-    if text.startswith("{"):
-        candidates.append(text)
-
-    brace = re.search(r"\{.*\}", text, flags=re.DOTALL)
-    if brace:
-        candidates.append(brace.group(0))
-
-    seen: set[str] = set()
-    last_error = "no JSON object found"
-    for candidate in candidates:
-        candidate = candidate.strip()
-        if not candidate or candidate in seen:
-            continue
-        seen.add(candidate)
-        try:
-            payload = json.loads(candidate)
-        except json.JSONDecodeError as exc:
-            last_error = str(exc)
-            continue
-        if isinstance(payload, dict):
-            return payload, None
-        last_error = "parsed JSON is not an object"
-    return None, last_error
 
 
 _NULL_TEXTS = {"", "null", "none"}

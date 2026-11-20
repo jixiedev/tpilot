@@ -84,7 +84,7 @@ Install the frontend once (`cd frontend && npm install`), download the retrieval
 ./scripts/dev.sh start     # langgraph dev on :8000 (with /agui/lead, /agui/databot) and Next.js on :3000
 ```
 
-Open http://localhost:3000 and pick the lead (`/lead`) or Databot (`/databot`) page. `./scripts/dev.sh status` and `./scripts/dev.sh stop` check and stop them; logs are in `.run/`. Details in [frontend/README.md](frontend/README.md).
+Open http://localhost:3000 and pick the lead (`/lead`) or Databot (`/databot`) page. `./scripts/dev.sh status` and `./scripts/dev.sh stop` check and stop them; logs are in `.local/run/`. Details in [frontend/README.md](frontend/README.md).
 
 ### Test
 

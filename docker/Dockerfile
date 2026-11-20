@@ -77,17 +77,10 @@ FROM pydeps
 COPY --from=node:22-slim /usr/local/bin/node /usr/local/bin/node
 COPY --from=hfmodels /root/.cache/tahoepilot/models /root/.cache/tahoepilot/models
 
-COPY agent ./agent
-COPY settings ./settings
-COPY config ./config
-COPY semantic_models ./semantic_models
-COPY graph ./graph
-COPY memory ./memory
-COPY models ./models
-COPY rag ./rag
-COPY tools ./tools
-COPY compat.py agui_server.py agui_auth.py agui_history.py langgraph_graphs.py langgraph.json cli.py main.py ./
+# The whole project, minus what .dockerignore (a mirror of .gitignore) leaves out.
+COPY . .
 
+# The built frontend goes over the frontend sources copied above.
 COPY --from=frontend /frontend/.next/standalone ./frontend
 COPY --from=frontend /frontend/.next/static ./frontend/.next/static
 COPY --from=frontend /frontend/public ./frontend/public

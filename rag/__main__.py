@@ -42,7 +42,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     plan.add_argument(
         "--tasks",
         required=True,
-        help="task-list JSON to write",
+        help="task-list JSON to write (a bare file name goes in [paths].rag_jobs_dir)",
     )
     plan.add_argument(
         "--checkpoint",
@@ -63,7 +63,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     run.add_argument(
         "--tasks",
         required=True,
-        help="task-list JSON to read",
+        help="task-list JSON to read (a bare file name is looked up in [paths].rag_jobs_dir)",
     )
     run.add_argument(
         "--checkpoint",
@@ -96,8 +96,24 @@ def build_arg_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def resolve_tasks_path(raw: str) -> str:
+    """A bare file name (no directory) goes in ``[paths].rag_jobs_dir``; other paths are kept."""
+    from pathlib import Path
+
+    from settings.runtime_config import get_runtime_paths
+
+    path = Path(raw)
+    if path.parent != Path(".") or raw.startswith("."):
+        return raw
+    jobs_dir = get_runtime_paths().rag_jobs_dir
+    jobs_dir.mkdir(parents=True, exist_ok=True)
+    return str(jobs_dir / path)
+
+
 def main(argv: list[str] | None = None) -> int:
     args = build_arg_parser().parse_args(argv)
+    if getattr(args, "tasks", None):
+        args.tasks = resolve_tasks_path(args.tasks)
     try:
         if args.command == "download":
             for line in download_configured_models():

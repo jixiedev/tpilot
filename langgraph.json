@@ -3,13 +3,13 @@
     "."
   ],
   "graphs": {
-    "databot": "./langgraph_graphs.py:databot_ui_agent",
-    "knowledge": "./langgraph_graphs.py:knowledge_ui_agent",
-    "lead": "./langgraph_graphs.py:lead_ui_agent",
-    "warehouse": "./langgraph_graphs.py:warehouse_ui_agent"
+    "databot": "langgraph_graphs:databot_ui_agent",
+    "knowledge": "langgraph_graphs:knowledge_ui_agent",
+    "lead": "langgraph_graphs:lead_ui_agent",
+    "warehouse": "langgraph_graphs:warehouse_ui_agent"
   },
   "env": ".env",
   "http": {
-    "app": "./agui_server.py:app"
+    "app": "agui_server:app"
   }
 }

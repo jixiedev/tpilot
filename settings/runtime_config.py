@@ -1,4 +1,4 @@
-"""Runtime paths (checkpoints, profiles, offload store, logs) and user defaults from ``<config dir>/runtime.toml``.
+"""Runtime paths (checkpoints, profiles, offload store, logs, dev servers, RAG jobs) and user defaults from ``<config dir>/runtime.toml``.
 
 ``runtime.toml`` is the only source: there are no env-var or CLI overrides.
 Relative paths resolve against the project root; ``~`` is expanded.
@@ -22,6 +22,9 @@ _DEFAULT_OFFLOAD = "offload_store"
 _DEFAULT_LOGS = "logs"
 _DEFAULT_LOG_FILE = "tahoepilot.log"
 _DEFAULT_WORKSPACE = "workspace"
+_DEFAULT_RUN = "run"
+_DEFAULT_LANGGRAPH = "langgraph"
+_DEFAULT_RAG_JOBS = "rag-jobs"
 
 
 class PathsConfig(BaseModel):
@@ -34,6 +37,9 @@ class PathsConfig(BaseModel):
     logs_dir: str = ""
     log_file: str = ""
     workspace_dir: str = ""
+    run_dir: str = ""
+    langgraph_dir: str = ""
+    rag_jobs_dir: str = ""
 
 
 class UserConfig(BaseModel):
@@ -61,6 +67,12 @@ class RuntimePaths:
     log_file: Path
     #: Working folder of the code tools (bash, python_execute, str_replace_editor).
     workspace_dir: Path
+    #: PID files and logs of ``scripts/dev.sh start`` (and eval logs).
+    run_dir: Path
+    #: Working folder of ``langgraph dev``; its store is ``<langgraph_dir>/.langgraph_api``.
+    langgraph_dir: Path
+    #: Default folder for ``python -m rag plan|run --tasks <file name>``.
+    rag_jobs_dir: Path
 
 
 def _resolve_path(raw: str, *, base: Path) -> Path:
@@ -96,6 +108,9 @@ def build_runtime_paths(cfg: RuntimeConfig | None = None) -> RuntimePaths:
         logs_dir=logs_dir,
         log_file=_path_or(paths.log_file, logs_dir / _DEFAULT_LOG_FILE),
         workspace_dir=_path_or(paths.workspace_dir, data_dir / _DEFAULT_WORKSPACE),
+        run_dir=_path_or(paths.run_dir, data_dir / _DEFAULT_RUN),
+        langgraph_dir=_path_or(paths.langgraph_dir, data_dir / _DEFAULT_LANGGRAPH),
+        rag_jobs_dir=_path_or(paths.rag_jobs_dir, data_dir / _DEFAULT_RAG_JOBS),
     )
 
 
