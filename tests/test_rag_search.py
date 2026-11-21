@@ -9,9 +9,9 @@ import pytest
 
 from qdrant_client.http import models as qmodels
 
-from rag.embeddings import to_sparse_vector
-from rag.local_models import download_repo
-from rag.qdrant import passage_text, rerank_points, search
+from tahoepilot.rag.embeddings import to_sparse_vector
+from tahoepilot.rag.local_models import download_repo
+from tahoepilot.rag.qdrant import passage_text, rerank_points, search
 
 
 def _collection_info(*, hybrid: bool = False) -> SimpleNamespace:
@@ -65,8 +65,8 @@ def test_rerank_points_orders_by_cross_encoder_score() -> None:
     reranker = MagicMock()
     reranker.compute_score.return_value = [0.2, 0.8]
     with (
-        patch("rag.qdrant.get_rag_config") as mock_cfg,
-        patch("rag.qdrant._reranker", return_value=reranker),
+        patch("tahoepilot.rag.qdrant.get_rag_config") as mock_cfg,
+        patch("tahoepilot.rag.qdrant._reranker", return_value=reranker),
     ):
         mock_cfg.return_value.rerank.model = "BAAI/bge-reranker-v2-m3"
         ranked = rerank_points("lag", points, limit=2)
@@ -80,8 +80,8 @@ def test_rerank_points_raises_when_reranker_fails() -> None:
         SimpleNamespace(id=2, payload={"chunk_data": "b"}, score=0.1),
     ]
     with (
-        patch("rag.qdrant.get_rag_config") as mock_cfg,
-        patch("rag.qdrant._reranker", side_effect=OSError("connection reset")),
+        patch("tahoepilot.rag.qdrant.get_rag_config") as mock_cfg,
+        patch("tahoepilot.rag.qdrant._reranker", side_effect=OSError("connection reset")),
         pytest.raises(OSError, match="connection reset"),
     ):
         mock_cfg.return_value.rerank.model = "BAAI/bge-reranker-v2-m3"
@@ -92,7 +92,9 @@ def test_download_repo_retries_mirror_and_skips_ds_store(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path,
 ) -> None:
-    monkeypatch.delenv("HF_ENDPOINT", raising=False)
+    from tahoepilot.rag.config import RagConfig
+
+    monkeypatch.setattr("tahoepilot.rag.config.get_rag_config", lambda: RagConfig())  # hf_endpoint = ""
     calls: list[tuple[str | None, list[str] | None]] = []
 
     def fake_snapshot(repo_id: str, **kwargs: object) -> str:
@@ -116,7 +118,7 @@ def test_rerank_points_skips_when_model_blank() -> None:
         SimpleNamespace(id=1, payload={"chunk_data": "a"}, score=0.4),
         SimpleNamespace(id=2, payload={"chunk_data": "b"}, score=0.1),
     ]
-    with patch("rag.qdrant.get_rag_config") as mock_cfg:
+    with patch("tahoepilot.rag.qdrant.get_rag_config") as mock_cfg:
         mock_cfg.return_value.rerank.model = ""
         ranked = rerank_points("q", points, limit=1)
     assert len(ranked) == 1
@@ -124,9 +126,9 @@ def test_rerank_points_skips_when_model_blank() -> None:
     assert ranked[0][1] == 0.4
 
 
-@patch("rag.qdrant.rerank_points")
-@patch("rag.qdrant.get_embedding")
-@patch("rag.qdrant.get_client")
+@patch("tahoepilot.rag.qdrant.rerank_points")
+@patch("tahoepilot.rag.qdrant.get_embedding")
+@patch("tahoepilot.rag.qdrant.get_client")
 def test_search_hybrid_prefetch_uses_sparse_vector(
     mock_client: MagicMock,
     mock_embed: MagicMock,
@@ -156,9 +158,9 @@ def test_search_hybrid_prefetch_uses_sparse_vector(
     assert mock_rerank.call_args.kwargs["limit"] == 3
 
 
-@patch("rag.qdrant.rerank_points")
-@patch("rag.qdrant.get_embedding")
-@patch("rag.qdrant.get_client")
+@patch("tahoepilot.rag.qdrant.rerank_points")
+@patch("tahoepilot.rag.qdrant.get_embedding")
+@patch("tahoepilot.rag.qdrant.get_client")
 def test_search_rejects_empty_sparse_query(
     mock_client: MagicMock,
     mock_embed: MagicMock,
@@ -176,8 +178,8 @@ def test_search_rejects_empty_sparse_query(
     mock_rerank.assert_not_called()
 
 
-@patch("rag.qdrant.get_embedding")
-@patch("rag.qdrant.get_client")
+@patch("tahoepilot.rag.qdrant.get_embedding")
+@patch("tahoepilot.rag.qdrant.get_client")
 def test_search_rejects_non_hybrid_collection(
     mock_client: MagicMock,
     mock_embed: MagicMock,

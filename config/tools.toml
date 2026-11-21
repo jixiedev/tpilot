@@ -1,56 +1,100 @@
+# Connection settings for the data and ops tools, read by tahoepilot/settings/tool_config.py
+# at import. Only secrets come from the environment: each *_env key names the
+# variable to read, and the inline value next to it is the fallback.
+
 [hive]
+# Hive metastore (HMS) Thrift host for hive_* tools (table listing / describe).
 hms_host = "localhost"
+# HMS Thrift port.
 hms_port = 9083
 
 [trino]
+# Trino coordinator host for trino_* tools and warehouse SQL.
 host = "presto.s.tahoe.wish.site"
+# Coordinator port (8443 = HTTPS).
 port = 8443
-user = "jixie"
+# Env variable holding the Trino user the queries run as (secrets file). An inline
+# `user = "..."` is the fallback.
+user_env = "TRINO_USER"
+# Env variable holding the Trino password (secret). An inline `password` is the fallback.
 password_env = "TRINO_PASSWORD"
+# Default catalog when a tool call does not name one.
 catalog = "hive"
+# Default schema when a tool call does not name one.
 schema_name = "default"
+# "https" or "http" for the coordinator connection.
 http_scheme = "https"
-# Per HTTP request to the coordinator; one driver attempt (the tool wrapper
-# retries transient errors once).
+# Seconds per HTTP request to the coordinator (each poll of a running query).
 request_timeout_seconds = 30
+# Driver attempts per request; 1 because the tool wrapper already retries transient
+# errors once (the driver default of 3 made an unreachable Trino block ~3 minutes).
 max_attempts = 1
+# Who queries run as:
+#   "service"     - always the service user above.
+#   "impersonate" - the service account authenticates, but each query runs as the
+#                   signed-in user (web login username, or CLI -u / default user) with
+#                   that user's Trino permissions. Trino must allow the service user to
+#                   impersonate (access-control "impersonation" rule), and the username
+#                   must be the user's Trino name. Without a user, the service user.
+# Only trustworthy with a real login: with [auth].skip_password_check anyone can
+# sign in, and so query, as anyone.
+user_identity = "impersonate"
+# Trino "source" shown in query history.
+source = "tahoepilot"
 
 [datahub]
-# Native GraphQL tools (not MCP). Env names match mcp-server-datahub convention:
-#   DATAHUB_GMS_URL, DATAHUB_GMS_TOKEN
-gms_url = "https://datahub.s.tahoe.wish.site:8080"
-gms_url_env = "DATAHUB_GMS_URL"
+# Native DataHub GraphQL tools (not MCP).
+# GMS base URL; GraphQL is called at <gms_url>/api/graphql.
+# LOCAL DEV ONLY: GMS through `kubectl -n datahub port-forward <gms pod> 8080:8080`
+# (the load balancer's TLS certificate fails Python's CA check on dev machines).
+# Do not commit; the deployed value is "https://datahub.s.tahoe.wish.site:8080".
+gms_url = "http://localhost:8080"
+# Env variable holding the DataHub access token (secret), as in mcp-server-datahub.
 token_env = "DATAHUB_GMS_TOKEN"
+# HTTP timeout per GraphQL request, in seconds.
 timeout_seconds = 30
 
 [k8s]
-# Empty config_file → standard kubeconfig discovery (~/.kube/config or $KUBECONFIG).
+# kubeconfig file for read-only k8s_* tools. Empty = the client's default discovery
+# (in-cluster service account, else ~/.kube/config).
 config_file = ""
-config_file_env = "KUBECONFIG"
+# Namespace used when a k8s tool call does not name one.
 default_namespace = "default"
 
 [spark]
+# Not read by code (ToolConfig ignores this table; kept for reference).
 master = "local[*]"
 
 [web_search]
-# Public web search. provider: duckduckgo (no key) | tavily | brave.
-# Missing API keys fall back to DuckDuckGo.
+# Public web search tool. false disables `web_search`.
 enabled = true
+# duckduckgo (no key) | tavily | brave. A provider whose API key is missing falls
+# back to DuckDuckGo.
 provider = "tavily"
+# Results per search when the call does not ask for a number.
 max_results = 5
+# Inline Tavily key fallback; prefer the env variable below.
 tavily_api_key = ""
+# Env variable holding the Tavily API key (secret).
 tavily_api_key_env = "TAVILY_API_KEY"
+# Inline Brave key fallback; prefer the env variable below.
 brave_api_key = ""
+# Env variable holding the Brave Search API key (secret).
 brave_api_key_env = "BRAVE_API_KEY"
 
 [s3]
-# Read-only S3. Env overrides toml (AWS_* names match Janus / AWS SDK).
+# Read-only S3 tools (s3_list_objects / s3_head_object / s3_get_object).
+# Inline access key fallback; prefer the env variable below.
 access_key_id = ""
+# Env variable holding the access key id (secret; AWS SDK name).
 access_key_id_env = "AWS_ACCESS_KEY_ID"
+# Inline secret key fallback; prefer the env variable below.
 secret_access_key = ""
+# Env variable holding the secret access key (secret; AWS SDK name).
 secret_access_key_env = "AWS_SECRET_ACCESS_KEY"
+# AWS region, e.g. "us-west-2". Required for the S3 tools to work.
 region = ""
-region_env = "AWS_REGION"
+# Custom endpoint for S3-compatible stores (MinIO, Ceph...). Empty = AWS.
 endpoint_url = ""
-endpoint_url_env = "AWS_ENDPOINT_URL"
+# Use path-style URLs (bucket in the path). Forced on when endpoint_url is set.
 path_style_access = false

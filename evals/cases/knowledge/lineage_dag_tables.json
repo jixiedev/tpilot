@@ -1,0 +1,41 @@
+{
+  "description": "The tables an Airflow DAG produces, from DataHub data jobs (expected tables must all be listed).",
+  "models": [
+    "MiniMax-M3"
+  ],
+  "defaults": {
+    "expected_tools": [
+      "datahub_list_data_jobs"
+    ],
+    "total_rounds": 4
+  },
+  "cases": [
+    {
+      "name": "tables_of_daily_core_pipelines",
+      "query": "Which tables does the DailyCorePipelines Airflow DAG produce? Reply with a single JSON object only. Do not wrap it in markdown fences and do not add any other text. Required shape: {\"dag\": \"<Airflow DAG id>\", \"tables\": [\"<db.table>\", \"...\"]}",
+      "answer": {
+        "tables": [
+          "core_data.fct_dau",
+          "core_data.fct_refund",
+          "core_data.fct_session_time",
+          "core_data.fct_pb_feed_tile_interactions"
+        ]
+      },
+      "notes": "Gold verified against DataHub lineage on 2026-11-20 (GMS via kubectl port-forward). Subset check: every expected table must be listed; others are allowed."
+    },
+    {
+      "name": "tables_of_wishpost_finance_pnl",
+      "query": "Which tables does the WishpostOverallFinancePNL Airflow DAG produce? Reply with a single JSON object only. Do not wrap it in markdown fences and do not add any other text. Required shape: {\"dag\": \"<Airflow DAG id>\", \"tables\": [\"<db.table>\", \"...\"]}",
+      "answer": {
+        "tables": [
+          "wishpost.finance_monthly_profits_1y",
+          "wishpost.finance_monthly_profits_by_combine_ratio_1y",
+          "wishpost.finance_monthly_purchase_breakdown_fm_1y",
+          "wishpost.finance_monthly_purchase_breakdown_lm_ds_1y",
+          "wishpost.finance_monthly_sales_breakdown_1y"
+        ]
+      },
+      "notes": "Gold verified against DataHub lineage on 2026-11-20 (GMS via kubectl port-forward). Subset check: every expected table must be listed; others are allowed."
+    }
+  ]
+}

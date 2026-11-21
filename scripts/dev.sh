@@ -5,8 +5,8 @@
 #
 # The AG-UI endpoint that backs the CopilotKit chat is mounted inside
 # ``langgraph dev`` itself (via ``http.app`` in langgraph.json pointing
-# at ``agui_server.py:app``), so you only need TWO terminals — not
-# three. See ``agui_server.py`` for the AG-UI wiring details.
+# at ``tahoepilot/server/app.py:app``), so you only need TWO terminals — not
+# three. See ``tahoepilot/server/app.py`` for the AG-UI wiring details.
 #
 # Usage:
 #   1. terminal A:  ./scripts/dev.sh backend
@@ -15,7 +15,7 @@
 #
 # Or run both in the background from one terminal:
 #   ./scripts/dev.sh start    # background, prints PIDs
-#   ./scripts/dev.sh stop     # stops only the PIDs recorded in .run/*.pid
+#   ./scripts/dev.sh stop     # stops only the PIDs recorded in .local/run/*.pid
 #   ./scripts/dev.sh status   # show ports
 
 set -euo pipefail
@@ -23,9 +23,30 @@ set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$HERE/.." && pwd)"
 
-# Load .env so API keys reach the python processes.
+# Runtime files stay out of the source tree; config/runtime.toml [paths] says where:
+#   run_dir        PID files and logs of the background servers (.local/run)
+#   langgraph_dir  working dir of `langgraph dev`, which keeps its in-memory store
+#                  in ./.langgraph_api relative to where it runs (.local/langgraph)
+# Falls back to those .local/ defaults when the project venv cannot be used.
+read_runtime_dirs() {
+  (cd "$ROOT" && .venv/bin/python -c \
+    'from tahoepilot.settings.runtime_config import get_runtime_paths as g; p = g(); print(p.run_dir); print(p.langgraph_dir)' \
+    2>/dev/null) || true
+}
+{ read -r RUN_DIR; read -r LANGGRAPH_DIR; } < <(read_runtime_dirs) || true
+RUN_DIR="${RUN_DIR:-$ROOT/.local/run}"
+LANGGRAPH_DIR="${LANGGRAPH_DIR:-$ROOT/.local/langgraph}"
+# langgraph.json names its modules (langgraph_graphs, agui_server) by import path,
+# so the repo root must be importable from LANGGRAPH_DIR.
+export PYTHONPATH="$ROOT${PYTHONPATH:+:$PYTHONPATH}"
+
+# Load .env (non-secret: config dir, secrets file path), then the secrets file it
+# names, so API keys reach the python processes. Relative paths are from the repo root.
 set -a
 [ -f "$ROOT/.env" ] && . "$ROOT/.env"
+SECRETS_FILE="${TAHOEPILOT_SECRETS_FILE:-/tahoepilot/secrets/secrets.env}"
+case "$SECRETS_FILE" in /*) ;; *) SECRETS_FILE="$ROOT/$SECRETS_FILE" ;; esac
+[ -f "$SECRETS_FILE" ] && . "$SECRETS_FILE"
 set +a
 
 cmd="${1:-help}"
@@ -35,30 +56,40 @@ cmd="${1:-help}"
 # construction and turns do synchronous file and SQLite I/O (offload store,
 # profiles, config), so without the flag startup fails at random with
 # "BlockingError: Blocking call to os.mkdir" and /agui never comes up.
-LANGGRAPH_DEV_ARGS=(--no-browser --port 8000 --allow-blocking)
+LANGGRAPH_DEV_ARGS=(--config "$ROOT/langgraph.json" --no-browser --port 8000 --allow-blocking)
 
 start_langgraph_bg() {
-  mkdir -p "$ROOT/.run"
-  cd "$ROOT"
+  mkdir -p "$RUN_DIR" "$LANGGRAPH_DIR"
+  cd "$LANGGRAPH_DIR"
   # Re-export critical API keys so the nohup'd child of `set -a` keeps
   # them (on macOS nohup's process group can drop those exports).
   export MiniMax_API_KEY GLM_API_KEY OpenRouter_API_KEY SenseNova_API_KEY TAVILY_API_KEY LANGSMITH_API_KEY
   # set -m: run the job in its own process group (pgid == pid) so `stop`
   # can signal exactly that group.
   set -m
-  nohup .venv/bin/langgraph dev "${LANGGRAPH_DEV_ARGS[@]}" \
-    > "$ROOT/.run/langgraph.log" 2>&1 &
+  nohup "$ROOT/.venv/bin/langgraph" dev "${LANGGRAPH_DEV_ARGS[@]}" \
+    > "$RUN_DIR/langgraph.log" 2>&1 &
   set +m
-  echo $! > "$ROOT/.run/langgraph.pid"
+  echo $! > "$RUN_DIR/langgraph.pid"
+}
+
+# Login on/off for Next.js proxy.ts, from [auth].enabled in server.toml. Host,
+# port and backend URL keep next dev's own defaults.
+export_frontend_auth() {
+  TAHOEPILOT_AUTH_ENABLED="$(cd "$ROOT" && .venv/bin/python -c \
+    'from tahoepilot.settings.server_config import frontend_env; print(frontend_env()["TAHOEPILOT_AUTH_ENABLED"])' \
+    2>/dev/null || echo false)"
+  export TAHOEPILOT_AUTH_ENABLED
 }
 
 start_next_bg() {
-  mkdir -p "$ROOT/.run"
+  mkdir -p "$RUN_DIR"
+  export_frontend_auth
   cd "$ROOT/frontend"
   set -m
-  nohup npm run dev > "$ROOT/.run/next.log" 2>&1 &
+  nohup npm run dev > "$RUN_DIR/next.log" 2>&1 &
   set +m
-  echo $! > "$ROOT/.run/next.pid"
+  echo $! > "$RUN_DIR/next.pid"
 }
 
 # Signal ``pid`` and all of its descendants (children first). ``npm run dev``
@@ -72,13 +103,13 @@ kill_tree() {
   kill "-$sig" "$pid" 2>/dev/null || true
 }
 
-# Stop only the process recorded in .run/<name>.pid, plus its process group
+# Stop only the process recorded in .local/run/<name>.pid, plus its process group
 # (``start`` puts each background job in its own group) and descendants.
 # Never matches by command line, so unrelated ``langgraph dev`` / ``next dev``
 # processes on the machine are left alone.
 stop_pidfile() {
   local name="$1"
-  local pidfile="$ROOT/.run/${name}.pid"
+  local pidfile="$RUN_DIR/${name}.pid"
   [ -f "$pidfile" ] || return 0
   local pid pgid i
   pid="$(tr -d '[:space:]' < "$pidfile")"
@@ -128,26 +159,28 @@ status_check() {
 case "$cmd" in
   backend)
     # ``langgraph dev`` is the parent for the AG-UI module
-    # (``agui_server.py:app`` via ``langgraph.json http.app``). It needs
+    # (``tahoepilot/server/app.py:app`` via ``langgraph.json http.app``). It needs
     # the same LLM API keys we already loaded into this shell above, but
     # nohup'd background invocations do NOT inherit ``set -a`` exports
     # reliably across every process group on macOS — so re-export the
     # keys we know the databot graph actually uses.
     export MiniMax_API_KEY GLM_API_KEY OpenRouter_API_KEY SenseNova_API_KEY TAVILY_API_KEY LANGSMITH_API_KEY
-    cd "$ROOT"
-    exec .venv/bin/langgraph dev "${LANGGRAPH_DEV_ARGS[@]}"
+    mkdir -p "$LANGGRAPH_DIR"
+    cd "$LANGGRAPH_DIR"
+    exec "$ROOT/.venv/bin/langgraph" dev "${LANGGRAPH_DEV_ARGS[@]}"
     ;;
   frontend)
+    export_frontend_auth
     cd "$ROOT/frontend"
     exec npm run dev
     ;;
   start)
     start_langgraph_bg
     start_next_bg
-    echo "langgraph dev  -> :8000  (pid $(cat "$ROOT/.run/langgraph.pid"))"
-    echo "next dev       -> :3000  (pid $(cat "$ROOT/.run/next.pid"))"
+    echo "langgraph dev  -> :8000  (pid $(cat "$RUN_DIR/langgraph.pid"))"
+    echo "next dev       -> :3000  (pid $(cat "$RUN_DIR/next.pid"))"
     echo "AG-UI endpoints: http://localhost:8000/agui/lead and /agui/databot (inside langgraph dev)"
-    echo "logs: $ROOT/.run/{langgraph,next}.log"
+    echo "logs: $RUN_DIR/{langgraph,next}.log"
     ;;
   stop)
     for name in next langgraph; do
@@ -157,7 +190,7 @@ case "$cmd" in
   status)
     status_check 8000 "langgraph dev  "
     status_check 3000 "next dev       "
-    # Each front agent has its own AG-UI endpoint (agui_server.FRONT_AGENTS).
+    # Each front agent has its own AG-UI endpoint (tahoepilot.server.app.FRONT_AGENTS).
     # An empty POST is 422 (missing RunAgentInput fields) when it is mounted.
     for agent in lead databot; do
       url="http://127.0.0.1:8000/agui/${agent}"
@@ -176,8 +209,8 @@ Usage: $0 <command>
 
   backend   run langgraph dev on :8000 (foreground) — also serves /agui/lead and /agui/databot
   frontend  run next dev on :3000 (foreground)
-  start     start both in the background; PIDs in .run/*.pid
-  stop      stop the background processes recorded in .run/*.pid (and their children)
+  start     start both in the background; PIDs in .local/run/*.pid
+  stop      stop the background processes recorded in .local/run/*.pid (and their children)
   status    show whether :8000 and :3000 are alive, and whether /agui/lead and /agui/databot are mounted
 
 After 'start', open http://localhost:3000 in your browser.

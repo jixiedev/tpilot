@@ -1,0 +1,206 @@
+"""Pure state patches for Databot UI controls (cards / SQL editor).
+
+The AG-UI frontend calls these via ``tahoepilot.server.app.databot_ui_action`` instead
+of round-tripping through the LLM. ``stage_tools`` reuses the same helpers
+where the LLM-owned tools mirror the UI behavior.
+"""
+
+from __future__ import annotations
+
+import re
+from collections.abc import Mapping
+from typing import Any, Literal
+
+from langchain_core.messages import HumanMessage
+
+from tahoepilot.agent.graph.messages import message_content_to_str
+
+from tahoepilot.agent.specialists.databot.state import PHASE_PREPARE_CARDS, PHASE_PREPARE_SQL
+
+DatabotUiAction = Literal[
+    "update_card_selection",
+    "propose_sql",
+    "request_sql_regenerate",
+]
+
+ACTION_ALLOWED_STAGES: dict[DatabotUiAction, frozenset[str]] = {
+    "update_card_selection": frozenset({PHASE_PREPARE_CARDS}),
+    "propose_sql": frozenset({PHASE_PREPARE_SQL}),
+    "request_sql_regenerate": frozenset({PHASE_PREPARE_SQL}),
+}
+
+DATABOT_STATE_KEYS: tuple[str, ...] = (
+    "stage",
+    "staging_cards",
+    "committed_cards",
+    "review_cards",
+    "approved_cards",
+    "history_cards",
+    "metric_conflicts",
+    "draft_sql",
+    "approved_sql",
+    "sql_validated",
+    "execution_result",
+    "gate_decisions",
+    "cards_reasons",
+    "cards_selection_summary",
+    "sql_reasons",
+    "dryrun",
+    "halt_reason",
+    "deny_feedback",
+)
+
+
+
+# ---------------------------------------------------------------------------
+# State patches for card selection, SQL edits, and gate redrafts.
+# ---------------------------------------------------------------------------
+
+def databot_state_subset(state: Mapping[str, Any]) -> dict[str, Any]:
+    """Return databot fields from a LangGraph state dict for the frontend."""
+    return {key: state[key] for key in DATABOT_STATE_KEYS if key in state}
+
+
+def apply_update_card_selection(
+    state: Mapping[str, Any],
+    selected_card_names: list[str],
+) -> dict[str, Any]:
+    """Replace ``review_cards`` with a human-curated subset."""
+    candidates = list(state.get("committed_cards") or [])
+    by_name = {
+        c.get("name"): c for c in candidates if isinstance(c, dict) and c.get("name")
+    }
+    chosen: list[dict[str, Any]] = []
+    for name in selected_card_names:
+        card = by_name.get(name)
+        if card is not None:
+            chosen.append(card)
+    return {
+        "review_cards": chosen,
+        "deny_feedback": "",
+    }
+
+
+def apply_propose_sql(sql: str, *, validated: bool = False) -> dict[str, Any]:
+    """Write a human-edited SQL draft."""
+    cleaned_sql = (sql or "").strip()
+    return {
+        "draft_sql": cleaned_sql,
+        "sql_validated": bool(validated),
+    }
+
+
+def apply_request_sql_regenerate(feedback: str) -> dict[str, Any]:
+    """Queue SQL redraft feedback for the next ``generate_sql`` entry."""
+    cleaned = (feedback or "").strip()
+    return {
+        "draft_sql": "",
+        "sql_reasons": {},
+        "sql_validated": False,
+        "deny_feedback": cleaned,
+    }
+
+
+_GATE_REDRAFT_PREFIX_RE = re.compile(
+    r"^(?:SQL|Cards) gate review — redraft and address this feedback:",
+    re.IGNORECASE,
+)
+
+
+def gate_redraft_message_content(feedback: str, *, gate: str) -> str:
+    """Human-message body queued when a gate sends the pipeline back for redraft."""
+    cleaned = (feedback or "").strip()
+    return f"{gate} gate review — redraft and address this feedback:\n{cleaned}"
+
+
+def is_gate_redraft_message(text: str) -> bool:
+    """Whether ``text`` is synthetic gate feedback rather than a user question."""
+    return bool(_GATE_REDRAFT_PREFIX_RE.match((text or "").strip()))
+
+
+def user_question_from_messages(messages: list[Any]) -> str:
+    """Return the latest real user question, skipping gate redraft messages."""
+    for msg in reversed(messages or []):
+        if isinstance(msg, HumanMessage):
+            text = message_content_to_str(msg.content)
+        elif isinstance(msg, dict) and msg.get("type") == "human":
+            text = message_content_to_str(msg.get("content", ""))
+        else:
+            continue
+        if text and not is_gate_redraft_message(text):
+            return text
+    return ""
+
+
+def _subgraph_redraft_counters() -> dict[str, Any]:
+    """Reset markers on gate redraft (ReAct counters reset inside layer ReAct)."""
+    return {}
+
+
+def _feedback_human_message(feedback: str, *, gate: str) -> dict[str, Any]:
+    cleaned = (feedback or "").strip()
+    if not cleaned:
+        return {}
+    return {
+        "messages": [
+            HumanMessage(content=gate_redraft_message_content(cleaned, gate=gate)),
+        ],
+    }
+
+
+def apply_cards_gate_redraft(feedback: str) -> dict[str, Any]:
+    """Reset card-gate outputs so the fetch subgraph must re-run."""
+    cleaned = (feedback or "").strip()
+    return {
+        "stage": PHASE_PREPARE_CARDS,
+        "staging_cards": [],
+        "committed_cards": [],
+        "review_cards": [],
+        "deny_feedback": cleaned,
+        "cards_reasons": {},
+        "cards_selection_summary": "",
+        **_subgraph_redraft_counters(),
+        **_feedback_human_message(cleaned, gate="Cards"),
+    }
+
+
+def apply_sql_gate_redraft(feedback: str) -> dict[str, Any]:
+    """Reset SQL-gate outputs so the generate_sql subgraph must re-run."""
+    cleaned = (feedback or "").strip()
+    return {
+        "stage": PHASE_PREPARE_SQL,
+        **apply_request_sql_regenerate(cleaned),
+        **_subgraph_redraft_counters(),
+        **_feedback_human_message(cleaned, gate="SQL"),
+    }
+
+
+def build_ui_action_patch(
+    action: DatabotUiAction,
+    state: Mapping[str, Any],
+    *,
+    selected_card_names: list[str] | None = None,
+    sql: str | None = None,
+    validated: bool = False,
+    feedback: str | None = None,
+) -> dict[str, Any]:
+    """Validate stage and return the LangGraph state patch for ``action``."""
+    stage = str(state.get("stage") or "")
+    allowed = ACTION_ALLOWED_STAGES[action]
+    if stage not in allowed:
+        raise ValueError(
+            f"action {action!r} is not allowed in stage {stage!r} "
+            f"(allowed: {sorted(allowed)})"
+        )
+
+    if action == "update_card_selection":
+        return apply_update_card_selection(state, list(selected_card_names or []))
+    if action == "propose_sql":
+        if not (sql or "").strip():
+            raise ValueError("sql must not be empty")
+        return apply_propose_sql(sql or "", validated=validated)
+    if action == "request_sql_regenerate":
+        if not (feedback or "").strip():
+            raise ValueError("feedback must not be empty")
+        return apply_request_sql_regenerate(feedback or "")
+    raise ValueError(f"unknown action: {action}")

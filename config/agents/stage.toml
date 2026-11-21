@@ -1,8 +1,11 @@
 # Shared parent for the Databot outer pipeline. Not registered.
+# Agent name; only used if this file is loaded directly (extends ignores it).
 name = "stage"
 
 # Default stage orchestrator limits. Databot sets ``[run_context] extends = "stage"`` for the
 # outer graph (layer routing).
 [run_context]
+# Tool-call batches per turn for the outer pipeline.
 max_tool_calls = 10
+# Plain-text replies retried while the current stage's goal is unmet.
 max_idle_reason_rounds = 1

@@ -1,0 +1,349 @@
+{
+  "description": "Golden queries: find the metric (and its table) that answers a data question. Warehouse answers directly, without the SQL review gate, as {\"models_selected\": [...], \"proposed_sql\": [...]} (empty lists when it cannot tell). Scores the selected source, that the proposed SQL reads the right table and compiles on Trino (EXPLAIN only, nothing runs), that the table was found, that no gate tool was used, and a 12-call budget.",
+  "models": [
+    "MiniMax-M3"
+  ],
+  "run": {
+    "gate_reply": "stop"
+  },
+  "defaults": {
+    "allowed_tools": [
+      "compact_context",
+      "datahub_get_lineage",
+      "datahub_get_lineage_paths_between",
+      "datahub_get_table_docs",
+      "find_models_metrics",
+      "read_offloaded_file",
+      "search_metric_catalog",
+      "trino_desc_table",
+      "trino_explain",
+      "trino_list_schemas",
+      "trino_list_tables"
+    ],
+    "forbidden_tools": [
+      "request_sql_approval",
+      "run_sql"
+    ],
+    "max_tool_calls": 12,
+    "expect_sql_compiles": true
+  },
+  "cases": [
+    {
+      "name": "find_unique_products_sold_excl_ltd_metric",
+      "query": "For standard Datapark and EXP Wish commerce reporting, which metric counts distinct products sold excluding Limited Time Deal products at payment-received variation grain? Answer from the metric catalog and table schemas only: do not request SQL approval and do not run any SQL. Reply with a single JSON object only, with no markdown fences and no other text: {\"models_selected\": [\"<database>.<table>.<metric>\"], \"proposed_sql\": [\"<one read-only Trino SQL query that answers the question>\"]}. If you cannot determine them, leave the lists empty: {\"models_selected\": [], \"proposed_sql\": []}.",
+      "expected_tables": [
+        "core_data.fct_transaction_variations"
+      ],
+      "answer": {
+        "models_selected": [
+          "core_data.fct_transaction_variations.unique_products_sold"
+        ]
+      },
+      "expected_sql_tables": [
+        "core_data.fct_transaction_variations"
+      ],
+      "reference_sql": "SELECT dt, COUNT(DISTINCT product_id) AS unique_products_sold FROM core_data.fct_transaction_variations WHERE dt BETWEEN '${start_dt}' AND '${end_dt}' AND is_ltd_product = 'false' GROUP BY dt",
+      "notes": "Golden query from branch ci-add-golden-query-benchmark (observability/cases/functional/databot.json), written for Databot; run against Warehouse."
+    },
+    {
+      "name": "find_daily_click_users_metric",
+      "query": "Which metric counts distinct daily active users who had at least one click on the activity day? Answer from the metric catalog and table schemas only: do not request SQL approval and do not run any SQL. Reply with a single JSON object only, with no markdown fences and no other text: {\"models_selected\": [\"<database>.<table>.<metric>\"], \"proposed_sql\": [\"<one read-only Trino SQL query that answers the question>\"]}. If you cannot determine them, leave the lists empty: {\"models_selected\": [], \"proposed_sql\": []}.",
+      "expected_tables": [
+        "core_data.fct_dau"
+      ],
+      "answer": {
+        "models_selected": [
+          "core_data.fct_dau.click_user"
+        ]
+      },
+      "expected_sql_tables": [
+        "core_data.fct_dau"
+      ],
+      "notes": "Golden query from branch ci-add-golden-query-benchmark (observability/cases/functional/databot.json), written for Databot; run against Warehouse. Its reference SQL no longer compiles on Trino (semantic-layer columns), so it was dropped."
+    },
+    {
+      "name": "find_wishpost_first_mile_logistics_fee_metric",
+      "query": "Which metric sums WishPost first-mile (pre-leg, before last-mile combine) purchase logistics fee in CNY for combined delivery programs (EPC, A+, Fusion, and Smart)—the Logistics Fee bucket alone, not total first-mile purchase cost or last-mile/Dropship logistics fees? Answer from the metric catalog and table schemas only: do not request SQL approval and do not run any SQL. Reply with a single JSON object only, with no markdown fences and no other text: {\"models_selected\": [\"<database>.<table>.<metric>\"], \"proposed_sql\": [\"<one read-only Trino SQL query that answers the question>\"]}. If you cannot determine them, leave the lists empty: {\"models_selected\": [], \"proposed_sql\": []}.",
+      "expected_tables": [
+        "wishpost.finance_monthly_purchase_breakdown_fm_1y"
+      ],
+      "answer": {
+        "models_selected": [
+          "wishpost.finance_monthly_purchase_breakdown_fm_1y.total_first_mile_logistics_fee"
+        ]
+      },
+      "expected_sql_tables": [
+        "wishpost.finance_monthly_purchase_breakdown_fm_1y"
+      ],
+      "reference_sql": "SELECT dt, COALESCE(SUM(purchase_pre_logistics_fee), 0) AS total_first_mile_logistics_fee FROM wishpost.finance_monthly_purchase_breakdown_fm_1y WHERE dt BETWEEN '${start_dt}' AND '${end_dt}' GROUP BY dt",
+      "notes": "Golden query from branch ci-add-golden-query-benchmark (observability/cases/functional/databot.json), written for Databot; run against Warehouse."
+    },
+    {
+      "name": "find_commerce_merchant_row_count_metric",
+      "query": "Which metric counts merchant-grain rows on Wish's current-state Mongo commerce-merchant master snapshot—plain row count rather than distinct merchant ids, and not the consolidated merchant dimension that merges merchant-user attributes? Answer from the metric catalog and table schemas only: do not request SQL approval and do not run any SQL. Reply with a single JSON object only, with no markdown fences and no other text: {\"models_selected\": [\"<database>.<table>.<metric>\"], \"proposed_sql\": [\"<one read-only Trino SQL query that answers the question>\"]}. If you cannot determine them, leave the lists empty: {\"models_selected\": [], \"proposed_sql\": []}.",
+      "expected_tables": [
+        "wish.commerce_merchant"
+      ],
+      "answer": {
+        "models_selected": [
+          "wish.commerce_merchant.merchant_rows"
+        ]
+      },
+      "expected_sql_tables": [
+        "wish.commerce_merchant"
+      ],
+      "notes": "Golden query from branch ci-add-golden-query-benchmark (observability/cases/functional/databot.json), written for Databot; run against Warehouse. Its reference SQL no longer compiles on Trino (semantic-layer columns), so it was dropped."
+    },
+    {
+      "name": "find_refund_line_merchant_shipping_cost_metric",
+      "query": "For commerce buyer refund line items, which metric sums merchant shipping cost in USD on a merchant cost basis—not user-paid shipping, and not merchant item cost before shipping? Answer from the metric catalog and table schemas only: do not request SQL approval and do not run any SQL. Reply with a single JSON object only, with no markdown fences and no other text: {\"models_selected\": [\"<database>.<table>.<metric>\"], \"proposed_sql\": [\"<one read-only Trino SQL query that answers the question>\"]}. If you cannot determine them, leave the lists empty: {\"models_selected\": [], \"proposed_sql\": []}.",
+      "expected_tables": [
+        "wish.commerce_transaction_refund_items"
+      ],
+      "answer": {
+        "models_selected": [
+          "wish.commerce_transaction_refund_items.merchant_shipping_cost"
+        ]
+      },
+      "expected_sql_tables": [
+        "wish.commerce_transaction_refund_items"
+      ],
+      "reference_sql": "SELECT dt, COALESCE(SUM(shipping_cost), 0) AS merchant_shipping_cost FROM wish.commerce_transaction_refund_items WHERE dt BETWEEN '${start_dt}' AND '${end_dt}' GROUP BY dt",
+      "notes": "Golden query from branch ci-add-golden-query-benchmark (observability/cases/functional/databot.json), written for Databot; run against Warehouse."
+    },
+    {
+      "name": "find_1_star_rating_event_count_metric",
+      "query": "Which metric counts logged product-rating events that received a 1-star rating on the Pacific event-day product-rating event log, matching the production num_1 star-bucket event count rather than distinct rating documents or a merchant catalog lifetime rating total? Answer from the metric catalog and table schemas only: do not request SQL approval and do not run any SQL. Reply with a single JSON object only, with no markdown fences and no other text: {\"models_selected\": [\"<database>.<table>.<metric>\"], \"proposed_sql\": [\"<one read-only Trino SQL query that answers the question>\"]}. If you cannot determine them, leave the lists empty: {\"models_selected\": [], \"proposed_sql\": []}.",
+      "expected_tables": [
+        "wish.daily_product_feedback_rating"
+      ],
+      "answer": {
+        "models_selected": [
+          "wish.daily_product_feedback_rating.rating_1_star_events"
+        ]
+      },
+      "expected_sql_tables": [
+        "wish.daily_product_feedback_rating"
+      ],
+      "notes": "Golden query from branch ci-add-golden-query-benchmark (observability/cases/functional/databot.json), written for Databot; run against Warehouse. Its reference SQL no longer compiles on Trino (semantic-layer columns), so it was dropped."
+    },
+    {
+      "name": "find_standard_gmv_excl_ltd_metric",
+      "query": "For standard Datapark and EXP Wish commerce reporting, which metric measures gross merchandise value excluding Limited Time Deal products at payment-received variation grain? Answer from the metric catalog and table schemas only: do not request SQL approval and do not run any SQL. Reply with a single JSON object only, with no markdown fences and no other text: {\"models_selected\": [\"<database>.<table>.<metric>\"], \"proposed_sql\": [\"<one read-only Trino SQL query that answers the question>\"]}. If you cannot determine them, leave the lists empty: {\"models_selected\": [], \"proposed_sql\": []}.",
+      "expected_tables": [
+        "core_data.fct_transaction_variations"
+      ],
+      "answer": {
+        "models_selected": [
+          "core_data.fct_transaction_variations.gmv"
+        ]
+      },
+      "expected_sql_tables": [
+        "core_data.fct_transaction_variations"
+      ],
+      "reference_sql": "SELECT dt, COALESCE(SUM(gmv_variation), 0) AS gmv FROM core_data.fct_transaction_variations WHERE dt BETWEEN '${start_dt}' AND '${end_dt}' AND is_ltd_product = 'false' GROUP BY dt",
+      "notes": "Golden query from branch ci-add-golden-query-benchmark (observability/cases/functional/databot.json), written for Databot; run against Warehouse."
+    },
+    {
+      "name": "find_consolidated_line_gmv_excl_ltd_metric",
+      "query": "Which metric measures Wish gross merchandise value excluding limited-time-deal line items on the consolidated commerce fact that joins commerce transactions, merchant transactions, and order tracking, timed on the UTC transaction calendar day? Answer from the metric catalog and table schemas only: do not request SQL approval and do not run any SQL. Reply with a single JSON object only, with no markdown fences and no other text: {\"models_selected\": [\"<database>.<table>.<metric>\"], \"proposed_sql\": [\"<one read-only Trino SQL query that answers the question>\"]}. If you cannot determine them, leave the lists empty: {\"models_selected\": [], \"proposed_sql\": []}.",
+      "expected_tables": [
+        "wish.fact_trans_detail"
+      ],
+      "answer": {
+        "models_selected": [
+          "wish.fact_trans_detail.gmv"
+        ]
+      },
+      "expected_sql_tables": [
+        "wish.fact_trans_detail"
+      ],
+      "notes": "Golden query from branch ci-add-golden-query-benchmark (observability/cases/functional/databot.json), written for Databot; run against Warehouse. Its reference SQL no longer compiles on Trino (semantic-layer columns), so it was dropped."
+    },
+    {
+      "name": "find_gmv_including_ltd_metric",
+      "query": "Which metric measures Wish gross merchandise value including Limited Time Deal products at payment-received variation grain? Answer from the metric catalog and table schemas only: do not request SQL approval and do not run any SQL. Reply with a single JSON object only, with no markdown fences and no other text: {\"models_selected\": [\"<database>.<table>.<metric>\"], \"proposed_sql\": [\"<one read-only Trino SQL query that answers the question>\"]}. If you cannot determine them, leave the lists empty: {\"models_selected\": [], \"proposed_sql\": []}.",
+      "expected_tables": [
+        "core_data.fct_transaction_variations"
+      ],
+      "answer": {
+        "models_selected": [
+          "core_data.fct_transaction_variations.gmv_w_ltd"
+        ]
+      },
+      "expected_sql_tables": [
+        "core_data.fct_transaction_variations"
+      ],
+      "reference_sql": "SELECT dt, COALESCE(SUM(gmv_variation), 0) AS gmv_w_ltd FROM core_data.fct_transaction_variations WHERE dt BETWEEN '${start_dt}' AND '${end_dt}' GROUP BY dt",
+      "notes": "Golden query from branch ci-add-golden-query-benchmark (observability/cases/functional/databot.json), written for Databot; run against Warehouse."
+    },
+    {
+      "name": "find_wishpost_overall_pnl_pre_combine_parcel_volume",
+      "query": "Which metric sums pre-combination parcel volume—individual parcels before logistics combination—over WishPost overall logistics finance P&L cells across all delivery programs, rather than post-combination counts, order-tracking shipment rows, or combine-ratio-only P&L? Answer from the metric catalog and table schemas only: do not request SQL approval and do not run any SQL. Reply with a single JSON object only, with no markdown fences and no other text: {\"models_selected\": [\"<database>.<table>.<metric>\"], \"proposed_sql\": [\"<one read-only Trino SQL query that answers the question>\"]}. If you cannot determine them, leave the lists empty: {\"models_selected\": [], \"proposed_sql\": []}.",
+      "expected_tables": [
+        "wishpost.finance_monthly_profits_1y"
+      ],
+      "answer": {
+        "models_selected": [
+          "wishpost.finance_monthly_profits_1y.total_pre_tracking"
+        ]
+      },
+      "expected_sql_tables": [
+        "wishpost.finance_monthly_profits_1y"
+      ],
+      "reference_sql": "SELECT dt, COALESCE(SUM(pre_tracking_id_cnt), 0) AS total_pre_tracking FROM wishpost.finance_monthly_profits_1y WHERE dt BETWEEN '${start_dt}' AND '${end_dt}' GROUP BY dt",
+      "notes": "Golden query from branch ci-add-golden-query-benchmark (observability/cases/functional/databot.json), written for Databot; run against Warehouse."
+    },
+    {
+      "name": "find_wishpost_combine_ratio_avg_logistics_sales",
+      "query": "Which metric gives the average WishPost logistics sales revenue per combine-ratio finance P&L cell for warehouse-combination programs only (EPC, A+, Fusion, and Smart), rather than total sales summed across cells or the average on the overall all-programs P&L? Answer from the metric catalog and table schemas only: do not request SQL approval and do not run any SQL. Reply with a single JSON object only, with no markdown fences and no other text: {\"models_selected\": [\"<database>.<table>.<metric>\"], \"proposed_sql\": [\"<one read-only Trino SQL query that answers the question>\"]}. If you cannot determine them, leave the lists empty: {\"models_selected\": [], \"proposed_sql\": []}.",
+      "expected_tables": [
+        "wishpost.finance_monthly_profits_by_combine_ratio_1y"
+      ],
+      "answer": {
+        "models_selected": [
+          "wishpost.finance_monthly_profits_by_combine_ratio_1y.avg_sales"
+        ]
+      },
+      "expected_sql_tables": [
+        "wishpost.finance_monthly_profits_by_combine_ratio_1y"
+      ],
+      "reference_sql": "SELECT dt, AVG(sales_amount) AS avg_sales FROM wishpost.finance_monthly_profits_by_combine_ratio_1y WHERE dt BETWEEN '${start_dt}' AND '${end_dt}' GROUP BY dt",
+      "notes": "Golden query from branch ci-add-golden-query-benchmark (observability/cases/functional/databot.json), written for Databot; run against Warehouse."
+    },
+    {
+      "name": "find_user_day_product_impressions",
+      "query": "Which metric totals same-day product impressions for daily active registered users at user-day grain? Answer from the metric catalog and table schemas only: do not request SQL approval and do not run any SQL. Reply with a single JSON object only, with no markdown fences and no other text: {\"models_selected\": [\"<database>.<table>.<metric>\"], \"proposed_sql\": [\"<one read-only Trino SQL query that answers the question>\"]}. If you cannot determine them, leave the lists empty: {\"models_selected\": [], \"proposed_sql\": []}.",
+      "expected_tables": [
+        "core_data.fct_dau"
+      ],
+      "answer": {
+        "models_selected": [
+          "core_data.fct_dau.num_impressions"
+        ]
+      },
+      "expected_sql_tables": [
+        "core_data.fct_dau"
+      ],
+      "reference_sql": "SELECT dt, COALESCE(SUM(num_impressions), 0) AS num_impressions FROM core_data.fct_dau WHERE dt BETWEEN '${start_dt}' AND '${end_dt}' GROUP BY dt",
+      "notes": "Golden query from branch ci-add-golden-query-benchmark (observability/cases/functional/databot.json), written for Databot; run against Warehouse."
+    },
+    {
+      "name": "find_product_day_contest_impressions",
+      "query": "Which metric sums bot-filtered contest impressions at the daily commerce product-day grain, rather than user-day impression counters or distinct feed-tile root impressions? Answer from the metric catalog and table schemas only: do not request SQL approval and do not run any SQL. Reply with a single JSON object only, with no markdown fences and no other text: {\"models_selected\": [\"<database>.<table>.<metric>\"], \"proposed_sql\": [\"<one read-only Trino SQL query that answers the question>\"]}. If you cannot determine them, leave the lists empty: {\"models_selected\": [], \"proposed_sql\": []}.",
+      "expected_tables": [
+        "wish.daily_commerce_product_metrics"
+      ],
+      "answer": {
+        "models_selected": [
+          "wish.daily_commerce_product_metrics.impressions"
+        ]
+      },
+      "expected_sql_tables": [
+        "wish.daily_commerce_product_metrics"
+      ],
+      "reference_sql": "SELECT dt, COALESCE(SUM(impressions), 0) AS impressions FROM wish.daily_commerce_product_metrics WHERE dt BETWEEN '${start_dt}' AND '${end_dt}' GROUP BY dt",
+      "notes": "Golden query from branch ci-add-golden-query-benchmark (observability/cases/functional/databot.json), written for Databot; run against Warehouse."
+    },
+    {
+      "name": "find_feed_tile_attributed_root_impressions_metric",
+      "query": "For Wish consumer feed product-tile interaction detail, which metric measures attributed feed impression reach as the count of distinct originating root impressions that link a click back to the impression that produced it, rather than summing product-day or user-day impression counters, counting impression action rows, or counting root impressions only among add-to-cart events? Answer from the metric catalog and table schemas only: do not request SQL approval and do not run any SQL. Reply with a single JSON object only, with no markdown fences and no other text: {\"models_selected\": [\"<database>.<table>.<metric>\"], \"proposed_sql\": [\"<one read-only Trino SQL query that answers the question>\"]}. If you cannot determine them, leave the lists empty: {\"models_selected\": [], \"proposed_sql\": []}.",
+      "expected_tables": [
+        "wish.feed_tile_interactions_detail"
+      ],
+      "answer": {
+        "models_selected": [
+          "wish.feed_tile_interactions_detail.feed_tile_root_impressions"
+        ]
+      },
+      "expected_sql_tables": [
+        "wish.feed_tile_interactions_detail"
+      ],
+      "reference_sql": "SELECT dt, COALESCE(COUNT(DISTINCT root_impression_id), 0) AS feed_tile_root_impressions FROM wish.feed_tile_interactions_detail WHERE dt BETWEEN '${start_dt}' AND '${end_dt}' GROUP BY dt",
+      "notes": "Golden query from branch ci-add-golden-query-benchmark (observability/cases/functional/databot.json), written for Databot; run against Warehouse."
+    },
+    {
+      "name": "find_refund_to_original_payment_amount_metric",
+      "query": "Which metric sums the USD refunded back to the buyer's original external payment method on commerce refund line items by Pacific refund day, rather than total refund amount or refunds returned as Wish Cash? Answer from the metric catalog and table schemas only: do not request SQL approval and do not run any SQL. Reply with a single JSON object only, with no markdown fences and no other text: {\"models_selected\": [\"<database>.<table>.<metric>\"], \"proposed_sql\": [\"<one read-only Trino SQL query that answers the question>\"]}. If you cannot determine them, leave the lists empty: {\"models_selected\": [], \"proposed_sql\": []}.",
+      "expected_tables": [
+        "wish.commerce_transaction_refund_items"
+      ],
+      "answer": {
+        "models_selected": [
+          "wish.commerce_transaction_refund_items.refund_to_original_payment_amount"
+        ]
+      },
+      "expected_sql_tables": [
+        "wish.commerce_transaction_refund_items"
+      ],
+      "notes": "Golden query from branch ci-add-golden-query-benchmark (observability/cases/functional/databot.json), written for Databot; run against Warehouse. Its reference SQL no longer compiles on Trino (semantic-layer columns), so it was dropped."
+    },
+    {
+      "name": "find_buyers_excl_ltd_metric",
+      "query": "For standard Datapark and EXP Wish commerce reporting, which metric counts distinct purchasing users excluding Limited Time Deal products at payment-received variation grain? Answer from the metric catalog and table schemas only: do not request SQL approval and do not run any SQL. Reply with a single JSON object only, with no markdown fences and no other text: {\"models_selected\": [\"<database>.<table>.<metric>\"], \"proposed_sql\": [\"<one read-only Trino SQL query that answers the question>\"]}. If you cannot determine them, leave the lists empty: {\"models_selected\": [], \"proposed_sql\": []}.",
+      "expected_tables": [
+        "core_data.fct_transaction_variations"
+      ],
+      "answer": {
+        "models_selected": [
+          "core_data.fct_transaction_variations.buyers"
+        ]
+      },
+      "expected_sql_tables": [
+        "core_data.fct_transaction_variations"
+      ],
+      "reference_sql": "SELECT dt, COUNT(DISTINCT user_id) AS buyers FROM core_data.fct_transaction_variations WHERE dt BETWEEN '${start_dt}' AND '${end_dt}' AND is_ltd_product = 'false' GROUP BY dt",
+      "notes": "Golden query from branch ci-add-golden-query-benchmark (observability/cases/functional/databot.json), written for Databot; run against Warehouse."
+    },
+    {
+      "name": "find_consolidated_merchandise_revenue_excl_ltd_metric",
+      "query": "Which metric measures Wish merchandise revenue as the amount customers actually paid for line items, excluding limited-time-deal lines, on the consolidated commerce fact that joins commerce transactions, merchant transactions, and order tracking, timed on the UTC transaction calendar day? Answer from the metric catalog and table schemas only: do not request SQL approval and do not run any SQL. Reply with a single JSON object only, with no markdown fences and no other text: {\"models_selected\": [\"<database>.<table>.<metric>\"], \"proposed_sql\": [\"<one read-only Trino SQL query that answers the question>\"]}. If you cannot determine them, leave the lists empty: {\"models_selected\": [], \"proposed_sql\": []}.",
+      "expected_tables": [
+        "wish.fact_trans_detail"
+      ],
+      "answer": {
+        "models_selected": [
+          "wish.fact_trans_detail.revenue"
+        ]
+      },
+      "expected_sql_tables": [
+        "wish.fact_trans_detail"
+      ],
+      "notes": "Golden query from branch ci-add-golden-query-benchmark (observability/cases/functional/databot.json), written for Databot; run against Warehouse. Its reference SQL no longer compiles on Trino (semantic-layer columns), so it was dropped."
+    },
+    {
+      "name": "find_datapark_merchant_orders_excl_ltd_metric",
+      "query": "For standard Datapark Wish commerce reporting, which metric counts distinct merchant orders excluding Limited Time Deal products at payment-received variation grain? Answer from the metric catalog and table schemas only: do not request SQL approval and do not run any SQL. Reply with a single JSON object only, with no markdown fences and no other text: {\"models_selected\": [\"<database>.<table>.<metric>\"], \"proposed_sql\": [\"<one read-only Trino SQL query that answers the question>\"]}. If you cannot determine them, leave the lists empty: {\"models_selected\": [], \"proposed_sql\": []}.",
+      "expected_tables": [
+        "core_data.fct_transaction_variations"
+      ],
+      "answer": {
+        "models_selected": [
+          "core_data.fct_transaction_variations.orders"
+        ]
+      },
+      "expected_sql_tables": [
+        "core_data.fct_transaction_variations"
+      ],
+      "reference_sql": "SELECT dt, COUNT(DISTINCT order_id) AS orders FROM core_data.fct_transaction_variations WHERE dt BETWEEN '${start_dt}' AND '${end_dt}' AND is_ltd_product = 'false' GROUP BY dt",
+      "notes": "Golden query from branch ci-add-golden-query-benchmark (observability/cases/functional/databot.json), written for Databot; run against Warehouse."
+    },
+    {
+      "name": "find_wish_cash_excl_ltd_metric",
+      "query": "For standard Datapark and EXP Wish commerce reporting, which metric measures Wish Cash spent (store credit applied) excluding Limited Time Deal products at payment-received variation grain? Answer from the metric catalog and table schemas only: do not request SQL approval and do not run any SQL. Reply with a single JSON object only, with no markdown fences and no other text: {\"models_selected\": [\"<database>.<table>.<metric>\"], \"proposed_sql\": [\"<one read-only Trino SQL query that answers the question>\"]}. If you cannot determine them, leave the lists empty: {\"models_selected\": [], \"proposed_sql\": []}.",
+      "expected_tables": [
+        "core_data.fct_transaction_variations"
+      ],
+      "answer": {
+        "models_selected": [
+          "core_data.fct_transaction_variations.wish_cash"
+        ]
+      },
+      "expected_sql_tables": [
+        "core_data.fct_transaction_variations"
+      ],
+      "reference_sql": "SELECT dt, COALESCE(SUM(wish_cash_variation), 0) AS wish_cash FROM core_data.fct_transaction_variations WHERE dt BETWEEN '${start_dt}' AND '${end_dt}' AND is_ltd_product = 'false' GROUP BY dt",
+      "notes": "Golden query from branch ci-add-golden-query-benchmark (observability/cases/functional/databot.json), written for Databot; run against Warehouse."
+    }
+  ]
+}

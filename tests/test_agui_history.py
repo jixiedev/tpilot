@@ -10,7 +10,7 @@ pytest.importorskip("ag_ui")
 
 from ag_ui.core.types import AssistantMessage, FunctionCall, ToolCall, UserMessage  # noqa: E402
 
-from agui_history import AguiHistoryRepair, ToolCallArguments  # noqa: E402
+from tahoepilot.server.history import AguiHistoryRepair, ToolCallArguments  # noqa: E402
 
 
 def _extra_data(raw: str) -> str:

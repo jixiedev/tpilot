@@ -1,0 +1,161 @@
+{
+  "description": "Pick the right model when a similar-sounding model is wrong.",
+  "models": [
+    "MiniMax-M3"
+  ],
+  "run": {
+    "variants": {
+      "rag": {
+        "retrieval": "rag"
+      },
+      "catalog": {
+        "retrieval": "catalog"
+      },
+      "hybrid": {
+        "retrieval": "hybrid"
+      }
+    }
+  },
+  "defaults": {
+    "max_tool_calls": 4
+  },
+  "cases": [
+    {
+      "name": "dau_yesterday_without_bots",
+      "kind": "lookalike",
+      "query": "How many daily active users did Wish have yesterday, excluding bots?",
+      "expected_models": [
+        "fct_dau"
+      ],
+      "notes": "fct_dau_w_bots is the look-alike that keeps bot traffic; ulc_active_users is lifecycle activity, not same-day DAU."
+    },
+    {
+      "name": "dau_including_guests",
+      "kind": "lookalike",
+      "query": "How many daily active users did we have yesterday including guest (logged-out) visitors?",
+      "expected_models": [
+        "fct_dau_w_bots"
+      ],
+      "notes": "fct_dau is registered users only; guests are only on fct_dau_w_bots."
+    },
+    {
+      "name": "ulc_active_users_not_dau",
+      "kind": "lookalike",
+      "query": "How many ULC-active users (lifecycle-active, not same-day DAU) were there yesterday?",
+      "expected_models": [
+        "ulc_active_users"
+      ],
+      "notes": "fct_dau counts same-day activity, the trap here."
+    },
+    {
+      "name": "gmv_including_ltd",
+      "kind": "lookalike",
+      "query": "What was GMV last month including Limited Time Deal items?",
+      "expected_models": [
+        "fct_transaction_variations",
+        "master_commerce_transactions",
+        "fact_trans_detail"
+      ],
+      "notes": "Same tables as default GMV; the member (w_ltd) differs. fct_daily_buyer and dau_attribution exclude LTD upstream."
+    },
+    {
+      "name": "merchant_accounts_pending",
+      "kind": "lookalike",
+      "query": "How many merchant user accounts are pending approval?",
+      "expected_models": [
+        "merchant_user"
+      ],
+      "notes": "Account grain; merchant-grain snapshots are the trap."
+    },
+    {
+      "name": "merchants_pending",
+      "kind": "lookalike",
+      "query": "How many merchants (stores) are pending approval?",
+      "expected_models": [
+        "wish__dim_all_merchants",
+        "commerce_merchant"
+      ],
+      "notes": "Merchant grain; merchant_user (accounts) is the trap."
+    },
+    {
+      "name": "enabled_skus_in_catalog",
+      "kind": "lookalike",
+      "query": "How many enabled SKUs (product variations) are in the catalog today?",
+      "expected_models": [
+        "master_product_variations"
+      ],
+      "notes": "master_products is product grain, the trap."
+    },
+    {
+      "name": "active_products_in_catalog",
+      "kind": "lookalike",
+      "query": "How many products are active in the catalog?",
+      "expected_models": [
+        "master_products",
+        "dim_all_products"
+      ],
+      "notes": "master_product_variations is SKU grain, the trap."
+    },
+    {
+      "name": "refund_line_items_count",
+      "kind": "lookalike",
+      "query": "How many refund line items were created last week?",
+      "expected_models": [
+        "commerce_transaction_refund_items",
+        "fct_refund",
+        "merchant_transaction_refund_items"
+      ]
+    },
+    {
+      "name": "orders_with_a_refund",
+      "kind": "lookalike",
+      "query": "How many orders had at least one refund last month?",
+      "expected_models": [
+        "commerce_transaction_refund_items",
+        "fct_refund"
+      ],
+      "notes": "Has-refund-line recipe; state=REFUNDED tables count fully refunded checkouts only."
+    },
+    {
+      "name": "atc_visitors_incl_guests",
+      "kind": "lookalike",
+      "query": "How many distinct visitors, including guests, added something to cart yesterday?",
+      "expected_models": [
+        "add_to_cart_data_detail",
+        "add_to_cart_detail"
+      ],
+      "notes": "fct_dau has a2c flags but registered users only."
+    },
+    {
+      "name": "wishpost_distinct_tracking",
+      "kind": "lookalike",
+      "query": "How many distinct WishPost first-mile tracking numbers were handled yesterday?",
+      "expected_models": [
+        "wishpost_order_clean_full_cycle"
+      ],
+      "notes": "master_order_tracking_infos is marketplace order tracking, not WishPost first mile."
+    },
+    {
+      "name": "buyer_paid_shipping",
+      "kind": "lookalike",
+      "query": "How much shipping did buyers pay on their orders last month?",
+      "expected_models": [
+        "master_commerce_transactions",
+        "fact_trans_detail",
+        "master_merchant_transactions"
+      ],
+      "notes": "WishPost logistics sales and purchase cost are the traps."
+    },
+    {
+      "name": "merchant_item_cogs",
+      "kind": "lookalike",
+      "query": "What was the total merchant item cost (COGS) on orders last month?",
+      "expected_models": [
+        "master_merchant_transactions",
+        "master_commerce_transactions",
+        "fact_trans_detail"
+      ],
+      "notes": "WishPost logistics purchase cost is the trap."
+    }
+  ]
+}

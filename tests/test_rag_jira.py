@@ -5,8 +5,8 @@ from unittest.mock import MagicMock, patch
 import pandas as pd
 import pytest
 
-from rag.jira import row_to_document
-from tools.rag.jira import JIRA_PROFILES, fetch_related_jira_tickets
+from tahoepilot.rag.jira import row_to_document
+from tahoepilot.tools.rag.jira import JIRA_PROFILES, fetch_related_jira_tickets
 
 
 def test_row_to_document_uses_jira_csv_headers() -> None:
@@ -44,7 +44,7 @@ def test_row_to_document_skips_empty_rows() -> None:
     assert row_to_document(row) is None
 
 
-@patch("tools.rag.jira.qdrant_search")
+@patch("tahoepilot.tools.rag.jira.qdrant_search")
 def test_fetch_related_jira_tickets_formats_hits(mock_search: MagicMock) -> None:
     mock_search.return_value = [
         {
@@ -88,7 +88,7 @@ def test_fetch_related_jira_tickets_formats_hits(mock_search: MagicMock) -> None
     mock_search.assert_called_once_with("aug_jira_tahoe", "flink lag", limit=12)
 
 
-@patch("tools.rag.jira.qdrant_search")
+@patch("tahoepilot.tools.rag.jira.qdrant_search")
 def test_fetch_related_jira_tickets_dedupes_issue_key(mock_search: MagicMock) -> None:
     mock_search.return_value = [
         {

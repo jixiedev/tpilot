@@ -8,6 +8,8 @@ import {
   useState,
 } from "react";
 import { CopilotKit } from "@copilotkit/react-core/v2";
+import { usePathname } from "next/navigation";
+import { MoonIcon, SunIcon } from "./components/icons";
 
 export const COLOR_SCHEME_STORAGE_KEY = "tahoepilot-color-scheme";
 
@@ -93,15 +95,25 @@ export function ColorSchemeToggle() {
       role="switch"
       aria-checked={dark}
       data-testid="theme-toggle"
+      aria-label="Dark mode"
+      title={dark ? "Switch to light mode" : "Switch to dark mode"}
       onClick={() => setTheme(dark ? "light" : "dark")}
     >
-      <span className={"databot-switch" + (dark ? " is-on" : "")} aria-hidden="true" />
-      <span>{dark ? "Dark" : "Light"}</span>
+      <span className="theme-toggle-track" aria-hidden="true">
+        <SunIcon size={13} className="theme-toggle-sun" />
+        <MoonIcon size={13} className="theme-toggle-moon" />
+        <span className="theme-toggle-knob">{dark ? <MoonIcon size={12} strokeWidth={2.2} /> : <SunIcon size={12} strokeWidth={2.2} />}</span>
+      </span>
     </button>
   );
 }
 
 export function Providers({ children }: { children: React.ReactNode }) {
+  // The login page talks to no agent; without CopilotKit it also skips the
+  // runtime-info request, which fails (401) before sign-in.
+  if (usePathname() === "/login") {
+    return <ColorSchemeProvider>{children}</ColorSchemeProvider>;
+  }
   return (
     <CopilotKit runtimeUrl="/api/copilotkit" useSingleEndpoint={false}>
       <ColorSchemeProvider>{children}</ColorSchemeProvider>

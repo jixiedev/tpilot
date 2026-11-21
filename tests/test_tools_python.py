@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from tools.code.python_execute import PythonExecuteError, python_execute, run_python
+from tahoepilot.tools.code.python_execute import PythonExecuteError, python_execute, run_python
 
 
 def test_python_execute_captures_print() -> None:

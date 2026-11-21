@@ -5,13 +5,13 @@ from types import SimpleNamespace
 from langchain_core.language_models.fake_chat_models import FakeMessagesListChatModel
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
-from agent.listener import CliListener, AgentListener
-from agent.react import BaseReactAgent
-from agent.runtime.prompt import SESSION_TURN_BOUNDARY
-from config.agent_config import ReactAgentConfig, agent_config_path
+from tahoepilot.agent.listener import CliListener, AgentListener
+from tahoepilot.agent.react import BaseReactAgent
+from tahoepilot.agent.runtime.prompt import SESSION_TURN_BOUNDARY
+from tahoepilot.settings.agent_config import ReactAgentConfig, agent_config_path
 from langgraph.checkpoint.memory import MemorySaver
-from memory.profile_store import FileProfileStore
-from memory.session_runtime import SessionRuntime
+from tahoepilot.memory.profile_store import FileProfileStore
+from tahoepilot.memory.session_runtime import SessionRuntime
 from tests.minimal_chat_model import MinimalChatModel
 
 
@@ -47,7 +47,7 @@ def _agent(tmp_path, listener: AgentListener | None = None) -> BaseReactAgent:
 
 
 async def test_accept_user_request_sets_session_state(tmp_path, monkeypatch) -> None:
-    import memory.profile_store as store_mod
+    import tahoepilot.memory.profile_store as store_mod
 
     monkeypatch.delenv("TAHOEPILOT_USER_ID", raising=False)
     monkeypatch.setattr(store_mod.getpass, "getuser", lambda: "os_user")
@@ -72,7 +72,7 @@ async def test_accept_user_request_sets_session_state(tmp_path, monkeypatch) -> 
 
 
 async def test_accept_user_request_follow_up_turn_uses_boundary_and_human(tmp_path, monkeypatch) -> None:
-    import memory.profile_store as store_mod
+    import tahoepilot.memory.profile_store as store_mod
 
     monkeypatch.delenv("TAHOEPILOT_USER_ID", raising=False)
     monkeypatch.setattr(store_mod.getpass, "getuser", lambda: "os_user")
@@ -97,7 +97,7 @@ async def test_accept_user_request_follow_up_turn_uses_boundary_and_human(tmp_pa
 
 
 async def test_accept_user_request_reuses_profile_store(tmp_path, monkeypatch) -> None:
-    import memory.profile_store as store_mod
+    import tahoepilot.memory.profile_store as store_mod
 
     monkeypatch.delenv("TAHOEPILOT_USER_ID", raising=False)
     monkeypatch.setattr(store_mod.getpass, "getuser", lambda: "os_user")
@@ -124,7 +124,7 @@ class _ReplyModel(FakeMessagesListChatModel):
 
 
 async def test_run_accepts_print_output_and_gates_turn_output(tmp_path) -> None:
-    """cli.py passes print_output=True; plan delegation and evals pass False."""
+    """tahoepilot/cli.py passes print_output=True; plan delegation and evals pass False."""
     listener = _RecordingListener()
     agent = _agent(tmp_path, listener=listener)
     agent.model = _ReplyModel(responses=[AIMessage(content="hi")] * 20)

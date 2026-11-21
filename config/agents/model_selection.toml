@@ -1,17 +1,24 @@
+# Agent name used for registration and tool scopes ("model_selection,<scope>").
 name = "model_selection"
+# Short description shown in the agent catalog listing.
 description = "Eval-only: picks the dbt model for a data question (no SQL, no queries) to compare retrieval tools"
-# Never delegated by the lead (front agents are skipped); it is built by
+# true = front agent: never delegated by the lead (front agents are skipped); it is built by
 # `python -m evals --agent model_selection`, which runs every case once per
 # retrieval setup ("arm") and compares them.
 front = true
 
+# ReAct loop settings plus the retrieval arm (ModelSelectionAgentConfig).
 [run_context]
+# Inherit tahoe.toml's [run_context] (max_tool_calls = 10, overridden below;
+# its max_idle_reason_rounds is dropped for pure ReAct agents).
 extends = "tahoe"
 # Which retrieval tools the run gets; the eval overrides it per arm.
 #   rag     - fetch_related_models only (vector search)
 #   catalog - search_metric_catalog + find_models_metrics only
 #   hybrid  - catalog first, fetch_related_models as fallback (production order)
 retrieval = "hybrid"
+# Tool-call batches per turn (overrides tahoe's 10); at the limit the model answers
+# once more without tools, using tool_budget_exhausted_prompt below.
 max_tool_calls = 8
 # No end-of-turn profile refinement: eval runs must not write user profiles.
 refine_user_profile_prompt = ""
@@ -22,9 +29,12 @@ Answer now with only the JSON object from the Output section: the best
 candidate you found, or "model": null if none fits the question.
 """
 
+# Model-selection system message (role, one workflow per arm, choosing rules, JSON output).
 [system_prompt]
+# Inherit tahoe.toml's prompt (and through it base.toml); sections below merge by id.
 extends = "tahoe"
 
+# Section ids rendered, in order; replaces the parent layout.
 # Only the workflow section of the active arm is rendered
 # (ModelSelectionSystemPrompt drops the other `workflow_*` sections).
 layout = [
@@ -37,6 +47,7 @@ layout = [
     "output",
 ]
 
+# Role section: eval-only chooser persona; replaces tahoe's role text.
 [system_prompt.sections.role]
 title = "Role"
 text = """
@@ -46,6 +57,7 @@ SQL, never query data, never describe tables beyond what the retrieval tools
 return.
 """
 
+# Workflow for the "rag" arm (rendered only when retrieval = "rag").
 [system_prompt.sections.workflow_rag]
 title = "Workflow"
 text = """
@@ -55,6 +67,7 @@ for a metric, `"model+columns"` for columns or entities). Search again with a
 different phrasing at most twice if the candidates do not fit.
 """
 
+# Workflow for the "catalog" arm (rendered only when retrieval = "catalog").
 [system_prompt.sections.workflow_catalog]
 title = "Workflow"
 text = """
@@ -69,6 +82,7 @@ If the catalog has no fitting root or member, or stages no model, answer with
 `"model": null` and say why; there is no other search tool in this run.
 """
 
+# Workflow for the "hybrid" arm (rendered only when retrieval = "hybrid").
 [system_prompt.sections.workflow_hybrid]
 title = "Workflow"
 text = """
@@ -81,6 +95,7 @@ text = """
    about columns or entities rather than a metric.
 """
 
+# Choosing rules: how to weigh candidates and when to answer "model": null.
 [system_prompt.sections.selection_rules]
 title = "Choosing"
 text = """
@@ -97,6 +112,7 @@ text = """
 - Keep it short: usually two to four tool calls.
 """
 
+# Output section: the JSON object the eval parses; replaces tahoe's output text.
 [system_prompt.sections.output]
 title = "Output"
 text = """
@@ -108,8 +124,10 @@ Finish with one message and no tool calls, containing only this JSON object:
  "reason": "<one or two sentences: grain, dimensions, metric definition>"}
 """
 
+# Built-in tools per tool scope (no [accepted_mcp], so no MCP tools).
 [tools]
-# The agent keeps the subset its `retrieval` arm allows.
+# The only scope; the agent keeps the subset its `retrieval` arm allows and
+# fails at build if the arm needs a tool missing here.
 default = [
     "fetch_related_models",
     "find_models_metrics",

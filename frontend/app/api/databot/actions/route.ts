@@ -1,7 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-
-const AGUI_BACKEND_URL =
-  process.env.AGUI_BACKEND_URL || "http://localhost:8000/agui";
+import { AGUI_BACKEND_URL, backendAuthHeaders } from "../../../lib/auth";
 
 export async function POST(request: NextRequest) {
   let body: unknown;
@@ -13,7 +11,7 @@ export async function POST(request: NextRequest) {
 
   const upstream = await fetch(`${AGUI_BACKEND_URL}/databot/actions`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...backendAuthHeaders(request) },
     body: JSON.stringify(body),
   });
 

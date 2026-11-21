@@ -9,17 +9,17 @@ from langchain_core.messages import AIMessage, ToolMessage
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.types import Command
 
-from agent.catalog import AgentCatalog
-from agent.specialists.warehouse import WarehouseAgent
-from agent.specialists.warehouse.tools import (
+from tahoepilot.agent.catalog import AgentCatalog
+from tahoepilot.agent.specialists.warehouse import WarehouseAgent
+from tahoepilot.agent.specialists.warehouse.tools import (
     RUN_SQL_TOOL,
     normalize_sql,
     parse_gate_resume,
     sql_fingerprint,
 )
-from agent.subagent import SubagentTask
-from config.agent_config import WarehouseAgentConfig, agent_config_path
-from memory.profile_store import FileProfileStore
+from tahoepilot.agent.subagent import SubagentTask
+from tahoepilot.settings.agent_config import WarehouseAgentConfig, agent_config_path
+from tahoepilot.memory.profile_store import FileProfileStore
 from tests.test_lead_agent import _call, _ScriptedModel
 
 SQL = "SELECT sum(gmv) AS gmv FROM bi.order_level WHERE dt >= '2026-10-01'"
@@ -216,7 +216,7 @@ async def test_failed_query_is_reported_as_failed(tmp_path) -> None:
 
 
 def test_raw_query_tool_never_reaches_the_model(tmp_path) -> None:
-    from tools.data.trino import trino_run_query
+    from tahoepilot.tools.data.trino import trino_run_query
 
     config = WarehouseAgentConfig(agent_config_path("warehouse"))
     agent = AgentCatalog._new_agent(
@@ -234,7 +234,7 @@ def test_raw_query_tool_never_reaches_the_model(tmp_path) -> None:
 
 async def test_review_pauses_the_lead_and_resuming_it_runs_the_query(tmp_path) -> None:
     """Nested under `delegate`, the SQL review interrupt pauses the lead's thread."""
-    from agent.lead.paused import live_subagent_view
+    from tahoepilot.agent.lead.paused import live_subagent_view
     from tests.test_lead_agent import _lead
 
     runner = _Runner()
@@ -308,8 +308,8 @@ def test_datahub_limited_to_table_docs_and_lineage(tmp_path) -> None:
     """Warehouse reads table docs and lineage only; no glossary, catalog search or MCP."""
     from langchain_core.tools import tool
 
-    from agent.specialists.warehouse.warehouse_agent import WAREHOUSE_DATAHUB_TOOLS
-    from config.agent_config import agent_tool_scopes
+    from tahoepilot.agent.specialists.warehouse.warehouse_agent import WAREHOUSE_DATAHUB_TOOLS
+    from tahoepilot.settings.agent_config import agent_tool_scopes
 
     def fake(name: str):
         @tool(name)
@@ -353,7 +353,7 @@ def test_datahub_limited_to_table_docs_and_lineage(tmp_path) -> None:
 
 
 def test_table_docs_return_documentation_only(monkeypatch) -> None:
-    from tools.external.datahub import operations
+    from tahoepilot.tools.external.datahub import operations
 
     entity = {
         "urn": "urn:li:dataset:(urn:li:dataPlatform:hive,bi.order_level,PROD)",
@@ -392,7 +392,7 @@ def test_table_docs_return_documentation_only(monkeypatch) -> None:
 
 
 def test_table_docs_split_long_documentation() -> None:
-    from tools.external.datahub.operations import TABLE_DOC_HEAD_CHARS, compact_table_docs
+    from tahoepilot.tools.external.datahub.operations import TABLE_DOC_HEAD_CHARS, compact_table_docs
 
     doc = "# T\n\n## Overview\n" + "x" * 5000 + "\n\n**Partitioning information**\n\nby dt, daily\n"
     entity = {"urn": "u", "properties": {"description": doc}, "schemaMetadata": {"fields": []}}
@@ -405,7 +405,7 @@ def test_table_docs_split_long_documentation() -> None:
 
 
 def test_sql_table_names_skips_ctes_and_function_from() -> None:
-    from agent.specialists.warehouse.warehouse_agent import sql_table_names
+    from tahoepilot.agent.specialists.warehouse.warehouse_agent import sql_table_names
 
     sql = (
         "WITH fin AS (SELECT day FROM bi.daily_finance_metrics f), "

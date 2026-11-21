@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from rag.config import (
+from tahoepilot.rag.config import (
     EmbeddingConfig,
     QdrantConfig,
     get_rag_config,
@@ -10,7 +10,7 @@ from rag.config import (
 )
 from types import SimpleNamespace
 
-from rag.embeddings import (
+from tahoepilot.rag.embeddings import (
     ensure_hybrid_embedding,
     resolve_bge_devices,
     to_sparse_vector,
@@ -37,14 +37,12 @@ def test_get_rag_config_loads_toml() -> None:
     get_rag_config.cache_clear()
 
 
-def test_get_rag_config_rejects_remote_embedding_provider(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setenv("EMBEDDING_PROVIDER", "openai")
+def test_rag_toml_holds_service_endpoints() -> None:
     get_rag_config.cache_clear()
     try:
-        with pytest.raises(ValueError, match="local BGE-M3"):
-            get_rag_config()
+        cfg = get_rag_config()
+        assert cfg.tika.endpoint == "http://localhost:9998"
+        assert cfg.local_models.dir
     finally:
         get_rag_config.cache_clear()
 
@@ -67,7 +65,7 @@ def test_ensure_hybrid_embedding_rejects_empty() -> None:
 def test_resolve_bge_devices_normalizes_mps_index(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr("rag.embeddings.sys.platform", "linux")
+    monkeypatch.setattr("tahoepilot.rag.embeddings.sys.platform", "linux")
     assert resolve_bge_devices("") is None
     assert resolve_bge_devices("mps:0") == "mps"
     assert resolve_bge_devices("cuda:1") == "cuda:1"
@@ -76,7 +74,7 @@ def test_resolve_bge_devices_normalizes_mps_index(
 def test_resolve_bge_devices_defaults_mps_on_macos(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr("rag.embeddings.sys.platform", "darwin")
+    monkeypatch.setattr("tahoepilot.rag.embeddings.sys.platform", "darwin")
     assert resolve_bge_devices("") == "mps"
 
 

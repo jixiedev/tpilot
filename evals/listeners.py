@@ -1,14 +1,14 @@
-"""Eval listeners and scoring types for evals."""
+"""Eval listener: records the tool calls and reasoning steps of one turn."""
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 from langchain_core.messages import AIMessage
 
-from agent.listener import AgentListener
-from graph.state import SessionAgentState
+from tahoepilot.agent.listener import AgentListener
+from tahoepilot.agent.graph.state import SessionAgentState
 
 
 @dataclass
@@ -58,25 +58,11 @@ class EvalReactListener(AgentListener):
         """Count reason steps that issued at least one tool call.
 
         The final answer step (no tool calls) is not a round, so a turn that
-        answers directly has 0 rounds; ``ToolCallCase`` scores that 1.0 when the
-        case budgets ``total_rounds: 0``.
+        answers directly has 0 rounds; the ``rounds`` check scores that 1.0 when
+        the case budgets ``total_rounds: 0``.
         """
         count = 0
         for message in self.reason_steps:
             if getattr(message, "tool_calls", None):
                 count += 1
         return count
-
-
-@dataclass
-class CaseScore:
-    """Per-dimension scores in ``[0, 1]`` plus an equal-weight total."""
-
-    tool_score: float
-    round_score: float
-    answer_score: float
-    details: dict[str, Any] = field(default_factory=dict)
-
-    @property
-    def total(self) -> float:
-        return (self.tool_score + self.round_score + self.answer_score) / 3.0

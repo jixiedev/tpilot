@@ -1,0 +1,76 @@
+{
+  "description": "Metric definitions, formulas and which-model questions go to knowledge; numbers go to warehouse; define-then-query is a plan.",
+  "models": [
+    "MiniMax-M3"
+  ],
+  "run": {
+    "stub_specialists": true
+  },
+  "cases": [
+    {
+      "name": "gmv_definition",
+      "query": "What's the definition of GMV?",
+      "expected_decision": "delegate",
+      "expected_routes": [
+        "knowledge"
+      ]
+    },
+    {
+      "name": "take_rate_formula",
+      "query": "How is take rate calculated?",
+      "expected_decision": "delegate",
+      "expected_routes": [
+        "knowledge"
+      ]
+    },
+    {
+      "name": "gmv_vs_revenue",
+      "query": "What's the difference between GMV and revenue?",
+      "expected_decision": "delegate",
+      "expected_routes": [
+        "knowledge"
+      ]
+    },
+    {
+      "name": "gmv_definition_zh",
+      "query": "成交总额是怎么定义的？",
+      "expected_decision": "delegate",
+      "expected_routes": [
+        "knowledge"
+      ]
+    },
+    {
+      "name": "dau_which_model",
+      "query": "Which model should I use for DAU that excludes bots?",
+      "expected_decision": "delegate",
+      "expected_routes": [
+        "knowledge"
+      ]
+    },
+    {
+      "name": "gmv_number",
+      "query": "What was Wish's GMV last month?",
+      "expected_decision": "delegate",
+      "expected_routes": [
+        "warehouse"
+      ]
+    },
+    {
+      "name": "refund_number",
+      "query": "What was the total refunded amount on Wish orders last week?",
+      "expected_decision": "delegate",
+      "expected_routes": [
+        "warehouse"
+      ]
+    },
+    {
+      "name": "define_then_query",
+      "query": "Explain how ATV is defined, then give me last month's ATV.",
+      "expected_decision": "plan",
+      "expected_routes": [
+        "knowledge",
+        "warehouse"
+      ]
+    }
+  ]
+}

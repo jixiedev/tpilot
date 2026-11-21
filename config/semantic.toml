@@ -1,0 +1,17 @@
+# Metric catalog inputs, read by tahoepilot/settings/semantic_config.py for
+# tahoepilot/tools/data/metrics.py. Paths may be absolute, start with ~, or be relative to the
+# project root. Loaded once per process; changes need a restart.
+
+# dbt semantic models, laid out as <db>/<model>.{yml,sql}. In k8s mount the git-sync
+# volume here (or point this at the synced checkout).
+models_dir = "semantic_models"
+
+# Metric roots (pipe-delimited CSV): one row per root metric with its definition,
+# aliases and look-alikes (not_a).
+metric_root = "config/metrics/final_root.csv"
+# Members of each root (pipe-delimited CSV): scope filter, time basis, attribution,
+# aliases, and which member is the default.
+metric_member = "config/metrics/root_member.csv"
+# Model -> metric assignments (JSON), each tagged with root/member and a
+# related_ratio used to rank candidate models.
+metric_assign = "config/metrics/root_member_assign.json"

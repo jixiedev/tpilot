@@ -10,19 +10,19 @@ import pandas as pd
 import pytest
 import yaml
 
-from rag.drive import DriveDocument
-from rag.jira import JiraDocument, row_to_document
-from rag.dbt import collect_semantic_model_documents_with_stats, documents_from_yml, pack_embed_sections
-from rag.document import Document, stable_point_id
-from rag.markdown import MarkdownDocument, PdfDocument, markdown_section_texts
-from rag.ingest import upsert_documents
-from rag.chunking import IdentitySplitStrategy, LengthSplitStrategy, split_text
+from tahoepilot.rag.drive import DriveDocument
+from tahoepilot.rag.jira import JiraDocument, row_to_document
+from tahoepilot.rag.dbt import collect_semantic_model_documents_with_stats, documents_from_yml, pack_embed_sections
+from tahoepilot.rag.document import Document, stable_point_id
+from tahoepilot.rag.markdown import MarkdownDocument, PdfDocument, markdown_section_texts
+from tahoepilot.rag.ingest import upsert_documents
+from tahoepilot.rag.chunking import IdentitySplitStrategy, LengthSplitStrategy, split_text
 
 
 @pytest.fixture(autouse=True)
 def _no_qdrant_delete():
     """Ingest deletes a document's old points before upsert; keep tests offline."""
-    with patch("rag.ingest.delete_points_by_doc_keys") as mock_delete:
+    with patch("tahoepilot.rag.ingest.delete_points_by_doc_keys") as mock_delete:
         yield mock_delete
 
 
@@ -306,9 +306,9 @@ def test_model_document_packs_columns_without_dropping_descriptions(
     assert len(ids) == len(set(ids))
 
 
-@patch("rag.ingest.upsert_points")
-@patch("rag.ingest.ensure_collection")
-@patch("rag.ingest.get_embeddings")
+@patch("tahoepilot.rag.ingest.upsert_points")
+@patch("tahoepilot.rag.ingest.ensure_collection")
+@patch("tahoepilot.rag.ingest.get_embeddings")
 def test_upsert_documents_batches_chunks(
     mock_embeddings: MagicMock,
     mock_ensure: MagicMock,
@@ -328,9 +328,9 @@ def test_upsert_documents_batches_chunks(
         assert point.vector["sparse"].values == [0.9, 0.4]
 
 
-@patch("rag.ingest.upsert_points")
-@patch("rag.ingest.ensure_collection")
-@patch("rag.ingest.get_embeddings")
+@patch("tahoepilot.rag.ingest.upsert_points")
+@patch("tahoepilot.rag.ingest.ensure_collection")
+@patch("tahoepilot.rag.ingest.get_embeddings")
 def test_upsert_documents_writes_each_chunk_own_vectors(
     mock_embeddings: MagicMock,
     mock_ensure: MagicMock,
@@ -353,9 +353,9 @@ def test_upsert_documents_writes_each_chunk_own_vectors(
     assert points[1].vector["sparse"].indices == [9]
 
 
-@patch("rag.ingest.upsert_points")
-@patch("rag.ingest.ensure_collection")
-@patch("rag.ingest.get_embeddings")
+@patch("tahoepilot.rag.ingest.upsert_points")
+@patch("tahoepilot.rag.ingest.ensure_collection")
+@patch("tahoepilot.rag.ingest.get_embeddings")
 def test_upsert_chunks_raises_when_a_batch_fails(
     mock_embeddings: MagicMock,
     mock_ensure: MagicMock,

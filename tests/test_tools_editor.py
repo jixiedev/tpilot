@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from tools.code.str_replace_editor import (
+from tahoepilot.tools.code.str_replace_editor import (
     EditorError,
     clear_history,
     run_editor,
@@ -13,7 +13,9 @@ from tools.code.str_replace_editor import (
 
 
 @pytest.fixture(autouse=True)
-def _reset_editor() -> None:
+def _reset_editor(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # The editor only accepts paths inside the workspace; use the test's tmp dir.
+    monkeypatch.setattr("tahoepilot.tools.code.workspace.workspace_dir", lambda: tmp_path)
     clear_history()
     yield
     clear_history()
@@ -111,9 +113,25 @@ def test_undo_edit_fails_without_history(tmp_path: Path) -> None:
         run_editor("undo_edit", str(file))
 
 
-def test_rejects_relative_path() -> None:
-    with pytest.raises(EditorError, match="not an absolute path"):
-        run_editor("view", "relative.txt")
+def test_relative_path_resolves_in_workspace(tmp_path: Path) -> None:
+    (tmp_path / "relative.txt").write_text("hi")
+    assert "hi" in run_editor("view", "relative.txt")
+
+
+def test_rejects_paths_outside_workspace(tmp_path: Path) -> None:
+    outside = tmp_path.parent / "outside.txt"
+    with pytest.raises(EditorError, match="outside the workspace"):
+        run_editor("view", str(outside))
+    with pytest.raises(EditorError, match="outside the workspace"):
+        run_editor("view", "../outside.txt")
+
+
+def test_rejects_symlink_escaping_workspace(tmp_path: Path) -> None:
+    target = tmp_path.parent / "secret_target.txt"
+    target.write_text("secret")
+    (tmp_path / "link.txt").symlink_to(target)
+    with pytest.raises(EditorError, match="outside the workspace"):
+        run_editor("view", "link.txt")
 
 
 def test_rejects_unknown_command(tmp_path: Path) -> None:

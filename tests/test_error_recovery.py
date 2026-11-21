@@ -9,7 +9,7 @@ from langchain_core.messages import AIMessage, ToolMessage
 from langgraph.errors import NodeError
 from langgraph.prebuilt.tool_node import ToolCallRequest
 
-from graph.error_recovery import (
+from tahoepilot.agent.graph.error_recovery import (
     format_turn_failure,
     invoke_with_transient_retry,
     make_async_retrying_tool_wrapper,
@@ -19,18 +19,18 @@ from graph.error_recovery import (
     transient_llm_retry_on,
     transient_retry_on,
 )
-from tools.registry import (
+from tahoepilot.tools.registry import (
     alternative_tool,
     clear_alternative_tools,
     lookup_alternative_tool,
     register_alternative_tool,
 )
-from tools.errors import StructuredToolError, ToolErrorType
+from tahoepilot.tools.errors import StructuredToolError, ToolErrorType
 
 # Product modules register their exception mappings at import time.
-import tools.data.trino_errors  # noqa: E402,F401
-import tools.plan  # noqa: E402,F401
-import graph.error_recovery  # noqa: E402,F401
+import tahoepilot.tools.data.trino_errors  # noqa: E402,F401
+import tahoepilot.tools.plan  # noqa: E402,F401
+import tahoepilot.agent.graph.error_recovery  # noqa: E402,F401
 
 
 @pytest.fixture(autouse=True)
@@ -201,7 +201,7 @@ def test_tool_invocation_error_is_syntax_not_timeout() -> None:
 
 
 def test_plan_tool_error_is_not_retryable() -> None:
-    from tools.plan import PlanToolError
+    from tahoepilot.tools.plan import PlanToolError
 
     structured = StructuredToolError.from_exception(
         "planning",
@@ -319,7 +319,7 @@ async def test_async_retrying_wrapper_does_not_retry_syntax_errors() -> None:
 
 
 def test_step_action_node_registers_async_tool_wrapper() -> None:
-    from graph.node import StepActionNode
+    from tahoepilot.agent.graph.node import StepActionNode
 
     node = StepActionNode([])
 
@@ -402,7 +402,7 @@ def test_retrying_wrapper_suppresses_plan_b_when_peer_already_failed() -> None:
 
 
 def test_step_action_collects_failed_tools() -> None:
-    from graph.node import StepActionNode
+    from tahoepilot.agent.graph.node import StepActionNode
 
     state = {"failed_tools": ["hive_list_tables"], "tool_call_count": 0}
     error = StructuredToolError.from_exception(
@@ -425,7 +425,7 @@ def test_step_action_collects_failed_tools() -> None:
 
 
 def test_step_action_removes_tool_from_failed_on_success() -> None:
-    from graph.node import StepActionNode
+    from tahoepilot.agent.graph.node import StepActionNode
 
     state = {
         "failed_tools": ["hive_list_tables", "trino_list_tables"],
@@ -549,8 +549,8 @@ def test_transient_retry_on_uses_trino_registry() -> None:
 
 
 def test_datahub_connect_timeout_is_a_connection_error() -> None:
-    from tools.external.datahub.client import DataHubGraphQLError
-    from tools.errors import ToolErrorType, resolve_exception
+    from tahoepilot.tools.external.datahub.client import DataHubGraphQLError
+    from tahoepilot.tools.errors import ToolErrorType, resolve_exception
 
     unreachable = DataHubGraphQLError("DataHub GraphQL connection failed: timed out")
     assert resolve_exception(unreachable)[0] is ToolErrorType.CONNECTION
@@ -562,13 +562,13 @@ async def test_unreachable_tool_is_not_called_again_in_the_same_turn(monkeypatch
     from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
     from langchain_core.tools import tool
 
-    from graph.node import StepActionNode
+    from tahoepilot.agent.graph.node import StepActionNode
 
     async def no_sleep(_s):
         return None
 
-    monkeypatch.setattr("graph.error_recovery.time.sleep", lambda s: None)
-    monkeypatch.setattr("graph.error_recovery.asyncio.sleep", no_sleep)
+    monkeypatch.setattr("tahoepilot.agent.graph.error_recovery.time.sleep", lambda s: None)
+    monkeypatch.setattr("tahoepilot.agent.graph.error_recovery.asyncio.sleep", no_sleep)
     calls: list[str] = []
 
     @tool
@@ -579,7 +579,7 @@ async def test_unreachable_tool_is_not_called_again_in_the_same_turn(monkeypatch
 
     from langgraph.graph import END, START, StateGraph
 
-    from graph.state import ReactAgentState
+    from tahoepilot.agent.graph.state import ReactAgentState
 
     builder = StateGraph(ReactAgentState)
     builder.add_node("act", StepActionNode([glossary]))

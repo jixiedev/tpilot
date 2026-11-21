@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from langchain_core.messages import AIMessage
 
-from agent.router import CompletionToolRouter
+from tahoepilot.agent.router import CompletionToolRouter
 
 
 def _state(

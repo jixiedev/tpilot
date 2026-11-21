@@ -3,10 +3,10 @@ from __future__ import annotations
 import pytest
 from langgraph.checkpoint.memory import MemorySaver
 
-from agent.catalog import AgentCatalog, AgentCatalogSettings
-from agent.specialists.data_analysis import DataAnalysisSystemPrompt
-from agent.specialists.swe import SWESystemPrompt
-from memory.profile_store import FileProfileStore
+from tahoepilot.agent.catalog import AgentCatalog, AgentCatalogSettings
+from tahoepilot.agent.specialists.data_analysis import DataAnalysisSystemPrompt
+from tahoepilot.agent.specialists.swe import SWESystemPrompt
+from tahoepilot.memory.profile_store import FileProfileStore
 from tests.minimal_chat_model import MinimalChatModel
 
 

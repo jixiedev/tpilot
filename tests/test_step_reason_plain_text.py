@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from graph.messages import is_internal_assistant_narration
+from tahoepilot.agent.graph.messages import is_internal_assistant_narration
 
 
 def test_is_internal_assistant_narration_detects_sql_date_reasoning() -> None:

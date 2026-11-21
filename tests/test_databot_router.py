@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from langchain_core.messages import AIMessage, HumanMessage
 
-from agent.router import CompletionToolRouter
-from agent.specialists.databot.graph import sql_react_complete
+from tahoepilot.agent.router import CompletionToolRouter
+from tahoepilot.agent.specialists.databot.graph import sql_react_complete
 
 
 def _router() -> CompletionToolRouter:

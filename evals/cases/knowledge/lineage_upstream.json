@@ -1,0 +1,55 @@
+{
+  "description": "A table's upstream tables, from DataHub lineage (extra upstreams in the reply are allowed).",
+  "models": [
+    "MiniMax-M3"
+  ],
+  "defaults": {
+    "expected_tools": [
+      "datahub_get_lineage"
+    ],
+    "total_rounds": 4
+  },
+  "cases": [
+    {
+      "name": "upstream_full_cycle",
+      "query": "What are the upstream tables of wishpost.wishpost_order_clean_full_cycle? Reply with a single JSON object only. Do not wrap it in markdown fences and do not add any other text. Required shape: {\"table\": \"<db.table>\", \"upstream_tables\": [\"<db.table>\", \"...\"]}",
+      "answer": {
+        "upstream_tables": [
+          "wishpost.tmp_wishpost_order_clean_with_finance"
+        ]
+      },
+      "notes": "Gold verified against DataHub lineage on 2026-11-20 (GMS via kubectl port-forward). Extra upstream tables in the reply are allowed."
+    },
+    {
+      "name": "upstream_erp_daily_dump",
+      "query": "What are the upstream tables of wish.erp_daily_dump? Reply with a single JSON object only. Do not wrap it in markdown fences and do not add any other text. Required shape: {\"table\": \"<db.table>\", \"upstream_tables\": [\"<db.table>\", \"...\"]}",
+      "answer": {
+        "upstream_tables": [
+          "sweeper.merchant_requests"
+        ]
+      },
+      "notes": "Gold verified against DataHub lineage on 2026-11-20 (GMS via kubectl port-forward). Extra upstream tables in the reply are allowed."
+    },
+    {
+      "name": "upstream_fct_dau",
+      "query": "What are the upstream tables of core_data.fct_dau? Reply with a single JSON object only. Do not wrap it in markdown fences and do not add any other text. Required shape: {\"table\": \"<db.table>\", \"upstream_tables\": [\"<db.table>\", \"...\"]}",
+      "answer": {
+        "upstream_tables": [
+          "sweeper_pt.requests"
+        ]
+      },
+      "notes": "Gold verified against DataHub lineage on 2026-11-20 (GMS via kubectl port-forward). Extra upstream tables in the reply are allowed."
+    },
+    {
+      "name": "upstream_ulc_active_buyers",
+      "query": "What are the upstream tables of core_data.ulc_active_buyers? Reply with a single JSON object only. Do not wrap it in markdown fences and do not add any other text. Required shape: {\"table\": \"<db.table>\", \"upstream_tables\": [\"<db.table>\", \"...\"]}",
+      "answer": {
+        "upstream_tables": [
+          "core_data.ulc_base_buyers",
+          "core_data.ulc_power_buyer"
+        ]
+      },
+      "notes": "Gold verified against DataHub lineage on 2026-11-20 (GMS via kubectl port-forward). Extra upstream tables are allowed."
+    }
+  ]
+}

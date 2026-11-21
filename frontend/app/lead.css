@@ -38,6 +38,9 @@ html.dark {
   border: 1px solid var(--db-border);
 }
 .app-nav-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
   font-size: 0.78rem;
   font-weight: 600;
   padding: 0.3rem 0.85rem;
@@ -200,7 +203,7 @@ html.dark {
 .lead-roster {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.3rem 0.9rem;
+  gap: 0.35rem;
   margin: 0;
   padding: 0.5rem 1.15rem 0.7rem;
   list-style: none;
@@ -209,8 +212,13 @@ html.dark {
   color: var(--db-muted);
 }
 .lead-roster strong {
-  color: var(--db-text);
-  font-weight: 600;
+  font-weight: 650;
+}
+.lead-roster-text {
+  display: none;
+}
+.lead-roster li {
+  cursor: help;
 }
 
 /* Delegate / plan cards inside the chat */
@@ -401,6 +409,9 @@ html.dark {
   border-bottom: 1px solid var(--db-border);
 }
 .lead-panel-head h2 {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
   margin: 0;
   font-size: 0.8rem;
   font-weight: 700;
@@ -455,6 +466,11 @@ html.dark {
   font-weight: 700;
   background: var(--db-fill);
   color: var(--db-muted);
+}
+.lead-plan-step--running .lead-plan-index {
+  background: var(--lead-accent-soft);
+  color: var(--lead-accent-text);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--lead-accent) 18%, transparent);
 }
 .lead-plan-step--done .lead-plan-index {
   background: var(--lead-ok-soft);
@@ -603,6 +619,9 @@ html.dark {
   cursor: pointer;
 }
 .lead-record-agent {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
   font-weight: 700;
   font-size: 0.76rem;
 }
@@ -628,112 +647,550 @@ html.dark {
 /* ------------------------------------------------------------ landing */
 
 .landing {
+  position: relative;
   min-height: 100vh;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 2rem;
+  gap: 2.4rem;
+  padding: 3.5rem 1.25rem 2.5rem;
+  overflow: hidden;
+  background:
+    radial-gradient(800px 460px at 12% -5%, rgba(20, 184, 166, 0.18), transparent 60%),
+    radial-gradient(800px 460px at 88% 0%, rgba(91, 61, 245, 0.16), transparent 60%),
+    radial-gradient(1200px 500px at 50% 115%, rgba(47, 107, 240, 0.12), transparent 60%),
+    var(--db-canvas);
+}
+/* Faint ridge line across the bottom: the lake and the mountains. */
+.landing::after {
+  content: "";
+  position: absolute;
+  inset: auto 0 0 0;
+  height: 220px;
+  pointer-events: none;
+  opacity: 0.55;
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1200 220' preserveAspectRatio='none'%3E%3Cpath d='M0 170 L140 95 L230 140 L380 40 L520 130 L640 80 L760 150 L900 60 L1040 135 L1200 90 V220 H0Z' fill='%232f6bf0' fill-opacity='0.07'/%3E%3Cpath d='M0 195 L180 135 L300 175 L470 105 L620 170 L800 115 L960 180 L1100 130 L1200 160 V220 H0Z' fill='%2314b8a6' fill-opacity='0.08'/%3E%3C/svg%3E") bottom / 100% 100% no-repeat;
+}
+.landing > * {
+  position: relative;
+  z-index: 1;
+}
+.landing-hero {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 0.6rem;
+  max-width: 560px;
+  animation: landing-rise 520ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+.landing-hero-mark {
+  margin-bottom: 0.4rem;
+  filter: drop-shadow(0 14px 30px rgba(47, 107, 240, 0.35));
+}
+.landing-hero h1 {
+  margin: 0;
+  font-size: clamp(2rem, 4.5vw, 2.8rem);
+  font-weight: 800;
+  letter-spacing: -0.045em;
+  line-height: 1.05;
+}
+.landing-hero h1 span {
+  background: linear-gradient(120deg, #14b8a6 0%, #2f6bf0 55%, #5b3df5 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+.landing-hero p {
+  margin: 0;
+  color: var(--db-muted);
+  font-size: 0.98rem;
+  line-height: 1.55;
+}
+.landing-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 400px));
+  gap: 1.1rem;
+  justify-content: center;
+  width: 100%;
+}
+.landing-card {
+  --tone: var(--lead-accent);
+  --tone-text: var(--lead-accent-text);
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  padding: 1.4rem 1.45rem 1.3rem;
+  border-radius: 20px;
+  background: color-mix(in srgb, var(--db-surface) 88%, transparent);
+  backdrop-filter: blur(10px);
+  border: 1px solid var(--db-border);
+  box-shadow: var(--db-shadow);
+  color: var(--db-text);
+  text-decoration: none;
+  overflow: hidden;
+  transition: transform 200ms ease, box-shadow 200ms ease, border-color 200ms ease;
+  animation: landing-rise 520ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+.landing-card--databot {
+  --tone: var(--db-accent);
+  --tone-text: var(--db-accent-text);
+  animation-delay: 80ms;
+}
+.landing-card::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 3px;
+  background: linear-gradient(90deg, var(--tone), transparent);
+  opacity: 0.8;
+}
+.landing-card:hover {
+  transform: translateY(-4px);
+  border-color: color-mix(in srgb, var(--tone) 45%, transparent);
+  box-shadow: var(--db-shadow-lg), 0 0 0 4px color-mix(in srgb, var(--tone) 10%, transparent);
+}
+.landing-card:focus-visible {
+  outline: 2px solid var(--tone);
+  outline-offset: 3px;
+}
+.landing-card-top {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 0.2rem;
+}
+.landing-name {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--tone-text);
+}
+.landing-title {
+  font-size: 1.2rem;
+  font-weight: 750;
+  letter-spacing: -0.025em;
+}
+.landing-text {
+  font-size: 0.85rem;
+  line-height: 1.6;
+  color: var(--db-muted);
+}
+.landing-points {
+  margin: 0.25rem 0 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  font-size: 0.82rem;
+}
+.landing-points li {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.landing-points svg {
+  flex-shrink: 0;
+  padding: 3px;
+  box-sizing: content-box;
+  border-radius: 999px;
+  color: var(--tone-text);
+  background: color-mix(in srgb, var(--tone) 14%, transparent);
+}
+.landing-go {
+  margin-top: auto;
+  padding-top: 0.7rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--tone-text);
+}
+.landing-go svg {
+  transition: transform 200ms ease;
+}
+.landing-card:hover .landing-go svg {
+  transform: translateX(4px);
+}
+.landing-crew {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.6rem;
+  animation: landing-rise 520ms 160ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+.landing-crew-label {
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--db-muted);
+}
+.landing-crew ul {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.45rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+@keyframes landing-rise {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .landing-hero,
+  .landing-card,
+  .landing-crew {
+    animation: none;
+  }
+}
+
+/* -------------------------------------------------------------- login */
+
+.login {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
   padding: 3rem 1.25rem;
   background:
     radial-gradient(900px 420px at 15% 0%, rgba(15, 148, 136, 0.12), transparent 60%),
     radial-gradient(900px 420px at 85% 10%, rgba(59, 91, 253, 0.12), transparent 60%),
     var(--db-canvas);
 }
-.landing-head {
-  display: flex;
-  align-items: center;
-  gap: 0.8rem;
-}
-.landing-head h1 {
-  margin: 0;
-  font-size: 1.4rem;
-  font-weight: 800;
-  letter-spacing: -0.03em;
-}
-.landing-head p {
-  margin: 0.15rem 0 0;
-  color: var(--db-muted);
-  font-size: 0.88rem;
-}
-.landing-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 380px));
-  gap: 1rem;
-  justify-content: center;
+.login-card {
   width: 100%;
-}
-.landing-card {
+  max-width: 380px;
   display: flex;
   flex-direction: column;
-  gap: 0.55rem;
-  padding: 1.3rem 1.35rem 1.2rem;
+  gap: 1rem;
+  padding: 1.6rem 1.5rem 1.5rem;
   border-radius: var(--db-radius-lg);
   background: var(--db-surface);
   border: 1px solid var(--db-border);
   box-shadow: var(--db-shadow);
   color: var(--db-text);
-  text-decoration: none;
-  transition: transform 160ms ease, box-shadow 160ms ease, border-color 160ms ease;
 }
-.landing-card:hover {
-  transform: translateY(-2px);
-  box-shadow: var(--db-shadow-lg);
+.login-head {
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  margin-bottom: 0.25rem;
 }
-.landing-card--lead:hover {
-  border-color: var(--lead-accent);
-}
-.landing-card--databot:hover {
-  border-color: var(--db-accent);
-}
-.landing-mark {
-  width: 2.3rem;
-  height: 2.3rem;
-  border-radius: 10px;
-  display: grid;
-  place-items: center;
-  font-size: 0.72rem;
+.login-head h1 {
+  margin: 0;
+  font-size: 1.15rem;
   font-weight: 800;
-  color: #fff;
-}
-.landing-card--lead .landing-mark {
-  background: linear-gradient(145deg, #0f9488 0%, #3b5bfd 100%);
-}
-.landing-card--databot .landing-mark {
-  background: linear-gradient(145deg, #3b5bfd 0%, #14b8a6 100%);
-}
-.landing-name {
-  font-size: 0.72rem;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--db-muted);
-}
-.landing-title {
-  font-size: 1.1rem;
-  font-weight: 700;
   letter-spacing: -0.02em;
 }
-.landing-text {
+.login-head p {
+  margin: 0.15rem 0 0;
+  color: var(--db-muted);
   font-size: 0.84rem;
-  line-height: 1.55;
+}
+.login-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  font-size: 0.8rem;
+  font-weight: 600;
   color: var(--db-muted);
 }
-.landing-points {
-  margin: 0.2rem 0 0;
-  padding-left: 1.1rem;
-  font-size: 0.8rem;
-  line-height: 1.6;
+.login-field input {
+  font: inherit;
+  font-size: 0.92rem;
+  font-weight: 500;
+  color: var(--db-text);
+  background: var(--db-surface-2);
+  border: 1px solid var(--db-border-strong);
+  border-radius: var(--db-radius-sm);
+  padding: 0.6rem 0.75rem;
+  outline: none;
+  transition: border-color 140ms ease, box-shadow 140ms ease;
 }
-.landing-go {
-  margin-top: auto;
-  padding-top: 0.5rem;
+.login-field input:focus {
+  border-color: var(--db-accent);
+  box-shadow: 0 0 0 3px var(--db-accent-soft);
+}
+.login-error {
+  margin: 0;
   font-size: 0.82rem;
+  color: var(--lead-danger);
+  background: var(--lead-danger-soft);
+  border-radius: var(--db-radius-sm);
+  padding: 0.5rem 0.7rem;
+}
+.login-submit {
+  font: inherit;
+  font-size: 0.9rem;
   font-weight: 700;
+  color: #fff;
+  background: var(--db-accent);
+  border: 0;
+  border-radius: var(--db-radius-sm);
+  padding: 0.65rem 1rem;
+  cursor: pointer;
+  transition: background 140ms ease, opacity 140ms ease;
 }
-.landing-card--lead .landing-go {
-  color: var(--lead-accent-text);
+.login-submit:hover:not(:disabled) {
+  background: var(--db-accent-hover);
 }
-.landing-card--databot .landing-go {
+.login-submit:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+/* Signed-in user next to the agent switcher. */
+.app-user {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-size: 0.78rem;
+  color: var(--db-muted);
+}
+.app-user strong {
+  color: var(--db-text);
+  font-weight: 600;
+}
+.app-user button {
+  font: inherit;
+  font-weight: 600;
   color: var(--db-accent-text);
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+}
+.app-user button:hover {
+  text-decoration: underline;
+}
+
+/* ------------------------------------------------------- brand + icons */
+
+.brand-mark {
+  flex-shrink: 0;
+  display: block;
+  border-radius: 10px;
+  filter: drop-shadow(0 6px 14px rgba(47, 107, 240, 0.28));
+}
+.agent-badge {
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  border-radius: 30%;
+  color: #fff;
+  position: relative;
+  overflow: hidden;
+}
+.agent-badge::after {
+  content: "";
+  position: absolute;
+  inset: 0 0 50% 0;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.25), transparent);
+}
+.agent-badge--lead {
+  background: linear-gradient(145deg, #14b8a6 0%, #0f9488 45%, #2f6bf0 100%);
+  box-shadow: 0 6px 16px rgba(15, 148, 136, 0.3);
+}
+.agent-badge--databot {
+  background: linear-gradient(145deg, #3b5bfd 0%, #5b3df5 60%, #14b8a6 140%);
+  box-shadow: 0 6px 16px rgba(59, 91, 253, 0.3);
+}
+
+/* Specialist chips: one hue per specialist, shared by roster and landing. */
+.agent-chip {
+  --chip: #64748b;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.22rem 0.6rem 0.22rem 0.45rem;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: color-mix(in srgb, var(--chip) 80%, var(--db-text));
+  background: color-mix(in srgb, var(--chip) 11%, var(--db-surface));
+  border: 1px solid color-mix(in srgb, var(--chip) 22%, transparent);
+}
+.agent-chip svg {
+  color: var(--chip);
+}
+.agent-chip--warehouse { --chip: #2f6bf0; }
+.agent-chip--knowledge { --chip: #8b5cf6; }
+.agent-chip--diagnostic { --chip: #e11d48; }
+.agent-chip--data_analysis { --chip: #d97706; }
+.agent-chip--swe { --chip: #0f9488; }
+.agent-chip--model_selection { --chip: #0891b2; }
+html.dark .agent-chip {
+  color: color-mix(in srgb, var(--chip) 45%, #fff);
+  background: color-mix(in srgb, var(--chip) 16%, var(--db-surface));
+}
+html.dark .agent-chip svg {
+  color: color-mix(in srgb, var(--chip) 60%, #fff);
+}
+
+.lead-panel-icon {
+  display: grid;
+  place-items: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  border-radius: 7px;
+  color: var(--lead-accent-text);
+  background: var(--lead-accent-soft);
+}
+
+/* New chat: icon + label. */
+.databot-new-chat-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+/* Sun/moon theme switch. */
+.databot-theme-toggle {
+  padding: 2px;
+  border-radius: 999px;
+}
+.theme-toggle-track {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 3.1rem;
+  height: 1.6rem;
+  padding: 0 0.4rem;
+  border-radius: 999px;
+  background: var(--db-fill);
+  border: 1px solid var(--db-border-strong);
+  color: var(--db-muted);
+  transition: background 200ms ease;
+}
+.theme-toggle-knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: calc(1.6rem - 6px);
+  height: calc(1.6rem - 6px);
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  background: var(--db-surface);
+  color: #d97706;
+  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.22);
+  transition: transform 220ms cubic-bezier(0.3, 0.7, 0.3, 1.2), color 200ms ease;
+}
+.databot-theme-toggle[aria-checked="true"] .theme-toggle-track {
+  background: color-mix(in srgb, #5b3df5 22%, var(--db-fill));
+}
+.databot-theme-toggle[aria-checked="true"] .theme-toggle-knob {
+  transform: translateX(1.5rem);
+  color: #a5b4fc;
+  background: #1e2436;
+}
+.databot-theme-toggle:hover .theme-toggle-track {
+  border-color: color-mix(in srgb, var(--db-accent) 40%, transparent);
+}
+
+.databot-switch-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+/* Signed-in user. */
+.app-user-avatar {
+  display: grid;
+  place-items: center;
+  width: 1.6rem;
+  height: 1.6rem;
+  border-radius: 999px;
+  color: var(--db-accent-text);
+  background: var(--db-accent-soft);
+}
+.app-user button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+/* Login: icons inside the inputs. */
+.login-head {
+  flex-direction: column;
+  text-align: center;
+}
+.login-card {
+  backdrop-filter: blur(10px);
+  background: color-mix(in srgb, var(--db-surface) 90%, transparent);
+  box-shadow: var(--db-shadow-lg);
+}
+.login-input {
+  position: relative;
+  display: flex;
+}
+.login-input svg {
+  position: absolute;
+  left: 0.7rem;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--db-muted);
+  pointer-events: none;
+}
+.login-input input {
+  flex: 1;
+  padding-left: 2.2rem;
+}
+.login-input:focus-within svg {
+  color: var(--db-accent);
+}
+.login-submit {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  background: linear-gradient(120deg, #0f9488 0%, #2f6bf0 60%, #5b3df5 100%);
+  box-shadow: 0 8px 20px rgba(47, 107, 240, 0.28);
+}
+.login-submit:hover:not(:disabled) {
+  background: linear-gradient(120deg, #0d7f75 0%, #2559d6 60%, #4c30d8 100%);
+}
+
+/* Dark mode: the accents are light there, so buttons on them take dark text. */
+html.dark .databot-new-chat-btn,
+html.dark .lead-btn--primary {
+  color: #061a2b;
+}
+html.dark .databot-theme-toggle[aria-checked="true"] .theme-toggle-knob {
+  background: #4338ca;
+  color: #e0e7ff;
+  box-shadow: 0 0 0 1px rgba(165, 180, 252, 0.35), 0 2px 8px rgba(67, 56, 202, 0.5);
+}
+
+/* Chat welcome: CopilotKit's 24px heading is loud in a side column. */
+.lead-chat-column h1,
+.databot-chat-column h1 {
+  font-size: 1.15rem !important;
+  line-height: 1.5;
+  font-weight: 600 !important;
+  letter-spacing: -0.015em;
+  max-width: 30rem;
+  margin-inline: auto;
+  padding-inline: 1rem;
+}
+.lead-chat-column h1::before,
+.databot-chat-column h1::before {
+  content: "";
+  display: block;
+  width: 44px;
+  height: 44px;
+  margin: 0 auto 1rem;
+  border-radius: 14px;
+  background: url("/icon.svg") center / cover;
+  box-shadow: 0 10px 24px rgba(47, 107, 240, 0.28);
 }

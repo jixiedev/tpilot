@@ -15,9 +15,9 @@ import pytest
 import yaml
 from qdrant_client import QdrantClient
 
-from rag import qdrant as rag_qdrant
-from rag.config import get_rag_config
-from rag.job import ingest_task
+from tahoepilot.rag import qdrant as rag_qdrant
+from tahoepilot.rag.config import get_rag_config
+from tahoepilot.rag.job import ingest_task
 
 COLLECTION = "reingest_test"
 
@@ -33,8 +33,8 @@ def _fake_embeddings(texts: list[str], config=None):  # noqa: ANN001
 def client() -> Iterator[QdrantClient]:
     memory = QdrantClient(":memory:")
     with (
-        patch("rag.qdrant.get_client", return_value=memory),
-        patch("rag.ingest.get_embeddings", side_effect=_fake_embeddings),
+        patch("tahoepilot.rag.qdrant.get_client", return_value=memory),
+        patch("tahoepilot.rag.ingest.get_embeddings", side_effect=_fake_embeddings),
     ):
         yield memory
     memory.close()

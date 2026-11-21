@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from langchain_core.messages import HumanMessage, SystemMessage
 
-from agent.specialists.databot.history import DataRetrievalRecord, DataRetrievalStore
-from agent.specialists.databot.databot_agent import DatabotTurnMessagePolicy
+from tahoepilot.agent.specialists.databot.history import DataRetrievalRecord, DataRetrievalStore
+from tahoepilot.agent.specialists.databot.databot_agent import DatabotTurnMessagePolicy
 
 
 def _approved_state(**overrides):
@@ -151,11 +151,11 @@ def test_accept_does_not_duplicate_history_briefing() -> None:
 def test_databot_history_state_prefers_memory_history_cards(tmp_path) -> None:
     from langgraph.checkpoint.memory import MemorySaver
 
-    from agent.listener import CliReactListener
-    from agent.specialists.databot.databot_agent import DatabotAgent
-    from config.agent_config import DatabotAgentConfig, agent_config_path
-    from memory.profile_store import FileProfileStore
-    from memory.session_runtime import SessionRuntime
+    from tahoepilot.agent.listener import CliReactListener
+    from tahoepilot.agent.specialists.databot.databot_agent import DatabotAgent
+    from tahoepilot.settings.agent_config import DatabotAgentConfig, agent_config_path
+    from tahoepilot.memory.profile_store import FileProfileStore
+    from tahoepilot.memory.session_runtime import SessionRuntime
     from tests.minimal_chat_model import MinimalChatModel
 
     store = DataRetrievalStore(tmp_path)
@@ -190,7 +190,7 @@ def test_databot_history_state_prefers_memory_history_cards(tmp_path) -> None:
 
 
 def test_commit_resolves_from_history_cards() -> None:
-    from agent.specialists.databot.card_staging import apply_add_card_selections
+    from tahoepilot.agent.specialists.databot.card_staging import apply_add_card_selections
 
     sid = "fct_orders_aaa11111"
     updated, note = apply_add_card_selections(

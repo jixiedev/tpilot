@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from config.tool_config import (
+from tahoepilot.settings.tool_config import (
     DataHubToolConfig,
     K8sToolConfig,
     S3ToolConfig,
@@ -77,14 +77,11 @@ def test_datahub_token_missing_raises(monkeypatch: pytest.MonkeyPatch) -> None:
         datahub_token(cfg)
 
 
-def test_datahub_gms_url_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_datahub_gms_url_ignores_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("DATAHUB_GMS_URL", "https://gms.example:8080/")
-    cfg = DataHubToolConfig(
-        gms_url="http://localhost:8080",
-        gms_url_env="DATAHUB_GMS_URL",
-    )
-    assert datahub_gms_url(cfg) == "https://gms.example:8080"
-    assert datahub_graphql_url(cfg) == "https://gms.example:8080/api/graphql"
+    cfg = DataHubToolConfig(gms_url="http://localhost:8080/")
+    assert datahub_gms_url(cfg) == "http://localhost:8080"
+    assert datahub_graphql_url(cfg) == "http://localhost:8080/api/graphql"
 
 
 def test_datahub_graphql_url_from_toml(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -93,15 +90,9 @@ def test_datahub_graphql_url_from_toml(monkeypatch: pytest.MonkeyPatch) -> None:
     assert datahub_graphql_url(cfg) == "https://datahub.s.tahoe.wish.site:8080/api/graphql"
 
 
-def test_k8s_config_file_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_k8s_config_file_from_toml_only(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("KUBECONFIG", "/tmp/custom.kubeconfig")
-    cfg = K8sToolConfig(config_file="./k8s_config", config_file_env="KUBECONFIG")
-    assert k8s_config_file(cfg) == "/tmp/custom.kubeconfig"
-
-
-def test_k8s_config_file_falls_back_to_toml(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("KUBECONFIG", raising=False)
-    cfg = K8sToolConfig(config_file="./k8s_config", config_file_env="KUBECONFIG")
+    cfg = K8sToolConfig(config_file="./k8s_config")
     assert k8s_config_file(cfg) == "./k8s_config"
 
 
@@ -118,7 +109,24 @@ def test_s3_access_key_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
         access_key_id="toml-key",
         access_key_id_env="AWS_ACCESS_KEY_ID",
         region="us-east-1",
-        region_env="AWS_REGION",
     )
-    assert s3_access_key_id(cfg) == "AKIATEST"
-    assert s3_region(cfg) == "eu-west-1"
+    assert s3_access_key_id(cfg) == "AKIATEST"  # secret: from env
+    assert s3_region(cfg) == "us-east-1"  # setting: from tools.toml only
+
+
+def test_trino_user_from_env_then_toml(monkeypatch: pytest.MonkeyPatch) -> None:
+    from tahoepilot.settings.tool_config import trino_user
+
+    cfg = TrinoToolConfig(host="localhost", user="toml-user", user_env="TRINO_USER")
+    monkeypatch.setenv("TRINO_USER", "svc_from_secret")
+    assert trino_user(cfg) == "svc_from_secret"
+    monkeypatch.delenv("TRINO_USER")
+    assert trino_user(cfg) == "toml-user"
+
+
+def test_trino_user_missing_raises(monkeypatch: pytest.MonkeyPatch) -> None:
+    from tahoepilot.settings.tool_config import trino_user
+
+    monkeypatch.delenv("TRINO_USER", raising=False)
+    with pytest.raises(ValueError, match="TRINO_USER"):
+        trino_user(TrinoToolConfig(host="localhost", user_env="TRINO_USER"))

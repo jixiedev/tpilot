@@ -2,15 +2,15 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from agent.specialists.databot.databot_agent import DatabotSystemPrompt
-from agent.runtime import (
+from tahoepilot.agent.specialists.databot.databot_agent import DatabotSystemPrompt
+from tahoepilot.agent.runtime import (
     NEXT_STEP_PROMPT,
     SYSTEM_PROMPT as TAHOE_SYSTEM_PROMPT,
     TahoeSystemPrompt,
 )
-from agent.prompt import SystemPromptAssembler
-from config.agent_config import AgentConfig, DatabotAgentConfig, agent_config_path
-from memory.profile import UserProfile
+from tahoepilot.agent.prompt import SystemPromptAssembler
+from tahoepilot.settings.agent_config import AgentConfig, DatabotAgentConfig, agent_config_path
+from tahoepilot.memory.profile import UserProfile
 
 
 def _assembler(name: str) -> SystemPromptAssembler:
@@ -85,8 +85,9 @@ def test_databot_owns_data_and_retrieval_sections() -> None:
     assert "Data retrieval practices:" in text
     assert "candidate tables" in text
     assert "Databot" in text
-    assert "glossary terms" in text
-    assert "entity_type = GLOSSARY_TERM" in text
+    # Metric definitions come from the metric catalog, not the DataHub glossary.
+    assert "search_metric_catalog" in text
+    assert "entity_type = GLOSSARY_TERM" not in text
     assert len(text) > len(TAHOE_SYSTEM_PROMPT)
     fetch_next = (DatabotAgentConfig(agent_config_path("databot")).run_context.get("react") or {})["fetch"]["next_step"]
     assert "commit_cards" in fetch_next
@@ -125,7 +126,7 @@ def test_databot_chat_style_forbids_tool_narration() -> None:
 
 
 def test_render_databot_system_prompt_uses_profile_store(tmp_path: Path) -> None:
-    from memory.profile_store import FileProfileStore
+    from tahoepilot.memory.profile_store import FileProfileStore
 
     store = FileProfileStore(tmp_path)
     store.save("bob", UserProfile(user_id="bob", role="analyst", timezone="UTC"))
@@ -138,7 +139,7 @@ def test_render_databot_system_prompt_uses_profile_store(tmp_path: Path) -> None
 
 
 def test_render_tahoe_system_prompt_uses_profile_store(tmp_path: Path) -> None:
-    from memory.profile_store import FileProfileStore
+    from tahoepilot.memory.profile_store import FileProfileStore
 
     store = FileProfileStore(tmp_path)
     store.save("bob", UserProfile(user_id="bob", role="SRE", timezone="UTC"))
@@ -153,9 +154,9 @@ def test_render_tahoe_system_prompt_uses_profile_store(tmp_path: Path) -> None:
 
 def test_every_agent_knows_wish_is_the_company() -> None:
     """"Wish's GMV" means the whole marketplace; agents once searched for a "Wish" brand."""
-    from agent.catalog import AgentCatalog
-    from agent.lead.prompt import LeadSystemPrompt
-    from agent.prompt import SystemPromptAssembler
+    from tahoepilot.agent.catalog import AgentCatalog
+    from tahoepilot.agent.lead.prompt import LeadSystemPrompt
+    from tahoepilot.agent.prompt import SystemPromptAssembler
 
     for name in AgentCatalog.names():
         config = AgentCatalog.config(name)

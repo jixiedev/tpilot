@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from tools.data.sql_guard import validate_read_only_sql
+from tahoepilot.tools.data.sql_guard import validate_read_only_sql
 
 
 def test_allows_select_and_with() -> None:
@@ -84,21 +84,21 @@ def test_explain_of_read_only_statement_is_allowed(sql: str) -> None:
     ],
 )
 def test_plan_only_refuses_anything_that_could_execute(sql: str) -> None:
-    from tools.data.sql_guard import validate_plan_only_sql
+    from tahoepilot.tools.data.sql_guard import validate_plan_only_sql
 
     with pytest.raises(ValueError):
         validate_plan_only_sql(sql)
 
 
 def test_plan_only_wraps_select_and_with() -> None:
-    from tools.data.sql_guard import validate_plan_only_sql
+    from tahoepilot.tools.data.sql_guard import validate_plan_only_sql
 
     assert validate_plan_only_sql("SELECT 1;") == "EXPLAIN SELECT 1"
     assert validate_plan_only_sql("WITH a AS (SELECT 1) SELECT * FROM a").startswith("EXPLAIN WITH")
 
 
 def test_trino_explain_never_sends_analyze(monkeypatch) -> None:
-    from tools.data import trino
+    from tahoepilot.tools.data import trino
 
     sent: list[str] = []
     monkeypatch.setattr(trino, "_execute_query", lambda sql, limit: sent.append(sql) or {"rows": []})

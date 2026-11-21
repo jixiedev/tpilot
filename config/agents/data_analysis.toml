@@ -1,12 +1,17 @@
+# Agent name (catalog key and `delegate` target); defaults to the file stem.
 name = "data_analysis"
+# One-line summary for the catalog; the lead roster falls back to it without delegate_when.
 description = "Exploratory data analysis specialist (SQL, Python, charts)"
+# Lead roster line: when the lead should delegate to this agent.
 delegate_when = """
 exploratory analysis beyond fetching a number — compare, trend, segment or model data with several queries and Python, compute statistics, or produce charts
 """
 
 [system_prompt]
+# Inherit tahoe.toml's layout and sections; only the tables below differ.
 extends = "tahoe"
 
+# Replaces tahoe's role: analytics specialist (SQL plus Python/charts).
 [system_prompt.sections.role]
 title = "Role"
 text = """
@@ -16,6 +21,7 @@ metadata tools, then analyze and visualize results with Python.
 Deliver clear findings backed by numbers and charts.
 """
 
+# Adds bullets after the inherited general rules: query, chart and reporting practice.
 [system_prompt.sections.general_rules]
 append = [
     """
@@ -43,6 +49,7 @@ append = [
 # Built-in tools per tool scope ("agent,scope" in AgentCatalog.tools_for).
 # "@name" expands a set from config/tool_groups.toml. MCP tools: [accepted_mcp].
 [tools]
+# Main scope: tools bound to this agent's ReAct loop.
 default = [
     "@memory",
     "@hive",

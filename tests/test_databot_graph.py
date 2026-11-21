@@ -15,10 +15,10 @@ from langchain_core.tools import tool
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.types import Command
 
-from agent.specialists.databot.gates import NOTHING_TO_REVIEW_CARDS, NOTHING_TO_REVIEW_SQL
-from agent.specialists.databot.graph import DatabotGraphBuilder
-from config.agent_config import DatabotAgentConfig, agent_config_path
-from agent.specialists.databot.graph import (
+from tahoepilot.agent.specialists.databot.gates import NOTHING_TO_REVIEW_CARDS, NOTHING_TO_REVIEW_SQL
+from tahoepilot.agent.specialists.databot.graph import DatabotGraphBuilder
+from tahoepilot.settings.agent_config import DatabotAgentConfig, agent_config_path
+from tahoepilot.agent.specialists.databot.graph import (
     LAYER_PREPARE_CARDS,
     LAYER_SUMMARY,
     NODE_END_WITH_SUMMARY,
@@ -32,9 +32,9 @@ from agent.specialists.databot.graph import (
     TOOL_ID_FETCH,
     TOOL_ID_SQL,
 )
-from agent.specialists.databot.state import DatabotState
-from tools.bootstrap import ensure_tools_registered
-from tools.registry import register_tool_binding
+from tahoepilot.agent.specialists.databot.state import DatabotState
+from tahoepilot.tools.bootstrap import ensure_tools_registered
+from tahoepilot.tools.registry import register_tool_binding
 
 
 class _ExitStageModel(FakeMessagesListChatModel):
@@ -95,7 +95,7 @@ def compiled_graph():
 
 
 def test_root_graph_exposes_pipeline_nodes(compiled_graph):
-    from agent.specialists.databot.graph import (
+    from tahoepilot.agent.specialists.databot.graph import (
         LAYER_EXECUTE_SQL,
         LAYER_PREPARE_CARDS,
         LAYER_PREPARE_SQL,
@@ -268,8 +268,8 @@ async def test_cards_gate_deny_with_comments_loops_back(compiled_graph):
 
 
 def test_new_turn_baseline_resets_pipeline_after_summary():
-    from agent.specialists.databot.databot_agent import DatabotTurnMessagePolicy
-    from agent.specialists.databot.graph import node_for_state, to_next_layer
+    from tahoepilot.agent.specialists.databot.databot_agent import DatabotTurnMessagePolicy
+    from tahoepilot.agent.specialists.databot.graph import node_for_state, to_next_layer
     from langchain_core.messages import AIMessage, HumanMessage
 
     state = {
@@ -292,7 +292,7 @@ def test_new_turn_baseline_resets_pipeline_after_summary():
 
 
 def test_stage_done_without_trailing_human_ends_turn():
-    from agent.specialists.databot.graph import node_for_state, to_next_layer
+    from tahoepilot.agent.specialists.databot.graph import node_for_state, to_next_layer
     from langchain_core.messages import AIMessage, HumanMessage
 
     state = {
@@ -303,8 +303,8 @@ def test_stage_done_without_trailing_human_ends_turn():
 
 
 def test_new_turn_baseline_routes_to_prepare_cards_with_trailing_tool():
-    from agent.specialists.databot.databot_agent import DatabotTurnMessagePolicy
-    from agent.specialists.databot.graph import node_for_state, to_next_layer
+    from tahoepilot.agent.specialists.databot.databot_agent import DatabotTurnMessagePolicy
+    from tahoepilot.agent.specialists.databot.graph import node_for_state, to_next_layer
     from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
     state = {
@@ -322,7 +322,7 @@ def test_new_turn_baseline_routes_to_prepare_cards_with_trailing_tool():
 
 
 def test_stage_done_answered_turn_routes_to_summary_layer():
-    from agent.specialists.databot.graph import node_for_state, to_next_layer
+    from tahoepilot.agent.specialists.databot.graph import node_for_state, to_next_layer
     from langchain_core.messages import AIMessage, HumanMessage
 
     state = {
@@ -336,7 +336,7 @@ def test_stage_done_answered_turn_routes_to_summary_layer():
 
 
 def test_stage_done_empty_trailing_human_routes_to_summary_layer():
-    from agent.specialists.databot.graph import node_for_state, to_next_layer
+    from tahoepilot.agent.specialists.databot.graph import node_for_state, to_next_layer
     from langchain_core.messages import AIMessage, HumanMessage
 
     state = {
@@ -351,7 +351,7 @@ def test_stage_done_empty_trailing_human_routes_to_summary_layer():
 
 
 def test_stage_done_with_replayed_human_does_not_start_new_fetch():
-    from agent.specialists.databot.graph import node_for_state, to_next_layer
+    from tahoepilot.agent.specialists.databot.graph import node_for_state, to_next_layer
     from langchain_core.messages import AIMessage, HumanMessage
 
     state = {
@@ -369,7 +369,7 @@ def test_stage_done_with_replayed_human_does_not_start_new_fetch():
 
 
 def test_stage_done_with_trailing_remove_does_not_start_new_fetch():
-    from agent.specialists.databot.graph import node_for_state, to_next_layer
+    from tahoepilot.agent.specialists.databot.graph import node_for_state, to_next_layer
     from langchain_core.messages import AIMessage, HumanMessage, RemoveMessage
 
     state = {
@@ -472,7 +472,7 @@ async def test_execute_sql_routes_to_turn_summary(compiled_graph):
 
 
 def test_turn_summary_node_writes_assistant_message():
-    from agent.specialists.databot.graph import DatabotTopology
+    from tahoepilot.agent.specialists.databot.graph import DatabotTopology
 
     model = FakeMessagesListChatModel(
         responses=[AIMessage(content="Orders yesterday: 1,234 rows returned.")]
@@ -510,7 +510,7 @@ def test_turn_summary_node_writes_assistant_message():
 
 
 def test_turn_summary_writes_fallback_when_model_returns_think() -> None:
-    from agent.specialists.databot.graph import DatabotTopology
+    from tahoepilot.agent.specialists.databot.graph import DatabotTopology
 
     model = FakeMessagesListChatModel(
         responses=[
@@ -543,7 +543,7 @@ def test_turn_summary_writes_fallback_when_model_returns_think() -> None:
 
 
 def test_turn_summary_uses_reasoning_content_when_message_body_empty() -> None:
-    from agent.specialists.databot.graph import DatabotTopology
+    from tahoepilot.agent.specialists.databot.graph import DatabotTopology
 
     model = FakeMessagesListChatModel(
         responses=[
@@ -570,7 +570,7 @@ def test_turn_summary_uses_reasoning_content_when_message_body_empty() -> None:
 
 
 def test_turn_summary_uses_original_question_after_sql_gate_redrafts() -> None:
-    from agent.specialists.databot.graph import DatabotTopology
+    from tahoepilot.agent.specialists.databot.graph import DatabotTopology
 
     captured: list[str] = []
 
@@ -631,7 +631,7 @@ def test_turn_summary_uses_original_question_after_sql_gate_redrafts() -> None:
 
 
 def test_stage_done_plain_assistant_text_routes_to_summary_layer() -> None:
-    from agent.specialists.databot.graph import node_for_state, to_next_layer
+    from tahoepilot.agent.specialists.databot.graph import node_for_state, to_next_layer
     from langchain_core.messages import AIMessage, HumanMessage
 
     state = {
@@ -646,7 +646,7 @@ def test_stage_done_plain_assistant_text_routes_to_summary_layer() -> None:
 
 def test_finished_sql_redraft_routes_to_gate_not_back_to_generate():
     """After a SQL-gate deny-comments, a complete new draft must reach the gate."""
-    from agent.specialists.databot.graph import (
+    from tahoepilot.agent.specialists.databot.graph import (
         NODE_GATE_SQL,
         NODE_GENERATE_SQL,
         DatabotTopology,
@@ -676,8 +676,8 @@ class _ScriptedModel(FakeMessagesListChatModel):
 
 async def test_sql_redraft_pauses_at_gate_again():
     """End to end: deny-comments → the model redrafts → the SQL gate interrupts again."""
-    from agent.catalog import AgentCatalog
-    from agent.specialists.databot.stage_tools import propose_sql, write_gate_reasons
+    from tahoepilot.agent.catalog import AgentCatalog
+    from tahoepilot.agent.specialists.databot.stage_tools import propose_sql, write_gate_reasons
 
     ensure_tools_registered()
     register_tool_binding(f"{REGISTRY_NAME},{TOOL_ID_SQL}", propose_sql, replace=True)
@@ -779,8 +779,8 @@ async def test_cards_gate_unknown_json_decision_reasks(compiled_graph):
 
 def test_inject_stage_instruction_dedupes_only_within_current_turn():
     from langchain_core.messages import SystemMessage
-    from agent.specialists.databot.graph import DatabotTopology
-    from agent.specialists.databot.ui_actions import gate_redraft_message_content
+    from tahoepilot.agent.specialists.databot.graph import DatabotTopology
+    from tahoepilot.agent.specialists.databot.ui_actions import gate_redraft_message_content
 
     node = DatabotTopology.inject_stage_instruction("FETCH NOW")
     turn1 = [
@@ -798,7 +798,7 @@ def test_inject_stage_instruction_dedupes_only_within_current_turn():
 
 
 def test_start_turn_resets_only_new_question_after_summary():
-    from agent.specialists.databot import graph as databot_graph
+    from tahoepilot.agent.specialists.databot import graph as databot_graph
 
     start_turn = getattr(databot_graph, "start_turn", None)
     starts_new_turn = getattr(databot_graph, "starts_new_turn", None)
@@ -864,8 +864,8 @@ async def test_fetch_stops_after_model_index_outage(monkeypatch):
 
     from langchain_core.tools import tool as make_tool
 
-    monkeypatch.setattr("graph.error_recovery.time.sleep", lambda s: None)
-    monkeypatch.setattr("graph.error_recovery.asyncio.sleep", _no_sleep)
+    monkeypatch.setattr("tahoepilot.agent.graph.error_recovery.time.sleep", lambda s: None)
+    monkeypatch.setattr("tahoepilot.agent.graph.error_recovery.asyncio.sleep", _no_sleep)
 
     class IndexDown(Exception):
         pass
@@ -915,7 +915,7 @@ async def _no_sleep(_seconds):
 def test_approved_cards_brief_lists_approved_removed_and_today():
     import datetime
 
-    from agent.specialists.databot.graph import approved_cards_brief
+    from tahoepilot.agent.specialists.databot.graph import approved_cards_brief
 
     text = approved_cards_brief(
         {
@@ -963,7 +963,7 @@ async def test_sql_stage_opens_with_the_approved_cards(compiled_graph):
 def test_sql_stage_view_drops_the_fetch_tool_trail():
     from langchain_core.messages import SystemMessage, ToolMessage
 
-    from agent.specialists.databot.state import sql_react_input
+    from tahoepilot.agent.specialists.databot.state import sql_react_input
 
     def call(name, cid):
         return AIMessage(content="", tool_calls=[{"name": name, "args": {}, "id": cid}])
@@ -992,7 +992,7 @@ def test_sql_stage_view_drops_the_fetch_tool_trail():
 
 
 def test_execution_preview_keeps_rows_within_budget():
-    from agent.specialists.databot.graph import DatabotTopology
+    from tahoepilot.agent.specialists.databot.graph import DatabotTopology
 
     rows = [{"grain": "DAY", "gmv": i} for i in range(34)] + [
         {"grain": "MONTH", "gmv": 9_999_999} for _ in range(3)
@@ -1015,7 +1015,7 @@ def test_execution_preview_keeps_rows_within_budget():
 
 def test_summary_with_sql_block_is_kept():
     """Seen live: a correct GMV answer was dropped because its SQL had date_trunc."""
-    from agent.specialists.databot.graph import DatabotTopology
+    from tahoepilot.agent.specialists.databot.graph import DatabotTopology
 
     summary = (
         "## Wish GMV for the latest complete month\n\n"

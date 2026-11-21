@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
-from graph.messages import message_content_to_str, sanitize_messages_for_strict_tool_providers
+from tahoepilot.agent.graph.messages import message_content_to_str, sanitize_messages_for_strict_tool_providers
 
 
 def test_message_content_to_str_plain_and_multimodal() -> None:

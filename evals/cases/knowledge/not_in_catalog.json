@@ -1,0 +1,22 @@
+{
+  "description": "A metric that is not in the catalog: the agent stops after two catalog searches and answers null instead of guessing or searching other sources.",
+  "models": [
+    "MiniMax-M3"
+  ],
+  "cases": [
+    {
+      "name": "not_in_catalog",
+      "query": "What is our Net Promoter Score (NPS), and which model carries it? Reply with a single JSON object only. Do not wrap it in markdown fences and do not add any other text. Required shape: {\"root_id\": \"<metric catalog root_id or null>\", \"member_id\": \"<member_id or null>\", \"model\": \"<the dbt model that best carries this metric, or null>\", \"definition\": \"<one sentence>\"}",
+      "expected_tools": [
+        "search_metric_catalog"
+      ],
+      "total_rounds": 3,
+      "answer": {
+        "root_id": null,
+        "member_id": null,
+        "model": null
+      },
+      "notes": "No NPS root in the catalog: the agent must say so (nulls) instead of guessing."
+    }
+  ]
+}

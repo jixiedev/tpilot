@@ -1,0 +1,36 @@
+{
+  "description": "The Airflow DAGs that read a table, from DataHub downstream lineage (DataHub records downstream consumers as jobs, not tables).",
+  "models": [
+    "MiniMax-M3"
+  ],
+  "defaults": {
+    "expected_tools": [
+      "datahub_get_lineage"
+    ],
+    "total_rounds": 4
+  },
+  "cases": [
+    {
+      "name": "downstream_dags_fct_transaction_variations",
+      "query": "Which Airflow DAGs read core_data.fct_transaction_variations downstream? Reply with a single JSON object only. Do not wrap it in markdown fences and do not add any other text. Required shape: {\"table\": \"<db.table>\", \"downstream_dags\": [\"<Airflow DAG id>\", \"...\"]}",
+      "answer": {
+        "downstream_dags": [
+          "category_all_final",
+          "DailyAttribution_V7"
+        ]
+      },
+      "notes": "Gold verified against DataHub lineage on 2026-11-20 (GMS via kubectl port-forward). 56 downstream jobs; gold is the two DAGs with the most of them. Others are allowed."
+    },
+    {
+      "name": "downstream_dags_fct_dau",
+      "query": "Which Airflow DAGs read core_data.fct_dau downstream? Reply with a single JSON object only. Do not wrap it in markdown fences and do not add any other text. Required shape: {\"table\": \"<db.table>\", \"downstream_dags\": [\"<Airflow DAG id>\", \"...\"]}",
+      "answer": {
+        "downstream_dags": [
+          "UserWishScore",
+          "user__buyer_lifecycle"
+        ]
+      },
+      "notes": "Gold verified against DataHub lineage on 2026-11-20 (GMS via kubectl port-forward). 23 downstream jobs; gold is two DAGs that read it directly. Others are allowed."
+    }
+  ]
+}

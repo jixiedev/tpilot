@@ -1,0 +1,76 @@
+# Network settings for the AG-UI backend (tahoepilot/server/app.py) and the Next.js frontend
+# (docker/entrypoint.sh), read by tahoepilot/settings/server_config.py.
+# `langgraph dev` / scripts/dev.sh choose their own ports.
+
+[agui]
+# Bind address of the standalone backend (`python -m tahoepilot.server.app`, the Docker image).
+# 0.0.0.0 = all interfaces (needed in a container).
+host = "0.0.0.0"
+# Backend port.
+port = 8000
+# Base path; each front agent is served at <path>/<name> (e.g. /agui/lead).
+# Keep [frontend].backend_url in step.
+path = "/agui"
+# How a delegated specialist's stream reaches the client: "inline" (the only mode
+# @ag-ui/client <= 0.0.57 accepts), "hidden" (only the delegate call and its result),
+# "attributed" (adds SUBAGENT_* events; needs a newer client).
+subagent_visibility = "inline"
+# Attach raw LangGraph events to every AG-UI event. Debug only: a nested databot run
+# streamed ~95 MB with it on versus ~0.3 MB off.
+emit_raw_events = false
+# Request header naming the visitor; its value becomes the run's user_id (profile,
+# persona, delegated specialists, tools). The ingress / auth proxy must set it and
+# strip any client-supplied copy; the Next.js route forwards it unchanged. Without
+# it a run uses the thread's stored user_id, then [user].default_id in runtime.toml.
+# Empty = ignore any header.
+user_header = "X-Tahoepilot-User"
+
+[frontend]
+# Bind address of the Next.js server (exported as HOSTNAME).
+host = "0.0.0.0"
+# Next.js port (exported as PORT).
+port = 3000
+# Where the Next.js server routes forward AG-UI requests (exported as
+# AGUI_BACKEND_URL). In k8s point it at the backend Service, e.g.
+# "http://tahoepilot-backend:8000/agui".
+backend_url = "http://127.0.0.1:8000/agui"
+
+[auth]
+# Login page for the web UI. Users enter username and password; the password is
+# checked by binding to LDAP and is never stored; only the username is kept, and it
+# becomes the run's user_id (the [agui].user_header header is then ignored).
+# false = no login page (identity from user_header or the defaults).
+enabled = true
+# DEVELOPMENT ONLY. true = accept any password and skip LDAP (the username is still
+# checked and becomes the identity), for machines that cannot reach the directory.
+# Anyone can then sign in as anyone: set false in every deployment (k8s ConfigMap).
+skip_password_check = true
+# Directory server, e.g. "ldaps://ldap.example.com:636" or "ldap://ldap.example.com:389".
+# Plain ldap:// sends passwords unencrypted inside the network; prefer ldaps:// or
+# start_tls when the server supports it.
+ldap_url = "ldap://172.29.113.10:389"
+# Two ways to find a user's DN. When user_search_filter is set, the service account
+# (bind_user) searches user_base_dn for the username, then the user binds as the DN it
+# found (search-then-bind; needed for Active Directory sAMAccountName logins). Otherwise
+# the DN is user_dn_template with {username} replaced (DN-escaped), e.g.
+#   "uid={username},ou=people,dc=example,dc=com"   (OpenLDAP)
+#   "{username}@example.com"                       (Active Directory UPN)
+user_dn_template = ""
+# Search base for user lookups.
+user_base_dn = "OU=WishUsers,DC=ad,DC=wish,DC=com"
+# LDAP filter for one user; {username} is replaced (filter-escaped). Same as Trino's
+# ldap.user-search-filter, with {username} for ${USER}.
+user_search_filter = "(&(objectClass=person)(sAMAccountName={username}))"
+# Service account used for the search.
+bind_user = "svc_tahoe_presto@ad.wish.com"
+# Env variable holding the service account's password (secret, in the secrets file).
+bind_password_env = "LDAP_BIND_PASSWORD"
+# Upgrade a plain ldap:// connection with StartTLS before binding (not for ldaps://).
+start_tls = false
+# Seconds to wait for the directory (connect and each response).
+timeout_seconds = 10
+# How long a login lasts, in hours (session token and cookie lifetime).
+session_hours = 12
+# Env variable holding the key that signs session tokens (secret, 32+ characters;
+# put it in the secrets file). Changing it signs everyone out.
+session_secret_env = "TAHOEPILOT_SESSION_SECRET"

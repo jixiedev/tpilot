@@ -11,16 +11,16 @@ from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import interrupt
 
-from agent.agent import BaseAgent
-from agent.catalog import AgentCatalog, AgentCatalogSettings
-from agent.lead.prompt import delegatable_agents, lead_step_prompt
-from agent.lead.state import mark_step, normalize_steps, turn_finish, turn_start
-from agent.listener import AgentListener
-from agent.subagent import SubagentResult, SubagentTask, compact_work_record
-from agent.turn_messages import DefaultTurnMessagePolicy
-from agent.prompt import SystemPromptAssembler
-from graph.state import SessionAgentState
-from memory.profile_store import FileProfileStore
+from tahoepilot.agent.agent import BaseAgent
+from tahoepilot.agent.catalog import AgentCatalog, AgentCatalogSettings
+from tahoepilot.agent.lead.prompt import delegatable_agents, lead_step_prompt
+from tahoepilot.agent.lead.state import mark_step, normalize_steps, turn_finish, turn_start
+from tahoepilot.agent.listener import AgentListener
+from tahoepilot.agent.subagent import SubagentResult, SubagentTask, compact_work_record
+from tahoepilot.agent.turn_messages import DefaultTurnMessagePolicy
+from tahoepilot.agent.prompt import SystemPromptAssembler
+from tahoepilot.agent.graph.state import SessionAgentState
+from tahoepilot.memory.profile_store import FileProfileStore
 
 GATEBOT = "gatebot"
 
@@ -359,7 +359,7 @@ class _LayeredBot(_GateBot):
         return BaseAgent.result_from_state(self, state)
 
     async def aget_active_snapshot(self, config):
-        from agent.specialists.databot.graph import DatabotGraphBuilder
+        from tahoepilot.agent.specialists.databot.graph import DatabotGraphBuilder
 
         return await DatabotGraphBuilder.aget_active_state(self.build_graph(), config)
 
@@ -367,7 +367,7 @@ class _LayeredBot(_GateBot):
 async def test_paused_specialist_view_and_patch_inside_layer(tmp_path) -> None:
     from langgraph.types import Command
 
-    from agent.lead.paused import (
+    from tahoepilot.agent.lead.paused import (
         active_snapshot,
         find_paused_delegation,
         live_subagent_view,
@@ -469,8 +469,8 @@ class _BigState(SessionAgentState, total=False):
 def _make_loopbot(rounds: int, state_bytes: int = 0):
     from langchain_core.tools import tool
 
-    from agent.router import CompletionToolRouter
-    from graph.builder import ReactLoopSpec, ReactStateSpec, build_react_graph
+    from tahoepilot.agent.router import CompletionToolRouter
+    from tahoepilot.agent.graph.builder import ReactLoopSpec, ReactStateSpec, build_react_graph
 
     @tool
     def describe(table: str) -> str:
@@ -523,8 +523,8 @@ async def test_nested_specialist_is_not_capped_by_default_recursion_limit(tmp_pa
 def test_databot_nothing_to_review_is_failed_not_halted() -> None:
     from types import SimpleNamespace
 
-    from agent.specialists.databot.databot_agent import DatabotAgent
-    from agent.specialists.databot.gates import NOTHING_TO_REVIEW_CARDS
+    from tahoepilot.agent.specialists.databot.databot_agent import DatabotAgent
+    from tahoepilot.agent.specialists.databot.gates import NOTHING_TO_REVIEW_CARDS
 
     agent = object.__new__(DatabotAgent)  # result_from_state needs no runtime
     agent.agent_config = SimpleNamespace(name="databot")
@@ -547,7 +547,7 @@ def test_databot_result_carries_leading_rows_for_the_lead() -> None:
     """A weak summary must not leave the lead without numbers."""
     from types import SimpleNamespace
 
-    from agent.specialists.databot.databot_agent import DatabotAgent
+    from tahoepilot.agent.specialists.databot.databot_agent import DatabotAgent
 
     agent = object.__new__(DatabotAgent)
     agent.agent_config = SimpleNamespace(name="databot")
@@ -567,7 +567,7 @@ def test_databot_result_carries_leading_rows_for_the_lead() -> None:
 
 
 def test_fallback_summary_includes_values() -> None:
-    from agent.specialists.databot.graph import DatabotTopology
+    from tahoepilot.agent.specialists.databot.graph import DatabotTopology
 
     text = DatabotTopology._fallback_turn_summary(
         {

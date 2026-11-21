@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from agent.specialists.databot.graph import (
+from tahoepilot.agent.specialists.databot.graph import (
     NODE_END_WITH_SUMMARY,
     NODE_EXECUTE_SQL,
     NODE_GATE_CARDS,
@@ -13,7 +13,7 @@ from agent.specialists.databot.graph import (
     PHASE_PREPARE_SQL,
     PHASE_SUMMARY,
 )
-from agent.specialists.databot.graph import after_generate_sql, node_for_state
+from tahoepilot.agent.specialists.databot.graph import after_generate_sql, node_for_state
 
 
 def test_node_for_prepare_cards_at_gate() -> None:

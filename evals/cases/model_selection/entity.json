@@ -1,0 +1,82 @@
+{
+  "description": "Pick the model for a question about columns or entities, not a metric.",
+  "models": [
+    "MiniMax-M3"
+  ],
+  "run": {
+    "variants": {
+      "rag": {
+        "retrieval": "rag"
+      },
+      "catalog": {
+        "retrieval": "catalog"
+      },
+      "hybrid": {
+        "retrieval": "hybrid"
+      }
+    }
+  },
+  "defaults": {
+    "max_tool_calls": 4
+  },
+  "cases": [
+    {
+      "name": "merchant_app_authorizations",
+      "kind": "entity",
+      "query": "Which table records which third-party apps a merchant has authorized?",
+      "expected_models": [
+        "wish__merchant_authorization"
+      ]
+    },
+    {
+      "name": "merchant_profile_table",
+      "kind": "entity",
+      "query": "Which table has each merchant's country, state and account settings?",
+      "expected_models": [
+        "wish__dim_all_merchants",
+        "commerce_merchant"
+      ]
+    },
+    {
+      "name": "product_listing_attributes",
+      "kind": "entity",
+      "query": "Where can I find product listing attributes like product name, subcategory and adult or counterfeit flags?",
+      "expected_models": [
+        "master_products",
+        "dim_all_products"
+      ]
+    },
+    {
+      "name": "order_tracking_checkpoints",
+      "kind": "entity",
+      "query": "Which table tells me the shipping provider and delivery status for each order tracking number?",
+      "expected_models": [
+        "master_order_tracking_infos"
+      ]
+    },
+    {
+      "name": "user_profile_table",
+      "kind": "entity",
+      "query": "Which table has each user's registration date, country and verification status?",
+      "expected_models": [
+        "master_users"
+      ]
+    },
+    {
+      "name": "erp_partner_call_log",
+      "kind": "entity",
+      "query": "Which table logs merchants' ERP partner API calls?",
+      "expected_models": [
+        "erp_daily_dump"
+      ]
+    },
+    {
+      "name": "experiment_subject_metrics",
+      "kind": "entity",
+      "query": "Where are per-subject A/B experiment metrics stored?",
+      "expected_models": [
+        "fct_experiments_metrics"
+      ]
+    }
+  ]
+}

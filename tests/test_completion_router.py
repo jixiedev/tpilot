@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from langchain_core.messages import AIMessage, HumanMessage
 
-from agent.router import CompletionToolRouter
-from agent.turn import AgentTurnResult
+from tahoepilot.agent.router import CompletionToolRouter
+from tahoepilot.agent.turn import AgentTurnResult
 
 
 def _react_router() -> CompletionToolRouter:

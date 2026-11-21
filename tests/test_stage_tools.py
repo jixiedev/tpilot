@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from agent.specialists.databot.stage_tools import record_metric_conflict
+from tahoepilot.agent.specialists.databot.stage_tools import record_metric_conflict
 
 
 def test_record_metric_conflict_appends() -> None:

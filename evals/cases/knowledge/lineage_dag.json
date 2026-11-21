@@ -1,0 +1,64 @@
+{
+  "description": "The Airflow DAG (and task) that produces a table, from DataHub: datahub_list_datasets returns the producing DataJob as 1-hop lineage, so no separate lineage call is needed.",
+  "models": [
+    "MiniMax-M3"
+  ],
+  "defaults": {
+    "expected_tools": [
+      "datahub_list_datasets"
+    ],
+    "total_rounds": 4
+  },
+  "cases": [
+    {
+      "name": "dag_fct_dau",
+      "query": "Which Airflow DAG produces core_data.fct_dau? Reply with a single JSON object only. Do not wrap it in markdown fences and do not add any other text. Required shape: {\"table\": \"<db.table>\", \"dag\": \"<Airflow DAG id or null>\"}",
+      "answer": {
+        "dag": "DailyCorePipelines"
+      },
+      "notes": "Gold verified against DataHub lineage on 2026-11-20 (GMS via kubectl port-forward)."
+    },
+    {
+      "name": "dag_fct_refund",
+      "query": "Which Airflow DAG produces core_data.fct_refund? Reply with a single JSON object only. Do not wrap it in markdown fences and do not add any other text. Required shape: {\"table\": \"<db.table>\", \"dag\": \"<Airflow DAG id or null>\"}",
+      "answer": {
+        "dag": "DailyCorePipelines"
+      },
+      "notes": "Gold verified against DataHub lineage on 2026-11-20 (GMS via kubectl port-forward)."
+    },
+    {
+      "name": "dag_fct_transaction_variations",
+      "query": "Which Airflow DAG produces core_data.fct_transaction_variations? Reply with a single JSON object only. Do not wrap it in markdown fences and do not add any other text. Required shape: {\"table\": \"<db.table>\", \"dag\": \"<Airflow DAG id or null>\"}",
+      "answer": {
+        "dag": "FctTransactionVariations"
+      },
+      "notes": "Gold verified against DataHub lineage on 2026-11-20 (GMS via kubectl port-forward)."
+    },
+    {
+      "name": "dag_ulc_active_buyers",
+      "query": "Which Airflow DAG produces core_data.ulc_active_buyers? Reply with a single JSON object only. Do not wrap it in markdown fences and do not add any other text. Required shape: {\"table\": \"<db.table>\", \"dag\": \"<Airflow DAG id or null>\"}",
+      "answer": {
+        "dag": "UlcActiveBuyerDaily"
+      },
+      "notes": "Gold verified against DataHub lineage on 2026-11-20 (GMS via kubectl port-forward)."
+    },
+    {
+      "name": "dag_and_task_erp_daily_dump",
+      "query": "Which Airflow DAG and task produce wish.erp_daily_dump? Reply with a single JSON object only. Do not wrap it in markdown fences and do not add any other text. Required shape: {\"table\": \"<db.table>\", \"dag\": \"<Airflow DAG id or null>\", \"task\": \"<task id or null>\"}",
+      "answer": {
+        "dag": "DailyERPDumpTahoe",
+        "task": "ERPDumpQuery"
+      },
+      "notes": "Gold verified against DataHub lineage on 2026-11-20 (GMS via kubectl port-forward)."
+    },
+    {
+      "name": "dag_and_task_full_cycle",
+      "query": "Which Airflow DAG and task produce wishpost.wishpost_order_clean_full_cycle? Reply with a single JSON object only. Do not wrap it in markdown fences and do not add any other text. Required shape: {\"table\": \"<db.table>\", \"dag\": \"<Airflow DAG id or null>\", \"task\": \"<task id or null>\"}",
+      "answer": {
+        "dag": "WishpostOrderCleanFullCycle",
+        "task": "TempWishpostOrderFullCycleQueryTask"
+      },
+      "notes": "Gold verified against DataHub lineage on 2026-11-20 (GMS via kubectl port-forward). The model YAML says dag_tahoe_wosp_order_clean_full_cycle / full_cycle_query; DataHub's names are the gold."
+    }
+  ]
+}

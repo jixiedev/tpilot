@@ -9,7 +9,7 @@ alwaysApply: true
 
 - All docs are written in **English**, including the roadmap (`docs/ROADMAP.md`).
 - Do not add other parallel locale files beyond this roadmap pair.
-- Layout: `README.md` (overview, quick start, doc index), `docs/ARCHITECTURE.md` (system map, core concepts, design principles), and one `README.md` per subsystem next to its code (`agent/`, `agent/specialists/databot/`, `tools/`, `config/`, `memory/`, `rag/`, `evals/`, `frontend/`). A subsystem README covers concepts, design, how it works, usage, extension and pitfalls; link to other subsystem docs instead of repeating them.
+- Layout: `README.md` (overview, quick start, doc index), `docs/ARCHITECTURE.md` (system map, core concepts, design principles), and one `README.md` per subsystem next to its code (`tahoepilot/agent/`, `tahoepilot/agent/specialists/databot/`, `tahoepilot/tools/`, `config/`, `tahoepilot/memory/`, `tahoepilot/rag/`, `evals/`, `frontend/`). A subsystem README covers concepts, design, how it works, usage, extension and pitfalls; link to other subsystem docs instead of repeating them.
 - When code changes behavior, paths, commands or config keys, update the matching subsystem README in the same change.
 
 ## Code

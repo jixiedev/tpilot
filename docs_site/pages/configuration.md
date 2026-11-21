@@ -51,7 +51,7 @@ must repeat the sections it wants to keep.
 | MCP connections | Which MCP servers an agent accepts, and whether a server's tools replace the built-in ones for a stage | What an agent can reach through your own tools |
 | Connections | The endpoints and credentials for Trino, Hive, DataHub, Kubernetes, S3 and web search | Whether a tool can reach your platform at all |
 | Models | Which model answers, and how hard it tries, how long it may take, how many tokens it may use | The quality, speed and cost of every answer |
-| Local paths | Where checkpoints, user profiles, archived results and logs are kept | Where your conversation and history live on disk |
+| Runtime paths | Where checkpoints, user profiles, archived results and logs are kept | Where your conversation and history live on disk |
 | Logging | Where the log file is and how much it records | What you can read when you need to see what happened |
 | Approval gates | Whether a stage stops for a person, or continues on its own | Whether a query runs before you have seen it |
 
@@ -77,7 +77,7 @@ is the whole checklist.
 | A connection or a credential | Restart the platform | Connections are read when the platform starts |
 | The model or its settings | Restart the platform | The model is built when the platform starts |
 | MCP servers | Restart the platform | The servers are contacted at startup, and the startup output names each one and says whether it answered and how many tools it offered |
-| Local paths and logging | Restart the platform | The log file is opened at startup |
+| Runtime paths and logging | Restart the platform | The log file is opened at startup |
 | A budget | Restart the platform, and check who is overriding it | The launcher hands most agents a tool-call budget of its own, and that value wins over the one in the file. A budget you raise in the file may not be the budget you get |
 
 Two things catch people out. First, an exported environment variable silently overrides

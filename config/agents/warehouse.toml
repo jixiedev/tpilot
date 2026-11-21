@@ -1,5 +1,8 @@
+# Agent name used for registration, tool scopes ("warehouse,<scope>") and the lead's `delegate`.
 name = "warehouse"
+# Short description shown in the agent catalog (the lead's roster falls back to it).
 description = "Data specialist: finds warehouse tables and answers data questions with reviewed, read-only SQL"
+# The lead's roster line for this agent: when to delegate to it (LeadSystemPrompt).
 delegate_when = """
 data retrieval — find the warehouse tables for a data need and their schemas, or answer a concrete data question with read-only SQL (a number, a list, a lookup); every query is reviewed by the user before it runs; not for what a metric or term means
 """
@@ -10,22 +13,30 @@ data retrieval — find the warehouse tables for a data need and their schemas, 
 # search: definitions come from the lead's brief (knowledge answers "what does
 # X mean"). WarehouseAgent drops any other DataHub tool a config change adds.
 
+# ReAct loop budgets and warehouse settings (WarehouseAgentConfig).
 [run_context]
+# Inherit tahoe.toml's [run_context] (max_tool_calls = 10, overridden below;
+# its max_idle_reason_rounds is dropped for pure ReAct agents).
 extends = "tahoe"
-# Discovery, schema checks, one review and one run, plus room for a revision.
+# Tool-call batches per turn (overrides tahoe's 10): discovery, schema checks, one
+# review and one run, plus room for a revision. At the limit the model answers without tools.
 max_tool_calls = 24
-# Rows one `run_sql` call fetches (the UI shows them; the model sees a preview).
+# Rows one `run_sql` call fetches (the UI shows them; the model sees a preview of at most 50).
 result_row_limit = 200
 
 # Human SQL review (LangGraph interrupt inside `request_sql_approval`).
-# false = approve automatically; `run_sql` still only runs SQL that went
-# through `request_sql_approval`, so the order is the same either way.
 [run_context.gates]
+# true = pause for the user's review. false = approve automatically; `run_sql` still
+# only runs SQL that went through `request_sql_approval`, so the order is the same.
 sql_enabled = true
 
+# Warehouse system message (persona, workflow, data rules).
 [system_prompt]
+# Inherit tahoe.toml's prompt (and through it base.toml); sections below merge by id.
 extends = "tahoe"
 
+# Section ids rendered, in order; replaces the parent layout. business_context and
+# general_rules come from tahoe/base, session_layout from base.
 layout = [
     "role",
     "business_context",
@@ -37,6 +48,7 @@ layout = [
     "session_layout",
 ]
 
+# Role section: Warehouse persona and its one-task scope; replaces tahoe's role text.
 [system_prompt.sections.role]
 title = "Role"
 text = """
@@ -45,6 +57,7 @@ the lead agent: find the right warehouse tables, write one read-only Trino SQL
 query, get it reviewed by the user, run it and report the result with evidence.
 """
 
+# Workflow section: ordered steps from catalog discovery to reviewed SQL and the answer.
 [system_prompt.sections.workflow]
 title = "Workflow"
 text = """
@@ -67,8 +80,10 @@ Work in this order, skipping steps you do not need:
    see where a table's data comes from or how two tables relate.
 2. Check the columns you will use with `trino_desc_table` (accepts table,
    schema.table or catalog.schema.table). Never guess a column name.
-3. Optionally check the SQL parses with `trino_explain` (plan only; it never
-   returns data, so do not use it to look at values).
+3. Always check the final SQL with `trino_explain` before you request approval
+   or give the SQL in an answer, also when you will not run it. If it fails,
+   fix the SQL and check again (at most twice). `trino_explain` only plans the
+   query and never returns data, so do not use it to look at values.
 4. Call `request_sql_approval` with the final SQL, a one-paragraph explanation
    for the reviewer and the tables used. Call it alone, not with other tools.
 5. When it is approved, call `run_sql` with exactly the approved SQL. Any
@@ -86,15 +101,17 @@ stop. If a query fails, fix it and request approval again (at most twice),
 then report the error.
 
 Metric definitions: use the definition in your task or context. If none is
-given, use the metric as the chosen dbt model defines it and say so in the
-explanation. Do not search for, or compare, glossary definitions; DataHub is
-only for table documentation and lineage.
+given, resolve it in the metric catalog (`search_metric_catalog`) or use the
+metric as the chosen dbt model defines it, and say so in the explanation. Do not
+look up DataHub glossary terms; DataHub is only for table documentation and
+lineage.
 
 Shape the SQL so the rows that answer the task come first (for example the
 month total before any daily breakdown) and keep results small: aggregate in
 SQL instead of fetching raw rows.
 """
 
+# Data prohibitions: read-only rules and SQL only through approved `run_sql`.
 [system_prompt.sections.data_prohibitions]
 title = "Data prohibitions"
 text = """
@@ -104,6 +121,7 @@ text = """
 - Do not run SQL any other way than `run_sql` after approval.
 """
 
+# Data answer requirements: evidence a data answer must state (tables, columns, time range, SQL).
 [system_prompt.sections.data_answer_requirements]
 title = "Data answer requirements"
 text = """
@@ -113,6 +131,7 @@ time zone), and the exact SQL that ran. Never give a number that no query
 returned.
 """
 
+# Output section: the final message the lead reads; replaces tahoe's output text.
 [system_prompt.sections.output]
 title = "Output"
 text = """
@@ -121,15 +140,19 @@ answer, keep it short, include the evidence above. Status lines during tool
 use: at most one short sentence, written to the user.
 """
 
-# `request_sql_approval` and `run_sql` are bound by WarehouseAgent.
-# No `trino_run_query` here: SQL runs only through the reviewed `run_sql`.
-# Keep earlier turns' tool results in context: follow-ups ("now break that down
-# by X") reuse prior query output, and folding it made the agent read archives.
+# Context-compression thresholds (tahoepilot/memory/README.md#configuration).
 [compression]
+# Start from base.toml's [compression] table and overlay the keys below.
 extends = "base"
+# false = keep earlier turns' tool results in context (layer 1b off): follow-ups
+# ("now break that down by X") reuse prior query output; folding made the agent read archives.
 prior_turns_qa_only = false
 
+# Built-in tools per tool scope; "@name" expands from config/tool_groups.toml.
+# `request_sql_approval` and `run_sql` are bound by WarehouseAgent.
+# No `trino_run_query` here: SQL runs only through the reviewed `run_sql`.
 [tools]
+# The agent's only scope (warehouse,default); no [accepted_mcp], so no MCP tools.
 default = [
     "@memory",
     # Model discovery: metric catalog only (no `fetch_related_models` / RAG).

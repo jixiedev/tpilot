@@ -20,7 +20,7 @@ dependencies = [
 ]
 
 [project.scripts]
-tahoepilot = "main:main"
+tahoepilot = "tahoepilot.cli:main"
 
 [project.optional-dependencies]
 web = [
@@ -28,6 +28,7 @@ web = [
     "ag-ui-langgraph>=0.0.43",
     "fastapi>=0.141.1",
     "uvicorn>=0.49.0",
+    "ldap3>=2.9.1",
 ]
 k8s = [
     "kubernetes~=10.0.0",
@@ -52,6 +53,13 @@ docs = [
     "mkdocs-material>=9.5",
     "mkdocs-gen-files>=0.5",
 ]
+
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["tahoepilot*"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

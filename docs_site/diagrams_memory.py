@@ -351,7 +351,7 @@ def _config_shape() -> tuple[str, str]:
             ("Connections", "warehouse"),
             ("Tool groups", "shared tools"),
             ("Knowledge", "what is indexed"),
-            ("Local paths", "where files live"),
+            ("Runtime paths", "where files live"),
             ("Models", "which model"),
             ("Logging", "how much it says"),
         )

@@ -1,0 +1,51 @@
+{
+  "description": "Upstream, downstream, DAG-of-table and tables-of-DAG questions go to knowledge; a failed DAG goes to diagnostic.",
+  "models": [
+    "MiniMax-M3"
+  ],
+  "run": {
+    "stub_specialists": true
+  },
+  "cases": [
+    {
+      "name": "upstream_of_table",
+      "query": "What are the upstream tables of wishpost.wishpost_order_clean_full_cycle?",
+      "expected_decision": "delegate",
+      "expected_routes": [
+        "knowledge"
+      ]
+    },
+    {
+      "name": "dag_of_table",
+      "query": "Which Airflow DAG produces core_data.fct_dau?",
+      "expected_decision": "delegate",
+      "expected_routes": [
+        "knowledge"
+      ]
+    },
+    {
+      "name": "tables_of_dag",
+      "query": "Which tables does the WishpostOverallFinancePNL DAG build?",
+      "expected_decision": "delegate",
+      "expected_routes": [
+        "knowledge"
+      ]
+    },
+    {
+      "name": "downstream_of_table",
+      "query": "What depends on core_data.fct_transaction_variations downstream?",
+      "expected_decision": "delegate",
+      "expected_routes": [
+        "knowledge"
+      ]
+    },
+    {
+      "name": "failed_dag_goes_to_diagnostic",
+      "query": "The DailyCorePipelines DAG failed last night. Check its task logs and tell me why.",
+      "expected_decision": "delegate",
+      "expected_routes": [
+        "diagnostic"
+      ]
+    }
+  ]
+}

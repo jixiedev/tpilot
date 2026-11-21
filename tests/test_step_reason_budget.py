@@ -10,10 +10,10 @@ from langgraph.checkpoint.memory import MemorySaver
 from langgraph.prebuilt import ToolRuntime
 from langgraph.types import Command
 
-from agent.router import CompletionToolRouter
-from agent.turn import AgentTurnResult
-from graph.builder import ReactLoopSpec, build_react_graph
-from graph.node import make_step_reason_node
+from tahoepilot.agent.router import CompletionToolRouter
+from tahoepilot.agent.turn import AgentTurnResult
+from tahoepilot.agent.graph.builder import ReactLoopSpec, build_react_graph
+from tahoepilot.agent.graph.node import make_step_reason_node
 
 
 @tool
@@ -100,7 +100,7 @@ async def test_turn_at_tool_budget_ends_with_text_reply() -> None:
 
 
 def test_step_reason_strips_tool_calls_at_budget_without_final_model() -> None:
-    from graph.node import BUDGET_EXHAUSTED_FALLBACK_REPLY
+    from tahoepilot.agent.graph.node import BUDGET_EXHAUSTED_FALLBACK_REPLY
 
     node = make_step_reason_node(
         _Bound(_Model()),  # type: ignore[arg-type]

@@ -16,16 +16,16 @@ from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.graph import START, MessagesState, StateGraph
 from langgraph.prebuilt.tool_node import ToolCallRequest
 
-import tools.data.trino_errors  # noqa: F401  (registers Trino mappings)
-from agent.router import CompletionToolRouter
-from graph.builder import ReactLoopSpec, build_react_graph
-from graph.error_recovery import (
+import tahoepilot.tools.data.trino_errors  # noqa: F401  (registers Trino mappings)
+from tahoepilot.agent.router import CompletionToolRouter
+from tahoepilot.agent.graph.builder import ReactLoopSpec, build_react_graph
+from tahoepilot.agent.graph.error_recovery import (
     ainvoke_with_transient_retry,
     invoke_with_transient_retry,
     make_retrying_tool_wrapper,
     transient_retry_on,
 )
-from tools.errors import (
+from tahoepilot.tools.errors import (
     StructuredToolError,
     ToolErrorType,
     register_exception,

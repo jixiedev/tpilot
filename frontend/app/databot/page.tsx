@@ -15,6 +15,7 @@ import { DatabotToolRenderers } from "../components/DatabotToolRenderers";
 import { GatePanel } from "../components/GatePanel";
 import { DATABOT_AGENT_ID } from "../components/databotAgent";
 import { AppNav } from "../components/AppNav";
+import { AgentBadge, BugIcon } from "../components/icons";
 
 function DatabotWorkingPanels({ debugEnabled }: { debugEnabled: boolean }) {
   const { sessionKey } = useDatabotSession();
@@ -35,9 +36,7 @@ export default function DatabotPage() {
     <main className="databot-shell">
       <header className="databot-topbar">
         <div className="databot-brand">
-          <span className="databot-logo" aria-hidden="true">
-            DB
-          </span>
+          <AgentBadge agent="databot" size={36} />
           <div className="databot-topbar-main">
             <h1>Databot</h1>
             <p className="databot-tagline">Data retrieval · table cards → reviewed SQL → results</p>
@@ -54,7 +53,10 @@ export default function DatabotPage() {
               data-testid="debug-toggle"
             />
             <span className="databot-switch" aria-hidden="true" />
-            <span>Debug</span>
+            <span className="databot-switch-label">
+              <BugIcon size={14} />
+              Debug
+            </span>
           </label>
           <DatabotNewChatButton />
         </div>

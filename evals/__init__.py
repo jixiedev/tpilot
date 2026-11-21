@@ -1,48 +1,47 @@
-"""Evals: JSON case suites, scoring, and eval listeners (`python -m evals`)."""
+"""Evals: one case type, batch files per agent and objective, one runner (`python -m evals`).
 
-from evals.tool_case import (
+- ``evals/case.py``: :class:`EvalCase` and loading ``cases/<agent>/<objective>.json``.
+- ``evals/checks.py``: the scored dimensions; a case's expectation keys pick them.
+- ``evals/runner.py``: runs a case (listener, optional specialist stubs and variants).
+- ``evals/report.py``: CLI lines, per-variant summary, ``--out`` JSON.
+"""
+
+from evals.case import BatchRun, EvalCase, list_agents, list_batches, load_batch, load_cases
+from evals.checks import CHECKS, CheckResult, run_checks, score_sequence
+from evals.listeners import EvalReactListener, ToolCallRecord, ToolResultRecord
+from evals.runner import (
     CaseAggregate,
-    CaseResult,
-    ToolCallCase,
-    find_cases,
-    format_case_aggregate,
-    format_case_result,
-    list_case_groups,
-    run,
-    run_cases,
-)
-from evals.routing_case import (
-    LeadRoutingCase,
-    RoutingCaseAggregate,
-    RoutingCaseResult,
+    CaseRun,
+    RoutingStub,
+    RunRecord,
     extract_lead_outcome,
-    find_routing_cases,
-    format_routing_case_aggregate,
-    format_routing_case_result,
-    run_routing_cases,
+    run_cases,
+    run_turn,
+    score_run,
+    suite_average,
 )
-from evals.listeners import CaseScore, EvalReactListener, ToolCallRecord, ToolResultRecord
 
 __all__ = [
+    "BatchRun",
+    "CHECKS",
     "CaseAggregate",
-    "CaseResult",
-    "CaseScore",
-        "EvalReactListener",
-    "LeadRoutingCase",
-    "RoutingCaseAggregate",
-    "RoutingCaseResult",
-    "ToolCallCase",
+    "CaseRun",
+    "CheckResult",
+    "EvalCase",
+    "EvalReactListener",
+    "RoutingStub",
+    "RunRecord",
     "ToolCallRecord",
     "ToolResultRecord",
     "extract_lead_outcome",
-    "find_cases",
-    "find_routing_cases",
-    "format_case_aggregate",
-    "format_case_result",
-    "format_routing_case_aggregate",
-    "format_routing_case_result",
-    "list_case_groups",
-    "run",
+    "list_agents",
+    "list_batches",
+    "load_batch",
+    "load_cases",
     "run_cases",
-    "run_routing_cases",
+    "run_checks",
+    "run_turn",
+    "score_run",
+    "score_sequence",
+    "suite_average",
 ]

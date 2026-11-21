@@ -7,10 +7,10 @@ from urllib.request import Request
 
 import pytest
 
-from config.tool_config import DataHubToolConfig
-from tools.external import datahub as datahub_mod
-from tools.external.datahub import client as datahub_client
-from tools.external.datahub import operations as datahub_ops
+from tahoepilot.settings.tool_config import DataHubToolConfig
+from tahoepilot.tools.external import datahub as datahub_mod
+from tahoepilot.tools.external.datahub import client as datahub_client
+from tahoepilot.tools.external.datahub import operations as datahub_ops
 
 
 def test_assert_query_only_rejects_mutation() -> None:
