@@ -2636,7 +2636,8 @@ package. The reasons and the rules for new code are in
 - Housekeeping: removed `docs/.env.local` (a stray frontend env file whose
   variables nothing reads any more) and a Jupyter autosave under `rag/`;
   `config/mcp.json` is no longer tracked (it was already in `.gitignore`, holds
-  machine-specific paths, and `config/mcp.json.example` is the template).
+  machine-specific paths). `config/mcp.json.example` was later removed too; the
+  format and a sample server are in `config/README.md`.
 
 Earlier sections of this file and `docs/superpowers/` keep the old paths; they
 describe the layout as it was then.

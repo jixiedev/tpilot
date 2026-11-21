@@ -365,7 +365,21 @@ default `QDRANT_API_KEY`). Details:
 ## MCP servers: `config/mcp.json`
 
 Cursor-style `{"mcpServers": {"<name>": {...}}}` or a flat map, as accepted by
-`MultiServerMCPClient`. `config/mcp.json.example` shows a stdio server.
+`MultiServerMCPClient`. The file is not tracked (it holds machine-specific paths
+and URLs), so create it yourself; a missing file means no MCP tools. A stdio server:
+
+```json
+{
+  "mcpServers": {
+    "example": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/path/to/allowed/dir"],
+      "transport": "stdio"
+    }
+  }
+}
+```
+
 `${VAR}` in any string is replaced from the environment at load time (unknown
 variables stay literal), so tokens belong in the secrets file. Server names are what
 `[accepted_mcp]` refers to.

@@ -267,11 +267,7 @@ Optional dependencies: `pip install -e '.[k8s]'` for the Kubernetes tools, `pip 
 
 ### Enabling MCP servers
 
-1. Copy the example and add servers. Both Cursor-style `{"mcpServers": {...}}` and a flat map are accepted; `${VAR}` in any string is expanded from the environment.
-
-   ```bash
-   cp config/mcp.json.example config/mcp.json
-   ```
+1. Create `config/mcp.json` (not tracked) and add servers. Both Cursor-style `{"mcpServers": {...}}` and a flat map are accepted; `${VAR}` in any string is expanded from the environment.
 
    ```json
    {

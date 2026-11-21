@@ -56,7 +56,7 @@ pip install -e '.[web,k8s,rag]'
    ```
 
 2. **Data connections.** Set Hive, Trino, DataHub, S3, Kubernetes and web-search settings in `config/tools.toml`; secrets go in `secrets.env` under the names the `*_env` keys give.
-3. **MCP servers (optional).** Copy `config/mcp.json.example` to `config/mcp.json` and fill in the servers. If it is missing or a server is down, those tools are skipped with a warning.
+3. **MCP servers (optional).** Create `config/mcp.json` with your servers (format and an example in [config/README.md](config/README.md#mcp-servers-configmcpjson)); the file is not tracked. If it is missing or a server is down, those tools are skipped with a warning.
 4. **Knowledge base (optional).** Start Qdrant and ingest Jira / dbt data as described in [tahoepilot/rag/README.md](tahoepilot/rag/README.md).
 
 See [config/README.md](config/README.md) for every setting.
