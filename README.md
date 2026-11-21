@@ -118,6 +118,8 @@ Reader-facing documentation is published at [jixiedev.github.io/tpilot](https://
 
 ## Repository layout
 
+All Python code is one package, `tahoepilot/`. The top-level folders next to it hold data, deployment files, or separate projects. [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#why-one-tahoepilot-package) explains why.
+
 ```
 tahoepilot/             the Python package (`python -m tahoepilot`, or the `tahoepilot` command)
   agent/                agents: base class, catalog, turn lifecycle, lead/, subagent contract, specialists (databot/, warehouse/, …)

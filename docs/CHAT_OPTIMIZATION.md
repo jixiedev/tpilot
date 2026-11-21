@@ -2603,9 +2603,10 @@ The Python code was about ten top-level packages with generic names (`agent`,
 `graph`, `tools`, `rag`, `memory`, `models`, `settings`) plus loose root
 scripts (`main.py`, `cli.py`, `compat.py`, `agui_*.py`, `langgraph_graphs.py`).
 It only ran from the repo root, `models` and `settings` could clash with
-third-party packages, and `pyproject.toml` had no build backend, so
-`pip install -e .` did not work. Agreed with the user: move everything under one
-package.
+third-party packages, and `pyproject.toml` had no build backend, so the project
+was never installed as a package. Agreed with the user: move everything under one
+package. The reasons and the rules for new code are in
+[ARCHITECTURE.md](ARCHITECTURE.md#why-one-tahoepilot-package).
 
 | Before | After |
 |--------|-------|

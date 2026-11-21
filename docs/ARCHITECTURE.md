@@ -77,10 +77,65 @@ Code paths in the diagram are inside the `tahoepilot/` package.
 | `semantic_models/` | dbt semantic models read by the metric catalog (git-sync mount point in k8s) |
 | `tahoepilot/models/` | The chat-model factory (definitions in `config/models.toml`) |
 | `tahoepilot/rag/` | Document readers, chunking, embeddings, Qdrant access, ingest jobs |
+| `tahoepilot/server/` | The AG-UI / FastAPI backend (`app.py`), login (`auth.py`), AG-UI history repair (`history.py`) and the graphs `langgraph.json` registers (`graphs.py`) |
 | `evals/` | Eval case types, scoring, eval listeners, CLI |
 | `frontend/` | Next.js web UI |
 
 The intended dependency direction is *entry points → `agent` → `graph` / `tools` / `memory` → `config` / `models` / `rag`*. It is not strict: several packages import each other (for example `agent` ↔ `tools` for catalog lookups, `memory` ↔ `graph` for compression nodes), and those cycles are broken with function-local imports. Keep new code on the intended direction.
+
+### Why one `tahoepilot` package
+
+Until 2026-11-21 the Python code sat at the repository root as about ten
+top-level packages (`agent`, `graph`, `tools`, `rag`, `memory`, `models`,
+`settings`) plus loose scripts (`main.py`, `cli.py`, `compat.py`, `agui_*.py`,
+`langgraph_graphs.py`). It was moved under one package for these reasons:
+
+- **Generic names collide.** Python has one flat namespace for top-level
+  modules. Names like `models`, `settings`, `tools` or `memory` are common, and
+  if any installed dependency ships a module with the same name, the import
+  resolves to whichever comes first on `sys.path`. The failure depends on install
+  order and working directory, so it is hard to trace. `tahoepilot.models`
+  cannot collide.
+- **The code only ran from the repository root.** Imports such as
+  `from settings.paths import ...` worked only because the current directory was
+  on `sys.path`. Running a script from another directory, or importing the code
+  from another project, failed.
+- **The project was never installed as a package.** `pyproject.toml` had no build
+  backend, so `uv sync` treated the project as virtual: dependencies were
+  installed, the code was not, and the `tahoepilot` command declared in
+  `[project.scripts]` did not exist. With a setuptools backend, `uv sync`
+  installs the project in editable mode and the command works.
+- **It is clear what is code and what is not.** All importable Python is under
+  `tahoepilot/`. The other top-level folders are data, deployment, or separate
+  projects, each with its own reason to stay at the root (listed below).
+- **The structure matches the dependencies.** `graph/` was used only by `agent/`,
+  so it lives at `tahoepilot/agent/graph/`. The four root scripts that make up
+  the web backend are now one `server/` subpackage.
+
+What stays at the top level, and why:
+
+| Folder | Why it is not inside `tahoepilot/` |
+|--------|------------------------------------|
+| `config/`, `semantic_models/` | Data, not code. Deployments mount them as volumes (a ConfigMap and a git-sync volume), and they are located through `TAHOEPILOT_CONFIG_DIR` and `config/semantic.toml` |
+| `.local/` | Runtime state (checkpoints, logs, Qdrant data); never tracked |
+| `frontend/` | A separate Node project with its own lockfile and build |
+| `docs_site/` | A separate MkDocs project. Moving it under `docs/` would create a top-level `docs` Python package, the same naming problem this layout removes |
+| `evals/`, `tests/` | Development harnesses that import the package; they are not part of the product |
+| `docker/`, `scripts/` | Build and developer tooling |
+
+Rules that follow from this layout:
+
+- Put new Python modules under `tahoepilot/` and import them with absolute
+  `tahoepilot.` paths. Never add a new top-level Python package.
+- Run modules with `python -m tahoepilot...`, not `python path/to/file.py`. A file
+  run as a script gets its own folder on `sys.path` instead of the repository
+  root, so its `tahoepilot.` imports fail.
+- `PROJECT_ROOT` (in `tahoepilot/settings/paths.py`) is two folders above that
+  file. The code expects to run from a source checkout: an editable install
+  locally, or the copy at `/tahoepilot` in the Docker image. It is not built to be
+  installed from a wheel into `site-packages`.
+- `langgraph.json` names graphs by module path (`tahoepilot.server.graphs:...`),
+  not by file path, so each module is loaded once, under its package name.
 
 ## Core concepts
 
