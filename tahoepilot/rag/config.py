@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 from functools import lru_cache
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -37,11 +38,15 @@ class RerankConfig(BaseModel):
 
 
 class LocalModelsConfig(BaseModel):
-    """Where embedding/rerank weights are cached (``python -m tahoepilot.rag models``)."""
+    """Where embedding/rerank weights are cached (``python -m tahoepilot.rag download``)."""
 
     dir: str = "~/.cache/tahoepilot/models"
     # Hugging Face endpoint (e.g. a mirror); empty = huggingface.co, then the mirror on failure.
     hf_endpoint: str = ""
+    # What the Docker entrypoint does when a model is missing at startup:
+    # "download" fetches it and starts anyway if that fails, "require" fetches it
+    # and exits if that fails, "off" skips the check.
+    startup: Literal["download", "require", "off"] = "download"
 
 
 class TikaConfig(BaseModel):

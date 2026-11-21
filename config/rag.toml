@@ -43,6 +43,13 @@ dir = "~/.cache/tahoepilot/models"
 # request with a 308 redirect to huggingface.co, which huggingface_hub 1.x does not
 # follow, so a pinned mirror fails the download (and the Docker build).
 hf_endpoint = ""
+# What the Docker entrypoint (backend, all, cli) does when a model is missing
+# from dir at startup. Models already there are never downloaded again.
+#   "download"  fetch the missing ones; if that fails, start anyway (only
+#               knowledge search fails)
+#   "require"   fetch the missing ones; if that fails, exit
+#   "off"       skip the check
+startup = "download"
 
 [tika]
 # Apache Tika server that extracts text from non-markdown documents during ingest.

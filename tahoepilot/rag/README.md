@@ -44,11 +44,11 @@ Related docs:
 | `tahoepilot/rag/chunking.py` | `split_text`, `normalize_whitespace`, `LengthSplitStrategy`, `IdentitySplitStrategy` |
 | `tahoepilot/rag/markdown.py` | Heading-aware `MarkdownDocument`, `PdfDocument` (Tika), `markdown_section_texts` |
 | `tahoepilot/rag/embeddings.py` | BGE-M3 dense + sparse encode, device selection, sparse fallbacks, `to_sparse_vector` |
-| `tahoepilot/rag/local_models.py` | Model cache location, `download_configured_models`, offline `resolve_model_dir` |
+| `tahoepilot/rag/local_models.py` | Model cache location, `download_configured_models`, offline `resolve_model_dir`, the startup check (`startup_check`) |
 | `tahoepilot/rag/qdrant.py` | Client, `ensure_collection`, `upsert_points`, hybrid `search`, `rerank_points` |
 | `tahoepilot/rag/ingest.py` | Shared pipeline: `iter_document_chunks`, `upsert_chunks`, `upsert_documents` |
 | `tahoepilot/rag/job.py` | `plan_ingest` / `run_ingest`, task list and checkpoint files |
-| `tahoepilot/rag/__main__.py` | CLI: `plan`, `run`, `download` |
+| `tahoepilot/rag/__main__.py` | CLI: `plan`, `run`, `download`, `check` |
 | `tahoepilot/rag/config.py` | `RagConfig` loaded from `config/rag.toml` plus env overrides |
 | `tahoepilot/rag/jira/` | Jira CSV reader and `upload_jira_csv` |
 | `tahoepilot/rag/drive/` | Extracted Google Drive folder reader and `upload_google_drive` |
@@ -193,6 +193,8 @@ python -m tahoepilot.rag download
 
 Models land in `~/.cache/tahoepilot/models/<repo id>/` (`[local_models].dir` in `rag.toml`). The snapshot skips `imgs/*`, `.DS_Store`, ONNX, Flax, TF, and Rust weights; hf-mirror rejects `imgs/.DS_Store` with 403. With an empty `[local_models].hf_endpoint`, a connection failure to the Hub is retried once through `https://hf-mirror.com`, and Xet downloads are disabled for the mirror. A model value that is an existing directory is used as-is and must already contain the weight, tokenizer, and (for the embedder) `colbert_linear.pt` / `sparse_linear.pt` files.
 
+`download` skips any model whose local copy is already complete. `python -m tahoepilot.rag check` prints `<state> <policy>` without importing torch: `state` is `ready`, `missing` (a model needs downloading), `no-library` (FlagEmbedding or torch is not installed) or `off`, and `policy` is `[local_models].startup`. The Docker entrypoint runs `check` before the backend, `all` and `cli` commands and downloads only on `missing`; with `startup = "require"` a failed download (or missing libraries) stops the container, otherwise it starts without knowledge search. This lets an image built with `--build-arg RAG_MODELS=0` fill a mounted volume at `[local_models].dir` on first start and reuse it afterwards.
+
 ### Tika (optional)
 
 Only `tahoepilot.rag.markdown.PdfDocument.open` uses Tika, and no CLI job type calls it; Drive ingest reads PDFs with pypdf. To use `PdfDocument` directly, start the bundled server and set `[tika].endpoint` in `rag.toml` (default `http://localhost:9998`):
@@ -222,6 +224,7 @@ Settings come from `config/rag.toml` (`tahoepilot.rag.config.get_rag_config`, ca
 
 | `[local_models].dir` | `~/.cache/tahoepilot/models` | Model weight cache (`python -m tahoepilot.rag download`) |
 | `[local_models].hf_endpoint` | `""` | Hub endpoint for `download` (e.g. `https://hf-mirror.com`) |
+| `[local_models].startup` | `"download"` | Docker entrypoint policy for missing models: `download`, `require` (exit if they cannot be fetched) or `off` |
 | `[tika].endpoint` | `http://localhost:9998` | Tika server for `PdfDocument.open` |
 
 `rag.toml` is the only source. The one env lookup is the Qdrant API key: the
@@ -233,10 +236,10 @@ The defaults keep CPU / MPS memory bounded on long Jira descriptions. Raise `max
 ## CLI
 
 ```
-python -m tahoepilot.rag {plan,run,download} ...
+python -m tahoepilot.rag {plan,run,download,check} ...
 ```
 
-`plan` scans a source and writes a task list plus a fresh checkpoint. `run` ingests the pending tasks. `download` fetches the configured models.
+`plan` scans a source and writes a task list plus a fresh checkpoint. `run` ingests the pending tasks. `download` fetches the configured models that are not already complete locally. `check` reports whether they are ready (see [Models](#models)).
 
 ```bash
 python -m tahoepilot.rag plan -t <TYPE> -p <PATH> -c <COLLECTION> --tasks <tasks.json> [--checkpoint <checkpoint.json>] [--start-line N]

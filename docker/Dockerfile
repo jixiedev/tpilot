@@ -26,8 +26,10 @@
 #                                RAG embedding + rerank weights (BAAI/bge-m3,
 #                                BAAI/bge-reranker-v2-m3), baked in at build time from
 #                                config/rag.toml; [local_models].dir must resolve here.
-#                                Skip with --build-arg RAG_MODELS=0 (then mount the
-#                                weights there, or run `python -m tahoepilot.rag download`).
+#                                Skip with --build-arg RAG_MODELS=0 for an image ~4 GB
+#                                smaller: entrypoint.sh then downloads whatever is missing
+#                                at startup ([local_models].startup in rag.toml), so mount
+#                                a volume at [local_models].dir to keep them across restarts.
 
 # ---- frontend build ----
 FROM node:22-slim AS frontend

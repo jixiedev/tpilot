@@ -356,7 +356,8 @@ raises `RuntimeError` listing each failure only if none works.
 ## RAG: `config/rag.toml`
 
 Tables `[qdrant]`, `[embedding]`, `[rerank]`, `[local_models]` (weight cache
-`dir`, `hf_endpoint`), `[tika]` (`endpoint`), parsed by `get_rag_config()` in
+`dir`, `hf_endpoint`, and `startup`, the Docker entrypoint's policy when a
+model is missing), `[tika]` (`endpoint`), parsed by `get_rag_config()` in
 `tahoepilot/rag/config.py`. The only env lookup is the Qdrant API key (`api_key_env`,
 default `QDRANT_API_KEY`). Details:
 [tahoepilot/rag/README.md](../tahoepilot/rag/README.md).

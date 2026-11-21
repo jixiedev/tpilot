@@ -162,18 +162,64 @@ def ensure_local_model(model: str, *, embedder: bool) -> Path:
     return dest
 
 
-def download_configured_models() -> list[str]:
-    """Download the embedding and rerank models named in ``config/rag.toml``."""
+def _configured_models() -> list[tuple[str, str, bool]]:
+    """``(role, model, embedder)`` for each model ``config/rag.toml`` names; empty ones are skipped."""
     cfg = get_rag_config()
     specs = (
         ("embedding", cfg.embedding.model, True),
         ("rerank", cfg.rerank.model, False),
     )
+    return [(role, model.strip(), embedder) for role, model, embedder in specs if (model or "").strip()]
+
+
+def download_configured_models() -> list[str]:
+    """Download the embedding and rerank models named in ``config/rag.toml``.
+
+    A model whose local copy is already complete is not downloaded again.
+    """
     lines: list[str] = []
-    for role, model, embedder in specs:
-        cleaned = (model or "").strip()
-        if not cleaned:
-            continue
-        path = ensure_local_model(cleaned, embedder=embedder)
-        lines.append(f"{role}  {cleaned}  ->  {path}")
+    for role, model, embedder in _configured_models():
+        path = ensure_local_model(model, embedder=embedder)
+        lines.append(f"{role}  {model}  ->  {path}")
     return lines
+
+
+# Libraries search needs to run the models; checked without importing them (torch is slow to load).
+RUNTIME_LIBRARIES = ("FlagEmbedding", "torch")
+
+
+def missing_libraries() -> list[str]:
+    """Search libraries that are not installed (the image was built without the ``rag`` extra)."""
+    from importlib.util import find_spec
+
+    return [name for name in RUNTIME_LIBRARIES if find_spec(name) is None]
+
+
+def missing_models() -> list[str]:
+    """One line per configured model whose local copy is incomplete, naming where it should be."""
+    lines: list[str] = []
+    for role, model, embedder in _configured_models():
+        path = Path(model)
+        target = path if path.is_dir() else models_root() / model
+        if not model_ready(target, embedder=embedder):
+            lines.append(f"{role}  {model}  missing at {target}")
+    return lines
+
+
+def startup_check() -> tuple[str, str, list[str]]:
+    """``(state, policy, details)`` for the Docker entrypoint.
+
+    ``policy`` is ``[local_models].startup``. ``state`` is ``off`` (the policy
+    skips the check), ``no-library`` (search libraries are not installed),
+    ``missing`` (a model needs downloading) or ``ready``.
+    """
+    policy = get_rag_config().local_models.startup
+    if policy == "off":
+        return "off", policy, []
+    libraries = missing_libraries()
+    if libraries:
+        return "no-library", policy, [f"not installed: {', '.join(libraries)}"]
+    missing = missing_models()
+    if missing:
+        return "missing", policy, missing
+    return "ready", policy, [f"models ready in {models_root()}"]

@@ -1,12 +1,11 @@
-"""CLI: python -m tahoepilot.rag plan|run|download ..."""
+"""CLI: python -m tahoepilot.rag plan|run|download|check ..."""
 
 from __future__ import annotations
 
 import argparse
 import sys
 
-from tahoepilot.rag.job import IngestFailedError, default_checkpoint_path, plan_ingest, run_ingest
-from tahoepilot.rag.local_models import download_configured_models
+from tahoepilot.rag.local_models import download_configured_models, startup_check
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
@@ -91,7 +90,17 @@ def build_arg_parser() -> argparse.ArgumentParser:
 
     sub.add_parser(
         "download",
-        help="Download BAAI/bge-m3 and BAAI/bge-reranker-v2-m3 into the local model cache",
+        help=(
+            "Download BAAI/bge-m3 and BAAI/bge-reranker-v2-m3 into the local model cache "
+            "(models already complete there are skipped)"
+        ),
+    )
+    sub.add_parser(
+        "check",
+        help=(
+            "Print '<state> <policy>' for the Docker entrypoint: state is ready, missing, "
+            "no-library or off; policy is [local_models].startup. Details go to stderr"
+        ),
     )
     return parser
 
@@ -114,11 +123,24 @@ def main(argv: list[str] | None = None) -> int:
     args = build_arg_parser().parse_args(argv)
     if getattr(args, "tasks", None):
         args.tasks = resolve_tasks_path(args.tasks)
-    try:
-        if args.command == "download":
+    if args.command == "check":
+        state, policy, details = startup_check()
+        for line in details:
+            print(line, file=sys.stderr)
+        print(f"{state} {policy}")
+        return 0
+    if args.command == "download":
+        try:
             for line in download_configured_models():
                 print(line)
-            return 0
+        except FileNotFoundError as exc:
+            print(str(exc), file=sys.stderr)
+            return 2
+        return 0
+    # Ingest needs qdrant-client and the embedding stack; import it only for plan/run.
+    from tahoepilot.rag.job import IngestFailedError, default_checkpoint_path, plan_ingest, run_ingest
+
+    try:
         if args.command == "plan":
             plan_ingest(
                 job_type=args.job_type,
