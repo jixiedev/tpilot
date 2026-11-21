@@ -177,7 +177,7 @@ class _FakeAgent:
     def register_secondary(self, listener) -> None: ...
 
     async def run(self, query, *, session, user_id, print_output):
-        from agent.turn import AgentTurnResult
+        from tahoepilot.agent.turn import AgentTurnResult
 
         return AgentTurnResult(state={"messages": [HumanMessage(content=query), AIMessage(content=self.reply)]})
 
@@ -275,7 +275,7 @@ def test_batch_gate_reply_answers_interrupts(tmp_path: Path) -> None:
 
 class _GateAgent(_FakeAgent):
     async def run(self, query, *, session, user_id, print_output, on_interrupt=None):
-        from agent.turn import AgentTurnResult
+        from tahoepilot.agent.turn import AgentTurnResult
 
         answer = await on_interrupt("Run this SQL?") if on_interrupt else None
         self.seen = (user_id, answer)

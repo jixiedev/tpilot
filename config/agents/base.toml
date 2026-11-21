@@ -2,7 +2,7 @@
 # Agent name; only used if this file is loaded directly (extends ignores it).
 name = "base"
 
-# Context-compression thresholds (memory.config.CompressionConfig). Every agent
+# Context-compression thresholds (tahoepilot.memory.config.CompressionConfig). Every agent
 # file without its own [compression] inherits this table; one with a table
 # overlays its keys on it. offload_dir and the turn-boundary marker stay in code.
 [compression]

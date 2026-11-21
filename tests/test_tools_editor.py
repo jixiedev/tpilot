@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from tools.code.str_replace_editor import (
+from tahoepilot.tools.code.str_replace_editor import (
     EditorError,
     clear_history,
     run_editor,
@@ -15,7 +15,7 @@ from tools.code.str_replace_editor import (
 @pytest.fixture(autouse=True)
 def _reset_editor(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     # The editor only accepts paths inside the workspace; use the test's tmp dir.
-    monkeypatch.setattr("tools.code.workspace.workspace_dir", lambda: tmp_path)
+    monkeypatch.setattr("tahoepilot.tools.code.workspace.workspace_dir", lambda: tmp_path)
     clear_history()
     yield
     clear_history()

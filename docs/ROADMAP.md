@@ -77,7 +77,7 @@ Items marked **Done** mean the main path works. The list below is optional deepe
 |---------|---------------------|
 | M2 | Dedicated retrieval eval set; SQL gate request-changes redraft loop; user-facing chat status copy (not inner monologue); chart gate / Superset emit; see [DATABOT_V2_PROGRESS.md](DATABOT_V2_PROGRESS.md) and [CHAT_OPTIMIZATION.md](CHAT_OPTIMIZATION.md) |
 | M2 | Databot runtime refactor (F17): layered graph, embeddable under Plan and other hosts, clear working state after the turn summary; see **F17 Databot runtime** |
-| M3 | Drive / Wiki / code search tools and Knowledge prompts; soak Intent composite chains against a real knowledge corpus; see [rag/README.md](../rag/README.md) |
+| M3 | Drive / Wiki / code search tools and Knowledge prompts; soak Intent composite chains against a real knowledge corpus; see [tahoepilot/rag/README.md](../tahoepilot/rag/README.md) |
 | M4 | Plan-confirmation HITL; richer structured handoff payloads |
 | M4 | A2A cross-service orchestration (F16): expose specialists as A2A endpoints + Agent Cards; Intent / orchestrator composes databot, knowledge, future diagnostic via A2A tasks + artifacts; remote auth, timeouts, and degradation |
 | M5 | Still tracked as not started (diagnostic agent) |

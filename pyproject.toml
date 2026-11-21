@@ -20,7 +20,7 @@ dependencies = [
 ]
 
 [project.scripts]
-tahoepilot = "main:main"
+tahoepilot = "tahoepilot.cli:main"
 
 [project.optional-dependencies]
 web = [
@@ -53,6 +53,13 @@ docs = [
     "mkdocs-material>=9.5",
     "mkdocs-gen-files>=0.5",
 ]
+
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["tahoepilot*"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

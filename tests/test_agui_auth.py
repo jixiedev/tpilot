@@ -11,9 +11,9 @@ pytest.importorskip("ldap3")
 
 from fastapi.testclient import TestClient  # noqa: E402
 
-import agui_auth  # noqa: E402
-import agui_server  # noqa: E402
-from settings.server_config import AuthConfig  # noqa: E402
+from tahoepilot.server import auth as agui_auth  # noqa: E402
+from tahoepilot.server import app as agui_server  # noqa: E402
+from tahoepilot.settings.server_config import AuthConfig  # noqa: E402
 
 SECRET = "s" * 40
 

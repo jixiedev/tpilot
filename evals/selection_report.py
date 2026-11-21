@@ -39,7 +39,7 @@ def rescore_runs(
     runs: list[dict[str, Any]], *, cases_dir: Path | None = None
 ) -> list[dict[str, Any]]:
     """Recompute selection / recall from each stored reply and the current cases."""
-    from agent.specialists.model_selection import parse_selection
+    from tahoepilot.agent.specialists.model_selection import parse_selection
     from evals.case import load_cases
     from evals.checks import normalize_model_name
 

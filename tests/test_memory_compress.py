@@ -7,11 +7,11 @@ from pathlib import Path
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 
-from memory.compress import ContextCompressor
-from memory.config import CompressionConfig
-from memory.offload import OffloadStore
-from memory.tools import AUTONOMOUS_COMPACT_MARKER, configure_offload_tools, read_offloaded_file
-from memory.tokens import count_tokens
+from tahoepilot.memory.compress import ContextCompressor
+from tahoepilot.memory.config import CompressionConfig
+from tahoepilot.memory.offload import OffloadStore
+from tahoepilot.memory.tools import AUTONOMOUS_COMPACT_MARKER, configure_offload_tools, read_offloaded_file
+from tahoepilot.memory.tokens import count_tokens
 
 
 class _FakeSummarizer:
@@ -79,7 +79,7 @@ def test_layer1_skips_tools_registered_with_offload_false(tmp_path: Path) -> Non
     """``register_tool(offload=False)`` keeps a tool's result in context at any size."""
     from langchain_core.tools import tool
 
-    from tools.registry import never_offload_tool_names, register_tool
+    from tahoepilot.tools.registry import never_offload_tool_names, register_tool
 
     @register_tool(offload=False)
     @tool
@@ -98,12 +98,12 @@ def test_layer1_skips_tools_registered_with_offload_false(tmp_path: Path) -> Non
 
 
 def test_schema_and_catalog_tools_are_never_offloaded() -> None:
-    import memory.tools  # noqa: F401
-    import tools.data.hive  # noqa: F401
-    import tools.data.metrics  # noqa: F401
-    import tools.data.trino  # noqa: F401
-    import tools.rag.dbt_models  # noqa: F401
-    from tools.registry import never_offload_tool_names
+    import tahoepilot.memory.tools  # noqa: F401
+    import tahoepilot.tools.data.hive  # noqa: F401
+    import tahoepilot.tools.data.metrics  # noqa: F401
+    import tahoepilot.tools.data.trino  # noqa: F401
+    import tahoepilot.tools.rag.dbt_models  # noqa: F401
+    from tahoepilot.tools.registry import never_offload_tool_names
 
     assert {
         "trino_desc_table",

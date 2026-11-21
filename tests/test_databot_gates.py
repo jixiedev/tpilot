@@ -10,8 +10,8 @@ from __future__ import annotations
 
 import pytest
 
-from agent.specialists.databot.gates import DEFAULT_GATE_DECISION, GATE_OPTIONS
-from agent.specialists.databot import gates as human_gates
+from tahoepilot.agent.specialists.databot.gates import DEFAULT_GATE_DECISION, GATE_OPTIONS
+from tahoepilot.agent.specialists.databot import gates as human_gates
 
 
 @pytest.mark.parametrize("token", list(GATE_OPTIONS))
@@ -75,7 +75,7 @@ def test_gate_options_includes_all_thought1_verdicts() -> None:
 
 
 def test_gate_prompt_sql_uses_default_reasons_when_state_empty() -> None:
-    from agent.specialists.databot.gates import DEFAULT_SQL_GATE_REASONS
+    from tahoepilot.agent.specialists.databot.gates import DEFAULT_SQL_GATE_REASONS
 
     payload = human_gates.prompt(
         {
@@ -271,7 +271,7 @@ def _lookup_error(error_type: str, message: str) -> "ToolMessage":
 def test_model_index_outage_is_detected_and_explained() -> None:
     from langchain_core.messages import ToolMessage
 
-    from agent.specialists.databot.gates import (
+    from tahoepilot.agent.specialists.databot.gates import (
         NOTHING_TO_REVIEW_CARDS,
         cards_node,
         model_lookup_outage,
@@ -292,7 +292,7 @@ def test_model_index_outage_is_detected_and_explained() -> None:
 
 
 def test_wrapped_connection_errors_resolve_by_their_cause() -> None:
-    from tools.errors import ToolErrorType, resolve_exception
+    from tahoepilot.tools.errors import ToolErrorType, resolve_exception
 
     class ClientWrapper(Exception):
         pass

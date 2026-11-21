@@ -26,6 +26,9 @@ config/mcp.json
 # LangGraph dev store, if `langgraph dev` is started outside scripts/dev.sh
 .langgraph_api/
 
+# Jupyter autosaves
+.ipynb_checkpoints/
+
 # Frontend (Next.js / CopilotKit) — only cache / deps, source stays tracked
 # Next.js build/dev cache at any depth (frontend/.next, plus strays such as a
 # repo-root .next/ or frontend/frontend/.next/ from a misresolved project root)

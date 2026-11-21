@@ -2,15 +2,15 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from agent.prompt import SystemPromptAssembler
-from settings.agent_config import (
+from tahoepilot.agent.prompt import SystemPromptAssembler
+from tahoepilot.settings.agent_config import (
     AgentConfig,
     DatabotAgentConfig,
     LeadAgentConfig,
     ReactAgentConfig,
     agent_config_path,
 )
-from memory.config import DEFAULT_WRITE_TOOLS, CompressionConfig
+from tahoepilot.memory.config import DEFAULT_WRITE_TOOLS, CompressionConfig
 
 
 def _config(name: str) -> AgentConfig:
@@ -164,7 +164,7 @@ never_offload_tools = ["keep_me"]
 
 
 def test_registered_agents_use_typed_config() -> None:
-    from agent.catalog import AgentCatalog
+    from tahoepilot.agent.catalog import AgentCatalog
 
     assert isinstance(AgentCatalog.config("databot"), DatabotAgentConfig)
     assert isinstance(AgentCatalog.config("knowledge"), ReactAgentConfig)

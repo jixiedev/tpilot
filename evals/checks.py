@@ -315,8 +315,8 @@ def check_sql_tables(case: EvalCase, run: RunRecord) -> CheckResult:
 
 def explain_sql(sql: str) -> str:
     """``""`` when Trino can plan ``sql`` (EXPLAIN only, no data read), else the error."""
-    from tools.data.sql_guard import validate_plan_only_sql
-    from tools.data.trino import _execute_query
+    from tahoepilot.tools.data.sql_guard import validate_plan_only_sql
+    from tahoepilot.tools.data.trino import _execute_query
 
     try:
         _execute_query(validate_plan_only_sql(sql.rstrip().rstrip(";")), limit=1)

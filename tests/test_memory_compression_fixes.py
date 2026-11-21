@@ -17,12 +17,12 @@ from langchain_core.messages import (
     ToolMessage,
 )
 
-from memory.compress import ContextCompressor, make_compressor
-from memory.config import CompressionConfig
-from memory.offload import OffloadStore
-from memory.tokens import count_tokens
-from tools.errors import ToolErrorType
-from memory.tools import OffloadReadError, read_offloaded_file
+from tahoepilot.memory.compress import ContextCompressor, make_compressor
+from tahoepilot.memory.config import CompressionConfig
+from tahoepilot.memory.offload import OffloadStore
+from tahoepilot.memory.tokens import count_tokens
+from tahoepilot.tools.errors import ToolErrorType
+from tahoepilot.memory.tools import OffloadReadError, read_offloaded_file
 from tests.minimal_chat_model import MinimalChatModel
 
 
@@ -218,7 +218,7 @@ def test_read_offloaded_file_resolves_every_configured_store(tmp_path: Path) -> 
 
 def test_read_offloaded_file_errors_are_structured(tmp_path: Path) -> None:
     """Failures raise a classified error instead of returning text."""
-    from tools.errors import resolve_exception
+    from tahoepilot.tools.errors import resolve_exception
 
     compressor = ContextCompressor(config=_config(tmp_path, offload_dir=tmp_path / "a"))
     missing = compressor.store.root / "tool_x_deadbeef.txt"

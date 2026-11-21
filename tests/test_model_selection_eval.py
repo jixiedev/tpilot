@@ -9,11 +9,11 @@ import pytest
 from langchain_core.messages import AIMessage
 from langgraph.checkpoint.memory import MemorySaver
 
-from agent.catalog import AgentCatalog, AgentCatalogSettings
-from agent.lead.prompt import delegatable_agents
-from agent.listener import AgentListener
-from agent.specialists.model_selection import ModelSelectionAgent, ModelSelectionSystemPrompt
-from settings.agent_config import ModelSelectionAgentConfig
+from tahoepilot.agent.catalog import AgentCatalog, AgentCatalogSettings
+from tahoepilot.agent.lead.prompt import delegatable_agents
+from tahoepilot.agent.listener import AgentListener
+from tahoepilot.agent.specialists.model_selection import ModelSelectionAgent, ModelSelectionSystemPrompt
+from tahoepilot.settings.agent_config import ModelSelectionAgentConfig
 from evals.__main__ import build_arg_parser
 from evals.case import BatchRun, EvalCase, load_cases
 from evals.checks import normalize_model_name
@@ -22,8 +22,8 @@ from evals.runner import CaseAggregate, CaseRun, run_cases, run_turn, score_run,
 
 ARMS = tuple(ModelSelectionAgentConfig.RETRIEVAL_ARMS)
 VARIANTS = {"run": {"variants": {"catalog": {"retrieval": "catalog"}}}}
-from memory import CompressionConfig
-from memory.profile_store import FileProfileStore
+from tahoepilot.memory import CompressionConfig
+from tahoepilot.memory.profile_store import FileProfileStore
 from tests.test_lead_agent import _call, _ScriptedModel
 
 CHOICE = {
@@ -180,7 +180,7 @@ async def test_runner_builds_one_agent_per_llm_and_arm(tmp_path: Path) -> None:
 
 
 def test_shipped_cases_load_and_name_known_models() -> None:
-    from tools.data import metrics
+    from tahoepilot.tools.data import metrics
 
     cases = load_cases("model_selection")
     assert len({case.name for case in cases}) == len(cases)
@@ -242,7 +242,7 @@ def test_empty_aggregate_average_is_zero() -> None:
 
 
 async def test_rag_collection_pins_the_search_tool(tmp_path: Path, monkeypatch) -> None:
-    import tools.rag.dbt_models as dbt
+    import tahoepilot.tools.rag.dbt_models as dbt
 
     seen: list[str] = []
 
@@ -311,7 +311,7 @@ async def test_parallel_retrieval_calls_merge_staged_cards(tmp_path: Path) -> No
 
 
 def test_staging_reducer_unions_by_id_and_clears_on_empty() -> None:
-    from agent.specialists.databot.card_staging import staging_cards_reducer
+    from tahoepilot.agent.specialists.databot.card_staging import staging_cards_reducer
 
     a, b, c = ({"staging_id": x} for x in "abc")
     assert staging_cards_reducer([a], [a, b]) == [a, b]
@@ -347,7 +347,7 @@ async def test_runner_records_a_crashed_run_and_continues(tmp_path: Path) -> Non
 
 
 def test_parse_selection_ignores_think_block_braces() -> None:
-    from agent.specialists.model_selection import parse_selection
+    from tahoepilot.agent.specialists.model_selection import parse_selection
 
     reply = '<think>compare {grain} and {"model": "wrong"}</think>\n{"model": "fct_dau", "reason": "x {y}"}'
     assert parse_selection(reply)["model"] == "fct_dau"

@@ -8,16 +8,16 @@ from types import SimpleNamespace
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
-from agent.agent import BaseAgent
-from agent.listener import AgentListener
-from agent.prompt import SystemPromptAssembler
-from agent.turn_messages import DefaultTurnMessagePolicy, TurnMessagePolicy
-from settings.agent_config import AgentConfig, agent_config_path
-from agent.runtime.prompt import SESSION_TURN_BOUNDARY
+from tahoepilot.agent.agent import BaseAgent
+from tahoepilot.agent.listener import AgentListener
+from tahoepilot.agent.prompt import SystemPromptAssembler
+from tahoepilot.agent.turn_messages import DefaultTurnMessagePolicy, TurnMessagePolicy
+from tahoepilot.settings.agent_config import AgentConfig, agent_config_path
+from tahoepilot.agent.runtime.prompt import SESSION_TURN_BOUNDARY
 from langgraph.checkpoint.memory import MemorySaver
-from memory.profile import UserProfile
-from memory.profile_store import FileProfileStore
-from memory.session_runtime import SessionRuntime
+from tahoepilot.memory.profile import UserProfile
+from tahoepilot.memory.profile_store import FileProfileStore
+from tahoepilot.memory.session_runtime import SessionRuntime
 from tests.minimal_chat_model import MinimalChatModel
 
 _TURN_BOUNDARY = SESSION_TURN_BOUNDARY.strip()
@@ -107,7 +107,7 @@ def test_session_runtime_remember_replaces_values(tmp_path: Path) -> None:
 async def test_accept_user_request_hydrates_checkpoint_once(
     tmp_path: Path, monkeypatch
 ) -> None:
-    import memory.profile_store as store_mod
+    import tahoepilot.memory.profile_store as store_mod
 
     monkeypatch.delenv("TAHOEPILOT_USER_ID", raising=False)
     monkeypatch.setattr(store_mod.getpass, "getuser", lambda: "os_user")
@@ -129,7 +129,7 @@ async def test_accept_user_request_hydrates_checkpoint_once(
 async def test_accept_user_request_loads_profile_from_disk_once(
     tmp_path: Path, monkeypatch
 ) -> None:
-    import memory.profile_store as store_mod
+    import tahoepilot.memory.profile_store as store_mod
 
     monkeypatch.delenv("TAHOEPILOT_USER_ID", raising=False)
     loads: list[str] = []
@@ -163,7 +163,7 @@ async def test_accept_user_request_loads_profile_from_disk_once(
 
 
 async def test_second_turn_uses_remembered_messages(tmp_path: Path, monkeypatch) -> None:
-    import memory.profile_store as store_mod
+    import tahoepilot.memory.profile_store as store_mod
 
     monkeypatch.delenv("TAHOEPILOT_USER_ID", raising=False)
     monkeypatch.setattr(store_mod.getpass, "getuser", lambda: "os_user")
@@ -195,7 +195,7 @@ async def test_second_turn_uses_remembered_messages(tmp_path: Path, monkeypatch)
 async def test_commit_turn_remembers_without_rereading(
     tmp_path: Path, monkeypatch
 ) -> None:
-    import memory.profile_store as store_mod
+    import tahoepilot.memory.profile_store as store_mod
 
     monkeypatch.delenv("TAHOEPILOT_USER_ID", raising=False)
     monkeypatch.setattr(store_mod.getpass, "getuser", lambda: "os_user")

@@ -3,7 +3,7 @@
 // These mirror the backend Python `DatabotState` TypedDict so the
 // frontend can treat state updates from the AG-UI bridge as
 // strongly-typed. Keep these in sync with
-// `agent/specialists/databot/state.py` in the backend.
+// `tahoepilot/agent/specialists/databot/state.py` in the backend.
 
 export type DatabotStage =
   | "prepare_cards"

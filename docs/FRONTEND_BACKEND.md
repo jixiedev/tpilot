@@ -15,7 +15,7 @@ Next.js route  frontend/app/api/copilotkit/[...path]/route.ts
    CopilotRuntime + HttpAgent per front agent + InMemoryAgentRunner
    │  POST {AGUI_BACKEND_URL}/lead  or  /databot                ▲ SSE
    ▼                                                            │
-FastAPI  agui_server.py  agui_endpoint()
+FastAPI  tahoepilot/server/app.py  agui_endpoint()
    clone of ag_ui_langgraph.LangGraphAgent  (the "adapter")
    │  graph.astream_events(input, config)                       ▲ LangGraph events
    ▼                                                            │
@@ -29,7 +29,7 @@ AsyncSqliteSaver  ([paths].checkpoint_db in runtime.toml)
 |---|---|---|---|
 | Browser: CopilotKit client agent (`useAgent({agentId: "lead"})`) | `threadId`, a message list, `state` (copy of the agent state), `pendingInterrupts` | No, a copy | Browser tab |
 | Next.js: `CopilotRuntime`, `InMemoryAgentRunner` | UI thread metadata only | No | Next.js process |
-| FastAPI: `agui_server.py` | The built graph per front agent (`app.state.runtimes`); one shared checkpointer (`CHECKPOINTS`) | No per-thread state | Process |
+| FastAPI: `tahoepilot/server/app.py` | The built graph per front agent (`app.state.runtimes`); one shared checkpointer (`CHECKPOINTS`) | No per-thread state | Process |
 | Adapter: `LangGraphAgent` clone | Per-run scratch (`active_run`: run id, mode, schema keys, interrupts) | No | One request |
 | Checkpointer: `AsyncSqliteSaver` | Full state of every thread, a checkpoint per super-step, nested specialist checkpoints | **Yes** | Disk (EBS in k8s) |
 
@@ -77,7 +77,7 @@ under concurrency), binds the run's user (next section), and streams
 ## The run's user
 
 `agui_endpoint` resolves one `user_id` per request with the same resolver as
-the CLI (`memory.profile_store.resolve_user_id`).
+the CLI (`tahoepilot.memory.profile_store.resolve_user_id`).
 
 **Login on** (`[auth].enabled = true` in `server.toml`): the username in the
 session token, nothing else. A missing, forged or expired token is HTTP 401
@@ -101,7 +101,7 @@ ignored).
 ```
 /login (username + password)
   → POST /api/auth/login            (Next.js)
-  → POST {AGUI_PATH}/auth/login     (agui_server.py → agui_auth.login)
+  → POST {AGUI_PATH}/auth/login     (tahoepilot/server/app.py → tahoepilot.server.auth.login)
       LDAP: service account finds the user's DN (user_search_filter), then bind as it
                                      (or user_dn_template); password not stored
       ← token = base64(json{u, exp}) . HMAC-SHA256(TAHOEPILOT_SESSION_SECRET)
@@ -116,14 +116,14 @@ later requests:
 | Redirect | `frontend/proxy.ts` | Login on and no `tp_session` cookie: pages → `/login?next=…`, `/api/*` → 401. Checks presence only |
 | Auth routes | `frontend/app/api/auth/{login,logout,me}/route.ts` | Call the backend, set or clear the httpOnly cookie, report the user |
 | Token forwarding | `frontend/app/lib/auth.ts`, the copilotkit and databot actions routes | Cookie → `Authorization: Bearer`. CopilotKit agents are built per request for this; headers set there win over forwarded ones |
-| LDAP + token | `agui_auth.py` | Search-then-bind (service account `bind_user` looks up the DN, as Trino's LDAP config does) or a DN template; token issue/verify. Empty passwords and usernames outside `[A-Za-z0-9._@-]` never reach LDAP |
-| Endpoints | `agui_server.py` | `POST /agui/auth/login`, `GET /agui/auth/me`; 401 on AG-UI runs and databot actions without a valid token |
+| LDAP + token | `tahoepilot/server/auth.py` | Search-then-bind (service account `bind_user` looks up the DN, as Trino's LDAP config does) or a DN template; token issue/verify. Empty passwords and usernames outside `[A-Za-z0-9._@-]` never reach LDAP |
+| Endpoints | `tahoepilot/server/app.py` | `POST /agui/auth/login`, `GET /agui/auth/me`; 401 on AG-UI runs and databot actions without a valid token |
 | Signed-in user | `frontend/app/components/AppNav.tsx` | "alice · Sign out"; a 401 from `/api/auth/me` sends the visitor back to `/login` |
 
 The login page renders without CopilotKit (`providers.tsx`), so it makes no
 agent calls before sign-in. Next.js learns whether login is on from
 `TAHOEPILOT_AUTH_ENABLED`, exported from `[auth].enabled` by
-`python -m settings.server_config` (`docker/entrypoint.sh`, `scripts/dev.sh`).
+`python -m tahoepilot.settings.server_config` (`docker/entrypoint.sh`, `scripts/dev.sh`).
 
 `[auth].skip_password_check = true` (development only, for machines that cannot
 reach the directory) skips LDAP and accepts any password; the username is still
@@ -158,7 +158,7 @@ proxy) must set it and drop any copy sent by the browser.
 
 3. **Merge messages.** The checkpoint's messages are the base; only incoming
    messages whose `id` is not in the checkpoint are kept (normally just the new
-   user message). `agui_history.py` repairs malformed tool-call arguments in the
+   user message). `tahoepilot/server/history.py` repairs malformed tool-call arguments in the
    resent history before the adapter parses them.
 4. **Merge state.** `state_input = input.state`, with `messages` replaced by the
    delta from step 3, plus the adapter's own `tools`, `ag-ui` and `copilotkit`
@@ -235,12 +235,12 @@ The resume run goes through the same path as a turn; the adapter turns it into
 - The next resume reads the patched checkpoint.
 
 A specialist paused inside a **lead** run can be shown (`LeadGraphView`) but not
-patched from the UI yet: `agent/lead/paused.py` has `patch_paused_state`, but no
+patched from the UI yet: `tahoepilot/agent/lead/paused.py` has `patch_paused_state`, but no
 endpoint calls it.
 
 ## The CLI path, for comparison
 
-No CopilotKit, Next.js or FastAPI. `cli.py` opens an `AsyncSqliteSaver` on the
+No CopilotKit, Next.js or FastAPI. `tahoepilot/cli.py` opens an `AsyncSqliteSaver` on the
 same database and calls `agent.run(prompt, session, user_id, on_interrupt)`:
 
 1. `accept_user_request` resolves `user_id` (`-u`, else `[user].default_id`,
@@ -265,7 +265,7 @@ not run on the web path, which does not call `agent.run`.
 | Other state keys (`plan`, `active_subagent`, …) | `RunAgentInput.state` on every new turn | **Yes**, any input-schema key |
 | Gate answers | `resume` | Yes, by design; validated by `parse_resume` / `parse_gate_resume` |
 | Databot gate state | Actions endpoint | Yes, by design (card selection, SQL draft) |
-| Run config (`thread_id`, `recursion_limit`, `user_id`) | Adapter (`agui_server.py`) | Only `threadId` (and the user header) |
+| Run config (`thread_id`, `recursion_limit`, `user_id`) | Adapter (`tahoepilot/server/app.py`) | Only `threadId` (and the user header) |
 
 Consequences:
 

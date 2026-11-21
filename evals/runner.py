@@ -23,10 +23,10 @@ from typing import Any
 
 from langchain_core.messages import AIMessage
 
-from agent.subagent import SubagentResult, SubagentTask
-from agent.turn import AgentTurnResult
+from tahoepilot.agent.subagent import SubagentResult, SubagentTask
+from tahoepilot.agent.turn import AgentTurnResult
 from evals.case import EvalCase
-from graph.messages import strip_think_blocks
+from tahoepilot.agent.graph.messages import strip_think_blocks
 from evals.checks import CheckResult, run_checks
 from evals.listeners import EvalReactListener
 from evals.timing import EvalTimer, TurnTiming
@@ -120,13 +120,13 @@ class RunRecord:
 
     @property
     def selection(self) -> dict[str, Any]:
-        from agent.specialists.model_selection.model_selection_agent import parse_selection
+        from tahoepilot.agent.specialists.model_selection.model_selection_agent import parse_selection
 
         return parse_selection(self.reply)
 
     @property
     def candidates(self) -> list[str]:
-        from agent.specialists.model_selection.model_selection_agent import staged_model_names
+        from tahoepilot.agent.specialists.model_selection.model_selection_agent import staged_model_names
         from evals.checks import normalize_model_name
 
         return [normalize_model_name(n) for n in staged_model_names(self.state or {})]

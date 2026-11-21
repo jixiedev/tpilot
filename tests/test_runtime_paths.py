@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from settings.runtime_config import (
+from tahoepilot.settings.runtime_config import (
     ensure_runtime_dirs,
     get_runtime_paths,
     reset_runtime_paths_cache,
@@ -38,7 +38,7 @@ def test_dev_paths_default_under_data_dir(tmp_path, monkeypatch) -> None:
 
 
 def test_rag_bare_tasks_name_goes_to_rag_jobs_dir(tmp_path, monkeypatch) -> None:
-    from rag.__main__ import resolve_tasks_path
+    from tahoepilot.rag.__main__ import resolve_tasks_path
 
     config_dir = tmp_path / "config"
     config_dir.mkdir()
@@ -74,7 +74,7 @@ log_file = "runtime/log/app.log"
         encoding="utf-8",
     )
     monkeypatch.setenv("TAHOEPILOT_CONFIG_DIR", str(config_dir))
-    monkeypatch.setattr("settings.runtime_config._PROJECT_ROOT", root)
+    monkeypatch.setattr("tahoepilot.settings.runtime_config._PROJECT_ROOT", root)
     reset_runtime_paths_cache()
 
     paths = get_runtime_paths()
@@ -91,7 +91,7 @@ def test_runtime_paths_ignore_env(tmp_path, monkeypatch) -> None:
     root = tmp_path / "project"
     root.mkdir()
     monkeypatch.setenv("TAHOEPILOT_CONFIG_DIR", str(root / "no-config"))
-    monkeypatch.setattr("settings.runtime_config._PROJECT_ROOT", root)
+    monkeypatch.setattr("tahoepilot.settings.runtime_config._PROJECT_ROOT", root)
     monkeypatch.setenv("TAHOEPILOT_LOCAL_DIR", str(root / "custom"))
     monkeypatch.setenv("AGUI_CHECKPOINT_DB", str(root / "ckpt.db"))
     reset_runtime_paths_cache()
@@ -104,7 +104,7 @@ def test_runtime_paths_ignore_env(tmp_path, monkeypatch) -> None:
 def test_ensure_runtime_dirs_creates_subdirs(tmp_path, monkeypatch) -> None:
     root = tmp_path / "state"
     monkeypatch.setenv("TAHOEPILOT_CONFIG_DIR", str(root / "no-config"))
-    monkeypatch.setattr("settings.runtime_config._PROJECT_ROOT", root)
+    monkeypatch.setattr("tahoepilot.settings.runtime_config._PROJECT_ROOT", root)
     reset_runtime_paths_cache()
 
     paths = ensure_runtime_dirs()

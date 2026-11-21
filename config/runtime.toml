@@ -1,4 +1,4 @@
-# Runtime state locations and user defaults, read by settings/runtime_config.py.
+# Runtime state locations and user defaults, read by tahoepilot/settings/runtime_config.py.
 # Paths may be absolute, start with ~, or be relative to the project root.
 #
 # Everything written at run time lives under data_dir (.local/ in a dev checkout:
@@ -28,7 +28,7 @@ run_dir = ".local/run"
 # Working folder of `langgraph dev` (scripts/dev.sh runs it here); its in-memory
 # store goes to <langgraph_dir>/.langgraph_api. Default <data_dir>/langgraph.
 langgraph_dir = ".local/langgraph"
-# Folder for RAG ingest task lists and checkpoints: `python -m rag plan|run --tasks`
+# Folder for RAG ingest task lists and checkpoints: `python -m tahoepilot.rag plan|run --tasks`
 # with a bare file name puts the file here. Default <data_dir>/rag-jobs.
 rag_jobs_dir = ".local/rag-jobs"
 # Local Qdrant (dev only, not read by code): run the binary from .local/qdrant/

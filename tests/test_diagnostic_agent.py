@@ -5,11 +5,11 @@ from unittest.mock import MagicMock, patch
 import pytest
 from langgraph.checkpoint.memory import MemorySaver
 
-from agent.catalog import AgentCatalog, AgentCatalogSettings
-from agent.specialists.diagnostic import DiagnosticAgent, DiagnosticSystemPrompt
-from memory.profile_store import FileProfileStore
+from tahoepilot.agent.catalog import AgentCatalog, AgentCatalogSettings
+from tahoepilot.agent.specialists.diagnostic import DiagnosticAgent, DiagnosticSystemPrompt
+from tahoepilot.memory.profile_store import FileProfileStore
 from tests.minimal_chat_model import MinimalChatModel
-from tools.dynamic import register_dynamic_tool_bindings, reset_dynamic_tool_bindings
+from tahoepilot.tools.dynamic import register_dynamic_tool_bindings, reset_dynamic_tool_bindings
 
 
 @pytest.fixture(autouse=True)
@@ -49,7 +49,7 @@ async def test_diagnostic_tools_include_infra_and_airflow_mcp(tmp_path) -> None:
         return []
 
     with patch(
-        "tools.dynamic.get_tools_for_server",
+        "tahoepilot.tools.dynamic.get_tools_for_server",
         side_effect=_fake_get_tools,
     ), patch.object(DiagnosticAgent, "build_graph", lambda self, **_kwargs: None):
         catalog = AgentCatalog(
@@ -82,7 +82,7 @@ async def test_register_dynamic_bindings_loads_both_airflow_servers() -> None:
         return [tool]
 
     with patch(
-        "tools.dynamic.get_tools_for_server",
+        "tahoepilot.tools.dynamic.get_tools_for_server",
         side_effect=_fake_get_tools,
     ):
         await register_dynamic_tool_bindings()

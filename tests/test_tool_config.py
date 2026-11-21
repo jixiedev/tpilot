@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from settings.tool_config import (
+from tahoepilot.settings.tool_config import (
     DataHubToolConfig,
     K8sToolConfig,
     S3ToolConfig,
@@ -115,7 +115,7 @@ def test_s3_access_key_from_env(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_trino_user_from_env_then_toml(monkeypatch: pytest.MonkeyPatch) -> None:
-    from settings.tool_config import trino_user
+    from tahoepilot.settings.tool_config import trino_user
 
     cfg = TrinoToolConfig(host="localhost", user="toml-user", user_env="TRINO_USER")
     monkeypatch.setenv("TRINO_USER", "svc_from_secret")
@@ -125,7 +125,7 @@ def test_trino_user_from_env_then_toml(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_trino_user_missing_raises(monkeypatch: pytest.MonkeyPatch) -> None:
-    from settings.tool_config import trino_user
+    from tahoepilot.settings.tool_config import trino_user
 
     monkeypatch.delenv("TRINO_USER", raising=False)
     with pytest.raises(ValueError, match="TRINO_USER"):

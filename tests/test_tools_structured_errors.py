@@ -12,16 +12,16 @@ from langgraph.graph import START, StateGraph
 
 import importlib
 
-from graph.node import StepActionNode
-from graph.state import ReactAgentState
-from tools.code.bash import bash, clear_sessions
-from tools.code.python_execute import python_execute
-from tools.data.trino import trino_explain
-from tools.errors import StructuredToolError, ToolErrorType
-from tools.web.search import WebSearchError, set_web_search_client, web_search
+from tahoepilot.agent.graph.node import StepActionNode
+from tahoepilot.agent.graph.state import ReactAgentState
+from tahoepilot.tools.code.bash import bash, clear_sessions
+from tahoepilot.tools.code.python_execute import python_execute
+from tahoepilot.tools.data.trino import trino_explain
+from tahoepilot.tools.errors import StructuredToolError, ToolErrorType
+from tahoepilot.tools.web.search import WebSearchError, set_web_search_client, web_search
 
-# ``tools.code`` re-exports the ``bash`` tool, shadowing the submodule attribute.
-bash_module = importlib.import_module("tools.code.bash")
+# ``tahoepilot.tools.code`` re-exports the ``bash`` tool, shadowing the submodule attribute.
+bash_module = importlib.import_module("tahoepilot.tools.code.bash")
 
 
 def _run(tool, args: dict[str, Any]) -> tuple[ToolMessage, dict[str, Any]]:
@@ -110,7 +110,7 @@ def test_python_execute_timeout_is_structured() -> None:
 
 
 def test_python_execute_missing_interpreter_is_structured() -> None:
-    with patch("tools.code.python_execute._resolve_python", return_value=None):
+    with patch("tahoepilot.tools.code.python_execute._resolve_python", return_value=None):
         message, _ = _run(python_execute, {"code": "print(1)"})
     structured = _structured(message)
     assert structured.error_type is ToolErrorType.UNKNOWN
@@ -141,7 +141,7 @@ def test_web_search_connection_failure_is_structured_and_retried() -> None:
     client = _Failing(ConnectionError("connection reset"))
     set_web_search_client(client)
     try:
-        with patch("graph.error_recovery.time.sleep"):
+        with patch("tahoepilot.agent.graph.error_recovery.time.sleep"):
             message, result = _run(web_search, {"query": "trino release notes"})
     finally:
         set_web_search_client(None)
@@ -155,7 +155,7 @@ def test_web_search_connection_failure_is_structured_and_retried() -> None:
 
 
 def test_web_search_permission_failure_is_not_retried() -> None:
-    from tools.web.search import _http_status_error
+    from tahoepilot.tools.web.search import _http_status_error
 
     client = _Failing(_http_status_error(401, "bad key"))
     set_web_search_client(client)
@@ -181,7 +181,7 @@ def test_web_search_blank_query_raises() -> None:
 def test_trino_explain_failure_stays_an_ok_false_dict() -> None:
     """The databot SQL stage reads ``ok``/``error``; explain must not raise."""
     with patch(
-        "tools.data.trino._execute_query", side_effect=RuntimeError("line 1:1: mismatched input")
+        "tahoepilot.tools.data.trino._execute_query", side_effect=RuntimeError("line 1:1: mismatched input")
     ):
         result = trino_explain.invoke({"sql": "select x from"})
     assert result == {"ok": False, "error": "line 1:1: mismatched input", "sql": "select x from"}

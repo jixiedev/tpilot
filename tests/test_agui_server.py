@@ -14,8 +14,8 @@ from ag_ui.core.types import RunAgentInput  # noqa: E402
 from ag_ui.encoder import EventEncoder  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
-import agui_server  # noqa: E402
-from agui_server import AguiRuntime, _stream_events  # noqa: E402
+from tahoepilot.server import app as agui_server  # noqa: E402
+from tahoepilot.server.app import AguiRuntime, _stream_events  # noqa: E402
 from tests.test_databot_graph import PHASE_PREPARE_SQL, _seed, compiled_graph  # noqa: E402,F401
 
 
@@ -154,8 +154,8 @@ async def test_lead_over_agui_pauses_at_specialist_gate_and_resumes(tmp_path):
     from ag_ui_langgraph import LangGraphAgent
     from langchain_core.messages import AIMessage, SystemMessage, ToolMessage
 
-    from agent.catalog import AgentCatalog
-    from agui_server import LeadGraphView
+    from tahoepilot.agent.catalog import AgentCatalog
+    from tahoepilot.server.app import LeadGraphView
     from tests.test_lead_agent import GATEBOT, _call, _GateBot, _lead, _ScriptedModel
 
     async def factory(**kwargs):
@@ -223,8 +223,8 @@ async def test_agui_stream_stays_small_for_a_heavy_nested_specialist(tmp_path, m
     """Raw LangGraph event copies once streamed ~95 MB for a dozen nested steps."""
     from langchain_core.messages import AIMessage
 
-    from agent.catalog import AgentCatalog
-    from agui_server import LeadGraphView
+    from tahoepilot.agent.catalog import AgentCatalog
+    from tahoepilot.server.app import LeadGraphView
     from tests.test_lead_agent import _call, _lead, _make_loopbot, _ScriptedModel
 
     loopbot = _make_loopbot(rounds=12, state_bytes=700_000)
@@ -263,8 +263,8 @@ async def test_databot_view_overlays_the_paused_layer(compiled_graph):  # noqa: 
     """While databot waits at a gate, the root snapshot shows the layer's fields."""
     from types import SimpleNamespace
 
-    from agent.specialists.databot.databot_agent import DatabotAgent
-    from agui_server import DatabotGraphView
+    from tahoepilot.agent.specialists.databot.databot_agent import DatabotAgent
+    from tahoepilot.server.app import DatabotGraphView
 
     graph, _ = compiled_graph
     config = {"configurable": {"thread_id": "view-1"}, "recursion_limit": 50}

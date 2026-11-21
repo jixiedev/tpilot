@@ -7,14 +7,14 @@ from unittest.mock import MagicMock, patch
 import pytest
 import yaml
 
-from rag import job
-from rag.__main__ import main
+from tahoepilot.rag import job
+from tahoepilot.rag.__main__ import main
 
 
 @pytest.fixture(autouse=True)
 def _no_qdrant_delete():
     """Ingest deletes a document's old points before upsert; keep tests offline."""
-    with patch("rag.ingest.delete_points_by_doc_keys") as mock_delete:
+    with patch("tahoepilot.rag.ingest.delete_points_by_doc_keys") as mock_delete:
         yield mock_delete
 
 
@@ -64,9 +64,9 @@ def test_plan_writes_task_list_and_empty_checkpoint(tmp_path: Path) -> None:
     assert progress["task_list_sha256"] == job.file_sha256(tasks)
 
 
-@patch("rag.ingest.upsert_points")
-@patch("rag.ingest.ensure_collection")
-@patch("rag.ingest.get_embeddings")
+@patch("tahoepilot.rag.ingest.upsert_points")
+@patch("tahoepilot.rag.ingest.ensure_collection")
+@patch("tahoepilot.rag.ingest.get_embeddings")
 def test_run_resumes_from_checkpoint(
     mock_embeddings: MagicMock,
     mock_ensure: MagicMock,
@@ -103,9 +103,9 @@ def test_run_resumes_from_checkpoint(
     assert progress["uploaded_points"] == 2
 
 
-@patch("rag.ingest.upsert_points")
-@patch("rag.ingest.ensure_collection")
-@patch("rag.ingest.get_embeddings")
+@patch("tahoepilot.rag.ingest.upsert_points")
+@patch("tahoepilot.rag.ingest.ensure_collection")
+@patch("tahoepilot.rag.ingest.get_embeddings")
 def test_run_starts_from_beginning_when_checkpoint_missing(
     mock_embeddings: MagicMock,
     mock_ensure: MagicMock,
@@ -134,7 +134,7 @@ def test_run_starts_from_beginning_when_checkpoint_missing(
     assert progress["completed"] == ["a.yml", "b.yml"]
 
 
-@patch("rag.job.ingest_task", side_effect=[1, 1, 1])
+@patch("tahoepilot.rag.job.ingest_task", side_effect=[1, 1, 1])
 def test_run_writes_checkpoint_after_each_file_batch(
     mock_ingest: MagicMock,
     tmp_path: Path,
@@ -166,7 +166,7 @@ def test_run_writes_checkpoint_after_each_file_batch(
     assert writes == [["a.yml", "b.yml"], ["a.yml", "b.yml", "c.yml"]]
 
 
-@patch("rag.job.ingest_task", side_effect=[1, RuntimeError("embed failed"), 1])
+@patch("tahoepilot.rag.job.ingest_task", side_effect=[1, RuntimeError("embed failed"), 1])
 def test_run_does_not_checkpoint_failed_file(
     mock_ingest: MagicMock,
     tmp_path: Path,
@@ -216,7 +216,7 @@ def test_run_cli_exits_nonzero_with_failure_summary_and_rerun_retries_failures(
     argv = ["run", "--tasks", str(tasks), "--checkpoint", str(checkpoint)]
 
     with patch(
-        "rag.job.ingest_task", side_effect=[1, RuntimeError("embed failed"), 1]
+        "tahoepilot.rag.job.ingest_task", side_effect=[1, RuntimeError("embed failed"), 1]
     ) as first:
         code = main(argv)
 
@@ -228,7 +228,7 @@ def test_run_cli_exits_nonzero_with_failure_summary_and_rerun_retries_failures(
     progress = json.loads(checkpoint.read_text(encoding="utf-8"))
     assert progress["completed"] == ["a.yml", "c.yml"]
 
-    with patch("rag.job.ingest_task", return_value=1) as second:
+    with patch("tahoepilot.rag.job.ingest_task", return_value=1) as second:
         assert main(argv) == 0
 
     assert second.call_count == 1
@@ -251,8 +251,8 @@ def test_recreate_collection_ignores_checkpoint_for_other_task_list(tmp_path: Pa
     )
 
     with (
-        patch("rag.job._recreate_collection") as mock_recreate,
-        patch("rag.job.ingest_task", return_value=1) as mock_ingest,
+        patch("tahoepilot.rag.job._recreate_collection") as mock_recreate,
+        patch("tahoepilot.rag.job.ingest_task", return_value=1) as mock_ingest,
     ):
         uploaded = job.run_ingest(
             tasks_path=tasks,
@@ -314,9 +314,9 @@ def test_plan_cli_and_run_cli_missing_checkpoint(tmp_path: Path) -> None:
     assert checkpoint.exists()
     checkpoint.unlink()
     with (
-        patch("rag.ingest.get_embeddings", return_value=[([0.1, 0.2], {1: 0.5})]),
-        patch("rag.ingest.ensure_collection"),
-        patch("rag.ingest.upsert_points"),
+        patch("tahoepilot.rag.ingest.get_embeddings", return_value=[([0.1, 0.2], {1: 0.5})]),
+        patch("tahoepilot.rag.ingest.ensure_collection"),
+        patch("tahoepilot.rag.ingest.upsert_points"),
     ):
         assert main(["run", "--tasks", str(tasks), "--checkpoint", str(checkpoint)]) == 0
     progress = json.loads(checkpoint.read_text(encoding="utf-8"))

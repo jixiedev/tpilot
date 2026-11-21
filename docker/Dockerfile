@@ -27,7 +27,7 @@
 #                                BAAI/bge-reranker-v2-m3), baked in at build time from
 #                                config/rag.toml; [local_models].dir must resolve here.
 #                                Skip with --build-arg RAG_MODELS=0 (then mount the
-#                                weights there, or run `python -m rag download`).
+#                                weights there, or run `python -m tahoepilot.rag download`).
 
 # ---- frontend build ----
 FROM node:22-slim AS frontend
@@ -50,21 +50,23 @@ COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-dev --no-install-project --no-cache --extra web --extra rag
 
 ENV PATH="/tahoepilot/.venv/bin:$PATH" \
+    PYTHONPATH=/tahoepilot \
     PYTHONUNBUFFERED=1 \
     TAHOEPILOT_CONFIG_DIR=/tahoepilot/config
 
 # ---- Hugging Face models for RAG (embedding + rerank) ----
 # Only the files the download needs are copied, so this multi-GB layer is rebuilt
-# only when rag/, settings/ or config/rag.toml change. Duplicate pytorch_model.bin
+# only when tahoepilot/rag/, tahoepilot/settings/ or config/rag.toml change. Duplicate pytorch_model.bin
 # weights are dropped where model.safetensors exists (transformers prefers it).
 FROM pydeps AS hfmodels
 ARG RAG_MODELS=1
-COPY settings ./settings
-COPY rag ./rag
+COPY tahoepilot/__init__.py ./tahoepilot/__init__.py
+COPY tahoepilot/settings ./tahoepilot/settings
+COPY tahoepilot/rag ./tahoepilot/rag
 COPY config/rag.toml ./config/rag.toml
 RUN mkdir -p /root/.cache/tahoepilot/models \
  && if [ "$RAG_MODELS" = "1" ]; then \
-      python -m rag download \
+      python -m tahoepilot.rag download \
       && for d in /root/.cache/tahoepilot/models/*/*/; do \
            if [ -f "${d}model.safetensors" ]; then rm -f "${d}pytorch_model.bin"; fi; \
            rm -rf "${d}.cache"; \

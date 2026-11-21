@@ -41,8 +41,10 @@ frontend/**/yarn-debug.log*
 frontend/**/yarn-error.log*
 frontend/**/.pnpm-debug.log*
 frontend/.vercel
+frontend/.env*
 frontend/**/*.tsbuildinfo
 
 # ---- tool caches (their own .gitignore ignores everything) ----
 **/.pytest_cache
 **/.ruff_cache
+**/.ipynb_checkpoints

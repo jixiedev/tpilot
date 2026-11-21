@@ -2,13 +2,13 @@
 
 TahoePilot keeps agent behavior, connection settings, model definitions, local
 paths and the metric catalog in TOML/JSON/CSV files, all in this one directory.
-The Python modules that parse them into typed objects live in `settings/`.
+The Python modules that parse them into typed objects live in `tahoepilot/settings/`.
 Secrets never live here: they come from a separate secrets file or the
 environment (see [Environment, `.env` and secrets](#environment-env-and-secrets)).
 
 This directory holds data only, so a deployment replaces it with a single
 mount (for example a k8s ConfigMap at `/tahoepilot/config`). Code finds it
-through `settings/paths.py`: `config_dir()` is `$TAHOEPILOT_CONFIG_DIR`, default
+through `tahoepilot/settings/paths.py`: `config_dir()` is `$TAHOEPILOT_CONFIG_DIR`, default
 `/tahoepilot/config`. A relative value resolves against the project root, so a
 dev checkout puts `TAHOEPILOT_CONFIG_DIR=config` in `.env`.
 
@@ -26,33 +26,33 @@ dev checkout puts `TAHOEPILOT_CONFIG_DIR=config` in `.env`.
   `semantic.toml` points to them (default `semantic_models/`, where a git-sync
   volume is mounted).
 
-Related docs: [agent/README.md](../agent/README.md) (catalog, agent classes),
-[tools/README.md](../tools/README.md) (tool registry, MCP),
-[agent/specialists/databot/README.md](../agent/specialists/databot/README.md)
+Related docs: [tahoepilot/agent/README.md](../tahoepilot/agent/README.md) (catalog, agent classes),
+[tahoepilot/tools/README.md](../tahoepilot/tools/README.md) (tool registry, MCP),
+[tahoepilot/agent/specialists/databot/README.md](../tahoepilot/agent/specialists/databot/README.md)
 (databot pipeline and gates),
-[agent/specialists/warehouse/README.md](../agent/specialists/warehouse/README.md)
-(warehouse SQL review), [rag/README.md](../rag/README.md) (RAG ingest and
-`rag.toml`), [memory/README.md](../memory/README.md) (context compression),
+[tahoepilot/agent/specialists/warehouse/README.md](../tahoepilot/agent/specialists/warehouse/README.md)
+(warehouse SQL review), [tahoepilot/rag/README.md](../tahoepilot/rag/README.md) (RAG ingest and
+`rag.toml`), [tahoepilot/memory/README.md](../tahoepilot/memory/README.md) (context compression),
 [docs/ARCHITECTURE.md](../docs/ARCHITECTURE.md).
 
 ## Config sources at a glance
 
 | File | Parsed by | Holds |
 | --- | --- | --- |
-| `config/agents/<name>.toml` | `settings/agent_config.py` (`AgentConfig` and subclasses) | Identity, `delegate_when` roster line, system prompt, run context, compression, tool scopes, accepted MCP servers |
+| `config/agents/<name>.toml` | `tahoepilot/settings/agent_config.py` (`AgentConfig` and subclasses) | Identity, `delegate_when` roster line, system prompt, run context, compression, tool scopes, accepted MCP servers |
 | `config/agents/base.toml`, `tahoe.toml`, `stage.toml` | same | Shared parents for `extends`; not registered agents |
-| `config/tool_groups.toml` | `tool_groups()` in `settings/agent_config.py` | Named tool sets referenced as `@group` |
-| `config/tools.toml` | `settings/tool_config.py` (`ToolConfig`) | Hive, Trino, DataHub, Kubernetes, web search, S3 connection settings |
-| `config/runtime.toml` | `settings/runtime_config.py` (`RuntimeConfig` → resolved `RuntimePaths`) | Checkpoint DB, profiles, offload store, log paths; default user id |
-| `config/semantic.toml` | `settings/semantic_config.py` (`SemanticConfig` → resolved `SemanticPaths`) | Semantic model dir and metric catalog files |
-| `settings/logging_config.py` | – | File-only logging setup (`configure_logging`) |
-| `config/models.toml` | `models/llm.py` (`ModelConfig`) | Chat model endpoints and the default model |
-| `config/rag.toml` | `rag/config.py` (`RagConfig`) | Qdrant, embedding and rerank settings |
-| `config/mcp.json` | `tools/mcp/client.py` | MCP server definitions |
-| `config/server.toml` | `settings/server_config.py` (`ServerConfig`) | AG-UI backend host/port/path/stream options; Next.js host/port/backend URL |
-| `config/metrics/*.csv`, `*.json` | `tools/data/metrics.py` | Metric catalog: roots, members, model → metric assignments (paths in `semantic.toml`) |
-| `.env` (repo root) | `settings/paths.py`; `"env"` in `langgraph.json` | Non-secret: `TAHOEPILOT_CONFIG_DIR`, `TAHOEPILOT_SECRETS_FILE`, `HF_*` library flags |
-| `secrets.env` (`$TAHOEPILOT_SECRETS_FILE`) | `settings/paths.py` | API keys, passwords, tokens; template `secrets.env.example` |
+| `config/tool_groups.toml` | `tool_groups()` in `tahoepilot/settings/agent_config.py` | Named tool sets referenced as `@group` |
+| `config/tools.toml` | `tahoepilot/settings/tool_config.py` (`ToolConfig`) | Hive, Trino, DataHub, Kubernetes, web search, S3 connection settings |
+| `config/runtime.toml` | `tahoepilot/settings/runtime_config.py` (`RuntimeConfig` → resolved `RuntimePaths`) | Checkpoint DB, profiles, offload store, log paths; default user id |
+| `config/semantic.toml` | `tahoepilot/settings/semantic_config.py` (`SemanticConfig` → resolved `SemanticPaths`) | Semantic model dir and metric catalog files |
+| `tahoepilot/settings/logging_config.py` | – | File-only logging setup (`configure_logging`) |
+| `config/models.toml` | `tahoepilot/models/llm.py` (`ModelConfig`) | Chat model endpoints and the default model |
+| `config/rag.toml` | `tahoepilot/rag/config.py` (`RagConfig`) | Qdrant, embedding and rerank settings |
+| `config/mcp.json` | `tahoepilot/tools/mcp/client.py` | MCP server definitions |
+| `config/server.toml` | `tahoepilot/settings/server_config.py` (`ServerConfig`) | AG-UI backend host/port/path/stream options; Next.js host/port/backend URL |
+| `config/metrics/*.csv`, `*.json` | `tahoepilot/tools/data/metrics.py` | Metric catalog: roots, members, model → metric assignments (paths in `semantic.toml`) |
+| `.env` (repo root) | `tahoepilot/settings/paths.py`; `"env"` in `langgraph.json` | Non-secret: `TAHOEPILOT_CONFIG_DIR`, `TAHOEPILOT_SECRETS_FILE`, `HF_*` library flags |
+| `secrets.env` (`$TAHOEPILOT_SECRETS_FILE`) | `tahoepilot/settings/paths.py` | API keys, passwords, tokens; template `secrets.env.example` |
 
 ## Concepts
 
@@ -67,12 +67,12 @@ an `extends` in one table does not affect the others.
 After `extends` is merged, the agent's `AgentConfig` subclass fills defaults,
 coerces types and applies runtime overrides. The result is a plain mapping
 (`ReactRunContext`, `DatabotRunContext`, `StageRunContext`
-in `agent/run_context.py`) read by routers and graph builders.
+in `tahoepilot/agent/run_context.py`) read by routers and graph builders.
 
 **Design rules.**
 
 - Prompts and loop behavior live in TOML, not in Python. Code holds only
-  fallbacks (`agent/runtime/prompt.py`) and the merge logic.
+  fallbacks (`tahoepilot/agent/runtime/prompt.py`) and the merge logic.
 - Specialists override only what differs: replace the `role` section, `append`
   bullets to `general_rules`, add sections to `layout`.
 - Secrets come from the environment. Each connection setting with a secret has a
@@ -80,7 +80,7 @@ in `agent/run_context.py`) read by routers and graph builders.
 
 ## Agent files: `config/agents/*.toml`
 
-`AgentCatalog.register` (`agent/catalog.py`) loads `config/agents/<name>.toml`
+`AgentCatalog.register` (`tahoepilot/agent/catalog.py`) loads `config/agents/<name>.toml`
 with the class from `AGENT_CONFIG_TYPES`:
 
 | Agent file | Config class | Run context type |
@@ -97,7 +97,7 @@ with the class from `AGENT_CONFIG_TYPES`:
 | --- | --- | --- |
 | `name` | string | Agent name; defaults to the file stem |
 | `description` | string | Short description (catalog listing; the lead's roster falls back to it) |
-| `delegate_when` | string | When the lead should delegate to this agent. `LeadSystemPrompt` (`agent/lead/prompt.py`) lists every agent that is not a front agent as one roster line with this text |
+| `delegate_when` | string | When the lead should delegate to this agent. `LeadSystemPrompt` (`tahoepilot/agent/lead/prompt.py`) lists every agent that is not a front agent as one roster line with this text |
 | `front` | bool (default `false`) | A front agent: the user talks to it directly (own AG-UI endpoint and web page). `delegatable_agents()` leaves it out of the lead's roster and `delegate` refuses it. Set in `lead.toml` and `databot.toml` |
 | `mcp_replace_identifiers` | list of strings | Tool scopes whose built-in tools are dropped when MCP tools load for that scope (knowledge uses `["catalog"]`, so DataHub MCP replaces the native `@datahub` tools) |
 
@@ -134,11 +134,11 @@ Resolution (`_merged_prompt_table`, `_merge_prompt_tables`, `_merge_section_tabl
 Cycles are detected per chain: a file that appears twice raises
 `ValueError: circular system_prompt extends: a -> b -> a`.
 
-Rendering (`SystemPromptAssembler.build` in `agent/prompt.py`) emits
+Rendering (`SystemPromptAssembler.build` in `tahoepilot/agent/prompt.py`) emits
 `Title:\nbody` blocks separated by blank lines, skips sections with empty text,
 and inserts a `User profile` block after the first section when the user
-profile has data (see [memory/README.md](../memory/README.md#user-profiles)).
-`LeadSystemPrompt` (`agent/lead/prompt.py`) appends the specialist roster
+profile has data (see [memory/README.md](../tahoepilot/memory/README.md#user-profiles)).
+`LeadSystemPrompt` (`tahoepilot/agent/lead/prompt.py`) appends the specialist roster
 (one line per non-front agent, from `delegate_when`) after the rendered `lead.toml` prompt.
 
 Example: the effective Databot `general_rules` is base's text followed by one
@@ -170,7 +170,7 @@ Keys and defaults by class:
 | | `tool_budget_exhausted_prompt` | `TOOL_BUDGET_EXHAUSTED_PROMPT` | |
 | | `refine_user_profile_prompt` | `REFINE_USER_PROFILE_PROMPT` | Empty string disables end-of-turn profile refinement |
 | `StageReactConfig` (databot layers) | the `ReactAgentConfig` keys, plus: | | |
-| | `max_idle_reason_rounds` | 1 | Plain-text replies retried while the stage predicate is unmet (`agent/router.py`) |
+| | `max_idle_reason_rounds` | 1 | Plain-text replies retried while the stage predicate is unmet (`tahoepilot/agent/router.py`) |
 | | `idle_nudge_prompt` | `""` | Sent on those retries |
 | | `fetch_instruction`, `sql_instruction` | – | Kept only when present (databot stage openers) |
 | `LeadAgentConfig` | the `ReactAgentConfig` keys, plus: | | `lead.toml` sets `max_tool_calls = 12` |
@@ -185,8 +185,8 @@ Keys and defaults by class:
 
 Pure ReAct specialists end the turn on their first plain-text reply, so
 idle-retry keys do nothing for them and `ReactAgentConfig` drops them. Prompt
-defaults are in `agent/runtime/prompt.py`. Gate behavior is described in
-[agent/specialists/databot/README.md](../agent/specialists/databot/README.md).
+defaults are in `tahoepilot/agent/runtime/prompt.py`. Gate behavior is described in
+[tahoepilot/agent/specialists/databot/README.md](../tahoepilot/agent/specialists/databot/README.md).
 
 **Runtime overrides.** `AgentCatalogSettings.for_agent(..., **run_overrides)`
 and `AgentCatalog.create(..., run_context={...})` overlay values after the file
@@ -199,7 +199,7 @@ ReAct keys, `sql_gate_enabled` and `result_row_limit`). `None` values are ignore
 ### `[compression]`
 
 Thresholds for context compression; the fields are documented in
-[memory/README.md](../memory/README.md#configuration). Resolution
+[memory/README.md](../tahoepilot/memory/README.md#configuration). Resolution
 (`_merged_compression_table`):
 
 | Case | Result |
@@ -230,7 +230,7 @@ Maps a tool scope id to built-in tool names. Read by `agent_tool_scopes(name)`:
   `WarehouseAgent`; it also drops `trino_run_query` (and any configured tool
   with a gate tool's name) from its scopes, so SQL runs only after review.
 
-How tools register by name is covered in [tools/README.md](../tools/README.md).
+How tools register by name is covered in [tahoepilot/tools/README.md](../tahoepilot/tools/README.md).
 
 ### `[accepted_mcp]`
 
@@ -247,7 +247,7 @@ Top-level keys are group names, values are tool-name lists: `memory`, `code`,
 
 ## Connections: `config/tools.toml`
 
-Loaded once at import of `settings/tool_config.py` into `tool_config`. The file is
+Loaded once at import of `tahoepilot/settings/tool_config.py` into `tool_config`. The file is
 required, and `[hive]` and `[trino]` must be present.
 
 | Table | Keys | Secret env variable (default name) |
@@ -268,7 +268,7 @@ the file only. The file also has a `[spark]` table that `ToolConfig` does not re
 
 ## Runtime paths: `config/runtime.toml`
 
-`[paths]` keys (`settings/runtime_config.py`); `runtime.toml` is the only source:
+`[paths]` keys (`tahoepilot/settings/runtime_config.py`); `runtime.toml` is the only source:
 
 | Key | Default |
 | --- | --- |
@@ -278,10 +278,10 @@ the file only. The file also has a `[spark]` table that `ToolConfig` does not re
 | `offload_dir` | `<data_dir>/offload_store` |
 | `logs_dir` | `<data_dir>/logs` |
 | `log_file` | `<logs_dir>/tahoepilot.log` |
-| `workspace_dir` | `<data_dir>/workspace`: working folder of `bash`, `python_execute`, `str_replace_editor` (see [tools/README.md](../tools/README.md)) |
+| `workspace_dir` | `<data_dir>/workspace`: working folder of `bash`, `python_execute`, `str_replace_editor` (see [tahoepilot/tools/README.md](../tahoepilot/tools/README.md)) |
 | `run_dir` | `<data_dir>/run`: PID files and logs of `scripts/dev.sh start` (and eval logs) |
 | `langgraph_dir` | `<data_dir>/langgraph`: working folder of `langgraph dev` (`scripts/dev.sh`); its store is `<langgraph_dir>/.langgraph_api` |
-| `rag_jobs_dir` | `<data_dir>/rag-jobs`: where `python -m rag plan|run --tasks <bare file name>` writes and reads task lists and checkpoints |
+| `rag_jobs_dir` | `<data_dir>/rag-jobs`: where `python -m tahoepilot.rag plan|run --tasks <bare file name>` writes and reads task lists and checkpoints |
 
 An empty value takes the default. Relative paths resolve against the project
 root; `~` is expanded. Results are cached by `get_runtime_paths()`; call
@@ -300,8 +300,8 @@ in) that callers use.
 ## Metric catalog: `config/semantic.toml`
 
 Top-level keys, parsed by `get_semantic_config()` and resolved by
-`get_semantic_paths()` in `settings/semantic_config.py`; read by
-`tools/data/metrics.py`. Relative paths resolve against the project root.
+`get_semantic_paths()` in `tahoepilot/settings/semantic_config.py`; read by
+`tahoepilot/tools/data/metrics.py`. Relative paths resolve against the project root.
 
 | Key | Default |
 | --- | --- |
@@ -315,23 +315,23 @@ restart.
 
 ## Servers: `config/server.toml`
 
-`settings/server_config.py` (`get_server_config()`):
+`tahoepilot/settings/server_config.py` (`get_server_config()`):
 
 | Table | Keys | Used by |
 | --- | --- | --- |
-| `[agui]` | `host`, `port`, `path` (base path, agents at `<path>/<name>`), `subagent_visibility` (`inline` / `hidden` / `attributed`), `emit_raw_events`, `user_header` (request header naming the visitor) | `agui_server.py` (`path` and stream options always; `host`/`port` for the standalone `python agui_server.py`) |
-| `[auth]` | `enabled`, `skip_password_check` (development only: accept any password, no LDAP), `ldap_url`, `user_base_dn` + `user_search_filter` + `bind_user` + `bind_password_env` (search-then-bind with a service account; default secret `LDAP_BIND_PASSWORD`) or `user_dn_template` (`{username}` is replaced), `start_tls`, `timeout_seconds`, `session_hours`, `session_secret_env` (default `TAHOEPILOT_SESSION_SECRET`, in the secrets file) | `agui_auth.py` (login page: LDAP bind, signed session token), `settings/server_config.py` (`TAHOEPILOT_AUTH_ENABLED` for Next.js) |
-| `[frontend]` | `host`, `port`, `backend_url` | `docker/entrypoint.sh` exports them as `HOSTNAME`, `PORT`, `AGUI_BACKEND_URL` for Next.js (`python -m settings.server_config`) |
+| `[agui]` | `host`, `port`, `path` (base path, agents at `<path>/<name>`), `subagent_visibility` (`inline` / `hidden` / `attributed`), `emit_raw_events`, `user_header` (request header naming the visitor) | `tahoepilot/server/app.py` (`path` and stream options always; `host`/`port` for the standalone `python -m tahoepilot.server.app`) |
+| `[auth]` | `enabled`, `skip_password_check` (development only: accept any password, no LDAP), `ldap_url`, `user_base_dn` + `user_search_filter` + `bind_user` + `bind_password_env` (search-then-bind with a service account; default secret `LDAP_BIND_PASSWORD`) or `user_dn_template` (`{username}` is replaced), `start_tls`, `timeout_seconds`, `session_hours`, `session_secret_env` (default `TAHOEPILOT_SESSION_SECRET`, in the secrets file) | `tahoepilot/server/auth.py` (login page: LDAP bind, signed session token), `tahoepilot/settings/server_config.py` (`TAHOEPILOT_AUTH_ENABLED` for Next.js) |
+| `[frontend]` | `host`, `port`, `backend_url` | `docker/entrypoint.sh` exports them as `HOSTNAME`, `PORT`, `AGUI_BACKEND_URL` for Next.js (`python -m tahoepilot.settings.server_config`) |
 
 `langgraph dev` (`scripts/dev.sh`) still picks its own port (8000) and `next
 dev` reads `AGUI_BACKEND_URL` from its environment.
 
-## Logging: `settings/logging_config.py`
+## Logging: `tahoepilot/settings/logging_config.py`
 
 `configure_logging(log_file=None, verbose=False)` installs a single file handler
 on the root logger (no console output) at `RuntimePaths.log_file`, `INFO` level or
 `DEBUG` with `verbose=True` (`-v` on the CLI). MCP stdio server stderr is
-redirected to the same file by `tools/mcp/client.py`.
+redirected to the same file by `tahoepilot/tools/mcp/client.py`.
 
 ## Models: `config/models.toml`
 
@@ -357,9 +357,9 @@ raises `RuntimeError` listing each failure only if none works.
 
 Tables `[qdrant]`, `[embedding]`, `[rerank]`, `[local_models]` (weight cache
 `dir`, `hf_endpoint`), `[tika]` (`endpoint`), parsed by `get_rag_config()` in
-`rag/config.py`. The only env lookup is the Qdrant API key (`api_key_env`,
+`tahoepilot/rag/config.py`. The only env lookup is the Qdrant API key (`api_key_env`,
 default `QDRANT_API_KEY`). Details:
-[rag/README.md](../rag/README.md).
+[tahoepilot/rag/README.md](../tahoepilot/rag/README.md).
 
 ## MCP servers: `config/mcp.json`
 
@@ -371,8 +371,8 @@ variables stay literal), so tokens belong in the secrets file. Server names are 
 
 ## Environment, `.env` and secrets
 
-`settings/paths.py` loads two files on import, so every entry point (CLI,
-`agui_server.py`, evals, RAG jobs) sees them before reading any config file.
+`tahoepilot/settings/paths.py` loads two files on import, so every entry point (CLI,
+`tahoepilot/server/app.py`, evals, RAG jobs) sees them before reading any config file.
 Real environment variables always win; `scripts/dev.sh` sources both files the
 same way, and `langgraph dev` also loads `.env` via `"env": ".env"`.
 
@@ -420,8 +420,8 @@ text = "- GMV means gross merchandise value."
 ```
 
 **Raise `max_tool_calls`.** For a ReAct specialist, add
-`[run_context] max_tool_calls = 40` to its file. Note that `cli.py`,
-`agui_server.py` and `langgraph_graphs.py` pass `max_tool_calls=30` as a run
+`[run_context] max_tool_calls = 40` to its file. Note that `tahoepilot/cli.py`,
+`tahoepilot/server/app.py` and `tahoepilot/server/graphs.py` pass `max_tool_calls=30` as a run
 override, which wins over the file; change the call site too. The override
 reaches only the agent the entry point creates (the lead by default);
 specialists delegated by the lead keep their file budgets. For databot

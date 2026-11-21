@@ -6,9 +6,9 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from agent.agent import BaseAgent
-from agent.catalog import AgentCatalog, AgentCatalogSettings
-from memory.profile_store import FileProfileStore
+from tahoepilot.agent.agent import BaseAgent
+from tahoepilot.agent.catalog import AgentCatalog, AgentCatalogSettings
+from tahoepilot.memory.profile_store import FileProfileStore
 
 
 @pytest.mark.asyncio

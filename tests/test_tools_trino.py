@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from tools.data.trino import (
+from tahoepilot.tools.data.trino import (
     DEFAULT_ROW_LIMIT,
     _execute_query,
     _rows_to_dicts,
@@ -55,7 +55,7 @@ def _mock_cursor(
     return cursor
 
 
-@patch("tools.data.trino.get_connection")
+@patch("tahoepilot.tools.data.trino.get_connection")
 def test_execute_query_no_result_set(mock_get_connection: MagicMock) -> None:
     cursor = _mock_cursor(description=None, rows=[])
     conn = MagicMock()
@@ -68,7 +68,7 @@ def test_execute_query_no_result_set(mock_get_connection: MagicMock) -> None:
     cursor.execute.assert_called_once_with("CREATE TABLE t (id int)")
 
 
-@patch("tools.data.trino.get_connection")
+@patch("tahoepilot.tools.data.trino.get_connection")
 def test_execute_query_truncates_at_limit(mock_get_connection: MagicMock) -> None:
     cursor = _mock_cursor(
         description=[("n",)],
@@ -86,7 +86,7 @@ def test_execute_query_truncates_at_limit(mock_get_connection: MagicMock) -> Non
     assert result["rows"] == [{"n": 0}, {"n": 1}]
 
 
-@patch("tools.data.trino.get_connection")
+@patch("tahoepilot.tools.data.trino.get_connection")
 def test_execute_query_returns_full_page(mock_get_connection: MagicMock) -> None:
     cursor = _mock_cursor(description=[("catalog",)], rows=[("hive",), ("iceberg",)])
     conn = MagicMock()
@@ -101,7 +101,7 @@ def test_execute_query_returns_full_page(mock_get_connection: MagicMock) -> None
     assert result["truncated"] is False
 
 
-@patch("tools.data.trino._execute_query")
+@patch("tahoepilot.tools.data.trino._execute_query")
 def test_trino_run_query_delegates(mock_execute: MagicMock) -> None:
     payload = {"columns": ["x"], "rows": [{"x": 1}], "row_count": 1, "truncated": False}
     mock_execute.return_value = payload
@@ -110,14 +110,14 @@ def test_trino_run_query_delegates(mock_execute: MagicMock) -> None:
     mock_execute.assert_called_once_with("SELECT 1", 10)
 
 
-@patch("tools.data.trino._execute_query")
+@patch("tahoepilot.tools.data.trino._execute_query")
 def test_trino_run_query_rejects_mutating_sql(mock_execute: MagicMock) -> None:
     with pytest.raises(ValueError, match="read-only"):
         trino_run_query.invoke({"sql": "DELETE FROM t"})
     mock_execute.assert_not_called()
 
 
-@patch("tools.data.trino._execute_query")
+@patch("tahoepilot.tools.data.trino._execute_query")
 def test_trino_list_catalogs(mock_execute: MagicMock) -> None:
     mock_execute.return_value = {"rows": [{"Catalog": "hive"}]}
 
@@ -125,7 +125,7 @@ def test_trino_list_catalogs(mock_execute: MagicMock) -> None:
     mock_execute.assert_called_once_with("SHOW CATALOGS")
 
 
-@patch("tools.data.trino._execute_query")
+@patch("tahoepilot.tools.data.trino._execute_query")
 def test_trino_list_schemas(mock_execute: MagicMock) -> None:
     mock_execute.return_value = {"rows": [{"Schema": "default"}]}
 
@@ -133,7 +133,7 @@ def test_trino_list_schemas(mock_execute: MagicMock) -> None:
     mock_execute.assert_called_once_with("SHOW SCHEMAS FROM hive")
 
 
-@patch("tools.data.trino._execute_query")
+@patch("tahoepilot.tools.data.trino._execute_query")
 def test_trino_list_tables(mock_execute: MagicMock) -> None:
     mock_execute.return_value = {"rows": [{"Table": "users"}]}
 
@@ -142,7 +142,7 @@ def test_trino_list_tables(mock_execute: MagicMock) -> None:
     mock_execute.assert_called_once_with("SHOW TABLES FROM hive.analytics")
 
 
-@patch("tools.data.trino._execute_query")
+@patch("tahoepilot.tools.data.trino._execute_query")
 def test_trino_list_tables_uses_config_defaults(mock_execute: MagicMock) -> None:
     mock_execute.return_value = {"rows": [{"Table": "t"}]}
 
@@ -151,7 +151,7 @@ def test_trino_list_tables_uses_config_defaults(mock_execute: MagicMock) -> None
     mock_execute.assert_called_once_with("SHOW TABLES FROM hive.default")
 
 
-@patch("tools.data.trino._execute_query")
+@patch("tahoepilot.tools.data.trino._execute_query")
 def test_trino_desc_table(mock_execute: MagicMock) -> None:
     mock_execute.return_value = {"rows": [{"Column": "id", "Type": "bigint"}]}
 
@@ -171,18 +171,18 @@ def test_trino_desc_table(mock_execute: MagicMock) -> None:
         ({"table": '"wish"."dim_all_products"', "catalog": "hive"}, "DESCRIBE hive.wish.dim_all_products"),
     ],
 )
-@patch("tools.data.trino._execute_query")
+@patch("tahoepilot.tools.data.trino._execute_query")
 def test_trino_desc_table_accepts_qualified_names(mock_execute: MagicMock, args, expected) -> None:
     """A qualified name used to become hive.<default>.schema.table and fail."""
     mock_execute.return_value = {"rows": []}
-    with patch("tools.data.trino.tool_config") as cfg:
+    with patch("tahoepilot.tools.data.trino.tool_config") as cfg:
         cfg.trino.catalog = "hive"
         cfg.trino.schema_name = "default"
         trino_desc_table.invoke(args)
     mock_execute.assert_called_once_with(expected)
 
 
-@patch("tools.data.trino._execute_query")
+@patch("tahoepilot.tools.data.trino._execute_query")
 def test_trino_desc_table_rejects_malformed_names(mock_execute: MagicMock) -> None:
     for bad in ("a.b.c.d", "schema.", ""):
         with pytest.raises(Exception):
@@ -195,8 +195,8 @@ def test_trino_desc_table_rejects_malformed_names(mock_execute: MagicMock) -> No
 import pytest  # noqa: E402
 from langchain_core.runnables import RunnableLambda  # noqa: E402
 
-from settings.tool_config import TrinoToolConfig  # noqa: E402
-from tools.data import trino as trino_mod  # noqa: E402
+from tahoepilot.settings.tool_config import TrinoToolConfig  # noqa: E402
+from tahoepilot.tools.data import trino as trino_mod  # noqa: E402
 
 
 @pytest.fixture

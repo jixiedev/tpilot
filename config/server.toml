@@ -1,9 +1,9 @@
-# Network settings for the AG-UI backend (agui_server.py) and the Next.js frontend
-# (docker/entrypoint.sh), read by settings/server_config.py.
+# Network settings for the AG-UI backend (tahoepilot/server/app.py) and the Next.js frontend
+# (docker/entrypoint.sh), read by tahoepilot/settings/server_config.py.
 # `langgraph dev` / scripts/dev.sh choose their own ports.
 
 [agui]
-# Bind address of the standalone backend (`python agui_server.py`, the Docker image).
+# Bind address of the standalone backend (`python -m tahoepilot.server.app`, the Docker image).
 # 0.0.0.0 = all interfaces (needed in a container).
 host = "0.0.0.0"
 # Backend port.

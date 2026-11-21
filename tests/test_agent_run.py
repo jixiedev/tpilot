@@ -6,17 +6,17 @@ from langgraph.checkpoint.memory import MemorySaver
 from langgraph.graph import END, START, StateGraph
 from typing_extensions import TypedDict
 
-from agent.agent import BaseAgent
-from agent.listener import AgentListener
-from agent.prompt import SystemPromptAssembler
-from agent.turn_messages import DefaultTurnMessagePolicy
-from settings.agent_config import AgentConfig, agent_config_path
-from agent.turn import AgentTurnResult
+from tahoepilot.agent.agent import BaseAgent
+from tahoepilot.agent.listener import AgentListener
+from tahoepilot.agent.prompt import SystemPromptAssembler
+from tahoepilot.agent.turn_messages import DefaultTurnMessagePolicy
+from tahoepilot.settings.agent_config import AgentConfig, agent_config_path
+from tahoepilot.agent.turn import AgentTurnResult
 from langgraph.types import interrupt
-from memory.profile import UserProfile
-from memory.profile_store import FileProfileStore
-from memory.session_runtime import SessionRuntime
-from agent.session import SessionUserRequest
+from tahoepilot.memory.profile import UserProfile
+from tahoepilot.memory.profile_store import FileProfileStore
+from tahoepilot.memory.session_runtime import SessionRuntime
+from tahoepilot.agent.session import SessionUserRequest
 from tests.minimal_chat_model import MinimalChatModel
 
 

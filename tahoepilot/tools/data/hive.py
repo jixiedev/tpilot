@@ -1,0 +1,42 @@
+from __future__ import annotations
+
+from threading import local
+
+from hmsclient import HMSClient
+from langchain.tools import tool
+
+from tahoepilot.settings.tool_config import tool_config
+from tahoepilot.tools.registry import alternative_tool, register_tool
+
+_thread_local = local()
+
+
+def get_client() -> HMSClient:
+    client = getattr(_thread_local, "client", None)
+    if client is None:
+        client = HMSClient(
+            host=tool_config.hive.hms_host,
+            port=tool_config.hive.hms_port,
+        )
+        client.open()
+        _thread_local.client = client
+    return client
+
+
+@register_tool
+@tool
+@alternative_tool("trino_list_tables")
+def hive_list_tables(database: str) -> list[str]:
+    """List all table names in a Hive database via HMS."""
+    return get_client().get_all_tables(database)
+
+
+@register_tool(offload=False)
+@tool
+@alternative_tool("trino_desc_table")
+def hive_desc_table(database: str, table: str):
+    """Describe a Hive table schema via HMS."""
+    return get_client().get_table(database, table)
+
+
+TOOLS = [hive_list_tables, hive_desc_table]

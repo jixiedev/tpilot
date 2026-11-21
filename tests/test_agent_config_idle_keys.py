@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from settings.agent_config import (
+from tahoepilot.settings.agent_config import (
     AgentConfig,
     DatabotAgentConfig,
     ReactAgentConfig,

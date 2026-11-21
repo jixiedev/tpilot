@@ -3,13 +3,13 @@
     "."
   ],
   "graphs": {
-    "databot": "langgraph_graphs:databot_ui_agent",
-    "knowledge": "langgraph_graphs:knowledge_ui_agent",
-    "lead": "langgraph_graphs:lead_ui_agent",
-    "warehouse": "langgraph_graphs:warehouse_ui_agent"
+    "databot": "tahoepilot.server.graphs:databot_ui_agent",
+    "knowledge": "tahoepilot.server.graphs:knowledge_ui_agent",
+    "lead": "tahoepilot.server.graphs:lead_ui_agent",
+    "warehouse": "tahoepilot.server.graphs:warehouse_ui_agent"
   },
   "env": ".env",
   "http": {
-    "app": "agui_server:app"
+    "app": "tahoepilot.server.app:app"
   }
 }

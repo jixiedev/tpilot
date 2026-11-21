@@ -57,28 +57,28 @@ pip install -e '.[web,k8s,rag]'
 
 2. **Data connections.** Set Hive, Trino, DataHub, S3, Kubernetes and web-search settings in `config/tools.toml`; secrets go in `secrets.env` under the names the `*_env` keys give.
 3. **MCP servers (optional).** Copy `config/mcp.json.example` to `config/mcp.json` and fill in the servers. If it is missing or a server is down, those tools are skipped with a warning.
-4. **Knowledge base (optional).** Start Qdrant and ingest Jira / dbt data as described in [rag/README.md](rag/README.md).
+4. **Knowledge base (optional).** Start Qdrant and ingest Jira / dbt data as described in [tahoepilot/rag/README.md](tahoepilot/rag/README.md).
 
 See [config/README.md](config/README.md) for every setting.
 
 ### Run the CLI
 
 ```bash
-python main.py
+python -m tahoepilot
 ```
 
 Type at the `You>` prompt; `quit` exits. Useful flags:
 
 ```bash
-python main.py --agent databot     # talk to databot (or any specialist) directly
-python main.py -s alice            # named session, resumable across restarts
-python main.py -u alice            # user id for the stored profile
-python main.py -v                  # also print checkpoint and profile paths
+python -m tahoepilot --agent databot     # talk to databot (or any specialist) directly
+python -m tahoepilot -s alice            # named session, resumable across restarts
+python -m tahoepilot -u alice            # user id for the stored profile
+python -m tahoepilot -v                  # also print checkpoint and profile paths
 ```
 
 ### Run the web UI
 
-Install the frontend once (`cd frontend && npm install`), download the retrieval models once (`python -m rag download`), then start both servers:
+Install the frontend once (`cd frontend && npm install`), download the retrieval models once (`python -m tahoepilot.rag download`), then start both servers:
 
 ```bash
 ./scripts/dev.sh start     # langgraph dev on :8000 (with /agui/lead, /agui/databot) and Next.js on :3000
@@ -102,14 +102,14 @@ Reader-facing documentation is published at [jixiedev.github.io/tpilot](https://
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | Understand the system, core concepts and design principles |
 | [docs/FRONTEND_BACKEND.md](docs/FRONTEND_BACKEND.md) | Follow a chat turn from the browser through Next.js, the AG-UI server and the graph, and see which state each part holds |
 | [docs/INTERRUPTS_AND_CHECKPOINTS.md](docs/INTERRUPTS_AND_CHECKPOINTS.md) | Understand checkpoint storage, how human gates pause a run (also inside a delegated specialist) and how resume continues it |
-| [agent/README.md](agent/README.md) | Learn how agents run a turn, how the lead plans and delegates, and how to add one |
-| [agent/specialists/databot/README.md](agent/specialists/databot/README.md) | Understand Databot's staged pipeline and human gates |
-| [agent/specialists/warehouse/README.md](agent/specialists/warehouse/README.md) | Understand the warehouse specialist and its SQL review |
+| [tahoepilot/agent/README.md](tahoepilot/agent/README.md) | Learn how agents run a turn, how the lead plans and delegates, and how to add one |
+| [tahoepilot/agent/specialists/databot/README.md](tahoepilot/agent/specialists/databot/README.md) | Understand Databot's staged pipeline and human gates |
+| [tahoepilot/agent/specialists/warehouse/README.md](tahoepilot/agent/specialists/warehouse/README.md) | Understand the warehouse specialist and its SQL review |
 | [docs/databot-graph.html](docs/databot-graph.html) | The Databot state machine in full: every stage, gate and transition |
-| [tools/README.md](tools/README.md) | See every tool, how agents get them, and how to add one |
+| [tahoepilot/tools/README.md](tahoepilot/tools/README.md) | See every tool, how agents get them, and how to add one |
 | [config/README.md](config/README.md) | Configure agents, prompts, connections, models and paths |
-| [memory/README.md](memory/README.md) | Understand context compression and user profiles |
-| [rag/README.md](rag/README.md) | Ingest Jira / Drive / dbt data and tune retrieval |
+| [tahoepilot/memory/README.md](tahoepilot/memory/README.md) | Understand context compression and user profiles |
+| [tahoepilot/rag/README.md](tahoepilot/rag/README.md) | Ingest Jira / Drive / dbt data and tune retrieval |
 | [evals/README.md](evals/README.md) | Write and run eval cases |
 | [frontend/README.md](frontend/README.md) | Run and extend the web UI and AG-UI server |
 | [docs/ROADMAP.md](docs/ROADMAP.md) | Project roadmap |
@@ -119,20 +119,24 @@ Reader-facing documentation is published at [jixiedev.github.io/tpilot](https://
 ## Repository layout
 
 ```
-agent/        agents: base class, catalog, turn lifecycle, lead/, subagent contract, specialists (databot/, warehouse/, …)
-graph/        LangGraph building blocks: ReAct builder, nodes, state, error recovery
-tools/        tool registry and tools (data/, external/datahub/, code/, rag/, mcp/, web/, k8s, plan)
-memory/       context compression, offload store, user profiles, session runtime
-config/       all configuration files (mountable as one volume): agents/*.toml, tools.toml, runtime.toml, models.toml, rag.toml, mcp.json, metrics/
-settings/     loaders that parse config/ into typed objects; config_dir() in paths.py
-semantic_models/  dbt semantic models <db>/<model>.{yml,sql} (git-sync mount point in k8s)
-models/       the LLM factory (reads config/models.toml)
-rag/          ingest pipeline and Qdrant retrieval helpers
-evals/        eval case types, scoring, cases/*.json
-frontend/     Next.js + CopilotKit web UI
-docs_site/    GitHub Pages site (MkDocs Material; sources the READMEs above)
-cli.py        terminal chat           agui_server.py      AG-UI server for the web UI
-main.py       `tahoepilot` entry      langgraph_graphs.py graphs for `langgraph dev`
+tahoepilot/             the Python package (`python -m tahoepilot`, or the `tahoepilot` command)
+  agent/                agents: base class, catalog, turn lifecycle, lead/, subagent contract, specialists (databot/, warehouse/, …)
+    graph/              LangGraph building blocks: ReAct builder, nodes, state, error recovery
+  tools/                tool registry and tools (data/, external/datahub/, code/, rag/, mcp/, web/, k8s, plan)
+  memory/               context compression, offload store, user profiles, session runtime
+  settings/             loaders that parse config/ into typed objects; config_dir() in paths.py
+  models/               the LLM factory (reads config/models.toml)
+  rag/                  ingest pipeline and Qdrant retrieval helpers (`python -m tahoepilot.rag`)
+  server/               AG-UI server for the web UI (app.py), login (auth.py), graphs for `langgraph dev` (graphs.py)
+  cli.py                terminal chat
+config/                 all configuration files (mountable as one volume): agents/*.toml, tools.toml, runtime.toml, models.toml, rag.toml, mcp.json, metrics/
+semantic_models/        dbt semantic models <db>/<model>.{yml,sql} (git-sync mount point in k8s)
+evals/                  eval case types, scoring, cases/*.json (`python -m evals`)
+tests/                  unit tests (`python -m pytest`)
+frontend/               Next.js + CopilotKit web UI
+docs_site/              GitHub Pages site (MkDocs Material; sources the READMEs above)
+docker/                 one image for every component (Dockerfile, entrypoint.sh)
+.local/                 runtime state (checkpoints, logs, Qdrant data); not tracked
 ```
 
 ## Tech stack

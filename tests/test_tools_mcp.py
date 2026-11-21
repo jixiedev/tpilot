@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from tools.mcp import client as mcp_module
+from tahoepilot.tools.mcp import client as mcp_module
 
 
 def test_expand_env_vars_substitutes_when_set(monkeypatch: pytest.MonkeyPatch) -> None:

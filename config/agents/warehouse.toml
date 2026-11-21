@@ -140,7 +140,7 @@ answer, keep it short, include the evidence above. Status lines during tool
 use: at most one short sentence, written to the user.
 """
 
-# Context-compression thresholds (memory/README.md#configuration).
+# Context-compression thresholds (tahoepilot/memory/README.md#configuration).
 [compression]
 # Start from base.toml's [compression] table and overlay the keys below.
 extends = "base"

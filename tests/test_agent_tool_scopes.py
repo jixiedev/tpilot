@@ -7,10 +7,10 @@ from pathlib import Path
 import pytest
 from langchain_core.tools import tool
 
-from agent.catalog import AgentCatalog
-from settings.agent_config import agent_tool_scopes, tool_groups
-from tools.bootstrap import ensure_tools_registered
-from tools.registry import register_tool, registered_tools
+from tahoepilot.agent.catalog import AgentCatalog
+from tahoepilot.settings.agent_config import agent_tool_scopes, tool_groups
+from tahoepilot.tools.bootstrap import ensure_tools_registered
+from tahoepilot.tools.registry import register_tool, registered_tools
 
 
 def test_every_configured_tool_is_registered():
@@ -50,7 +50,7 @@ def test_scopes_follow_config():
 
 
 def test_specialists_keep_generic_planning_tool_lead_does_not():
-    import tools.plan as generic
+    import tahoepilot.tools.plan as generic
 
     ensure_tools_registered()
     swe_tools = AgentCatalog.tools_for("swe", "default")

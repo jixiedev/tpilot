@@ -5,8 +5,8 @@
 #
 # The AG-UI endpoint that backs the CopilotKit chat is mounted inside
 # ``langgraph dev`` itself (via ``http.app`` in langgraph.json pointing
-# at ``agui_server.py:app``), so you only need TWO terminals — not
-# three. See ``agui_server.py`` for the AG-UI wiring details.
+# at ``tahoepilot/server/app.py:app``), so you only need TWO terminals — not
+# three. See ``tahoepilot/server/app.py`` for the AG-UI wiring details.
 #
 # Usage:
 #   1. terminal A:  ./scripts/dev.sh backend
@@ -30,7 +30,7 @@ ROOT="$(cd "$HERE/.." && pwd)"
 # Falls back to those .local/ defaults when the project venv cannot be used.
 read_runtime_dirs() {
   (cd "$ROOT" && .venv/bin/python -c \
-    'from settings.runtime_config import get_runtime_paths as g; p = g(); print(p.run_dir); print(p.langgraph_dir)' \
+    'from tahoepilot.settings.runtime_config import get_runtime_paths as g; p = g(); print(p.run_dir); print(p.langgraph_dir)' \
     2>/dev/null) || true
 }
 { read -r RUN_DIR; read -r LANGGRAPH_DIR; } < <(read_runtime_dirs) || true
@@ -77,7 +77,7 @@ start_langgraph_bg() {
 # port and backend URL keep next dev's own defaults.
 export_frontend_auth() {
   TAHOEPILOT_AUTH_ENABLED="$(cd "$ROOT" && .venv/bin/python -c \
-    'from settings.server_config import frontend_env; print(frontend_env()["TAHOEPILOT_AUTH_ENABLED"])' \
+    'from tahoepilot.settings.server_config import frontend_env; print(frontend_env()["TAHOEPILOT_AUTH_ENABLED"])' \
     2>/dev/null || echo false)"
   export TAHOEPILOT_AUTH_ENABLED
 }
@@ -159,7 +159,7 @@ status_check() {
 case "$cmd" in
   backend)
     # ``langgraph dev`` is the parent for the AG-UI module
-    # (``agui_server.py:app`` via ``langgraph.json http.app``). It needs
+    # (``tahoepilot/server/app.py:app`` via ``langgraph.json http.app``). It needs
     # the same LLM API keys we already loaded into this shell above, but
     # nohup'd background invocations do NOT inherit ``set -a`` exports
     # reliably across every process group on macOS — so re-export the
@@ -190,7 +190,7 @@ case "$cmd" in
   status)
     status_check 8000 "langgraph dev  "
     status_check 3000 "next dev       "
-    # Each front agent has its own AG-UI endpoint (agui_server.FRONT_AGENTS).
+    # Each front agent has its own AG-UI endpoint (tahoepilot.server.app.FRONT_AGENTS).
     # An empty POST is 422 (missing RunAgentInput fields) when it is mounted.
     for agent in lead databot; do
       url="http://127.0.0.1:8000/agui/${agent}"

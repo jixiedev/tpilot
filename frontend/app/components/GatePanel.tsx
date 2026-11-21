@@ -19,7 +19,7 @@ import { DATABOT_AGENT_ID, databotStateOf } from "./databotAgent";
 // emits AG-UI v2 standard interrupts via the ``RUN_FINISHED`` event
 // (the AG-UI server wraps the LangGraph ``interrupt(...)`` payload in
 // an ``outcome.type === "interrupt"`` envelope — see
-// ``agui_server.py`` for the flags that make this happen). We mount
+// ``tahoepilot/server/app.py`` for the flags that make this happen). We mount
 // the gate UI off the chat via ``useInterrupt({ renderInChat: false })``
 // so it stays in the existing right-column slot; the hook gives us a
 // live element whenever the graph is paused and a ``resolve(payload)``
@@ -28,7 +28,7 @@ import { DATABOT_AGENT_ID, databotStateOf } from "./databotAgent";
 // ``Command(resume=...)`` to unblock the graph.
 //
 // We parse the ``message`` field of each interrupt as a JSON payload
-// matching the contract in ``agent/specialists/databot/gates.py``:
+// matching the contract in ``tahoepilot/agent/specialists/databot/gates.py``:
 //   {
 //     "question": "...", "options": [{"id": "approve", ...}, ...],
 //     "default": "approve|deny-comments|deny-halt|dryrun|skip|chart",

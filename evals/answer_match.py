@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from graph.messages import extract_json_object
+from tahoepilot.agent.graph.messages import extract_json_object
 
 __all__ = ["extract_json_object", "score_answer", "values_equal"]
 

@@ -13,8 +13,8 @@ Every agent graph is compiled with one LangGraph checkpointer, an
 
 | Entry point | How the saver is opened |
 |---|---|
-| `agui_server.py` | `CheckpointStore` (`CHECKPOINTS`): one long-lived `aiosqlite` connection, opened on first use and closed at shutdown. Every request's `aget_state` needs it, so it cannot be scoped to a request. Shared by `lead` and `databot`. |
-| `cli.py` | `AsyncSqliteSaver.from_conn_string(...)` for the whole CLI session |
+| `tahoepilot/server/app.py` | `CheckpointStore` (`CHECKPOINTS`): one long-lived `aiosqlite` connection, opened on first use and closed at shutdown. Every request's `aget_state` needs it, so it cannot be scoped to a request. Shared by `lead` and `databot`. |
+| `tahoepilot/cli.py` | `AsyncSqliteSaver.from_conn_string(...)` for the whole CLI session |
 
 The saver reaches the graphs through `AgentCatalogSettings(checkpointer=...)` →
 `AgentCatalog` → `build_react_graph(..., checkpointer=...)` →
@@ -28,7 +28,7 @@ nodes), keyed by:
 
 | Key | Meaning |
 |---|---|
-| `thread_id` | The conversation: CopilotKit's `threadId` on the web, `--session` in the CLI (`agent/session.py`) |
+| `thread_id` | The conversation: CopilotKit's `threadId` on the web, `--session` in the CLI (`tahoepilot/agent/session.py`) |
 | `checkpoint_ns` | `""` for the root graph; `step_action:<task id>` for a specialist nested in the lead's `delegate`; deeper levels joined with `\|` (databot's layer subgraphs) |
 | `checkpoint_id` | One per super-step; the latest is the thread's current state |
 
@@ -49,7 +49,7 @@ had returned `patch`; reducers apply (`messages` appends, other keys replace).
 | AG-UI adapter | New turn on the web: input merged through reducers at run start; regenerate forks from an earlier checkpoint |
 | `BaseAgent.commit_turn` (CLI only) | After a finished turn: `commit_turn_state` (profile refinement, domain records), written with `aupdate_state` |
 | `/agui/databot/actions` | Card selection / SQL edits on a paused databot layer |
-| `patch_paused_state` (`agent/lead/paused.py`) | Edits to a specialist paused inside a lead run (tests only; no endpoint yet) |
+| `patch_paused_state` (`tahoepilot/agent/lead/paused.py`) | Edits to a specialist paused inside a lead run (tests only; no endpoint yet) |
 
 Nothing prunes old checkpoints; the SQLite file grows with every super-step of
 every thread.
@@ -58,8 +58,8 @@ every thread.
 
 | Gate | Code | Payload (`interrupt(value)`) | Resume parsed by |
 |---|---|---|---|
-| Warehouse SQL review | `request_sql_approval` tool, `agent/specialists/warehouse/tools.py` (only when the review gate is on) | `{"id": "warehouse-sql-gate", "reason": …, "message": JSON{gate, question, sql, explanation, tables, options, default}}` | `parse_gate_resume`: `approve` (optionally with edited `sql`), `revise` + comments, `stop` |
-| Databot cards gate, SQL gate | `ask_gate` in `agent/specialists/databot/gates.py`, called by the `gate_cards` / `gate_sql` nodes | `{"id": "databot-<gate>-gate", "reason": …, "message": JSON gate prompt}` | `parse_resume`: one of `GATE_OPTIONS`, plain text or `{decision, comments}` |
+| Warehouse SQL review | `request_sql_approval` tool, `tahoepilot/agent/specialists/warehouse/tools.py` (only when the review gate is on) | `{"id": "warehouse-sql-gate", "reason": …, "message": JSON{gate, question, sql, explanation, tables, options, default}}` | `parse_gate_resume`: `approve` (optionally with edited `sql`), `revise` + comments, `stop` |
+| Databot cards gate, SQL gate | `ask_gate` in `tahoepilot/agent/specialists/databot/gates.py`, called by the `gate_cards` / `gate_sql` nodes | `{"id": "databot-<gate>-gate", "reason": …, "message": JSON gate prompt}` | `parse_resume`: one of `GATE_OPTIONS`, plain text or `{decision, comments}` |
 
 `interrupt(value)` raises `GraphInterrupt`. The first time a node reaches it,
 the run stops and the value is stored with the pending task. On resume the node
@@ -87,8 +87,8 @@ three layers that would otherwise swallow it:
 ```
 lead graph
  └─ step_action node (StepActionNode, a ToolNode)
-     └─ retrying tool wrapper (graph/error_recovery.py)
-         └─ delegate tool (agent/lead/tools.py)
+     └─ retrying tool wrapper (tahoepilot/agent/graph/error_recovery.py)
+         └─ delegate tool (tahoepilot/agent/lead/tools.py)
              └─ warehouse.run_as_subagent → nested graph.ainvoke
                  └─ step_action → request_sql_approval → interrupt(...)
 ```
@@ -143,7 +143,7 @@ happens with a new interrupt.
 
 | Path | How |
 |---|---|
-| CLI | `AgentTurnResult.ainvoke` (`agent/turn.py`) loops while the result has `__interrupt__`: it asks `on_interrupt(question)` and calls `graph.ainvoke(Command(resume=reply), config)`. A `None` reply cancels; the thread stays paused in the checkpoint. Without `on_interrupt` an interrupt raises `RuntimeError`. |
+| CLI | `AgentTurnResult.ainvoke` (`tahoepilot/agent/turn.py`) loops while the result has `__interrupt__`: it asks `on_interrupt(question)` and calls `graph.ainvoke(Command(resume=reply), config)`. A `None` reply cancels; the thread stays paused in the checkpoint. Without `on_interrupt` an interrupt raises `RuntimeError`. |
 | Web | The browser sends a run with `resume: [{interruptId, value}]` (`useInterrupt` → `resolve(payload)` on `/lead`; `buildResumeArray` + `agent.runAgent({resume})` on `/databot`). The adapter turns it into `Command(resume=…)` and does not merge the client's `state` or `messages`. A run on a paused thread **without** `resume` does not run the graph; the adapter re-emits the pending interrupt. |
 
 Because resumes are separate requests, any server process with the same
@@ -155,7 +155,7 @@ While a gate waits, the outer snapshot does not show what the user is
 reviewing:
 
 - **Lead + specialist.** The lead's state gets the specialist's view only when
-  `delegate` returns. `agent/lead/paused.py` finds the paused delegation
+  `delegate` returns. `tahoepilot/agent/lead/paused.py` finds the paused delegation
   (`find_paused_delegation`: pending `step_action` task with an interrupt +
   the unanswered `delegate` call → agent name → config with
   `checkpoint_ns = "step_action:<task id>"`). LangGraph resolves a namespace
@@ -163,7 +163,7 @@ reviewing:
   so the config also carries the checkpointer explicitly
   (`CONFIG_KEY_CHECKPOINTER`, an internal LangGraph key).
   `live_subagent_view` returns `{"name", "state": specialist.ui_view(...),
-  "paused": True}`; `LeadGraphView.aget_state` (agui_server.py) puts it in
+  "paused": True}`; `LeadGraphView.aget_state` (tahoepilot/server/app.py) puts it in
   `active_subagent` of root snapshots, so `STATE_SNAPSHOT` carries the pending
   SQL. `patch_paused_state` can write edits into that snapshot (resolving a
   databot layer subgraph when needed); the gate reads them on resume.

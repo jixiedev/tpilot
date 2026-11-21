@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from tools.plan import PlanToolError, clear_plans, planning, run_planning
+from tahoepilot.tools.plan import PlanToolError, clear_plans, planning, run_planning
 
 
 @pytest.fixture(autouse=True)

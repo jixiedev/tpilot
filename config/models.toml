@@ -1,4 +1,4 @@
-# Chat model registry, read by models/llm.py. Each [model."<name>"] table is one
+# Chat model registry, read by tahoepilot/models/llm.py. Each [model."<name>"] table is one
 # model the agents can use; <name> is passed to the provider as the model id.
 # Every model is built with langchain's init_chat_model(...).
 

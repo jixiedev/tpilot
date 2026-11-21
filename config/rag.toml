@@ -1,4 +1,4 @@
-# Retrieval (RAG) settings, read by rag/config.py: Qdrant, local embedding and
+# Retrieval (RAG) settings, read by tahoepilot/rag/config.py: Qdrant, local embedding and
 # rerank models, the model weight cache, and Tika for document ingest.
 
 [qdrant]
@@ -35,7 +35,7 @@ model = "BAAI/bge-reranker-v2-m3"
 prefetch_limit = 50
 
 [local_models]
-# Cache for embedding/rerank weights (`python -m rag download`). Absolute, ~, or
+# Cache for embedding/rerank weights (`python -m tahoepilot.rag download`). Absolute, ~, or
 # relative to the project root.
 dir = "~/.cache/tahoepilot/models"
 # Hugging Face endpoint (e.g. "https://hf-mirror.com"); empty = huggingface.co, then

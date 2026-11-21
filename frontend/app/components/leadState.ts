@@ -6,12 +6,12 @@
 // - `work_record`: every delegation so far, newest last.
 // - `active_subagent`: the latest specialist's UI view; `paused` while it waits
 //   for the user (the server overlays its live state).
-// Keep in sync with `agent/lead/state.py`, `agent/lead/paused.py` and
-// `agent/specialists/warehouse/warehouse_agent.py` (`ui_view`).
+// Keep in sync with `tahoepilot/agent/lead/state.py`, `tahoepilot/agent/lead/paused.py` and
+// `tahoepilot/agent/specialists/warehouse/warehouse_agent.py` (`ui_view`).
 
 import type { ExecutionResult } from "./types";
 
-/** CopilotKit / AG-UI agent id; must match `agui_server.LEAD_AGENT` and the runtime route. */
+/** CopilotKit / AG-UI agent id; must match `tahoepilot.server.app.LEAD_AGENT` and the runtime route. */
 export const LEAD_AGENT_ID = "lead";
 
 export const WAREHOUSE_SUBAGENT = "warehouse";
@@ -119,7 +119,7 @@ export function parseDelegateResult(result: unknown): DelegateResult | null {
   }
 }
 
-/** Interrupt payload of warehouse's SQL review (`agent/specialists/warehouse/tools.py`). */
+/** Interrupt payload of warehouse's SQL review (`tahoepilot/agent/specialists/warehouse/tools.py`). */
 export interface SqlReviewInterrupt {
   gate: "warehouse_sql";
   question: string;

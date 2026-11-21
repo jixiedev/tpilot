@@ -236,7 +236,7 @@ Deliver the full retrieval answer in assistant message text with no tool calls.
 Status lines during tool use must follow the Chat style rules.
 """
 
-# Context-compression thresholds (memory/README.md#configuration).
+# Context-compression thresholds (tahoepilot/memory/README.md#configuration).
 [compression]
 # Start from base.toml's [compression] table and overlay the keys below.
 extends = "base"

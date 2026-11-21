@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from tools.web.search import (
+from tahoepilot.tools.web.search import (
     BraveWebSearchClient,
     DuckDuckGoWebSearchClient,
     TavilyWebSearchClient,

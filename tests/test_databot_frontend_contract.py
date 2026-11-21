@@ -5,8 +5,8 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from agent.specialists.databot.graph import VALID_PHASES
-from agent.specialists.databot.ui_actions import DATABOT_STATE_KEYS
+from tahoepilot.agent.specialists.databot.graph import VALID_PHASES
+from tahoepilot.agent.specialists.databot.ui_actions import DATABOT_STATE_KEYS
 
 _COMPONENTS = Path(__file__).resolve().parents[1] / "frontend" / "app" / "components"
 

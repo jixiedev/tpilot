@@ -7,7 +7,7 @@ import { LEAD_AGENT_ID, parseSqlReviewInterrupt, type SqlReviewInterrupt } from 
 /**
  * Warehouse's SQL review, rendered in the chat while the lead's run is paused.
  * The reply resumes the run: `{decision: "approve" | "revise" | "stop", sql?, comments?}`
- * (parsed by `parse_gate_resume` in `agent/specialists/warehouse/tools.py`).
+ * (parsed by `parse_gate_resume` in `tahoepilot/agent/specialists/warehouse/tools.py`).
  */
 export function SqlReviewGate() {
   useInterrupt({

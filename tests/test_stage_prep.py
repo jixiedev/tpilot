@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
-from agent.specialists.databot.graph import DatabotTopology
-from agent.specialists.databot.graph import PHASE_PREPARE_CARDS
+from tahoepilot.agent.specialists.databot.graph import DatabotTopology
+from tahoepilot.agent.specialists.databot.graph import PHASE_PREPARE_CARDS
 
 
 class _FakeChatModel:

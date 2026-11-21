@@ -1,5 +1,5 @@
 # Named tool sets referenced as "@<group>" from an agent's [tools] table.
-# Tools register by name (tools.registry.register_tool); see agent/catalog.py.
+# Tools register by name (tahoepilot.tools.registry.register_tool); see tahoepilot/agent/catalog.py.
 
 # Context management: compact history, read offloaded tool results.
 memory = ["compact_context", "read_offloaded_file"]
@@ -33,7 +33,7 @@ k8s = [
 ]
 # DataHub catalog: datasets, lineage, queries, owners, dashboards. No glossary tool:
 # metric and model questions use the metric catalog (search_metric_catalog,
-# find_models_metrics in tools/data/metrics.py).
+# find_models_metrics in tahoepilot/tools/data/metrics.py).
 datahub = [
     "datahub_get_dataset_queries",
     "datahub_get_lineage",

@@ -3,14 +3,14 @@
  * client components).
  *
  * The backend checks the password against LDAP and returns a signed session
- * token (`agui_auth.py`). It is kept in an httpOnly cookie, so page scripts
+ * token (`tahoepilot/server/auth.py`). It is kept in an httpOnly cookie, so page scripts
  * cannot read it, and turned into `Authorization: Bearer <token>` on every call
  * to the backend. The backend verifies the token; nothing here does.
  */
 
 export const SESSION_COOKIE = "tp_session";
 
-/** `[auth].enabled` in server.toml, exported by `python -m settings.server_config`. */
+/** `[auth].enabled` in server.toml, exported by `python -m tahoepilot.settings.server_config`. */
 export function authEnabled(): boolean {
   return (process.env.TAHOEPILOT_AUTH_ENABLED || "").toLowerCase() === "true";
 }

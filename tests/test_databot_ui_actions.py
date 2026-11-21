@@ -6,7 +6,7 @@ import pytest
 
 from langchain_core.messages import HumanMessage
 
-from agent.specialists.databot.ui_actions import apply_cards_gate_redraft, apply_propose_sql, apply_request_sql_regenerate, apply_sql_gate_redraft, apply_update_card_selection, build_ui_action_patch, is_gate_redraft_message, user_question_from_messages
+from tahoepilot.agent.specialists.databot.ui_actions import apply_cards_gate_redraft, apply_propose_sql, apply_request_sql_regenerate, apply_sql_gate_redraft, apply_update_card_selection, build_ui_action_patch, is_gate_redraft_message, user_question_from_messages
 
 
 def test_apply_update_card_selection_resolves_candidates() -> None:

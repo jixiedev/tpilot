@@ -6,9 +6,9 @@ The CLI is `python -m evals`. Cases live in this repo under `evals/cases/`, so a
 
 Related docs:
 
-- [`agent/README.md`](../agent/README.md) — agents, `AgentCatalog`, `AgentListener`, and the lead agent.
-- [`agent/specialists/databot/README.md`](../agent/specialists/databot/README.md) — Databot behavior.
-- [`tools/README.md`](../tools/README.md) — tool names that appear in `expected_tools`.
+- [`tahoepilot/agent/README.md`](../tahoepilot/agent/README.md) — agents, `AgentCatalog`, `AgentListener`, and the lead agent.
+- [`tahoepilot/agent/specialists/databot/README.md`](../tahoepilot/agent/specialists/databot/README.md) — Databot behavior.
+- [`tahoepilot/tools/README.md`](../tahoepilot/tools/README.md) — tool names that appear in `expected_tools`.
 - [`config/README.md`](../config/README.md) — per-agent tool sets and prompts in `config/agents/*.toml`.
 
 ## Concepts
@@ -236,7 +236,7 @@ Runs worth keeping go in `evals/results/<agent>/`, next to the agent's cases fol
 
 ## Model selection: comparing retrieval tools
 
-`--agent model_selection` measures how well each retrieval setup leads an LLM to the right dbt model. The `model_selection` agent ([`agent/specialists/model_selection`](../agent/specialists/model_selection/model_selection_agent.py), `config/agents/model_selection.toml`) only chooses a model and ends with a JSON choice (`model`, `alternatives`, `root_id`, `member_id`, `reason`). It is a front agent, so the lead never delegates to it.
+`--agent model_selection` measures how well each retrieval setup leads an LLM to the right dbt model. The `model_selection` agent ([`tahoepilot/agent/specialists/model_selection`](../tahoepilot/agent/specialists/model_selection/model_selection_agent.py), `config/agents/model_selection.toml`) only chooses a model and ends with a JSON choice (`model`, `alternatives`, `root_id`, `member_id`, `reason`). It is a front agent, so the lead never delegates to it.
 
 Its batches define three variants, each with only that arm's tools and workflow prompt:
 
@@ -260,7 +260,7 @@ Results and analysis of the 69-case run: [`results/model_selection/README.md`](r
 
 1. Pick the agent folder and the batch whose objective the case tests, or create `evals/cases/<agent>/<objective>.json` (it is picked up automatically and runs by default).
 2. Give the case a `name`, `query` and the expectation keys for what it should be scored on; put shared expectations in the batch `defaults`.
-3. Use tool names exactly as registered (see [`tools/README.md`](../tools/README.md) and `config/agents/<agent>.toml`).
+3. Use tool names exactly as registered (see [`tahoepilot/tools/README.md`](../tahoepilot/tools/README.md) and `config/agents/<agent>.toml`).
 4. When `answer` is set, tell the model in `query` to reply with a single JSON object of that shape.
 5. Run `--list-groups`, then the batch with one cheap model.
 

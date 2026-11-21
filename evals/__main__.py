@@ -13,7 +13,7 @@ import json
 import sys
 from pathlib import Path
 
-import settings.paths  # noqa: F401 — loads .env and the secrets file first
+import tahoepilot.settings.paths  # noqa: F401 — loads .env and the secrets file first
 from langchain_core.language_models import BaseChatModel
 
 DEFAULT_AGENT = "databot"
@@ -54,7 +54,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
 
 
 def resolve_eval_model(model_name: str) -> BaseChatModel:
-    from models.llm import get_model_by_name
+    from tahoepilot.models.llm import get_model_by_name
 
     try:
         return get_model_by_name(model_name)
@@ -66,10 +66,10 @@ async def create_eval_agent(agent_name: str, model_name: str, *, run_context: di
     """Build the agent as production does, with an in-memory checkpointer and no compression."""
     from langgraph.checkpoint.memory import MemorySaver
 
-    from agent.catalog import AgentCatalog, AgentCatalogSettings
-    from agent.listener import AgentListener
-    from agent.runtime import TahoeRuntimeHelper
-    from memory import CompressionConfig
+    from tahoepilot.agent.catalog import AgentCatalog, AgentCatalogSettings
+    from tahoepilot.agent.listener import AgentListener
+    from tahoepilot.agent.runtime import TahoeRuntimeHelper
+    from tahoepilot.memory import CompressionConfig
 
     model = resolve_eval_model(model_name)
     catalog = AgentCatalog(
@@ -178,7 +178,7 @@ def main(argv: list[str] | None = None) -> int:
             print(case.id)
         return 0
     if args.list_models:
-        from models.llm import _model_configs, default_model_name
+        from tahoepilot.models.llm import _model_configs, default_model_name
 
         for name in sorted(_model_configs):
             print(f"{name}{' (default)' if name == default_model_name else ''}")

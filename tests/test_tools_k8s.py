@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from tools import k8s as k8s_mod
+from tahoepilot.tools import k8s as k8s_mod
 
 
 def _pod(

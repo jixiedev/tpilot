@@ -1,5 +1,5 @@
-# Metric catalog inputs, read by settings/semantic_config.py for
-# tools/data/metrics.py. Paths may be absolute, start with ~, or be relative to the
+# Metric catalog inputs, read by tahoepilot/settings/semantic_config.py for
+# tahoepilot/tools/data/metrics.py. Paths may be absolute, start with ~, or be relative to the
 # project root. Loaded once per process; changes need a restart.
 
 # dbt semantic models, laid out as <db>/<model>.{yml,sql}. In k8s mount the git-sync

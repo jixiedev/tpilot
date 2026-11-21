@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from tools.code.bash import bash, clear_sessions
+from tahoepilot.tools.code.bash import bash, clear_sessions
 
 
 @pytest.fixture(autouse=True)

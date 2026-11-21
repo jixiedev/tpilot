@@ -6,8 +6,8 @@ from langchain_core.language_models.fake_chat_models import FakeMessagesListChat
 from langchain_core.messages import AIMessage
 from langgraph.graph import START
 
-from agent.router import CompletionToolRouter
-from graph.builder import (
+from tahoepilot.agent.router import CompletionToolRouter
+from tahoepilot.agent.graph.builder import (
     COMPRESS_ON_START,
     REACT_TURN_INIT,
     STEP_REASON,

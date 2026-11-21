@@ -7,9 +7,9 @@ from types import SimpleNamespace
 import pytest
 from langchain_core.runnables import RunnableLambda
 
-from agent.session import SessionUserRequest, session_graph_config, with_run_user
-from memory.profile import UserProfile
-from memory.profile_store import resolve_user_id, run_user_id
+from tahoepilot.agent.session import SessionUserRequest, session_graph_config, with_run_user
+from tahoepilot.memory.profile import UserProfile
+from tahoepilot.memory.profile_store import resolve_user_id, run_user_id
 
 
 def test_session_graph_config_carries_user():
@@ -44,7 +44,7 @@ def test_resolver_reads_the_run_config():
 pytest.importorskip("ag_ui")
 from ag_ui.core.types import RunAgentInput  # noqa: E402
 
-import agui_server  # noqa: E402
+from tahoepilot.server import app as agui_server  # noqa: E402
 
 
 def _input(state):
@@ -92,7 +92,7 @@ async def test_request_user_falls_back_to_thread_then_default(monkeypatch):
     runtime = SimpleNamespace(graph=_Graph({"user_id": "stored"}))
     assert await agui_server._request_user_id(_request({}), runtime, "t") == "stored"
 
-    monkeypatch.setattr("settings.runtime_config.default_user_id", lambda: "fallback")
+    monkeypatch.setattr("tahoepilot.settings.runtime_config.default_user_id", lambda: "fallback")
     runtime = SimpleNamespace(graph=_Graph({}))
     assert await agui_server._request_user_id(_request({}), runtime, "t") == "fallback"
 

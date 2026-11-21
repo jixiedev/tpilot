@@ -7,11 +7,11 @@ from pathlib import Path
 
 import pytest
 
-from settings import agent_config, runtime_config, semantic_config
-from settings.paths import CONFIG_DIR_ENV, DEFAULT_CONFIG_DIR, PROJECT_ROOT, config_dir, config_file
-from settings.server_config import get_server_config
-from tools.data import metrics
-from tools.mcp import client as mcp_client
+from tahoepilot.settings import agent_config, runtime_config, semantic_config
+from tahoepilot.settings.paths import CONFIG_DIR_ENV, DEFAULT_CONFIG_DIR, PROJECT_ROOT, config_dir, config_file
+from tahoepilot.settings.server_config import get_server_config
+from tahoepilot.tools.data import metrics
+from tahoepilot.tools.mcp import client as mcp_client
 
 
 @pytest.fixture
@@ -106,7 +106,7 @@ def test_server_settings_from_server_toml(custom_config_dir):
 
 
 def test_secrets_file_default_and_relative(monkeypatch, tmp_path):
-    from settings.paths import DEFAULT_SECRETS_FILE, SECRETS_FILE_ENV, secrets_file
+    from tahoepilot.settings.paths import DEFAULT_SECRETS_FILE, SECRETS_FILE_ENV, secrets_file
 
     monkeypatch.delenv(SECRETS_FILE_ENV, raising=False)
     assert secrets_file() == DEFAULT_SECRETS_FILE == Path("/tahoepilot/secrets/secrets.env")
@@ -115,7 +115,7 @@ def test_secrets_file_default_and_relative(monkeypatch, tmp_path):
 
 
 def test_secrets_file_loaded_without_overriding_env(monkeypatch, tmp_path):
-    from settings.paths import SECRETS_FILE_ENV, load_env_files
+    from tahoepilot.settings.paths import SECRETS_FILE_ENV, load_env_files
 
     secrets = tmp_path / "s.env"
     secrets.write_text("TP_TEST_SECRET_A=from-file\nTP_TEST_SECRET_B=from-file\n")
@@ -131,7 +131,7 @@ def test_secrets_file_loaded_without_overriding_env(monkeypatch, tmp_path):
 
 
 def test_missing_secrets_file_is_fine(monkeypatch, tmp_path):
-    from settings.paths import SECRETS_FILE_ENV, load_env_files
+    from tahoepilot.settings.paths import SECRETS_FILE_ENV, load_env_files
 
     monkeypatch.setenv(SECRETS_FILE_ENV, str(tmp_path / "absent.env"))
     load_env_files()  # no error

@@ -7,9 +7,9 @@ import {
 import { AGUI_BACKEND_URL, backendAuthHeaders } from "../../../lib/auth";
 
 // ---------------------------------------------------------------------------
-// Path B wiring (see agui_server.py and langgraph.json http.app).
+// Path B wiring (see tahoepilot/server/app.py and langgraph.json http.app).
 //
-// ``langgraph dev`` (port 8000) mounts agui_server.py, which serves one AG-UI
+// ``langgraph dev`` (port 8000) mounts tahoepilot/server/app.py, which serves one AG-UI
 // endpoint per front agent: ``/agui/lead`` and ``/agui/databot``. Each
 // CopilotKit agent below forwards to its endpoint through a plain
 // ``HttpAgent``, so tool calls, state snapshots and interrupts pass 1:1.
@@ -18,7 +18,7 @@ import { AGUI_BACKEND_URL, backendAuthHeaders } from "../../../lib/auth";
 //
 // Visitor identity. Agents are built per request so each call carries the
 // visitor's session: the login cookie (``tp_session``) becomes
-// ``Authorization: Bearer <token>``, which agui_server.py verifies when
+// ``Authorization: Bearer <token>``, which tahoepilot/server/app.py verifies when
 // ``[auth].enabled``. Headers set here win over forwarded ones, so a browser
 // cannot substitute its own. The runtime also forwards the browser request's
 // ``x-*`` headers, which is how an auth proxy's ``X-Tahoepilot-User``
@@ -44,7 +44,7 @@ const runtime = new CopilotRuntime({
     };
   },
   // SSE mode. The real conversation state lives in checkpoints.sqlite
-  // (set up in agui_server.py), this only holds UI thread metadata.
+  // (set up in tahoepilot/server/app.py), this only holds UI thread metadata.
   runner: new InMemoryAgentRunner(),
 });
 

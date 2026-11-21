@@ -4,9 +4,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from agent.catalog import AgentCatalog
-from tools import loader as loader_mod
-from tools.dynamic import register_dynamic_tool_bindings, reset_dynamic_tool_bindings
+from tahoepilot.agent.catalog import AgentCatalog
+from tahoepilot.tools import loader as loader_mod
+from tahoepilot.tools.dynamic import register_dynamic_tool_bindings, reset_dynamic_tool_bindings
 
 
 @pytest.fixture(autouse=True)
@@ -25,7 +25,7 @@ async def test_load_knowledge_tools_prefers_datahub_mcp() -> None:
         return []
 
     with patch(
-        "tools.dynamic.get_tools_for_server",
+        "tahoepilot.tools.dynamic.get_tools_for_server",
         side_effect=_fake_get_tools,
     ):
         await register_dynamic_tool_bindings()
@@ -40,7 +40,7 @@ async def test_load_knowledge_tools_prefers_datahub_mcp() -> None:
 @pytest.mark.asyncio
 async def test_load_knowledge_tools_falls_back_to_native_datahub() -> None:
     with patch(
-        "tools.dynamic.get_tools_for_server",
+        "tahoepilot.tools.dynamic.get_tools_for_server",
         new_callable=AsyncMock,
         return_value=[],
     ):
@@ -50,7 +50,7 @@ async def test_load_knowledge_tools_falls_back_to_native_datahub() -> None:
     names = [t.name for t in tools]
     assert "datahub_list_datasets" in names
     assert "datahub_list_glossary_terms" not in names
-    # Metric and model questions use the metric catalog tools (tools/data/metrics.py).
+    # Metric and model questions use the metric catalog tools (tahoepilot/tools/data/metrics.py).
     assert "search_metric_catalog" in names
     assert "describe_metric_models" in names
     assert "find_models_metrics" not in names  # staging tool: databot / warehouse only
@@ -76,7 +76,7 @@ async def test_knowledge_catalog_identifier_replaced_by_mcp() -> None:
         return []
 
     with patch(
-        "tools.dynamic.get_tools_for_server",
+        "tahoepilot.tools.dynamic.get_tools_for_server",
         side_effect=_fake_get_tools,
     ):
         await register_dynamic_tool_bindings()

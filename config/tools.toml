@@ -1,4 +1,4 @@
-# Connection settings for the data and ops tools, read by settings/tool_config.py
+# Connection settings for the data and ops tools, read by tahoepilot/settings/tool_config.py
 # at import. Only secrets come from the environment: each *_env key names the
 # variable to read, and the inline value next to it is the fallback.
 

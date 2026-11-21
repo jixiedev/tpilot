@@ -1,10 +1,10 @@
 // Databot is a front agent with its own page (`/databot`) and AG-UI endpoint
-// (`/agui/databot`, see `agui_server.py`). Its state arrives at the top level
+// (`/agui/databot`, see `tahoepilot/server/app.py`). Its state arrives at the top level
 // of the agent state: { messages, stage, review_cards, draft_sql, ... }.
 
 import type { DatabotAgentState } from "./types";
 
-/** CopilotKit / AG-UI agent id; must match `agui_server.DATABOT_AGENT` and the runtime route. */
+/** CopilotKit / AG-UI agent id; must match `tahoepilot.server.app.DATABOT_AGENT` and the runtime route. */
 export const DATABOT_AGENT_ID = "databot";
 
 /** Databot's state from the agent state (kept as a function so callers stay agent-agnostic). */

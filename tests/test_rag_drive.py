@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 import pytest
 
-from rag.drive import (
+from tahoepilot.rag.drive import (
     chunk_text,
     collect_google_drive_documents,
     extract_text_from_bytes,
@@ -18,7 +18,7 @@ from rag.drive import (
 @pytest.fixture(autouse=True)
 def _no_qdrant_delete():
     """Ingest deletes a document's old points before upsert; keep tests offline."""
-    with patch("rag.ingest.delete_points_by_doc_keys") as mock_delete:
+    with patch("tahoepilot.rag.ingest.delete_points_by_doc_keys") as mock_delete:
         yield mock_delete
 
 
@@ -68,9 +68,9 @@ def test_collect_google_drive_documents_from_extracted_tree(tmp_path: Path) -> N
     assert zip_path not in list_drive_paths(tmp_path)
 
 
-@patch("rag.ingest.upsert_points")
-@patch("rag.ingest.ensure_collection")
-@patch("rag.ingest.get_embeddings")
+@patch("tahoepilot.rag.ingest.upsert_points")
+@patch("tahoepilot.rag.ingest.ensure_collection")
+@patch("tahoepilot.rag.ingest.get_embeddings")
 def test_upload_google_drive_embeds_chunks(
     mock_embeddings,
     mock_ensure,

@@ -1,14 +1,14 @@
 # TahoePilot web stack
 
-This directory holds the Next.js UI for TahoePilot. It has a landing page and one page per front agent: `/lead` talks to the `lead` agent (answers, plans and delegates to specialists; warehouse's SQL review appears in the chat), and `/databot` talks to `databot` (the staged pipeline with its cards and SQL gates). Each page has its own agent id, AG-UI endpoint and threads. This README covers the whole browser → Next.js → AG-UI → LangGraph path, including the Python side that serves it (`agui_server.py`, `langgraph_graphs.py`, `langgraph.json`, `scripts/dev.sh`).
+This directory holds the Next.js UI for TahoePilot. It has a landing page and one page per front agent: `/lead` talks to the `lead` agent (answers, plans and delegates to specialists; warehouse's SQL review appears in the chat), and `/databot` talks to `databot` (the staged pipeline with its cards and SQL gates). Each page has its own agent id, AG-UI endpoint and threads. This README covers the whole browser → Next.js → AG-UI → LangGraph path, including the Python side that serves it (`tahoepilot/server/app.py`, `tahoepilot/server/graphs.py`, `langgraph.json`, `scripts/dev.sh`).
 
 Related docs:
 
 | Topic | Doc |
 | --- | --- |
-| Agent runtime, catalog, lead, specialists | [agent/README.md](../agent/README.md) |
-| Warehouse specialist and its SQL review | [agent/specialists/warehouse/README.md](../agent/specialists/warehouse/README.md) |
-| Databot pipeline, gates, UI action semantics | [agent/specialists/databot/README.md](../agent/specialists/databot/README.md) |
+| Agent runtime, catalog, lead, specialists | [tahoepilot/agent/README.md](../tahoepilot/agent/README.md) |
+| Warehouse specialist and its SQL review | [tahoepilot/agent/specialists/warehouse/README.md](../tahoepilot/agent/specialists/warehouse/README.md) |
+| Databot pipeline, gates, UI action semantics | [tahoepilot/agent/specialists/databot/README.md](../tahoepilot/agent/specialists/databot/README.md) |
 | Local config, paths, checkpoint DB location | [config/README.md](../config/README.md) |
 | System overview | [docs/ARCHITECTURE.md](../docs/ARCHITECTURE.md) |
 | Request path and state per component (browser → Next.js → AG-UI → graph) | [docs/FRONTEND_BACKEND.md](../docs/FRONTEND_BACKEND.md) |
@@ -24,7 +24,7 @@ Related docs:
 | `/lead` | `app/lead/page.tsx` | `lead` (`LEAD_AGENT_ID`, `app/components/leadState.ts`) | `POST /agui/lead` |
 | `/databot` | `app/databot/page.tsx` | `databot` (`DATABOT_AGENT_ID`, `app/components/databotAgent.ts`) | `POST /agui/databot`, UI actions `POST /agui/databot/actions` |
 
-`AppNav` switches between the two pages. A front agent is one with `front = true` in its TOML (`lead`, `databot`); `agui_server.FRONT_AGENTS` lists the ones served. Both share one SQLite checkpointer, but threads are separate per page.
+`AppNav` switches between the two pages. A front agent is one with `front = true` in its TOML (`lead`, `databot`); `tahoepilot.server.app.FRONT_AGENTS` lists the ones served. Both share one SQLite checkpointer, but threads are separate per page.
 
 ### AG-UI events
 
@@ -34,7 +34,7 @@ Related docs:
 | --- | --- |
 | `RUN_STARTED` | A run for `thread_id` / `run_id` began. |
 | `RUN_FINISHED` | Terminal. With `outcome: {type: "interrupt"}` it means "paused for the user", not "done" (see `emit_interrupt_outcome` below). |
-| `RUN_ERROR` | Terminal. Carries `message` and `code` (`AGENT_RUNTIME_ERROR`, `INCOMPLETE_STREAM` are emitted by `agui_server.py`). |
+| `RUN_ERROR` | Terminal. Carries `message` and `code` (`AGENT_RUNTIME_ERROR`, `INCOMPLETE_STREAM` are emitted by `tahoepilot/server/app.py`). |
 | `STATE_SNAPSHOT` | Full graph state of the page's agent. Lead: `LeadState` (`messages`, `plan`, `work_record`, `active_subagent`, ...). Databot: `DatabotState` at the top level (`stage`, `review_cards`, `draft_sql`, ...). |
 | `MESSAGES_SNAPSHOT` | Full chat transcript. |
 | `TOOL_CALL_START` / `TOOL_CALL_ARGS` / `TOOL_CALL_END` / `TOOL_CALL_RESULT` | One LangGraph tool call, re-emitted by `ag_ui_langgraph.LangGraphAgent`. Rendered as tool cards in the chat. |
@@ -43,7 +43,7 @@ Related docs:
 
 Both agents pause for the user with LangGraph `interrupt(...)`. The payload is `{id, reason, message}` with `message` a JSON string; `LangGraphAgent` ends the run with `RUN_FINISHED` + interrupt outcome, and on the client the interrupt appears in `agent.pendingInterrupts`.
 
-- **Lead: warehouse's SQL review.** `request_sql_approval` (`agent/specialists/warehouse/tools.py`) interrupts with `id = "warehouse-sql-gate"` and `message = {gate: "warehouse_sql", question, sql, explanation, tables, options: ["approve", "revise", "stop"], default}`. Warehouse runs nested inside the lead's `delegate` call, so the interrupt pauses the lead's run, and resuming the lead's thread resumes the review (see `agent/README.md`). `SqlReviewGate` renders it in the chat (`useInterrupt` with the lead's id) and resumes with `{decision: "approve", sql?}` (with `sql` only when the user edited it) or `{decision: "revise" | "stop", comments}`.
+- **Lead: warehouse's SQL review.** `request_sql_approval` (`tahoepilot/agent/specialists/warehouse/tools.py`) interrupts with `id = "warehouse-sql-gate"` and `message = {gate: "warehouse_sql", question, sql, explanation, tables, options: ["approve", "revise", "stop"], default}`. Warehouse runs nested inside the lead's `delegate` call, so the interrupt pauses the lead's run, and resuming the lead's thread resumes the review (see `tahoepilot/agent/README.md`). `SqlReviewGate` renders it in the chat (`useInterrupt` with the lead's id) and resumes with `{decision: "approve", sql?}` (with `sql` only when the user edited it) or `{decision: "revise" | "stop", comments}`.
 - **Databot: cards and SQL gates.** `gates.py` interrupts with `id` `databot-cards-gate` or `databot-sql-gate` and `message = {question, options, default, gate, ...}`. `GatePanel` parses it with `parseGateInterruptMessage()` and renders the decision buttons; `parse_resume()` on the backend accepts a bare decision string or `{decision, comments}`; an empty or unrecognized reply never continues, the gate asks again with a `note`. The payload's `default` only preselects a button. Gate meaning (approve / deny-comments / deny-halt / dryrun) is documented in the Databot README.
 
 ### Threads
@@ -56,7 +56,7 @@ A thread is one conversation. CopilotKit owns the thread id (`agent.threadId`); 
 
 | Location | Usage |
 | --- | --- |
-| `agui_server.py` | `LEAD_AGENT`, `DATABOT_AGENT` in `FRONT_AGENTS`; the endpoint is `agent_path(name)` = `/agui/<name>` and the `LangGraphAgent` is named after it |
+| `tahoepilot/server/app.py` | `LEAD_AGENT`, `DATABOT_AGENT` in `FRONT_AGENTS`; the endpoint is `agent_path(name)` = `/agui/<name>` and the `LangGraphAgent` is named after it |
 | `app/api/copilotkit/[...path]/route.ts` | keys in `CopilotRuntime({ agents: { lead: new HttpAgent(...), databot: new HttpAgent(...) } })` |
 | `app/components/leadState.ts`, `app/components/databotAgent.ts` | `LEAD_AGENT_ID`, `DATABOT_AGENT_ID` |
 | pages | `<CopilotChatConfigurationProvider agentId={...}>` |
@@ -73,8 +73,8 @@ The lead page receives the lead's state. The latest specialist's view is one lev
 ```
 
 - After a delegation returns, `active_subagent` holds the specialist's final UI view (`ui_view`; for warehouse its tables, the latest SQL review and the result with up to 200 rows).
-- While a specialist is paused at a review, the lead's own state does not have its live values yet. `LeadGraphView` (the graph wrapper the AG-UI adapter uses) overlays `active_subagent` on every root `aget_state` with the paused specialist's live view (`live_subagent_view` in `agent/lead/paused.py`) and sets `paused: true`.
-- `leadState.ts` mirrors this: `leadStateOf()`, `warehouseViewOf()` (warehouse's view, or `undefined` when another specialist ran last), `parseDelegateResult()`, `parseSqlReviewInterrupt()`. Keep it in sync with `agent/lead/state.py`, `agent/lead/paused.py` and `WarehouseAgent.ui_view`.
+- While a specialist is paused at a review, the lead's own state does not have its live values yet. `LeadGraphView` (the graph wrapper the AG-UI adapter uses) overlays `active_subagent` on every root `aget_state` with the paused specialist's live view (`live_subagent_view` in `tahoepilot/agent/lead/paused.py`) and sets `paused: true`.
+- `leadState.ts` mirrors this: `leadStateOf()`, `warehouseViewOf()` (warehouse's view, or `undefined` when another specialist ran last), `parseDelegateResult()`, `parseSqlReviewInterrupt()`. Keep it in sync with `tahoepilot/agent/lead/state.py`, `tahoepilot/agent/lead/paused.py` and `WarehouseAgent.ui_view`.
 
 ### Databot state
 
@@ -82,7 +82,7 @@ The databot page receives `DatabotState` at the top level. Databot's gates pause
 
 ## Design philosophy
 
-- **Single backend process.** `langgraph dev` loads `agui_server.py:app` through the `http.app` field of `langgraph.json` and mounts it beside its own LangGraph API routes. There is no separate AG-UI deployment; port 8000 serves both. `python agui_server.py` exists only as a standalone fallback (uvicorn, `[agui].host` / `port` in `config/server.toml`); the Docker image uses it.
+- **Single backend process.** `langgraph dev` loads `tahoepilot/server/app.py:app` through the `http.app` field of `langgraph.json` and mounts it beside its own LangGraph API routes. There is no separate AG-UI deployment; port 8000 serves both. `python -m tahoepilot.server.app` exists only as a standalone fallback (uvicorn, `[agui].host` / `port` in `config/server.toml`); the Docker image uses it.
 - **Next.js is a thin proxy.** The browser only talks to Next.js (`/api/copilotkit/*`, `/api/databot/actions`). Both route handlers forward server-side to `AGUI_BACKEND_URL`, so the FastAPI app needs no CORS setup.
 - **One graph per front agent, one agent clone per request.** `make_runtimes()` creates one `AguiRuntime` per name in `FRONT_AGENTS` (`app.state.runtimes`). Each builds its compiled graph once (lead wrapped in `LeadGraphView`, databot in `DatabotGraphView`) on the shared `CheckpointStore` (one long-lived `aiosqlite` connection behind `AsyncSqliteSaver`). Each request calls `runtime.agent.clone()`, because `LangGraphAgent` keeps per-run state in `self.active_run` and a shared instance breaks under concurrency.
 - **Every stream ends with a terminal event.** `_stream_events()` guarantees the client sees `RUN_FINISHED` or `RUN_ERROR`, so the chat never hangs on a half-closed stream.
@@ -102,8 +102,8 @@ The databot page receives `DatabotState` at the top level. Databot's gates pause
 | Databot page | `app/databot/page.tsx` | Top bar (`AppNav`, theme, Debug toggle, New chat), `CopilotChat` on the left, tool renderers, gate + side panels on the right. Styles in `app/databot.css`. |
 | CopilotKit route | `app/api/copilotkit/[...path]/route.ts` | `CopilotRuntime` with one `HttpAgent` per agent id (`lead` → `${AGUI_BACKEND_URL}/lead`, `databot` → `${AGUI_BACKEND_URL}/databot`), `createCopilotRuntimeHandler({ basePath: "/api/copilotkit" })`, exports `GET` and `POST`. |
 | UI action route | `app/api/databot/actions/route.ts` | `POST` proxy to `${AGUI_BACKEND_URL}/databot/actions`; passes status codes through. |
-| AG-UI server | `agui_server.py` | `/agui/{agent}` and `/agui/{agent}/health` for each front agent, `/agui/databot/actions`, `/health`, lifespan. |
-| LangGraph entry | `langgraph.json`, `langgraph_graphs.py` | Graphs for `langgraph dev`, `.env` loading, `http.app` mount. |
+| AG-UI server | `tahoepilot/server/app.py` | `/agui/{agent}` and `/agui/{agent}/health` for each front agent, `/agui/databot/actions`, `/health`, lifespan. |
+| LangGraph entry | `langgraph.json`, `tahoepilot/server/graphs.py` | Graphs for `langgraph dev`, `.env` loading, `http.app` mount. |
 
 Shared components in `app/components/`:
 
@@ -143,7 +143,7 @@ Databot components in `app/components/` (plus `databotAgent.ts`):
 | `AgentDebugPanel` | Read-only: thread id, message count, tools in state, pending interrupts, running flag, event tick counter. |
 | `useDatabotActions` | Client for UI actions; merges returned `state` with `withDatabotPatch()` and `agent.setState()`. |
 | `databotClientReset.ts` | `resetDatabotAgentView()`: clears messages and resets the databot fields (`EMPTY_DATABOT_STATE`). |
-| `types.ts` | TypeScript mirror of `DatabotState` (`agent/specialists/databot/state.py`). |
+| `types.ts` | TypeScript mirror of `DatabotState` (`tahoepilot/agent/specialists/databot/state.py`). |
 
 ### Chat turn
 
@@ -218,7 +218,7 @@ Supported actions (request body model `DatabotUiActionBody`):
 | `propose_sql` | `sql`, `validated` | `prepare_sql` | `saveSqlDraft()` |
 | `request_sql_regenerate` | `feedback` | `prepare_sql` | Not called by the current UI: `regenerateSql()` resumes the pending SQL gate with `deny-comments` and reports an error when no gate is waiting |
 
-With no databot run on the thread the endpoint returns 409 `no databot run on this thread`; a run that is not in the action's stage gets 409 from the stage check. What each patch writes is defined in `agent/specialists/databot/ui_actions.py` and explained in the Databot README.
+With no databot run on the thread the endpoint returns 409 `no databot run on this thread`; a run that is not in the action's stage gets 409 from the stage check. What each patch writes is defined in `tahoepilot/agent/specialists/databot/ui_actions.py` and explained in the Databot README.
 
 ### Backend details
 
@@ -232,8 +232,8 @@ With no databot run on the thread the endpoint returns 409 `no databot run on th
 - **Why `ag_ui_langgraph.LangGraphAgent`, not `copilotkit.LangGraphAGUIAgent`.** In the pinned versions the latter's `__init__` breaks `agent.clone()`.
 - **Why a hand-rolled endpoint.** `ag_ui_langgraph.add_langgraph_fastapi_endpoint` has no hook for the deferred graph build and its signature changes between versions. `agui_endpoint` (`POST /agui/{agent_name}`) mirrors its body: build, clone, `EventEncoder(accept=...)`, `StreamingResponse`.
 - **Terminal-event guarantee (`_stream_events`).** Client disconnect (`CancelledError`) is logged and re-raised with no further output. Any other exception, including `BaseException` from the agent's background tasks, becomes `RUN_ERROR` with code `AGENT_RUNTIME_ERROR`. A stream that ends without a terminal event gets `RUN_ERROR` with code `INCOMPLETE_STREAM`.
-- **Follow-up tool-call arguments (`agui_history.py`).** A later turn resends the chat, and the adapter parses each assistant tool call's `arguments` with `json.loads`. Streamed calls are sometimes stored as two JSON values in that one string (`null{"agent":"warehouse",...}` or `{"a":"b"}{"sql":"select 1"}`), which raises `JSONDecodeError: Extra data` and ends the run before the graph starts. `AguiHistoryRepair` runs first and keeps one object: the first JSON object in the string, skipping a leading non-object such as `null`. Text that is not JSON at all becomes `{}`. A warning in the backend log names the tool.
-- **`langgraph.json` graphs.** `databot`, `knowledge`, `lead` and `warehouse` point at `langgraph_graphs.py` factories, which build the agent through `AgentCatalog` with a `MemorySaver`. They are served by `langgraph dev`'s own API and Studio. The AG-UI endpoints do not use them: they build their own graphs with the SQLite checkpointer. `"env": ".env"` makes `langgraph dev` load the repo `.env`.
+- **Follow-up tool-call arguments (`tahoepilot/server/history.py`).** A later turn resends the chat, and the adapter parses each assistant tool call's `arguments` with `json.loads`. Streamed calls are sometimes stored as two JSON values in that one string (`null{"agent":"warehouse",...}` or `{"a":"b"}{"sql":"select 1"}`), which raises `JSONDecodeError: Extra data` and ends the run before the graph starts. `AguiHistoryRepair` runs first and keeps one object: the first JSON object in the string, skipping a leading non-object such as `null`. Text that is not JSON at all becomes `{}`. A warning in the backend log names the tool.
+- **`langgraph.json` graphs.** `databot`, `knowledge`, `lead` and `warehouse` point at `tahoepilot/server/graphs.py` factories, which build the agent through `AgentCatalog` with a `MemorySaver`. They are served by `langgraph dev`'s own API and Studio. The AG-UI endpoints do not use them: they build their own graphs with the SQLite checkpointer. `"env": ".env"` makes `langgraph dev` load the repo `.env`.
 
 ## Usage
 
@@ -247,9 +247,9 @@ Key frontend dependencies: `next` 16.3.3, `react` 19.2.8, `@copilotkit/react-cor
 
 ### Environment
 
-Root `.env` (non-secret; loaded by `settings/paths.py`, `scripts/dev.sh` and `langgraph dev`): `TAHOEPILOT_CONFIG_DIR=config`, `TAHOEPILOT_SECRETS_FILE=secrets.env`, `HF_ENDPOINT`, `HF_HUB_DISABLE_XET`.
+Root `.env` (non-secret; loaded by `tahoepilot/settings/paths.py`, `scripts/dev.sh` and `langgraph dev`): `TAHOEPILOT_CONFIG_DIR=config`, `TAHOEPILOT_SECRETS_FILE=secrets.env`, `HF_ENDPOINT`, `HF_HUB_DISABLE_XET`.
 
-`secrets.env` (names only; loaded by `settings/paths.py` and `scripts/dev.sh`):
+`secrets.env` (names only; loaded by `tahoepilot/settings/paths.py` and `scripts/dev.sh`):
 
 | Group | Keys |
 | --- | --- |
@@ -263,12 +263,12 @@ Web-stack settings live in `config/server.toml` (see [config/README.md](../confi
 
 | Key | Read by | Default | Purpose |
 | --- | --- | --- | --- |
-| `[agui].path` | `agui_server.py` | `/agui` | Base path; each front agent is mounted at `<path>/<name>`. Keep `[frontend].backend_url` in step. |
-| `[agui].host`, `[agui].port` | `agui_server.py` `main()` only | `0.0.0.0`, `8000` | Bind address for standalone `python agui_server.py` (the Docker image). |
-| `[agui].subagent_visibility` | `agui_server.py` | `inline` | How a delegated specialist's stream reaches the client (`inline`, `hidden`, `attributed`); see Backend details. |
-| `[agui].emit_raw_events` | `agui_server.py` | `false` | Attaches raw LangGraph events to the stream (debugging only). |
-| `[agui].user_header` | `agui_server.py` | `X-Tahoepilot-User` | Request header naming the visitor; becomes the run's `user_id`. The ingress must set it (CopilotKit forwards `x-*` headers); without it the thread's stored id, then `[user].default_id`, is used. |
-| `[auth].*` | `agui_auth.py`, `agui_server.py`; `TAHOEPILOT_AUTH_ENABLED` for `proxy.ts` | `enabled = false` | Login page (`/login`): LDAP checks the password, only the username is kept. See [docs/FRONTEND_BACKEND.md](../docs/FRONTEND_BACKEND.md#login-page). |
+| `[agui].path` | `tahoepilot/server/app.py` | `/agui` | Base path; each front agent is mounted at `<path>/<name>`. Keep `[frontend].backend_url` in step. |
+| `[agui].host`, `[agui].port` | `tahoepilot/server/app.py` `main()` only | `0.0.0.0`, `8000` | Bind address for standalone `python -m tahoepilot.server.app` (the Docker image). |
+| `[agui].subagent_visibility` | `tahoepilot/server/app.py` | `inline` | How a delegated specialist's stream reaches the client (`inline`, `hidden`, `attributed`); see Backend details. |
+| `[agui].emit_raw_events` | `tahoepilot/server/app.py` | `false` | Attaches raw LangGraph events to the stream (debugging only). |
+| `[agui].user_header` | `tahoepilot/server/app.py` | `X-Tahoepilot-User` | Request header naming the visitor; becomes the run's `user_id`. The ingress must set it (CopilotKit forwards `x-*` headers); without it the thread's stored id, then `[user].default_id`, is used. |
+| `[auth].*` | `tahoepilot/server/auth.py`, `tahoepilot/server/app.py`; `TAHOEPILOT_AUTH_ENABLED` for `proxy.ts` | `enabled = false` | Login page (`/login`): LDAP checks the password, only the username is kept. See [docs/FRONTEND_BACKEND.md](../docs/FRONTEND_BACKEND.md#login-page). |
 | `[frontend].host`, `port`, `backend_url` | `docker/entrypoint.sh` → Next.js `HOSTNAME`, `PORT`, `AGUI_BACKEND_URL` | `0.0.0.0`, `3000`, `http://127.0.0.1:8000/agui` | AG-UI base URL: runs go to `<base>/lead` and `<base>/databot`, UI actions to `<base>/databot/actions`. |
 
 Under `next dev` the route handlers read `AGUI_BACKEND_URL` from the environment (default `http://localhost:8000/agui`). The checkpoint DB path is `[paths].checkpoint_db` in `config/runtime.toml`.
@@ -319,7 +319,7 @@ Backend tests for this layer: `.venv/bin/python -m pytest tests/test_agui_server
 | UI action returns 400 `unknown action` or 422 | Action name not in the endpoint's allow-list, or body fails `DatabotUiActionBody` validation (e.g. empty `thread_id`). |
 | Gate panel or SQL review never appears though the run stopped | Interrupt `message` is not valid gate JSON (`parseGateInterruptMessage` / `parseSqlReviewInterrupt` returns `null`), the hook uses the other page's agent id, or `emit_interrupt_outcome` was turned off. |
 | A state key is missing in the UI | AG-UI drops keys not in the graph's output schema; enable debug logging for `agui_server` to see `_log_schema_keys` output. |
-| Tool calls land in "View in Inspector" instead of the chat | The runtime is not pointed at `/agui/<agent>` through `HttpAgent`; see the comments in `route.ts` and `agui_server.py`. |
+| Tool calls land in "View in Inspector" instead of the chat | The runtime is not pointed at `/agui/<agent>` through `HttpAgent`; see the comments in `route.ts` and `tahoepilot/server/app.py`. |
 
 ## Extension notes
 
@@ -330,16 +330,16 @@ The lead already reaches every specialist through delegation. A specialist only 
 To give an agent its own page and endpoint instead (a new front agent):
 
 1. Set `front = true` in its TOML so the lead does not delegate to it.
-2. In `agui_server.py`, add its name to `FRONT_AGENTS` and `AGENT_DESCRIPTIONS`, and a builder to `GRAPH_BUILDERS` (wrap the graph in a view like `DatabotGraphView` if its interrupts pause inside subgraphs). `make_runtimes()` and `POST /agui/{agent_name}` pick it up.
+2. In `tahoepilot/server/app.py`, add its name to `FRONT_AGENTS` and `AGENT_DESCRIPTIONS`, and a builder to `GRAPH_BUILDERS` (wrap the graph in a view like `DatabotGraphView` if its interrupts pause inside subgraphs). `make_runtimes()` and `POST /agui/{agent_name}` pick it up.
 3. In `app/api/copilotkit/[...path]/route.ts`, add an `HttpAgent` keyed by the agent id pointing at `${AGUI_BACKEND_URL}/<name>`.
 4. Add a page under `app/<name>/page.tsx` with `CopilotChatConfigurationProvider agentId=...`, pass the id to every `useAgent` / `useInterrupt`, and add the page to `AppNav` and the landing page.
 5. Add `useRenderTool` renderers for its tools, or rely on `useDefaultRenderTool`.
-6. If the agent should also be visible in Studio, add a factory to `langgraph_graphs.py` and an entry under `graphs` in `langgraph.json`.
+6. If the agent should also be visible in Studio, add a factory to `tahoepilot/server/graphs.py` and an entry under `graphs` in `langgraph.json`.
 
 ### Adding a UI action end to end
 
-1. **Patch logic** — `agent/specialists/databot/ui_actions.py`: add the name to `DatabotUiAction`, its allowed stages to `ACTION_ALLOWED_STAGES`, an `apply_*` function, and a branch in `build_ui_action_patch()`. If it writes a new state key, add it to `DATABOT_STATE_KEYS` so `databot_state_subset()` returns it.
-2. **Endpoint** — `agui_server.py`: add the name to the allow-list in `databot_ui_action()` and any new field to `DatabotUiActionBody`. Keep reading and writing the paused layer through `DatabotGraphBuilder.aget_active_state()`.
+1. **Patch logic** — `tahoepilot/agent/specialists/databot/ui_actions.py`: add the name to `DatabotUiAction`, its allowed stages to `ACTION_ALLOWED_STAGES`, an `apply_*` function, and a branch in `build_ui_action_patch()`. If it writes a new state key, add it to `DATABOT_STATE_KEYS` so `databot_state_subset()` returns it.
+2. **Endpoint** — `tahoepilot/server/app.py`: add the name to the allow-list in `databot_ui_action()` and any new field to `DatabotUiActionBody`. Keep reading and writing the paused layer through `DatabotGraphBuilder.aget_active_state()`.
 3. **Proxy** — no change; `app/api/databot/actions/route.ts` forwards the body as-is.
 4. **Client** — `useDatabotActions.ts`: extend the `UiAction` union and add a callback that calls `runPatch()`. If the action should make the agent continue, start a run afterwards (as `regenerateSql()` does) or resume the pending interrupt.
 5. **UI** — wire the callback in `DatabotArtifactPanel` (or a child), gated on the same stage as `ACTION_ALLOWED_STAGES` so the button is not offered when the backend would answer 409.
@@ -351,7 +351,7 @@ To give an agent its own page and endpoint instead (a new front agent):
 - **CopilotKit v2 imports.** Use `@copilotkit/react-core/v2` and `@copilotkit/runtime/v2`. v1 hooks such as `useCopilotAction` are not used here, and the legacy `on_interrupt` event is disabled on the backend.
 - **Agent id drift.** Renaming `lead` or `databot` in one place silently disconnects hooks from the runtime agent. Update every location in the agent-id table.
 - **Hooks must name their agent.** `Providers` sets no default agent and both agents live in one runtime; a `useAgent` / `useInterrupt` without the page's `agentId` reads the wrong agent.
-- **Reading the wrong checkpoint.** While databot waits at a gate, its outer checkpoint holds pre-layer values; read and patch through `DatabotGraphBuilder.aget_active_state()`. While warehouse waits inside the lead, the lead's `graph.aget_state(config)` holds only the lead's values, and a namespaced `aget_state` for the specialist fails because a graph invoked from a tool is not a declared subgraph; go through `agent/lead/paused.py`.
+- **Reading the wrong checkpoint.** While databot waits at a gate, its outer checkpoint holds pre-layer values; read and patch through `DatabotGraphBuilder.aget_active_state()`. While warehouse waits inside the lead, the lead's `graph.aget_state(config)` holds only the lead's values, and a namespaced `aget_state` for the specialist fails because a graph invoked from a tool is not a declared subgraph; go through `tahoepilot/agent/lead/paused.py`.
 - **Specialist state is nested on the lead page.** Read warehouse's view with `warehouseViewOf(agent.state)`, not `agent.state` directly. Databot's state is at the top level of its own agent.
 - **Shared agent instance.** Never call `runtime.agent.run()` directly from a handler; clone per request.
 - **Agent fields mutate in place.** React does not re-render on `agent.state` mutation; subscribe via `useAgentRefresh` (or `agent.subscribe`) in components that read it outside CopilotKit hooks.

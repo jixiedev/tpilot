@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from rag.local_models import download_configured_models, model_ready, resolve_model_dir
+from tahoepilot.rag.local_models import download_configured_models, model_ready, resolve_model_dir
 
 
 def _write_model(path: Path, *, embedder: bool) -> None:
@@ -20,13 +20,13 @@ def _write_model(path: Path, *, embedder: bool) -> None:
 
 
 def test_resolve_model_dir_requires_a_prefetch(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("rag.local_models.models_root", lambda: tmp_path)
-    with pytest.raises(FileNotFoundError, match="python -m rag download"):
+    monkeypatch.setattr("tahoepilot.rag.local_models.models_root", lambda: tmp_path)
+    with pytest.raises(FileNotFoundError, match="python -m tahoepilot.rag download"):
         resolve_model_dir("BAAI/bge-m3", embedder=True)
 
 
 def test_resolve_model_dir_uses_prefetched_copy(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("rag.local_models.models_root", lambda: tmp_path)
+    monkeypatch.setattr("tahoepilot.rag.local_models.models_root", lambda: tmp_path)
     dest = tmp_path / "BAAI" / "bge-m3"
     _write_model(dest, embedder=True)
     assert resolve_model_dir("BAAI/bge-m3", embedder=True) == str(dest)
@@ -42,14 +42,14 @@ def test_download_configured_models_skips_hub_when_cache_is_ready(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr("rag.local_models.models_root", lambda: tmp_path)
+    monkeypatch.setattr("tahoepilot.rag.local_models.models_root", lambda: tmp_path)
     _write_model(tmp_path / "BAAI" / "bge-m3", embedder=True)
     _write_model(tmp_path / "BAAI" / "bge-reranker-v2-m3", embedder=False)
 
     def fail_download(repo_id: str, dest: Path) -> None:
         raise AssertionError(f"unexpected download of {repo_id} into {dest}")
 
-    monkeypatch.setattr("rag.local_models.download_repo", fail_download)
+    monkeypatch.setattr("tahoepilot.rag.local_models.download_repo", fail_download)
     lines = download_configured_models()
     assert any("BAAI/bge-m3" in line for line in lines)
     assert any("BAAI/bge-reranker-v2-m3" in line for line in lines)

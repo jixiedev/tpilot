@@ -39,7 +39,7 @@ def test_knowledge_has_metric_catalog_tools():
 def test_describe_metric_models_reads_without_state():
     import json
 
-    from tools.data.metrics import describe_metric_models
+    from tahoepilot.tools.data.metrics import describe_metric_models
 
     out = json.loads(describe_metric_models.invoke({"root_id": "gmv", "member_id": "sum_excl_ltd"}))
     assert out["models"] and "staging_id" not in out["models"][0]

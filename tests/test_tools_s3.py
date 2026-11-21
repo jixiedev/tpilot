@@ -5,7 +5,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from tools.data import s3 as s3_mod
+from tahoepilot.tools.data import s3 as s3_mod
 
 
 @pytest.fixture(autouse=True)

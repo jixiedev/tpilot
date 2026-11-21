@@ -4,9 +4,9 @@ from pathlib import Path
 
 import pytest
 
-from memory.profile import UserProfile, coerce_user_profile, merge_user_profile, parse_user_profile_update
-from memory.profile_store import FileProfileStore, safe_profile_filename
-from graph.state import ReactAgentState, SessionAgentState
+from tahoepilot.memory.profile import UserProfile, coerce_user_profile, merge_user_profile, parse_user_profile_update
+from tahoepilot.memory.profile_store import FileProfileStore, safe_profile_filename
+from tahoepilot.agent.graph.state import ReactAgentState, SessionAgentState
 
 
 def test_user_profile_defaults() -> None:
@@ -20,7 +20,7 @@ def test_user_profile_defaults() -> None:
 
 
 def test_coerce_user_profile_none_uses_process_user_id(monkeypatch) -> None:
-    import memory.profile_store as store_mod
+    import tahoepilot.memory.profile_store as store_mod
 
     monkeypatch.delenv("TAHOEPILOT_USER_ID", raising=False)
     monkeypatch.setattr(store_mod.getpass, "getuser", lambda: "os_user")
@@ -159,15 +159,15 @@ class _FakeGraph:
 
 
 def test_resolve_user_id_prefers_explicit_then_prior_then_config(monkeypatch, tmp_path: Path) -> None:
-    import memory.profile_store as store_mod
+    import tahoepilot.memory.profile_store as store_mod
 
     monkeypatch.setattr(store_mod.getpass, "getuser", lambda: "os_user")
-    monkeypatch.setattr("settings.runtime_config.default_user_id", lambda: "config_user")
+    monkeypatch.setattr("tahoepilot.settings.runtime_config.default_user_id", lambda: "config_user")
     assert store_mod.resolve_user_id("flag_user", prior="checkpoint_user") == "flag_user"
     assert store_mod.resolve_user_id(None, prior="checkpoint_user") == "checkpoint_user"
     assert store_mod.resolve_user_id(None, prior=None, active="active_user") == "active_user"
     assert store_mod.resolve_user_id() == "config_user"
-    monkeypatch.setattr("settings.runtime_config.default_user_id", lambda: "")
+    monkeypatch.setattr("tahoepilot.settings.runtime_config.default_user_id", lambda: "")
     assert store_mod.resolve_user_id("  ") == "os_user"
 
     store = FileProfileStore(tmp_path)
@@ -177,15 +177,15 @@ def test_resolve_user_id_prefers_explicit_then_prior_then_config(monkeypatch, tm
 
 
 async def test_accept_user_request_sets_user_id_only(monkeypatch, tmp_path: Path) -> None:
-    import memory.profile_store as store_mod
-    from agent.turn_messages import DefaultTurnMessagePolicy
-    from agent.runtime import TahoeSystemPrompt
-    from settings.agent_config import AgentConfig, agent_config_path
+    import tahoepilot.memory.profile_store as store_mod
+    from tahoepilot.agent.turn_messages import DefaultTurnMessagePolicy
+    from tahoepilot.agent.runtime import TahoeSystemPrompt
+    from tahoepilot.settings.agent_config import AgentConfig, agent_config_path
 
-    from agent.agent import BaseAgent
-    from agent.listener import AgentListener
+    from tahoepilot.agent.agent import BaseAgent
+    from tahoepilot.agent.listener import AgentListener
     from langgraph.checkpoint.memory import MemorySaver
-    from memory.session_runtime import SessionRuntime
+    from tahoepilot.memory.session_runtime import SessionRuntime
     from tests.minimal_chat_model import MinimalChatModel
 
     monkeypatch.delenv("TAHOEPILOT_USER_ID", raising=False)
@@ -241,7 +241,7 @@ class _FakeChatModel:
 def test_refine_user_profile_node_persists_to_store(tmp_path: Path) -> None:
     from langchain_core.messages import HumanMessage, AIMessage
 
-    from agent.refine_profile import UserProfileRefiner
+    from tahoepilot.agent.refine_profile import UserProfileRefiner
 
     store = FileProfileStore(tmp_path)
     store.save("alice", UserProfile(user_id="alice", role="analyst", language="zh-CN"))
@@ -290,7 +290,7 @@ class _LooseFenceProfileModel:
 def test_refine_user_profile_node_falls_back_to_fenced_json(tmp_path: Path) -> None:
     from langchain_core.messages import HumanMessage, AIMessage
 
-    from agent.refine_profile import UserProfileRefiner
+    from tahoepilot.agent.refine_profile import UserProfileRefiner
 
     store = FileProfileStore(tmp_path)
     store.save("alice", UserProfile(user_id="alice", role="analyst"))
@@ -316,7 +316,7 @@ def test_refine_user_profile_node_falls_back_to_fenced_json(tmp_path: Path) -> N
 def test_refine_user_profile_node_skips_without_failing_turn(tmp_path: Path) -> None:
     from langchain_core.messages import HumanMessage, AIMessage
 
-    from agent.refine_profile import UserProfileRefiner
+    from tahoepilot.agent.refine_profile import UserProfileRefiner
 
     store = FileProfileStore(tmp_path)
     store.save("alice", UserProfile(user_id="alice", role="analyst", language="zh-CN"))

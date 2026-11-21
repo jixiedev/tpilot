@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
-from graph.state import has_prior_turns, last_ai_message, latest_human_text, message_text
+from tahoepilot.agent.graph.state import has_prior_turns, last_ai_message, latest_human_text, message_text
 
 
 def test_message_text_normalizes_blocks() -> None:

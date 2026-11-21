@@ -2596,3 +2596,46 @@ runs followed the rule. Kept. Next candidates: Trino notes for the error types
 seen (fewer repair loops), and caching table docs. The log is in
 `evals/results/warehouse/README.md`, under "Optimization log", which is the
 place to record each later step.
+
+## One `tahoepilot` package (2026-11-21)
+
+The Python code was about ten top-level packages with generic names (`agent`,
+`graph`, `tools`, `rag`, `memory`, `models`, `settings`) plus loose root
+scripts (`main.py`, `cli.py`, `compat.py`, `agui_*.py`, `langgraph_graphs.py`).
+It only ran from the repo root, `models` and `settings` could clash with
+third-party packages, and `pyproject.toml` had no build backend, so
+`pip install -e .` did not work. Agreed with the user: move everything under one
+package.
+
+| Before | After |
+|--------|-------|
+| `agent/`, `tools/`, `rag/`, `memory/`, `models/`, `settings/` | `tahoepilot/<same name>/` |
+| `graph/` (only `agent/` imported it) | `tahoepilot/agent/graph/` |
+| `agui_server.py`, `agui_auth.py`, `agui_history.py`, `langgraph_graphs.py` | `tahoepilot/server/app.py`, `auth.py`, `history.py`, `graphs.py` |
+| `cli.py`, `compat.py` | `tahoepilot/cli.py`, `tahoepilot/compat.py` |
+| `main.py` / `python main.py` | `tahoepilot/__main__.py` / `python -m tahoepilot` (or the `tahoepilot` command) |
+| `python agui_server.py` | `python -m tahoepilot.server.app` |
+| `python -m rag ...` | `python -m tahoepilot.rag ...` |
+
+- `pyproject.toml` gained a setuptools build backend (`tahoepilot*` packages),
+  so `uv sync` installs the project editable; `uv.lock` changed only that.
+- `langgraph.json` names `tahoepilot.server.graphs:*` and
+  `tahoepilot.server.app:app` by module path, not file path, so each module is
+  loaded once under its package name.
+- `PROJECT_ROOT` is now `parents[2]` of `tahoepilot/settings/paths.py`;
+  `config/`, `semantic_models/` and `.local/` stay at the repo root.
+- Docker: the image sets `PYTHONPATH=/tahoepilot` (it still skips installing the
+  project), the model stage copies `tahoepilot/{__init__.py,settings,rag}`, and
+  `entrypoint.sh` uses `python -m` for every component.
+- The server logger is `tahoepilot.server` (was `agui_server`).
+- Left at the top level on purpose: `evals/` and `tests/` (dev harnesses that
+  import the package), `frontend/` and `docs_site/` (self-contained projects;
+  moving `docs_site/` under `docs/` would have made a top-level `docs` Python
+  package, the same naming problem).
+- Housekeeping: removed `docs/.env.local` (a stray frontend env file whose
+  variables nothing reads any more) and a Jupyter autosave under `rag/`;
+  `config/mcp.json` is no longer tracked (it was already in `.gitignore`, holds
+  machine-specific paths, and `config/mcp.json.example` is the template).
+
+Earlier sections of this file and `docs/superpowers/` keep the old paths; they
+describe the layout as it was then.

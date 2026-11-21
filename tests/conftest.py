@@ -8,7 +8,7 @@ os.environ["TAHOEPILOT_CONFIG_DIR"] = str(Path(__file__).resolve().parents[1] / 
 
 import pytest  # noqa: E402
 
-from tools.data import hive, trino  # noqa: E402
+from tahoepilot.tools.data import hive, trino  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
@@ -33,11 +33,11 @@ def _login_off_by_default():
     """
     import sys
 
-    from settings.server_config import AuthConfig
+    from tahoepilot.settings.server_config import AuthConfig
 
     off = AuthConfig(enabled=False)
     patcher = pytest.MonkeyPatch()
-    for name in ("agui_auth", "agui_server"):
+    for name in ("tahoepilot.server.auth", "tahoepilot.server.app"):
         module = sys.modules.get(name)
         if module is not None and hasattr(module, "auth_config"):
             patcher.setattr(module, "auth_config", lambda: off)

@@ -6,7 +6,7 @@ import tomllib
 from pathlib import Path
 
 from evals.case import load_cases
-from tools.data.metrics import load_roots, search_metric_catalog_impl
+from tahoepilot.tools.data.metrics import load_roots, search_metric_catalog_impl
 
 ROOT = Path(__file__).resolve().parents[1]
 
