@@ -27,11 +27,10 @@ config/mcp.json
 .langgraph_api/
 
 # Frontend (Next.js / CopilotKit) — only cache / deps, source stays tracked
-# Stray Next.js cache from running `next dev` at the repo root (the app lives in frontend/)
-/.next/
+# Next.js build/dev cache at any depth (frontend/.next, plus strays such as a
+# repo-root .next/ or frontend/frontend/.next/ from a misresolved project root)
+.next/
 frontend/node_modules/
-frontend/.next/
-frontend/.next/dev/
 frontend/tsconfig.tsbuildinfo
 frontend/.DS_Store
 frontend/**/.DS_Store
